@@ -1,4 +1,4 @@
-name: Personal Windows Release
+name: Personal Desktop Release
 
 on:
   schedule:
@@ -132,13 +132,38 @@ jobs:
           path: wsl-prebuild/pty.node
           if-no-files-found: error
 
-  build_windows:
-    name: Build Windows x64 installer
+  build_desktop:
+    name: Build ${{ matrix.label }}
     needs: [sync, prepare, build_wsl_node_pty]
-    runs-on: windows-latest
+    if: ${{ !cancelled() && needs.sync.result == 'success' && needs.prepare.result == 'success' }}
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     env:
       T3CODE_DESKTOP_UPDATE_REPOSITORY: santiago-ramos-02/t3code
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macOS arm64
+            runner: macos-15
+            platform: mac
+            target: dmg
+            arch: arm64
+          - label: macOS x64
+            runner: macos-15-intel
+            platform: mac
+            target: dmg
+            arch: x64
+          - label: Linux x64
+            runner: ubuntu-latest
+            platform: linux
+            target: AppImage
+            arch: x64
+          - label: Windows x64
+            runner: windows-latest
+            platform: win
+            target: nsis
+            arch: x64
     steps:
       - name: Checkout build commit
         uses: actions/checkout@v6
@@ -153,6 +178,7 @@ jobs:
           run-install: true
 
       - name: Download WSL node-pty binary
+        if: matrix.platform == 'win'
         uses: actions/download-artifact@v8
         with:
           name: personal-wsl-node-pty-x64
@@ -162,6 +188,7 @@ jobs:
         run: node scripts/update-release-package-versions.ts "${{ needs.prepare.outputs.version }}"
 
       - name: Install Spectre-mitigated MSVC libraries
+        if: matrix.platform == 'win'
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -177,16 +204,29 @@ jobs:
             throw "Visual Studio Installer failed with exit code $exitCode"
           }
 
-      - name: Build unsigned installer
+      - name: Install ImageMagick
+        if: matrix.platform == 'linux'
         shell: bash
         run: |
-          vp run dist:desktop:artifact \
-            --platform win \
-            --target nsis \
-            --arch x64 \
-            --build-version "${{ needs.prepare.outputs.version }}" \
-            --wsl-prebuild "$GITHUB_WORKSPACE/wsl-prebuild/pty.node" \
+          if ! command -v magick >/dev/null 2>&1 && ! command -v convert >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y imagemagick
+          fi
+
+      - name: Build unsigned desktop artifact
+        shell: bash
+        run: |
+          args=(
+            --platform "${{ matrix.platform }}"
+            --target "${{ matrix.target }}"
+            --arch "${{ matrix.arch }}"
+            --build-version "${{ needs.prepare.outputs.version }}"
             --verbose
+          )
+          if [[ "${{ matrix.platform }}" == "win" ]]; then
+            args+=(--wsl-prebuild "$GITHUB_WORKSPACE/wsl-prebuild/pty.node")
+          fi
+          vp run dist:desktop:artifact "${args[@]}"
 
       - name: Collect updater assets
         shell: bash
@@ -194,35 +234,86 @@ jobs:
           set -euo pipefail
           mkdir -p release-publish
           shopt -s nullglob
-          if [[ ! -f release/nightly.yml ]]; then
-            echo "The nightly updater manifest was not produced." >&2
-            exit 1
-          fi
-          assets=(release/*.exe release/*.blockmap release/nightly.yml)
-          if (( ${#assets[@]} == 0 )); then
-            echo "No Windows release assets were produced." >&2
-            exit 1
-          fi
+
+          case "${{ matrix.platform }}" in
+            mac)
+              manifests=(release/*-mac.yml)
+              if (( ${#manifests[@]} != 1 )); then
+                echo "Expected one macOS updater manifest, found ${#manifests[@]}." >&2
+                exit 1
+              fi
+              assets=(release/*.dmg release/*.zip release/*.blockmap "${manifests[0]}")
+              ;;
+            linux)
+              manifests=(release/*-linux.yml)
+              if (( ${#manifests[@]} != 1 )); then
+                echo "Expected one Linux updater manifest, found ${#manifests[@]}." >&2
+                exit 1
+              fi
+              assets=(release/*.AppImage release/*.blockmap "${manifests[0]}")
+              ;;
+            win)
+              if [[ ! -f release/nightly.yml ]]; then
+                echo "The Windows nightly updater manifest was not produced." >&2
+                exit 1
+              fi
+              assets=(release/*.exe release/*.blockmap release/nightly.yml)
+              ;;
+          esac
+
           cp "${assets[@]}" release-publish/
 
-      - name: Upload Windows release assets
+          if [[ "${{ matrix.platform }}" == "mac" && "${{ matrix.arch }}" == "x64" ]]; then
+            manifest="release-publish/$(basename "${manifests[0]}")"
+            mv "$manifest" "${manifest%.yml}-x64.yml"
+          fi
+
+      - name: Upload desktop release assets
         uses: actions/upload-artifact@v7
         with:
-          name: personal-windows-release
+          name: personal-desktop-release-${{ matrix.platform }}-${{ matrix.arch }}
           path: release-publish/*
           if-no-files-found: error
 
   release:
     name: Publish personal nightly release
-    needs: [sync, prepare, build_windows]
+    needs: [sync, prepare, build_desktop]
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
-      - name: Download Windows release assets
+      - name: Checkout build commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.sync.outputs.build_sha }}
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: true
+
+      - name: Download desktop release assets
         uses: actions/download-artifact@v8
         with:
-          name: personal-windows-release
+          pattern: personal-desktop-release-*
+          merge-multiple: true
           path: release-assets
+
+      - name: Merge macOS updater manifests
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          for x64_manifest in release-assets/*-mac-x64.yml; do
+            arm64_manifest="${x64_manifest%-x64.yml}.yml"
+            if [[ ! -f "$arm64_manifest" ]]; then
+              echo "Missing matching arm64 macOS manifest for $x64_manifest" >&2
+              exit 1
+            fi
+            node scripts/merge-update-manifests.ts --platform mac "$arm64_manifest" "$x64_manifest"
+            rm "$x64_manifest"
+          done
 
       - name: Publish GitHub prerelease
         shell: bash
@@ -235,13 +326,30 @@ jobs:
           UPSTREAM_SHA: ${{ needs.sync.outputs.upstream_sha }}
         run: |
           set -euo pipefail
+          for manifest in nightly.yml nightly-linux.yml nightly-mac.yml; do
+            if [[ ! -f "release-assets/$manifest" ]]; then
+              echo "Missing updater manifest: $manifest" >&2
+              exit 1
+            fi
+          done
+          for pattern in '*.exe' '*.AppImage' '*.dmg'; do
+            if ! compgen -G "release-assets/$pattern" >/dev/null; then
+              echo "Missing desktop artifact matching $pattern" >&2
+              exit 1
+            fi
+          done
+          if (( $(find release-assets -maxdepth 1 -name '*.dmg' | wc -l) < 2 )); then
+            echo "Expected both arm64 and x64 macOS disk images." >&2
+            exit 1
+          fi
+
           mapfile -t assets < <(find release-assets -maxdepth 1 -type f -print | sort)
           if (( ${#assets[@]} == 0 )); then
             echo "No release assets were downloaded." >&2
             exit 1
           fi
 
-          notes="Unsigned personal Windows build of T3 Code ${RELEASE_VERSION}.
+          notes="Unsigned personal Windows, Linux, and macOS builds of T3 Code ${RELEASE_VERSION}.
 
           Fork commit: ${BUILD_SHA}
           Upstream main: ${UPSTREAM_SHA}"
