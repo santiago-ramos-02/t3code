@@ -1,0 +1,252 @@
+name: Personal Windows Release
+
+on:
+  schedule:
+    - cron: "17 */3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: personal-windows-release
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Sync upstream main
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      build_sha: ${{ steps.sync.outputs.build_sha }}
+      should_build: ${{ steps.sync.outputs.should_build }}
+      upstream_sha: ${{ steps.sync.outputs.upstream_sha }}
+    steps:
+      - name: Checkout personal main
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - id: sync
+        name: Merge upstream main
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git remote add upstream https://github.com/pingdotgg/t3code.git
+          git fetch upstream main --no-tags
+
+          upstream_sha="$(git rev-parse upstream/main)"
+          should_build=false
+
+          if ! git merge-base --is-ancestor upstream/main HEAD; then
+            git config user.name "personal-update-bot"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git merge --no-edit upstream/main
+            git push origin HEAD:main
+            should_build=true
+          elif [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            should_build=true
+          fi
+
+          echo "build_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "should_build=$should_build" >> "$GITHUB_OUTPUT"
+          echo "upstream_sha=$upstream_sha" >> "$GITHUB_OUTPUT"
+
+  prepare:
+    name: Prepare release metadata
+    needs: sync
+    if: needs.sync.outputs.should_build == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      name: ${{ steps.meta.outputs.name }}
+      tag: ${{ steps.meta.outputs.tag }}
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - name: Checkout build commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.sync.outputs.build_sha }}
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: true
+
+      - id: meta
+        name: Resolve personal nightly version
+        shell: bash
+        env:
+          BUILD_SHA: ${{ needs.sync.outputs.build_sha }}
+        run: |
+          nightly_date="$(date -u -d "$GITHUB_RUN_STARTED_AT" +%Y%m%d)"
+          node scripts/resolve-nightly-release.ts \
+            --date "$nightly_date" \
+            --run-number "$GITHUB_RUN_NUMBER" \
+            --sha "$BUILD_SHA" \
+            --github-output
+
+  build_wsl_node_pty:
+    name: Build WSL node-pty
+    needs: [sync, prepare]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout build commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.sync.outputs.build_sha }}
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: true
+
+      - name: Build Linux x64 node-pty binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          pty_pkg="$(node -e "console.log(require.resolve('node-pty/package.json', { paths: ['$GITHUB_WORKSPACE/apps/server'] }))")"
+          pty_dir="$(dirname "$pty_pkg")"
+          (cd "$pty_dir" && npx --yes node-gyp rebuild)
+          mkdir -p wsl-prebuild
+          cp "$pty_dir/build/Release/pty.node" wsl-prebuild/pty.node
+          file wsl-prebuild/pty.node
+
+      - name: Upload WSL binary
+        uses: actions/upload-artifact@v7
+        with:
+          name: personal-wsl-node-pty-x64
+          path: wsl-prebuild/pty.node
+          if-no-files-found: error
+
+  build_windows:
+    name: Build Windows x64 installer
+    needs: [sync, prepare, build_wsl_node_pty]
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      T3CODE_DESKTOP_UPDATE_REPOSITORY: santiago-ramos-02/t3code
+    steps:
+      - name: Checkout build commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.sync.outputs.build_sha }}
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: true
+
+      - name: Download WSL node-pty binary
+        uses: actions/download-artifact@v8
+        with:
+          name: personal-wsl-node-pty-x64
+          path: wsl-prebuild
+
+      - name: Align package versions
+        run: node scripts/update-release-package-versions.ts "${{ needs.prepare.outputs.version }}"
+
+      - name: Install Spectre-mitigated MSVC libraries
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $installPath = & $vswhere -products * -latest -property installationPath
+          $setupExe = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\setup.exe"
+          $process = Start-Process -FilePath $setupExe `
+            -ArgumentList "modify", "--installPath", "`"$installPath`"", "--add", `
+            "Microsoft.VisualStudio.Component.VC.Tools.x86.x64.Spectre", "--quiet", "--norestart" `
+            -Wait -PassThru -NoNewWindow
+          if ($null -eq $process -or $process.ExitCode -ne 0) {
+            $exitCode = if ($null -ne $process) { $process.ExitCode } else { 1 }
+            throw "Visual Studio Installer failed with exit code $exitCode"
+          }
+
+      - name: Build unsigned installer
+        shell: bash
+        run: |
+          vp run dist:desktop:artifact \
+            --platform win \
+            --target nsis \
+            --arch x64 \
+            --build-version "${{ needs.prepare.outputs.version }}" \
+            --wsl-prebuild "$GITHUB_WORKSPACE/wsl-prebuild/pty.node" \
+            --verbose
+
+      - name: Collect updater assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-publish
+          shopt -s nullglob
+          assets=(release/*.exe release/*.blockmap release/*.yml)
+          if (( ${#assets[@]} == 0 )); then
+            echo "No Windows release assets were produced." >&2
+            exit 1
+          fi
+          cp "${assets[@]}" release-publish/
+
+      - name: Upload Windows release assets
+        uses: actions/upload-artifact@v7
+        with:
+          name: personal-windows-release
+          path: release-publish/*
+          if-no-files-found: error
+
+  release:
+    name: Publish personal nightly release
+    needs: [sync, prepare, build_windows]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Download Windows release assets
+        uses: actions/download-artifact@v8
+        with:
+          name: personal-windows-release
+          path: release-assets
+
+      - name: Publish GitHub prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_SHA: ${{ needs.sync.outputs.build_sha }}
+          RELEASE_NAME: ${{ needs.prepare.outputs.name }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+          UPSTREAM_SHA: ${{ needs.sync.outputs.upstream_sha }}
+        run: |
+          set -euo pipefail
+          mapfile -t assets < <(find release-assets -maxdepth 1 -type f -print | sort)
+          if (( ${#assets[@]} == 0 )); then
+            echo "No release assets were downloaded." >&2
+            exit 1
+          fi
+
+          notes="Unsigned personal Windows build of T3 Code ${RELEASE_VERSION}.
+
+          Fork commit: ${BUILD_SHA}
+          Upstream main: ${UPSTREAM_SHA}"
+
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "${assets[@]}" \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+          else
+            gh release create "$RELEASE_TAG" "${assets[@]}" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$BUILD_SHA" \
+              --title "$RELEASE_NAME" \
+              --notes "$notes" \
+              --prerelease
+          fi
+
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json url --jq .url
