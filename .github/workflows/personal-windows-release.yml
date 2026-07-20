@@ -188,7 +188,11 @@ jobs:
           set -euo pipefail
           mkdir -p release-publish
           shopt -s nullglob
-          assets=(release/*.exe release/*.blockmap release/*.yml)
+          if [[ ! -f release/nightly.yml ]]; then
+            echo "The nightly updater manifest was not produced." >&2
+            exit 1
+          fi
+          assets=(release/*.exe release/*.blockmap release/nightly.yml)
           if (( ${#assets[@]} == 0 )); then
             echo "No Windows release assets were produced." >&2
             exit 1
