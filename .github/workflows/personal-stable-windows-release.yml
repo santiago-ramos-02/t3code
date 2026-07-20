@@ -54,7 +54,7 @@ jobs:
 
           git remote add upstream https://github.com/pingdotgg/t3code.git
           git fetch upstream main --no-tags
-          git fetch upstream "refs/tags/${upstream_tag}:refs/tags/upstream-${upstream_tag}"
+          git fetch upstream --no-tags "refs/tags/${upstream_tag}:refs/tags/upstream-${upstream_tag}"
           git fetch origin "refs/tags/${release_tag}:refs/tags/${release_tag}" 2>/dev/null || true
 
           if git rev-parse -q --verify "refs/tags/${release_tag}^{commit}" >/dev/null; then
@@ -68,13 +68,21 @@ jobs:
             git checkout --detach "refs/tags/upstream-${upstream_tag}^{commit}"
             if [[ -s "$RUNNER_TEMP/personal.patch" ]]; then
               git apply --3way "$RUNNER_TEMP/personal.patch"
-              git config user.name "personal-release-bot"
-              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-              git add -A
-              git commit -m "Apply personal changes to ${upstream_tag}"
             fi
 
-            build_sha="$(git rev-parse HEAD)"
+            # Keep the fork's workflow tree unchanged so GITHUB_TOKEN can publish
+            # the integration commit without requiring the `workflows` permission.
+            git restore --source="$fork_sha" --staged --worktree -- .github
+            git add -A
+            if ! git diff --cached --quiet "$fork_sha" -- .github; then
+              echo "The stable integration unexpectedly changed workflow files." >&2
+              exit 1
+            fi
+
+            git config user.name "personal-release-bot"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            tree_sha="$(git write-tree)"
+            build_sha="$(printf 'Apply personal changes to %s\n' "$upstream_tag" | git commit-tree "$tree_sha" -p "$fork_sha")"
             git tag "$release_tag" "$build_sha"
             git push origin "refs/tags/${release_tag}"
           fi
