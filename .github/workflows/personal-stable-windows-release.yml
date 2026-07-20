@@ -1,0 +1,241 @@
+name: Personal Stable Windows Release
+
+on:
+  schedule:
+    - cron: "47 */3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: personal-stable-windows-release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Prepare upstream stable with personal changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      build_sha: ${{ steps.prepare.outputs.build_sha }}
+      release_tag: ${{ steps.prepare.outputs.release_tag }}
+      should_build: ${{ steps.prepare.outputs.should_build }}
+      upstream_tag: ${{ steps.prepare.outputs.upstream_tag }}
+      version: ${{ steps.prepare.outputs.version }}
+    steps:
+      - name: Checkout personal main
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - id: prepare
+        name: Apply personal changes to the latest upstream stable
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          upstream_tag="$(gh api repos/pingdotgg/t3code/releases/latest --jq .tag_name)"
+          version="${upstream_tag#v}"
+          release_tag="personal-v${version}"
+
+          echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
+          echo "upstream_tag=$upstream_tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+          if gh release view "$release_tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Personal stable $version is already published."
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git remote add upstream https://github.com/pingdotgg/t3code.git
+          git fetch upstream main --no-tags
+          git fetch upstream "refs/tags/${upstream_tag}:refs/tags/upstream-${upstream_tag}"
+          git fetch origin "refs/tags/${release_tag}:refs/tags/${release_tag}" 2>/dev/null || true
+
+          if git rev-parse -q --verify "refs/tags/${release_tag}^{commit}" >/dev/null; then
+            build_sha="$(git rev-parse "refs/tags/${release_tag}^{commit}")"
+          else
+            fork_sha="$(git rev-parse HEAD)"
+            merge_base="$(git merge-base upstream/main "$fork_sha")"
+            git diff --binary "$merge_base" "$fork_sha" -- . \
+              ':(exclude).github/**' > "$RUNNER_TEMP/personal.patch"
+
+            git checkout --detach "refs/tags/upstream-${upstream_tag}^{commit}"
+            if [[ -s "$RUNNER_TEMP/personal.patch" ]]; then
+              git apply --3way "$RUNNER_TEMP/personal.patch"
+              git config user.name "personal-release-bot"
+              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+              git add -A
+              git commit -m "Apply personal changes to ${upstream_tag}"
+            fi
+
+            build_sha="$(git rev-parse HEAD)"
+            git tag "$release_tag" "$build_sha"
+            git push origin "refs/tags/${release_tag}"
+          fi
+
+          echo "build_sha=$build_sha" >> "$GITHUB_OUTPUT"
+          echo "should_build=true" >> "$GITHUB_OUTPUT"
+
+  build_wsl_node_pty:
+    name: Build WSL node-pty
+    needs: prepare
+    if: needs.prepare.outputs.should_build == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout stable build commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.build_sha }}
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: true
+
+      - name: Build Linux x64 node-pty binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          pty_pkg="$(node -e "console.log(require.resolve('node-pty/package.json', { paths: ['$GITHUB_WORKSPACE/apps/server'] }))")"
+          pty_dir="$(dirname "$pty_pkg")"
+          (cd "$pty_dir" && npx --yes node-gyp rebuild)
+          mkdir -p wsl-prebuild
+          cp "$pty_dir/build/Release/pty.node" wsl-prebuild/pty.node
+          file wsl-prebuild/pty.node
+
+      - name: Upload WSL binary
+        uses: actions/upload-artifact@v7
+        with:
+          name: personal-stable-wsl-node-pty-x64
+          path: wsl-prebuild/pty.node
+          if-no-files-found: error
+
+  build_windows:
+    name: Build stable Windows x64 installer
+    needs: [prepare, build_wsl_node_pty]
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      T3CODE_DESKTOP_UPDATE_REPOSITORY: santiago-ramos-02/t3code
+    steps:
+      - name: Checkout stable build commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.build_sha }}
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: true
+
+      - name: Download WSL node-pty binary
+        uses: actions/download-artifact@v8
+        with:
+          name: personal-stable-wsl-node-pty-x64
+          path: wsl-prebuild
+
+      - name: Align package versions
+        run: node scripts/update-release-package-versions.ts "${{ needs.prepare.outputs.version }}"
+
+      - name: Install Spectre-mitigated MSVC libraries
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $installPath = & $vswhere -products * -latest -property installationPath
+          $setupExe = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\setup.exe"
+          $process = Start-Process -FilePath $setupExe `
+            -ArgumentList "modify", "--installPath", "`"$installPath`"", "--add", `
+            "Microsoft.VisualStudio.Component.VC.Tools.x86.x64.Spectre", "--quiet", "--norestart" `
+            -Wait -PassThru -NoNewWindow
+          if ($null -eq $process -or $process.ExitCode -ne 0) {
+            $exitCode = if ($null -ne $process) { $process.ExitCode } else { 1 }
+            throw "Visual Studio Installer failed with exit code $exitCode"
+          }
+
+      - name: Build unsigned installer
+        shell: bash
+        run: |
+          vp run dist:desktop:artifact \
+            --platform win \
+            --target nsis \
+            --arch x64 \
+            --build-version "${{ needs.prepare.outputs.version }}" \
+            --wsl-prebuild "$GITHUB_WORKSPACE/wsl-prebuild/pty.node" \
+            --verbose
+
+      - name: Collect updater assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-publish
+          shopt -s nullglob
+          if [[ ! -f release/latest.yml ]]; then
+            echo "The stable updater manifest was not produced." >&2
+            exit 1
+          fi
+          assets=(release/*.exe release/*.blockmap release/latest.yml)
+          if (( ${#assets[@]} == 0 )); then
+            echo "No Windows release assets were produced." >&2
+            exit 1
+          fi
+          cp "${assets[@]}" release-publish/
+
+      - name: Upload Windows release assets
+        uses: actions/upload-artifact@v7
+        with:
+          name: personal-stable-windows-release
+          path: release-publish/*
+          if-no-files-found: error
+
+  release:
+    name: Publish personal stable release
+    needs: [prepare, build_windows]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Download Windows release assets
+        uses: actions/download-artifact@v8
+        with:
+          name: personal-stable-windows-release
+          path: release-assets
+
+      - name: Publish GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_SHA: ${{ needs.prepare.outputs.build_sha }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+          UPSTREAM_TAG: ${{ needs.prepare.outputs.upstream_tag }}
+        run: |
+          set -euo pipefail
+          mapfile -t assets < <(find release-assets -maxdepth 1 -type f -print | sort)
+          if (( ${#assets[@]} == 0 )); then
+            echo "No release assets were downloaded." >&2
+            exit 1
+          fi
+
+          notes="Unsigned personal Windows build of upstream T3 Code ${UPSTREAM_TAG} with your changes.
+
+          Personal build commit: ${BUILD_SHA}"
+
+          gh release create "$RELEASE_TAG" "${assets[@]}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$BUILD_SHA" \
+            --title "T3 Code Personal Stable ${RELEASE_VERSION}" \
+            --notes "$notes" \
+            --latest
+
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json url --jq .url
