@@ -3616,7 +3616,6 @@ function ChatViewContent(props: ChatViewProps) {
     };
   }, [
     activeThread?.id,
-    timelineEntries,
     getActiveTimelineTurnMetrics,
     timelineRealContentOverflowsViewport,
   ]);
