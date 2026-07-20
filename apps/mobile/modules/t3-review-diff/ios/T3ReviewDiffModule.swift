@@ -5,12 +5,20 @@ public class T3ReviewDiffModule: Module {
     Name("T3ReviewDiffSurface")
 
     View(T3ReviewDiffView.self) {
-      Prop("tokensResetKey") { (view: T3ReviewDiffView, tokensResetKey: String) in
-        view.setTokensResetKey(tokensResetKey)
+      Prop("rowsJson") { (view: T3ReviewDiffView, rowsJson: String) in
+        view.setRowsJson(rowsJson)
       }
 
-      Prop("contentResetKey") { (view: T3ReviewDiffView, contentResetKey: String) in
-        view.setContentResetKey(contentResetKey)
+      Prop("tokensJson") { (view: T3ReviewDiffView, tokensJson: String) in
+        view.setTokensJson(tokensJson)
+      }
+
+      Prop("tokensPatchJson") { (view: T3ReviewDiffView, tokensPatchJson: String) in
+        view.setTokensPatchJson(tokensPatchJson)
+      }
+
+      Prop("tokensResetKey") { (view: T3ReviewDiffView, tokensResetKey: String) in
+        view.setTokensResetKey(tokensResetKey)
       }
 
       Prop("collapsedFileIdsJson") { (view: T3ReviewDiffView, collapsedFileIdsJson: String) in
@@ -53,42 +61,7 @@ public class T3ReviewDiffModule: Module {
         view.setInitialRowIndex(initialRowIndex)
       }
 
-      Prop("refreshing") { (view: T3ReviewDiffView, refreshing: Bool) in
-        view.setRefreshing(refreshing)
-      }
-
-      Events(
-        "onDebug",
-        "onVisibleFileChange",
-        "onToggleFile",
-        "onToggleViewedFile",
-        "onPressLine",
-        "onToggleComment",
-        "onPullToRefresh"
-      )
-
-      AsyncFunction("scrollToFile") { (view: T3ReviewDiffView, fileId: String, animated: Bool) in
-        view.scrollToFile(fileId, animated: animated)
-      }
-
-      AsyncFunction("scrollToTop") { (view: T3ReviewDiffView, animated: Bool) in
-        view.scrollToTop(animated: animated)
-      }
-
-      // Large, frequently changing JSON values cannot be regular Fabric props. Expo's
-      // prop adapter compares strings on the main thread before invoking a setter, which
-      // makes a syntax-token patch capable of blocking a frame by itself.
-      AsyncFunction("setRowsJson") { (view: T3ReviewDiffView, rowsJson: String) in
-        view.setRowsJson(rowsJson)
-      }
-
-      AsyncFunction("setTokensJson") { (view: T3ReviewDiffView, tokensJson: String) in
-        view.setTokensJson(tokensJson)
-      }
-
-      AsyncFunction("setTokensPatchJson") { (view: T3ReviewDiffView, tokensPatchJson: String) in
-        view.setTokensPatchJson(tokensPatchJson)
-      }
+      Events("onDebug", "onToggleFile", "onToggleViewedFile", "onPressLine", "onToggleComment")
     }
   }
 }

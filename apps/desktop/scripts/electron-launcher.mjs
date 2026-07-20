@@ -20,7 +20,7 @@ export const APP_BUNDLE_ID = isDevelopment
   ? `com.t3tools.t3code.dev.${devBundleIdSuffix || "local"}`
   : "com.t3tools.t3code";
 const APP_PROTOCOL_SCHEMES = isDevelopment ? ["t3code-dev"] : ["t3code"];
-const LAUNCHER_VERSION = 14;
+const LAUNCHER_VERSION = 12;
 const defaultIconPath = NodePath.join(desktopDir, "resources", "icon.icns");
 const developmentMacIconPngPath = NodePath.join(
   repoRoot,
@@ -220,12 +220,11 @@ function ensureDevelopmentIconIcns(runtimeDir) {
   }
 }
 
-function patchMainBundleInfoPlist(appBundlePath, iconPath, executableName) {
+function patchMainBundleInfoPlist(appBundlePath, iconPath) {
   const infoPlistPath = NodePath.join(appBundlePath, "Contents", "Info.plist");
   setPlistString(infoPlistPath, "CFBundleDisplayName", APP_DISPLAY_NAME);
   setPlistString(infoPlistPath, "CFBundleName", APP_DISPLAY_NAME);
   setPlistString(infoPlistPath, "CFBundleIdentifier", APP_BUNDLE_ID);
-  setPlistString(infoPlistPath, "CFBundleExecutable", executableName);
   setPlistString(infoPlistPath, "CFBundleIconFile", "icon.icns");
   setPlistJson(infoPlistPath, "CFBundleURLTypes", [
     {
@@ -278,25 +277,11 @@ function readJson(path) {
   }
 }
 
-export function resolveMacLauncherPaths(appBundlePath, displayName = APP_DISPLAY_NAME) {
-  const executableDir = NodePath.join(appBundlePath, "Contents", "MacOS");
-  const launcherExecutableName = `${displayName} Launcher`;
-  return {
-    launcherExecutableName,
-    launcherBinaryPath: NodePath.join(executableDir, launcherExecutableName),
-    runtimeElectronBinaryPath: NodePath.join(executableDir, "Electron"),
-  };
-}
-
 function buildMacLauncher(electronBinaryPath) {
   const sourceAppBundlePath = NodePath.resolve(NodePath.dirname(electronBinaryPath), "../..");
   const runtimeDir = NodePath.join(desktopDir, ".electron-runtime");
   const targetAppBundlePath = NodePath.join(runtimeDir, `${APP_DISPLAY_NAME}.app`);
-  const developmentPaths = resolveMacLauncherPaths(targetAppBundlePath);
-  const runtimeElectronBinaryPath = developmentPaths.runtimeElectronBinaryPath;
-  const launcherBinaryPath = isDevelopment
-    ? developmentPaths.launcherBinaryPath
-    : runtimeElectronBinaryPath;
+  const targetBinaryPath = NodePath.join(targetAppBundlePath, "Contents", "MacOS", "Electron");
   const iconPath = isDevelopment ? ensureDevelopmentIconIcns(runtimeDir) : defaultIconPath;
   const metadataPath = NodePath.join(runtimeDir, "metadata.json");
 
@@ -313,8 +298,7 @@ function buildMacLauncher(electronBinaryPath) {
 
   const currentMetadata = readJson(metadataPath);
   if (
-    NodeFS.existsSync(launcherBinaryPath) &&
-    (!isDevelopment || NodeFS.existsSync(runtimeElectronBinaryPath)) &&
+    NodeFS.existsSync(targetBinaryPath) &&
     currentMetadata &&
     JSON.stringify(currentMetadata) === JSON.stringify(expectedMetadata)
   ) {
@@ -322,10 +306,10 @@ function buildMacLauncher(electronBinaryPath) {
       // The launcher also handles protocol activations outside the dev runner,
       // so refresh its fallback environment on every launch. Never let a value
       // captured by an older parent app override the live dev-runner environment.
-      writeDevelopmentLauncherScript(launcherBinaryPath, runtimeElectronBinaryPath);
+      writeDevelopmentLauncherScript(targetBinaryPath, electronBinaryPath);
     }
     registerMacLauncherBundle(targetAppBundlePath);
-    return launcherBinaryPath;
+    return targetBinaryPath;
   }
 
   NodeFS.rmSync(targetAppBundlePath, { recursive: true, force: true });
@@ -337,24 +321,15 @@ function buildMacLauncher(electronBinaryPath) {
     recursive: true,
     verbatimSymlinks: true,
   });
-  patchMainBundleInfoPlist(
-    targetAppBundlePath,
-    iconPath,
-    isDevelopment ? developmentPaths.launcherExecutableName : "Electron",
-  );
+  patchMainBundleInfoPlist(targetAppBundlePath, iconPath);
   patchHelperBundleInfoPlists(targetAppBundlePath);
   if (isDevelopment) {
-    // Keep Electron's native executable inside the branded bundle. Launching the
-    // node_modules copy makes macOS associate the process (and Dock label) with
-    // Electron.app even though this bundle's Info.plist has the T3 Code name.
-    // Its conventional executable name also keeps Electron's default-app runtime
-    // in development mode instead of making app.isPackaged report true.
-    writeDevelopmentLauncherScript(launcherBinaryPath, runtimeElectronBinaryPath);
+    writeDevelopmentLauncherScript(targetBinaryPath, electronBinaryPath);
   }
   NodeFS.writeFileSync(metadataPath, `${JSON.stringify(expectedMetadata, null, 2)}\n`);
   registerMacLauncherBundle(targetAppBundlePath);
 
-  return launcherBinaryPath;
+  return targetBinaryPath;
 }
 
 function isLinuxSetuidSandboxConfigured(electronBinaryPath) {
@@ -383,7 +358,10 @@ function resolveLinuxSandboxArgs(electronBinaryPath) {
 }
 
 export function resolveElectronPath() {
-  const electronBinaryPath = resolveElectronBinaryPath();
+  ensureElectronRuntime();
+
+  const require = NodeModule.createRequire(import.meta.url);
+  const electronBinaryPath = require("electron");
 
   if (hostPlatform !== "darwin") {
     return electronBinaryPath;
@@ -400,23 +378,13 @@ export function resolveElectronLaunchCommand(args = []) {
   };
 }
 
-export function resolveElectronBinaryPath({
-  ensureRuntime = ensureElectronRuntime,
-  createRequire = NodeModule.createRequire,
-  moduleUrl = import.meta.url,
-} = {}) {
-  ensureRuntime();
-
-  const require = createRequire(moduleUrl);
-  return require("electron");
-}
-
 export function resolveDevProtocolClient() {
   if (hostPlatform !== "darwin" || !isDevelopment) {
     return null;
   }
 
-  const electronBinaryPath = resolveElectronBinaryPath();
+  const require = NodeModule.createRequire(import.meta.url);
+  const electronBinaryPath = require("electron");
   const launcherBinaryPath = buildMacLauncher(electronBinaryPath);
   return {
     appBundlePath: NodePath.resolve(launcherBinaryPath, "..", "..", ".."),

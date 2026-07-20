@@ -1,5 +1,5 @@
 import * as Haptics from "expo-haptics";
-import { SymbolView } from "../../components/AppSymbol";
+import { SymbolView } from "expo-symbols";
 import { useCallback, useEffect, useRef } from "react";
 import { ActivityIndicator, Pressable, View } from "react-native";
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
@@ -47,8 +47,7 @@ export function GitActionProgressOverlay(props: {
     <Animated.View
       entering={FadeIn.duration(200)}
       exiting={FadeOut.duration(150)}
-      className="absolute inset-x-3 z-[100]"
-      style={{ top: insets.top + 48 }}
+      style={{ top: insets.top + 48, left: 12, right: 12, position: "absolute", zIndex: 100 }}
       pointerEvents="box-none"
     >
       <Pressable onPress={handlePress}>

@@ -26,15 +26,6 @@ function nodeKey(node: MarkdownNode, index: number): string {
   return `${node.type}:${node.beg ?? index}:${node.end ?? index}`;
 }
 
-/** Code inside markdown scales with the base text size (12pt at the default 15pt body). */
-function codeBlockFontSize(textStyle: NativeMarkdownTextStyle): number {
-  return Math.max(10, Math.round(textStyle.fontSize * 0.8));
-}
-
-function codeBlockLineHeight(textStyle: NativeMarkdownTextStyle): number {
-  return codeBlockFontSize(textStyle) + 6;
-}
-
 function nodeText(node: MarkdownNode): string {
   if (node.content !== undefined) {
     return node.content;
@@ -170,8 +161,8 @@ function HighlightedCodeText(props: {
         style={{
           color: props.textStyle.codeColor,
           fontFamily: "ui-monospace",
-          fontSize: codeBlockFontSize(props.textStyle),
-          lineHeight: codeBlockLineHeight(props.textStyle),
+          fontSize: 12,
+          lineHeight: 18,
         }}
       >
         {props.content}
@@ -205,8 +196,8 @@ function HighlightedCodeText(props: {
       style={{
         color: props.textStyle.codeColor,
         fontFamily: "ui-monospace",
-        fontSize: codeBlockFontSize(props.textStyle),
-        lineHeight: codeBlockLineHeight(props.textStyle),
+        fontSize: 12,
+        lineHeight: 18,
       }}
     >
       {keyedLines.map((line, lineIndex) => (
@@ -273,7 +264,7 @@ function NativeCodeBlock(props: {
             flex: 1,
             color: props.textStyle.mutedColor,
             fontFamily: "ui-monospace",
-            fontSize: codeBlockFontSize(props.textStyle),
+            fontSize: 12,
           }}
         >
           {languageLabel}

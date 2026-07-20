@@ -32,10 +32,7 @@ function getFirstSortableTimestamp(...values: Array<string | null | undefined>):
 
 function getLatestUserMessageTimestamp(thread: ThreadSortInput): number {
   if (thread.latestUserMessageAt) {
-    const latestUserMessageTimestamp = toSortableTimestamp(thread.latestUserMessageAt);
-    if (latestUserMessageTimestamp !== null) {
-      return latestUserMessageTimestamp;
-    }
+    return toSortableTimestamp(thread.latestUserMessageAt) ?? Number.NEGATIVE_INFINITY;
   }
 
   let latestUserMessageTimestamp: number | null = null;

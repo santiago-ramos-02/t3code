@@ -31,12 +31,6 @@ const TestLayer = ElectronMenu.layer.pipe(
   Layer.provide(Layer.succeed(HostProcessPlatform, "linux")),
 );
 
-const makeWindow = (zoomFactor = 1): Electron.BrowserWindow =>
-  ({
-    id: 7,
-    webContents: { getZoomFactor: () => zoomFactor },
-  }) as unknown as Electron.BrowserWindow;
-
 describe("ElectronMenu", () => {
   beforeEach(() => {
     buildFromTemplateMock.mockReset();
@@ -76,7 +70,7 @@ describe("ElectronMenu", () => {
 
       const electronMenu = yield* ElectronMenu.ElectronMenu;
       const selectedItemId = yield* electronMenu.showContextMenu({
-        window: makeWindow(),
+        window: {} as Electron.BrowserWindow,
         items: [{ id: "copy", label: "Copy" }],
         position: Option.none(),
       });
@@ -87,24 +81,20 @@ describe("ElectronMenu", () => {
 
   it.effect("resolves with none when the menu closes without a click", () =>
     Effect.gen(function* () {
-      let popupOptions: Electron.PopupOptions | undefined;
       buildFromTemplateMock.mockImplementation(() => ({
         popup: (options: Electron.PopupOptions) => {
-          popupOptions = options;
           options.callback?.();
         },
       }));
 
       const electronMenu = yield* ElectronMenu.ElectronMenu;
       const selectedItemId = yield* electronMenu.showContextMenu({
-        window: makeWindow(2),
+        window: {} as Electron.BrowserWindow,
         items: [{ id: "copy", label: "Copy" }],
         position: Option.some({ x: 10.8, y: 20.2 }),
       });
 
       assert.isTrue(Option.isNone(selectedItemId));
-      assert.equal(popupOptions?.x, 21);
-      assert.equal(popupOptions?.y, 40);
       assert.deepEqual(buildFromTemplateMock.mock.calls[0]?.[0][0], {
         label: "Copy",
         enabled: true,

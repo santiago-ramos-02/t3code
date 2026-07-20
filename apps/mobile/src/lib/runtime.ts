@@ -8,7 +8,6 @@ import { cryptoLayer } from "../features/cloud/dpop";
 import { managedRelayClientLayer } from "../features/cloud/managedRelayLayer";
 import { resolveCloudPublicConfig } from "../features/cloud/publicConfig";
 import { tracingLayer } from "../features/observability/tracing";
-import * as Persistence from "../persistence/layer";
 
 function configuredRelayUrl(): string {
   return resolveCloudPublicConfig().relay.url ?? "http://relay.invalid";
@@ -21,7 +20,6 @@ type RuntimeLayerSource =
   | typeof Socket.layerWebSocketConstructorGlobal
   | typeof cryptoLayer
   | typeof httpClientLayer
-  | typeof Persistence.layer
   | typeof tracingLayer;
 
 const runtimeLayer = Layer.merge(
@@ -31,7 +29,6 @@ const runtimeLayer = Layer.merge(
   Layer.provideMerge(cryptoLayer),
   Layer.provideMerge(httpClientLayer),
   Layer.provideMerge(tracingLayer.pipe(Layer.provide(httpClientLayer))),
-  Layer.provideMerge(Persistence.layer),
 );
 
 export const runtime: ManagedRuntime.ManagedRuntime<

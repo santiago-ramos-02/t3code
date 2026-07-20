@@ -1,20 +1,15 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
 import {
   Markdown,
   type CustomRenderers,
   type NodeStyleOverrides,
   type PartialMarkdownTheme,
 } from "react-native-nitro-markdown";
-import { RefreshControl, ScrollView, Text as NativeText, View } from "react-native";
+import { ScrollView, Text as NativeText, View } from "react-native";
 
 import { tryOpenExternalUrl } from "../../lib/openExternalUrl";
-import { useFontFamily } from "../../lib/useFontFamily";
-import {
-  resolveMarkdownFontSizes,
-  resolveNativeMarkdownTypography,
-} from "../../lib/appearancePreferences";
+import { MOBILE_TYPOGRAPHY } from "../../lib/typography";
 import { useThemeColor } from "../../lib/useThemeColor";
-import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import {
   hasNativeSelectableMarkdownText,
   SelectableMarkdownText,
@@ -29,15 +24,6 @@ interface MarkdownPreviewStyles {
 }
 
 function useMarkdownPreviewStyles(): MarkdownPreviewStyles {
-  const { appearance } = useAppearancePreferences();
-  const markdownFontSizes = useMemo(
-    () => resolveMarkdownFontSizes(appearance.baseFontSize),
-    [appearance.baseFontSize],
-  );
-  const nativeMarkdownTypography = useMemo(
-    () => resolveNativeMarkdownTypography(appearance.baseFontSize),
-    [appearance.baseFontSize],
-  );
   const body = String(useThemeColor("--color-md-body"));
   const strong = String(useThemeColor("--color-md-strong"));
   const link = String(useThemeColor("--color-md-link"));
@@ -46,15 +32,11 @@ function useMarkdownPreviewStyles(): MarkdownPreviewStyles {
   const codeBackground = String(useThemeColor("--color-md-code-bg"));
   const codeText = String(useThemeColor("--color-md-code-text"));
   const horizontalRule = String(useThemeColor("--color-md-hr"));
-  const regularFontFamily = useFontFamily("regular");
-  const mediumFontFamily = useFontFamily("medium");
-  const boldFontFamily = useFontFamily("bold");
 
   return useMemo(() => {
     const renderers: CustomRenderers = {
       link: ({ href, children }) => (
         <NativeText
-          className="font-t3-medium"
           onPress={() => {
             if (href) {
               void tryOpenExternalUrl(href, "markdown-link");
@@ -62,6 +44,7 @@ function useMarkdownPreviewStyles(): MarkdownPreviewStyles {
           }}
           style={{
             color: link,
+            fontFamily: "DMSans_500Medium",
             textDecorationLine: "none",
           }}
         >
@@ -78,14 +61,11 @@ function useMarkdownPreviewStyles(): MarkdownPreviewStyles {
           link,
           blockquote: blockquoteBorder,
           border: horizontalRule,
-          surface: "transparent",
           surfaceLight: blockquoteBackground,
           accent: link,
           tableBorder: horizontalRule,
           tableHeader: blockquoteBackground,
           tableHeaderText: strong,
-          tableRowOdd: blockquoteBackground,
-          tableRowEven: "transparent",
           code: codeText,
           codeBackground,
         },
@@ -93,21 +73,20 @@ function useMarkdownPreviewStyles(): MarkdownPreviewStyles {
       styles: {
         text: {
           color: body,
-          fontFamily: regularFontFamily,
-          fontSize: markdownFontSizes.m,
-          lineHeight: markdownFontSizes.bodyLineHeight,
+          fontFamily: "DMSans_400Regular",
+          ...MOBILE_TYPOGRAPHY.body,
         },
         heading: {
           color: strong,
-          fontFamily: boldFontFamily,
+          fontFamily: "DMSans_700Bold",
         },
         strong: {
           color: strong,
-          fontFamily: boldFontFamily,
+          fontFamily: "DMSans_700Bold",
         },
         link: {
           color: link,
-          fontFamily: mediumFontFamily,
+          fontFamily: "DMSans_500Medium",
         },
         blockquote: {
           backgroundColor: blockquoteBackground,
@@ -145,12 +124,10 @@ function useMarkdownPreviewStyles(): MarkdownPreviewStyles {
         skillTextColor: codeText,
         quoteMarkerColor: blockquoteBorder,
         dividerColor: horizontalRule,
-        fontSize: nativeMarkdownTypography.fontSize,
-        lineHeight: nativeMarkdownTypography.lineHeight,
-        headingFontSizes: nativeMarkdownTypography.headingFontSizes,
-        fontFamily: regularFontFamily,
-        headingFontFamily: boldFontFamily,
-        boldFontFamily,
+        ...MOBILE_TYPOGRAPHY.body,
+        fontFamily: "DMSans_400Regular",
+        headingFontFamily: "DMSans_700Bold",
+        boldFontFamily: "DMSans_700Bold",
       },
     };
   }, [
@@ -161,49 +138,18 @@ function useMarkdownPreviewStyles(): MarkdownPreviewStyles {
     codeText,
     horizontalRule,
     link,
-    markdownFontSizes,
-    mediumFontFamily,
-    nativeMarkdownTypography,
-    regularFontFamily,
     strong,
-    boldFontFamily,
   ]);
 }
 
-export function FileMarkdownPreview(props: {
-  readonly markdown: string;
-  readonly onRefresh?: () => Promise<void> | void;
-}) {
-  const [isPullRefreshing, setIsPullRefreshing] = useState(false);
-  const handlePullToRefresh = useCallback(async () => {
-    if (!props.onRefresh) {
-      return;
-    }
-    setIsPullRefreshing(true);
-    try {
-      await props.onRefresh();
-    } finally {
-      setIsPullRefreshing(false);
-    }
-  }, [props.onRefresh]);
+export function FileMarkdownPreview(props: { readonly markdown: string }) {
   const styles = useMarkdownPreviewStyles();
   const onLinkPress = useCallback((href: string) => {
     void tryOpenExternalUrl(href, "markdown-link");
   }, []);
 
   return (
-    <ScrollView
-      className="flex-1 bg-sheet"
-      contentContainerStyle={{ padding: 18 }}
-      refreshControl={
-        props.onRefresh ? (
-          <RefreshControl
-            refreshing={isPullRefreshing}
-            onRefresh={() => void handlePullToRefresh()}
-          />
-        ) : undefined
-      }
-    >
+    <ScrollView className="flex-1 bg-card" contentContainerStyle={{ padding: 18 }}>
       <View className="mx-auto w-full max-w-[760px]">
         {hasNativeSelectableMarkdownText() ? (
           <SelectableMarkdownText

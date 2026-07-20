@@ -272,9 +272,7 @@ export function showContextMenuFallback<T extends string>(
             button.addEventListener("mouseenter", () => {
               closeMenusFromLevel(level + 1);
             });
-            button.addEventListener("click", () => {
-              if (canDismissFromPointer) cleanup(item.id);
-            });
+            button.addEventListener("click", () => cleanup(item.id));
           }
         }
 

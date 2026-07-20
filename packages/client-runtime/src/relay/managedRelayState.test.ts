@@ -83,7 +83,6 @@ function createManager(
     registerDevice: () => Effect.die("unused"),
     unregisterDevice: () => Effect.die("unused"),
     registerLiveActivity: () => Effect.die("unused"),
-    getAgentActivitySnapshot: () => Effect.die("unused"),
     resetTokenCache: Effect.void,
     ...overrides,
   });

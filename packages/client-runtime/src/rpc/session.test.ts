@@ -109,7 +109,6 @@ const SERVER_CONFIG: ServerConfigType = {
     serverVersion: "0.0.0-test",
     capabilities: {
       repositoryIdentity: true,
-      connectionProbe: true,
     },
   },
   auth: {
@@ -142,16 +141,6 @@ const decodeJson = Schema.decodeUnknownSync(Schema.UnknownFromJsonString);
 const decodeRpcRequest = Schema.decodeUnknownSync(RpcRequest);
 const encodeJson = Schema.encodeUnknownSync(Schema.UnknownFromJsonString);
 const encodeServerConfig = Schema.encodeSync(ServerConfig);
-const ENCODED_SERVER_CONFIG = encodeServerConfig(SERVER_CONFIG);
-const LEGACY_SERVER_CONFIG = {
-  ...ENCODED_SERVER_CONFIG,
-  environment: {
-    ...ENCODED_SERVER_CONFIG.environment,
-    capabilities: {
-      repositoryIdentity: true,
-    },
-  },
-};
 
 const makeFactory = Effect.fn("TestRpcSessionFactory.make")(function* () {
   const sockets: TestWebSocket[] = [];
@@ -180,10 +169,9 @@ const awaitSocket = Effect.fn("TestRpcSessionFactory.awaitSocket")(function* (
 
 const awaitRequest = Effect.fn("TestRpcSessionFactory.awaitRequest")(function* (
   socket: TestWebSocket,
-  index = 0,
 ) {
   for (let attempt = 0; attempt < 100; attempt += 1) {
-    const request = socket.sent[index];
+    const request = socket.sent[0];
     if (request) {
       return decodeRpcRequest(decodeJson(request));
     }
@@ -194,7 +182,6 @@ const awaitRequest = Effect.fn("TestRpcSessionFactory.awaitRequest")(function* (
 
 const completeInitialConfig = Effect.fn("TestRpcSessionFactory.completeInitialConfig")(function* (
   socket: TestWebSocket,
-  config: unknown = ENCODED_SERVER_CONFIG,
 ) {
   const request = yield* awaitRequest(socket);
   expect(request).toMatchObject({
@@ -208,7 +195,7 @@ const completeInitialConfig = Effect.fn("TestRpcSessionFactory.completeInitialCo
       requestId: request.id,
       exit: {
         _tag: "Success",
-        value: config,
+        value: encodeServerConfig(SERVER_CONFIG),
       },
     }),
   );
@@ -230,30 +217,6 @@ describe("RpcSessionFactory", () => {
       const config = yield* session.initialConfig;
       expect(config).toEqual(SERVER_CONFIG);
       expect(socket.sent).toHaveLength(1);
-
-      const probeFiber = yield* Effect.forkChild(session.probe);
-      const probeRequest = yield* awaitRequest(socket, 1);
-      expect(probeRequest).toMatchObject({
-        _tag: "Request",
-        tag: WS_METHODS.serverProbe,
-        payload: {},
-      });
-      socket.serverMessage(
-        encodeJson({
-          _tag: "Exit",
-          requestId: probeRequest.id,
-          exit: {
-            _tag: "Success",
-            value: {},
-          },
-        }),
-      );
-      yield* Fiber.join(probeFiber);
-
-      expect(socket.sent.map((request) => decodeRpcRequest(decodeJson(request)).tag)).toEqual([
-        WS_METHODS.serverGetConfig,
-        WS_METHODS.serverProbe,
-      ]);
 
       socket.close(1012, "service restart");
       const error = yield* Effect.flip(session.closed);
@@ -285,45 +248,6 @@ describe("RpcSessionFactory", () => {
 
       expect(sockets[0]?.readyState).toBe(TestWebSocket.CLOSED);
     }),
-  );
-
-  it.effect("uses the legacy config RPC for probes when the server lacks the capability", () =>
-    Effect.scoped(
-      Effect.gen(function* () {
-        const { factory, sockets } = yield* makeFactory();
-        const session = yield* factory.connect(PREPARED);
-        const readyFiber = yield* Effect.forkChild(session.ready);
-        const socket = yield* awaitSocket(sockets);
-
-        socket.open();
-        yield* completeInitialConfig(socket, LEGACY_SERVER_CONFIG);
-        yield* Fiber.join(readyFiber);
-
-        const probeFiber = yield* Effect.forkChild(session.probe);
-        const probeRequest = yield* awaitRequest(socket, 1);
-        expect(probeRequest).toMatchObject({
-          _tag: "Request",
-          tag: WS_METHODS.serverGetConfig,
-          payload: {},
-        });
-        socket.serverMessage(
-          encodeJson({
-            _tag: "Exit",
-            requestId: probeRequest.id,
-            exit: {
-              _tag: "Success",
-              value: LEGACY_SERVER_CONFIG,
-            },
-          }),
-        );
-        yield* Fiber.join(probeFiber);
-
-        expect(socket.sent.map((request) => decodeRpcRequest(decodeJson(request)).tag)).toEqual([
-          WS_METHODS.serverGetConfig,
-          WS_METHODS.serverGetConfig,
-        ]);
-      }),
-    ),
   );
 
   it.effect("fails readiness when the websocket never opens", () =>

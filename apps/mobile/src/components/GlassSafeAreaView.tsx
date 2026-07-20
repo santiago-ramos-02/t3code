@@ -39,12 +39,22 @@ export function GlassSafeAreaView({
         style={{ borderRadius: 0, backgroundColor: "transparent" }}
       >
         <View
-          className="flex-row items-center gap-2.5 px-5 pb-4"
-          style={{ paddingTop: headerPaddingTop }}
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            paddingHorizontal: 20,
+            paddingTop: headerPaddingTop,
+            paddingBottom: 16,
+            gap: 10,
+          }}
         >
-          <View className="items-start justify-center">{leftSlot}</View>
-          <View className="flex-1 items-center justify-center overflow-hidden">{centerSlot}</View>
-          <View className="items-end justify-center">{rightSlot}</View>
+          <View style={{ alignItems: "flex-start", justifyContent: "center" }}>{leftSlot}</View>
+          <View
+            style={{ flex: 1, alignItems: "center", justifyContent: "center", overflow: "hidden" }}
+          >
+            {centerSlot}
+          </View>
+          <View style={{ alignItems: "flex-end", justifyContent: "center" }}>{rightSlot}</View>
         </View>
       </GlassSurface>
     </View>

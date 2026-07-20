@@ -4,7 +4,6 @@ import * as Haptics from "expo-haptics";
 import { useCallback, useRef } from "react";
 import { Alert } from "react-native";
 
-import { showConfirmDialog } from "../../components/ConfirmDialogHost";
 import { scopedThreadKey } from "../../lib/scopedEntities";
 import { threadEnvironment } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -22,7 +21,9 @@ function actionFailureMessage(action: ThreadListAction, cause: Cause.Cause<unkno
 }
 
 function selectionHaptic(): void {
-  void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  if (process.env.EXPO_OS === "ios") {
+    void Haptics.selectionAsync();
+  }
 }
 
 function actionFailureTitle(action: ThreadListAction): string {
@@ -79,10 +80,10 @@ function useConfirmDeleteThread(
 ) {
   return useCallback(
     (thread: EnvironmentThreadShell) => {
-      const title = "Delete thread?";
-      const message = `“${thread.title}” will be permanently deleted, including its terminal history.`;
-      if (process.env.EXPO_OS === "ios") {
-        Alert.alert(title, message, [
+      Alert.alert(
+        "Delete thread?",
+        `“${thread.title}” will be permanently deleted, including its terminal history.`,
+        [
           { text: "Cancel", style: "cancel" },
           {
             text: "Delete",
@@ -91,18 +92,8 @@ function useConfirmDeleteThread(
               void executeAction("delete", thread);
             },
           },
-        ]);
-        return;
-      }
-      showConfirmDialog({
-        title,
-        message,
-        confirmText: "Delete",
-        destructive: true,
-        onConfirm: () => {
-          void executeAction("delete", thread);
-        },
-      });
+        ],
+      );
     },
     [executeAction],
   );

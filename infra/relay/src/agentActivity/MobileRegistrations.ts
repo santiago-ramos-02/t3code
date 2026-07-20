@@ -1,14 +1,11 @@
 import type {
-  RelayAgentActivitySnapshotResponse,
   RelayDeviceRegistrationRequest,
   RelayLiveActivityRegistrationRequest,
 } from "@t3tools/contracts/relay";
-import * as DateTime from "effect/DateTime";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
-import * as AgentActivityRows from "./AgentActivityRows.ts";
 import * as Devices from "./Devices.ts";
 import * as LiveActivities from "./LiveActivities.ts";
 import * as AgentActivityPublisher from "./AgentActivityPublisher.ts";
@@ -16,8 +13,7 @@ import * as AgentActivityPublisher from "./AgentActivityPublisher.ts";
 export type MobileRegistrationError =
   | Devices.DeviceRegistrationPersistenceError
   | Devices.DeviceUnregistrationPersistenceError
-  | LiveActivities.LiveActivityRegistrationPersistenceError
-  | AgentActivityRows.AgentActivityRowListPersistenceError;
+  | LiveActivities.LiveActivityRegistrationPersistenceError;
 
 export class MobileRegistrations extends Context.Service<
   MobileRegistrations,
@@ -34,14 +30,10 @@ export class MobileRegistrations extends Context.Service<
       readonly userId: string;
       readonly deviceId: string;
     }) => Effect.Effect<{ readonly ok: true }, MobileRegistrationError>;
-    readonly getAgentActivitySnapshot: (input: {
-      readonly userId: string;
-    }) => Effect.Effect<RelayAgentActivitySnapshotResponse, MobileRegistrationError>;
   }
 >()("t3code-relay/agentActivity/MobileRegistrations") {}
 
 export const make = Effect.gen(function* () {
-  const rows = yield* AgentActivityRows.AgentActivityRows;
   const devices = yield* Devices.Devices;
   const liveActivities = yield* LiveActivities.LiveActivities;
   const publisher = yield* AgentActivityPublisher.AgentActivityPublisher;
@@ -88,19 +80,6 @@ export const make = Effect.gen(function* () {
             Effect.ignore,
           );
         return { ok: true as const };
-      },
-    ),
-    getAgentActivitySnapshot: Effect.fn("relay.mobile_registrations.get_agent_activity_snapshot")(
-      function* (input) {
-        const activeStates = yield* rows.listForUser({ userId: input.userId });
-        const now = yield* DateTime.now;
-        return {
-          aggregate: AgentActivityPublisher.makeAggregateState({
-            activeStates,
-            terminalState: null,
-            nowMs: now.epochMilliseconds,
-          }),
-        };
       },
     ),
     unregisterDevice: Effect.fn("relay.mobile_registrations.unregister_device")(function* (input) {

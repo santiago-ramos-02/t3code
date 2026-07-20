@@ -12,7 +12,6 @@ import type * as PlatformError from "effect/PlatformError";
 import { OrchestrationCommandInvariantError } from "./Errors.ts";
 import {
   listThreadsByProjectId,
-  requireActiveProjectWorkspaceRootAbsent,
   requireProject,
   requireProjectAbsent,
   requireThread,
@@ -112,12 +111,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         projectId: command.projectId,
       });
-      yield* requireActiveProjectWorkspaceRootAbsent({
-        readModel,
-        command,
-        workspaceRoot: command.workspaceRoot,
-        exceptProjectId: command.projectId,
-      });
 
       return {
         ...(yield* withEventBase({
@@ -145,14 +138,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         projectId: command.projectId,
       });
-      if (command.workspaceRoot !== undefined) {
-        yield* requireActiveProjectWorkspaceRootAbsent({
-          readModel,
-          command,
-          workspaceRoot: command.workspaceRoot,
-          exceptProjectId: command.projectId,
-        });
-      }
       const occurredAt = yield* nowIso;
       return {
         ...(yield* withEventBase({
@@ -328,17 +313,11 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.meta.update": {
-      const thread = yield* requireThread({
+      yield* requireThread({
         readModel,
         command,
         threadId: command.threadId,
       });
-      const branch =
-        command.branch !== undefined &&
-        command.expectedBranch !== undefined &&
-        thread.branch !== command.expectedBranch
-          ? thread.branch
-          : command.branch;
       const occurredAt = yield* nowIso;
       return {
         ...(yield* withEventBase({
@@ -354,7 +333,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           ...(command.modelSelection !== undefined
             ? { modelSelection: command.modelSelection }
             : {}),
-          ...(branch !== undefined ? { branch } : {}),
+          ...(command.branch !== undefined ? { branch: command.branch } : {}),
           ...(command.worktreePath !== undefined ? { worktreePath: command.worktreePath } : {}),
           updatedAt: occurredAt,
         },

@@ -16,7 +16,6 @@ export interface NativeMarkdownTextStyle {
   readonly fontFamily: string;
   readonly headingFontFamily: string;
   readonly boldFontFamily: string;
-  readonly headingFontSizes?: ReadonlyArray<number>;
 }
 
 export interface MarkdownHighlightedToken {

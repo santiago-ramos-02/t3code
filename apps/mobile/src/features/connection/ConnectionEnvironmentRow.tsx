@@ -1,4 +1,4 @@
-import { SymbolView } from "../../components/AppSymbol";
+import { SymbolView } from "expo-symbols";
 import { connectionStatusText } from "@t3tools/client-runtime/connection";
 import type { AtomCommandResult } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentId } from "@t3tools/contracts";
@@ -38,6 +38,7 @@ export function ConnectionEnvironmentRow(props: {
   const [url, setUrl] = useState(props.environment.displayUrl);
 
   const mutedColor = useThemeColor("--color-icon-subtle");
+  const placeholderColor = useThemeColor("--color-placeholder");
   const primaryFg = useThemeColor("--color-primary-foreground");
   const dangerFg = useThemeColor("--color-danger-foreground");
   const statusLabel = connectionStatusLabel(props.environment);
@@ -75,16 +76,16 @@ export function ConnectionEnvironmentRow(props: {
         />
 
         <View className="flex-1 gap-0.5">
-          <Text className="text-base font-t3-bold leading-snug text-foreground" numberOfLines={1}>
+          <Text className="text-base font-t3-bold leading-[21px] text-foreground" numberOfLines={1}>
             {props.environment.environmentLabel}
           </Text>
-          <Text className="text-xs text-foreground-muted" numberOfLines={1}>
+          <Text className="text-xs leading-[16px] text-foreground-muted" numberOfLines={1}>
             {props.environment.displayUrl}
           </Text>
           {statusLabel ? (
             <Text
               className={cn(
-                "text-xs",
+                "text-xs leading-[16px]",
                 hasConnectionFailure ? "text-rose-500 dark:text-rose-400" : "text-foreground-muted",
               )}
               numberOfLines={props.expanded ? undefined : 1}
@@ -97,7 +98,7 @@ export function ConnectionEnvironmentRow(props: {
                   <Text
                     accessibilityHint="Copies the trace ID"
                     accessibilityRole="button"
-                    className="underline decoration-dotted"
+                    className="underline"
                     onLongPress={(event) => {
                       event.stopPropagation();
                       copyTextWithHaptic(statusTraceId, { target: "connection-trace-id" });
@@ -105,6 +106,7 @@ export function ConnectionEnvironmentRow(props: {
                     onPress={(event) => {
                       event.stopPropagation();
                     }}
+                    style={{ textDecorationStyle: "dotted" }}
                   >
                     {statusTraceId}
                   </Text>
@@ -132,19 +134,23 @@ export function ConnectionEnvironmentRow(props: {
           className="gap-3 px-4 pb-4"
         >
           {props.environment.isRelayManaged ? (
-            <Text className="text-sm text-foreground-muted">
-              Managed by T3 Connect. Tunnel details update automatically.
+            <Text className="text-sm leading-[18px] text-foreground-muted">
+              Managed by T3 Cloud. Tunnel details update automatically.
             </Text>
           ) : (
             <>
               <View className="gap-1.5">
-                <Text className="text-2xs font-t3-bold tracking-[0.8px] uppercase text-foreground-muted">
+                <Text
+                  className="text-2xs font-t3-bold uppercase text-foreground-muted"
+                  style={{ letterSpacing: 0.8 }}
+                >
                   Label
                 </Text>
                 <TextInput
                   autoCapitalize="words"
                   autoCorrect={false}
                   placeholder="My MacBook"
+                  placeholderTextColor={placeholderColor}
                   value={label}
                   onChangeText={setLabel}
                   className="rounded-[14px] border border-input-border bg-input px-4 py-3 text-base text-foreground"
@@ -152,7 +158,10 @@ export function ConnectionEnvironmentRow(props: {
               </View>
 
               <View className="gap-1.5">
-                <Text className="text-2xs font-t3-bold tracking-[0.8px] uppercase text-foreground-muted">
+                <Text
+                  className="text-2xs font-t3-bold uppercase text-foreground-muted"
+                  style={{ letterSpacing: 0.8 }}
+                >
                   URL
                 </Text>
                 <TextInput
@@ -160,6 +169,7 @@ export function ConnectionEnvironmentRow(props: {
                   autoCorrect={false}
                   keyboardType="url"
                   placeholder="192.168.1.100:8080"
+                  placeholderTextColor={placeholderColor}
                   value={url}
                   onChangeText={setUrl}
                   className="rounded-[14px] border border-input-border bg-input px-4 py-3 text-base text-foreground"
@@ -175,7 +185,10 @@ export function ConnectionEnvironmentRow(props: {
                 onPress={handleSave}
               >
                 <SymbolView name="checkmark" size={13} tintColor={primaryFg} type="monochrome" />
-                <Text className="text-xs font-t3-bold tracking-[0.8px] uppercase text-primary-foreground">
+                <Text
+                  className="text-xs font-t3-bold uppercase text-primary-foreground"
+                  style={{ letterSpacing: 0.8 }}
+                >
                   Save
                 </Text>
               </Pressable>

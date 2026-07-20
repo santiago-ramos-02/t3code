@@ -383,17 +383,9 @@ export function unlinkPrimaryEnvironmentFromCloud(input: {
   }).pipe(Effect.provide(primaryEnvironmentHttpLayer));
 }
 
-// "publish_only" links the environment to the relay for agent-activity
-// publishing alone: no managed tunnel is provisioned, so it can be toggled
-// independently of T3 Connect while clients reach the environment out of band.
-export type CloudLinkMode = "managed" | "publish_only";
-
-const PUBLISH_ONLY_PROVIDER_KIND = "manual" satisfies RelayManagedEndpointProviderKind;
-
 export function linkPrimaryEnvironmentToCloud(input: {
   readonly target: CloudLinkTarget;
   readonly clerkToken: string;
-  readonly mode?: CloudLinkMode;
 }): Effect.Effect<
   void,
   CloudEnvironmentLinkError,
@@ -406,15 +398,9 @@ export function linkPrimaryEnvironmentToCloud(input: {
         message: "T3CODE_RELAY_URL is not configured.",
       });
     }
-    const managedTunnelsEnabled = (input.mode ?? "managed") === "managed";
-    const providerKind = managedTunnelsEnabled
-      ? MANAGED_ENDPOINT_PROVIDER_KIND
-      : PUBLISH_ONLY_PROVIDER_KIND;
     const relayClient = yield* ManagedRelay.ManagedRelayClient;
     const environmentClient = yield* makeEnvironmentHttpApiClient(input.target.httpBaseUrl);
-    if (managedTunnelsEnabled) {
-      yield* ensureRelayClientAvailable(EnvironmentId.make(input.target.environmentId));
-    }
+    yield* ensureRelayClientAvailable(EnvironmentId.make(input.target.environmentId));
 
     const challenge = yield* relayClient
       .createEnvironmentLinkChallenge({
@@ -422,7 +408,7 @@ export function linkPrimaryEnvironmentToCloud(input: {
         payload: {
           notificationsEnabled: true,
           liveActivitiesEnabled: true,
-          managedTunnelsEnabled,
+          managedTunnelsEnabled: true,
         },
       })
       .pipe(
@@ -441,7 +427,7 @@ export function linkPrimaryEnvironmentToCloud(input: {
           endpoint: {
             httpBaseUrl: input.target.httpBaseUrl,
             wsBaseUrl: input.target.wsBaseUrl,
-            providerKind,
+            providerKind: MANAGED_ENDPOINT_PROVIDER_KIND,
           },
           origin: endpointOrigin(input.target.httpBaseUrl),
         },
@@ -454,7 +440,7 @@ export function linkPrimaryEnvironmentToCloud(input: {
           proof,
           notificationsEnabled: true,
           liveActivitiesEnabled: true,
-          managedTunnelsEnabled,
+          managedTunnelsEnabled: true,
         },
       })
       .pipe(
@@ -464,7 +450,7 @@ export function linkPrimaryEnvironmentToCloud(input: {
       );
     yield* ensureLinkedEnvironmentMatches({
       expectedEnvironmentId: input.target.environmentId,
-      expectedProviderKind: providerKind,
+      expectedProviderKind: MANAGED_ENDPOINT_PROVIDER_KIND,
       link,
     });
 

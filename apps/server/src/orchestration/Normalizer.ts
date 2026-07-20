@@ -1,10 +1,8 @@
-import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import {
   type ClientOrchestrationCommand,
-  type IsoDateTime,
   type OrchestrationCommand,
   OrchestrationDispatchCommandError,
   PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
@@ -15,38 +13,8 @@ import { ServerConfig } from "../config.ts";
 import { parseBase64DataUrl } from "../imageMime.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 
-export const canonicalizeClientCommandTimestamps = (
-  command: ClientOrchestrationCommand,
-  receivedAt: IsoDateTime,
-): ClientOrchestrationCommand => {
-  const canonicalCommand =
-    "createdAt" in command
-      ? {
-          ...command,
-          createdAt: receivedAt,
-        }
-      : command;
-
-  if (canonicalCommand.type !== "thread.turn.start" || !canonicalCommand.bootstrap?.createThread) {
-    return canonicalCommand;
-  }
-
-  return {
-    ...canonicalCommand,
-    bootstrap: {
-      ...canonicalCommand.bootstrap,
-      createThread: {
-        ...canonicalCommand.bootstrap.createThread,
-        createdAt: receivedAt,
-      },
-    },
-  };
-};
-
 export const normalizeDispatchCommand = (command: ClientOrchestrationCommand) =>
   Effect.gen(function* () {
-    const receivedAt = DateTime.formatIso(yield* DateTime.now);
-    const canonicalCommand = canonicalizeClientCommandTimestamps(command, receivedAt);
     const fileSystem = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
     const serverConfig = yield* ServerConfig;
@@ -79,33 +47,30 @@ export const normalizeDispatchCommand = (command: ClientOrchestrationCommand) =>
           ),
         );
 
-    if (canonicalCommand.type === "project.create") {
+    if (command.type === "project.create") {
       return {
-        ...canonicalCommand,
+        ...command,
         workspaceRoot: yield* normalizeProjectWorkspaceRootForCreate(
-          canonicalCommand.workspaceRoot,
-          canonicalCommand.createWorkspaceRootIfMissing,
+          command.workspaceRoot,
+          command.createWorkspaceRootIfMissing,
         ),
-        createWorkspaceRootIfMissing: canonicalCommand.createWorkspaceRootIfMissing === true,
+        createWorkspaceRootIfMissing: command.createWorkspaceRootIfMissing === true,
       } satisfies OrchestrationCommand;
     }
 
-    if (
-      canonicalCommand.type === "project.meta.update" &&
-      canonicalCommand.workspaceRoot !== undefined
-    ) {
+    if (command.type === "project.meta.update" && command.workspaceRoot !== undefined) {
       return {
-        ...canonicalCommand,
-        workspaceRoot: yield* normalizeProjectWorkspaceRoot(canonicalCommand.workspaceRoot),
+        ...command,
+        workspaceRoot: yield* normalizeProjectWorkspaceRoot(command.workspaceRoot),
       } satisfies OrchestrationCommand;
     }
 
-    if (canonicalCommand.type !== "thread.turn.start") {
-      return canonicalCommand as OrchestrationCommand;
+    if (command.type !== "thread.turn.start") {
+      return command as OrchestrationCommand;
     }
 
     const normalizedAttachments = yield* Effect.forEach(
-      canonicalCommand.message.attachments,
+      command.message.attachments,
       (attachment) =>
         Effect.gen(function* () {
           const parsed = parseBase64DataUrl(attachment.dataUrl);
@@ -122,7 +87,7 @@ export const normalizeDispatchCommand = (command: ClientOrchestrationCommand) =>
             });
           }
 
-          const attachmentId = createAttachmentId(canonicalCommand.threadId);
+          const attachmentId = createAttachmentId(command.threadId);
           if (!attachmentId) {
             return yield* new OrchestrationDispatchCommandError({
               message: "Failed to create a safe attachment id.",
@@ -170,9 +135,9 @@ export const normalizeDispatchCommand = (command: ClientOrchestrationCommand) =>
     );
 
     return {
-      ...canonicalCommand,
+      ...command,
       message: {
-        ...canonicalCommand.message,
+        ...command.message,
         attachments: normalizedAttachments,
       },
     } satisfies OrchestrationCommand;

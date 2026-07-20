@@ -31,7 +31,6 @@ import {
   useState,
 } from "react";
 import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
-import { writeTextToClipboard } from "~/hooks/useCopyToClipboard";
 import { cn } from "~/lib/utils";
 import { type TerminalContextSelection } from "~/lib/terminalContext";
 import { useOpenInPreferredEditor } from "../editorPreferences";
@@ -331,7 +330,7 @@ export function TerminalViewport({
   const selectionPointerRef = useRef<{ x: number; y: number } | null>(null);
   const selectionGestureActiveRef = useRef(false);
   const selectionActionRequestIdRef = useRef(0);
-  const selectionActionMenuOpenRef = useRef(false);
+  const selectionActionOpenRef = useRef(false);
   const selectionActionTimerRef = useRef<number | null>(null);
   const keybindingsRef = useRef(keybindings);
   const runtimeEnvKey = useMemo(() => runtimeEnvSignature(runtimeEnv), [runtimeEnv]);
@@ -418,7 +417,6 @@ export function TerminalViewport({
 
     const readSelectionAction = (): {
       position: { x: number; y: number };
-      clipboardText: string;
       selection: TerminalContextSelection;
     } | null => {
       const activeTerminal = terminalRef.current;
@@ -447,7 +445,6 @@ export function TerminalViewport({
       });
       return {
         position,
-        clipboardText: selectionText,
         selection: {
           terminalId,
           terminalLabel: readTerminalLabel(),
@@ -463,7 +460,7 @@ export function TerminalViewport({
         clearSelectionAction();
         return;
       }
-      if (selectionActionMenuOpenRef.current) {
+      if (selectionActionOpenRef.current) {
         return;
       }
       const nextAction = readSelectionAction();
@@ -472,46 +469,20 @@ export function TerminalViewport({
         return;
       }
       const requestId = ++selectionActionRequestIdRef.current;
-      selectionActionMenuOpenRef.current = true;
-      const clicked = await localApi.contextMenu
-        .show(
-          [
-            { id: "add-to-chat", label: "Add to chat" },
-            { id: "copy", label: "Copy" },
-          ],
+      selectionActionOpenRef.current = true;
+      try {
+        const clicked = await localApi.contextMenu.show(
+          [{ id: "add-to-chat", label: "Add to chat" }],
           nextAction.position,
-        )
-        .finally(() => {
-          selectionActionMenuOpenRef.current = false;
-        });
-      if (requestId !== selectionActionRequestIdRef.current || clicked === null) {
-        return;
-      }
-      switch (clicked) {
-        case "add-to-chat":
-          handleAddTerminalContext(nextAction.selection);
-          terminalRef.current?.clearSelection();
-          terminalRef.current?.focus();
+        );
+        if (requestId !== selectionActionRequestIdRef.current || clicked !== "add-to-chat") {
           return;
-        case "copy":
-          try {
-            await writeTextToClipboard(nextAction.clipboardText, "terminal selection");
-          } catch (error) {
-            if (requestId !== selectionActionRequestIdRef.current) {
-              return;
-            }
-            const activeTerminal = terminalRef.current;
-            if (activeTerminal) {
-              writeSystemMessage(
-                activeTerminal,
-                error instanceof Error ? error.message : "Unable to copy terminal selection",
-              );
-            }
-          }
-          if (requestId === selectionActionRequestIdRef.current) {
-            terminalRef.current?.focus();
-          }
-          return;
+        }
+        handleAddTerminalContext(nextAction.selection);
+        terminalRef.current?.clearSelection();
+        terminalRef.current?.focus();
+      } finally {
+        selectionActionOpenRef.current = false;
       }
     };
 

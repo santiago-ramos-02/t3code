@@ -644,9 +644,7 @@ const make = Effect.gen(function* () {
           const nextConfig = [
             ...customConfig.filter((entry) => {
               if (replaceTarget) {
-                return (
-                  !isSameKeybindingRule(entry, replaceTarget) && !isSameKeybindingRule(entry, rule)
-                );
+                return !isSameKeybindingRule(entry, replaceTarget);
               }
               return !isSameKeybindingRule(entry, rule);
             }),

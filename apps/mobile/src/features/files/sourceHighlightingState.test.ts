@@ -88,7 +88,7 @@ describe("sourceHighlightingState", () => {
       expect(AsyncResult.isSuccess(registry.get(atom))).toBe(true);
     });
     firstUnmount();
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await new Promise((resolve) => setTimeout(resolve, 25));
 
     const secondUnmount = registry.mount(atom);
     await vi.waitFor(() => {

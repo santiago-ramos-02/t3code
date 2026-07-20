@@ -1,11 +1,10 @@
 import * as Haptics from "expo-haptics";
-import { type AppSymbolName, SymbolView } from "../../components/AppSymbol";
+import { SymbolView, type SFSymbol } from "expo-symbols";
 import { LayoutAnimation, Pressable, ScrollView, useColorScheme, View } from "react-native";
 
 import { AppText as Text } from "../../components/AppText";
 import { cn } from "../../lib/cn";
 import type { ThreadFeedActivity } from "../../lib/threadActivity";
-import Animated, { FadeIn } from "react-native-reanimated";
 
 const WORK_LOG_LAYOUT_ANIMATION = {
   duration: 180,
@@ -40,41 +39,33 @@ function compactActivityDetail(detail: string | null): string | null {
   return cleaned.length > 0 ? cleaned : null;
 }
 
-function workRowSymbolName(icon: ThreadFeedActivity["icon"]): AppSymbolName {
+function workRowSymbolName(icon: ThreadFeedActivity["icon"]): SFSymbol {
   switch (icon) {
     case "agent":
-      return { ios: "sparkles", android: "auto_awesome" };
+      return "sparkles";
     case "alert":
-      return { ios: "exclamationmark.triangle", android: "error" };
+      return "exclamationmark.triangle";
     case "check":
-      return { ios: "checkmark", android: "check" };
+      return "checkmark";
     case "command":
-      return { ios: "terminal", android: "terminal" };
+      return "terminal";
     case "edit":
-      return { ios: "square.and.pencil", android: "edit" };
+      return "square.and.pencil";
     case "eye":
-      return { ios: "eye", android: "visibility" };
+      return "eye";
     case "globe":
-      return { ios: "globe", android: "public" };
+      return "globe";
     case "hammer":
-      return { ios: "hammer", android: "construction" };
+      return "hammer";
     case "message":
-      return { ios: "bubble.left", android: "chat_bubble" };
+      return "bubble.left";
     case "warning":
-      return { ios: "xmark", android: "close" };
+      return "xmark";
     case "wrench":
-      return { ios: "wrench", android: "build" };
+      return "wrench";
     case "zap":
-      return { ios: "bolt", android: "bolt" };
+      return "bolt";
   }
-}
-
-// Entering fades only for rows created moments ago: rows remount whenever the
-// list scrolls them back into view, and old rows must not replay an entrance.
-const FRESH_ROW_WINDOW_MS = 3_000;
-function isFreshRow(createdAt: string): boolean {
-  const timestamp = Date.parse(createdAt);
-  return Number.isFinite(timestamp) && Date.now() - timestamp < FRESH_ROW_WINDOW_MS;
 }
 
 export function ThreadWorkLog(props: {
@@ -113,10 +104,7 @@ export function ThreadWorkLog(props: {
           const iconIsDestructive = row.icon === "alert" || row.icon === "warning";
 
           return (
-            <Animated.View
-              key={row.id}
-              {...(isFreshRow(row.createdAt) ? { entering: FadeIn.duration(200) } : {})}
-            >
+            <View key={row.id}>
               <Pressable
                 accessibilityRole={canExpand ? "button" : undefined}
                 accessibilityLabel={displayText}
@@ -150,7 +138,10 @@ export function ThreadWorkLog(props: {
                     />
                   </View>
 
-                  <Text className="min-w-0 flex-1 text-xs text-foreground" numberOfLines={1}>
+                  <Text
+                    className="min-w-0 flex-1 text-xs leading-4 text-foreground"
+                    numberOfLines={1}
+                  >
                     <Text
                       className={cn(
                         "font-t3-medium text-foreground",
@@ -173,11 +164,7 @@ export function ThreadWorkLog(props: {
                     <View className="h-4 w-4 items-center justify-center">
                       {canExpand ? (
                         <SymbolView
-                          name={
-                            expanded
-                              ? { ios: "chevron.up", android: "keyboard_arrow_up" }
-                              : { ios: "chevron.down", android: "keyboard_arrow_down" }
-                          }
+                          name={expanded ? "chevron.up" : "chevron.down"}
                           size={11}
                           tintColor={props.iconSubtleColor}
                           type="monochrome"
@@ -189,10 +176,10 @@ export function ThreadWorkLog(props: {
                         <SymbolView
                           name={
                             row.status === "failure"
-                              ? { ios: "xmark", android: "close" }
+                              ? "xmark"
                               : row.status === "success"
-                                ? { ios: "checkmark", android: "check" }
-                                : { ios: "minus", android: "remove" }
+                                ? "checkmark"
+                                : "minus"
                           }
                           size={11}
                           tintColor={row.status === "failure" ? "#e11d48" : props.iconSubtleColor}
@@ -210,19 +197,20 @@ export function ThreadWorkLog(props: {
                     nestedScrollEnabled
                     directionalLockEnabled
                     showsVerticalScrollIndicator
-                    className="max-h-60"
+                    style={{ maxHeight: 240 }}
                     contentContainerStyle={{ paddingRight: 8 }}
                   >
                     <Text
                       selectable
-                      className="font-mono text-2xs leading-normal text-foreground-muted"
+                      className="text-2xs leading-[17px] text-foreground-muted"
+                      style={{ fontFamily: "ui-monospace" }}
                     >
                       {row.fullDetail}
                     </Text>
                   </ScrollView>
                 </View>
               ) : null}
-            </Animated.View>
+            </View>
           );
         })}
       </View>
@@ -269,11 +257,7 @@ export function ThreadWorkGroupToggle(props: {
       >
         <View className="h-[18px] w-5 items-center justify-center">
           <SymbolView
-            name={
-              props.expanded
-                ? { ios: "chevron.up", android: "keyboard_arrow_up" }
-                : { ios: "chevron.down", android: "keyboard_arrow_down" }
-            }
+            name={props.expanded ? "chevron.up" : "chevron.down"}
             size={12}
             tintColor={props.iconSubtleColor}
             type="monochrome"

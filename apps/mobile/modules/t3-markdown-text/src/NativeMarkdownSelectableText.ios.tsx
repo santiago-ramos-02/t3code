@@ -32,25 +32,11 @@ function runKeySignature(run: NativeMarkdownTextRun): string {
   ].join(":");
 }
 
-const DEFAULT_BODY_FONT_SIZE = 15;
-const DEFAULT_HEADING_FONT_SIZES = [22, 19, 17, 16, 15, 15] as const;
-
-function resolveHeadingFontSize(textStyle: NativeMarkdownTextStyle, headingLevel: number): number {
-  const index = Math.max(0, Math.min(5, headingLevel - 1));
-  const configured = textStyle.headingFontSizes?.[index];
-  if (typeof configured === "number" && Number.isFinite(configured)) {
-    return configured;
-  }
-
-  const scale = textStyle.fontSize / DEFAULT_BODY_FONT_SIZE;
-  return Math.max(12, Math.round(DEFAULT_HEADING_FONT_SIZES[index] * scale));
-}
-
 function runStyle(run: NativeMarkdownTextRun, textStyle: NativeMarkdownTextStyle): TextStyle {
   const isFile = run.fileIcon != null;
   const isSkill = run.skillName != null;
   const headingLevel = Math.max(1, Math.min(6, run.headingLevel ?? 1));
-  const headingFontSize = resolveHeadingFontSize(textStyle, headingLevel);
+  const headingFontSize = [22, 19, 17, 16, 15, 15][headingLevel - 1] ?? 15;
   const isHeading = run.role === "heading";
   const isCodeBlock = run.role === "code-block" || run.role === "code-language";
   const hasParagraphStyle = run.headIndent !== undefined;
@@ -102,7 +88,7 @@ function runStyle(run: NativeMarkdownTextRun, textStyle: NativeMarkdownTextStyle
           : isHeading
             ? headingFontSize
             : run.role === "code-language"
-              ? Math.max(10, Math.round(textStyle.fontSize * 0.73))
+              ? 11
               : run.code || isCodeBlock
                 ? Math.max(12, textStyle.fontSize - 2)
                 : textStyle.fontSize,
@@ -112,9 +98,9 @@ function runStyle(run: NativeMarkdownTextRun, textStyle: NativeMarkdownTextStyle
         : run.role === "list-break"
           ? textStyle.lineHeight + (run.spacing ?? 0)
           : isHeading
-            ? Math.max(headingFontSize + 6, textStyle.lineHeight + 2)
+            ? Math.max(headingFontSize + 6, 20)
             : isCodeBlock
-              ? Math.max(16, textStyle.lineHeight - 2)
+              ? 18
               : textStyle.lineHeight,
     fontStyle: run.italic ? "italic" : "normal",
     fontWeight: isHeading || run.bold || isFile || isSkill ? "700" : "400",
@@ -162,9 +148,6 @@ export function NativeMarkdownSelectableText(props: {
   // color-only child update can otherwise leave the previous appearance cached.
   const appearanceKey = [
     colorScheme ?? "unspecified",
-    props.textStyle.fontSize,
-    props.textStyle.lineHeight,
-    props.textStyle.headingFontSizes?.join(","),
     props.textStyle.color,
     props.textStyle.strongColor,
     props.textStyle.mutedColor,

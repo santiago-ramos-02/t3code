@@ -25,8 +25,7 @@ import * as Network from "expo-network";
 import { AppState } from "react-native";
 
 import { authClientMetadata } from "../lib/authClientMetadata";
-import * as Runtime from "../lib/runtime";
-import * as MobileStorage from "../persistence/mobile-storage";
+import { loadOrCreateAgentAwarenessDeviceId } from "../lib/storage";
 import { appAtomRegistry } from "../state/atom-registry";
 import { clearThreadOutboxEnvironment } from "../state/thread-outbox";
 import { clearComposerDraftsEnvironment } from "../state/use-composer-drafts";
@@ -84,87 +83,82 @@ const wakeupsLayer = Wakeups.layer({
   ),
 });
 
-const capabilitiesLayer = Layer.effectContext(
-  Effect.gen(function* () {
-    const storage = yield* MobileStorage.MobileStorage;
-    return Context.make(
-      CloudSession,
-      CloudSession.of({
-        clerkToken: Effect.gen(function* () {
-          const session = appAtomRegistry.get(managedRelaySessionAtom);
-          if (session === null) {
-            return yield* new ConnectionBlockedError({
-              reason: "authentication",
-              detail: "Sign in to T3 Connect to connect this environment.",
-            });
-          }
-          const token = yield* session.readClerkToken().pipe(
-            Effect.mapError(
-              (error) =>
-                new ConnectionTransientError({
-                  reason: "network",
-                  detail: error.message,
-                }),
-            ),
-          );
-          if (token === null) {
-            return yield* new ConnectionBlockedError({
-              reason: "authentication",
-              detail: "The T3 Connect session is unavailable.",
-            });
-          }
-          return token;
-        }),
-      }),
-    ).pipe(
-      Context.add(
-        PrimaryEnvironmentAuth,
-        PrimaryEnvironmentAuth.of({ bearerToken: Effect.succeed(Option.none()) }),
-      ),
-      Context.add(
-        RelayDeviceIdentity,
-        RelayDeviceIdentity.of({
-          deviceId: storage.loadOrCreateAgentAwarenessDeviceId.pipe(
-            Effect.mapError(
-              (cause) =>
-                new ConnectionTransientError({
-                  reason: "remote-unavailable",
-                  detail: `Could not load the mobile device identity: ${String(cause)}`,
-                }),
-            ),
-            Effect.map(Option.some),
+const capabilitiesLayer = Layer.succeedContext(
+  Context.make(
+    CloudSession,
+    CloudSession.of({
+      clerkToken: Effect.gen(function* () {
+        const session = appAtomRegistry.get(managedRelaySessionAtom);
+        if (session === null) {
+          return yield* new ConnectionBlockedError({
+            reason: "authentication",
+            detail: "Sign in to T3 Cloud to connect this environment.",
+          });
+        }
+        const token = yield* session.readClerkToken().pipe(
+          Effect.mapError(
+            (error) =>
+              new ConnectionTransientError({
+                reason: "network",
+                detail: error.message,
+              }),
           ),
-        }),
-      ),
-      Context.add(
-        ClientPresentation,
-        ClientPresentation.of({
-          metadata: authClientMetadata(),
-          scopes: AuthStandardClientScopes,
-        }),
-      ),
-      Context.add(
-        SshEnvironmentGateway,
-        SshEnvironmentGateway.of({
-          provision: () =>
-            Effect.fail(
-              new ConnectionBlockedError({
-                reason: "unsupported",
-                detail: "SSH environments are only available in the desktop app.",
-              }),
-            ),
-          prepare: () =>
-            Effect.fail(
-              new ConnectionBlockedError({
-                reason: "unsupported",
-                detail: "SSH environments are only available in the desktop app.",
-              }),
-            ),
-          disconnect: () => Effect.void,
-        }),
-      ),
-    );
-  }),
+        );
+        if (token === null) {
+          return yield* new ConnectionBlockedError({
+            reason: "authentication",
+            detail: "The T3 Cloud session is unavailable.",
+          });
+        }
+        return token;
+      }),
+    }),
+  ).pipe(
+    Context.add(
+      PrimaryEnvironmentAuth,
+      PrimaryEnvironmentAuth.of({ bearerToken: Effect.succeed(Option.none()) }),
+    ),
+    Context.add(
+      RelayDeviceIdentity,
+      RelayDeviceIdentity.of({
+        deviceId: Effect.tryPromise({
+          try: () => loadOrCreateAgentAwarenessDeviceId(),
+          catch: (cause) =>
+            new ConnectionTransientError({
+              reason: "remote-unavailable",
+              detail: `Could not load the mobile device identity: ${String(cause)}`,
+            }),
+        }).pipe(Effect.map(Option.some)),
+      }),
+    ),
+    Context.add(
+      ClientPresentation,
+      ClientPresentation.of({
+        metadata: authClientMetadata(),
+        scopes: AuthStandardClientScopes,
+      }),
+    ),
+    Context.add(
+      SshEnvironmentGateway,
+      SshEnvironmentGateway.of({
+        provision: () =>
+          Effect.fail(
+            new ConnectionBlockedError({
+              reason: "unsupported",
+              detail: "SSH environments are only available in the desktop app.",
+            }),
+          ),
+        prepare: () =>
+          Effect.fail(
+            new ConnectionBlockedError({
+              reason: "unsupported",
+              detail: "SSH environments are only available in the desktop app.",
+            }),
+          ),
+        disconnect: () => Effect.void,
+      }),
+    ),
+  ),
 );
 
 const platformConnectionSourceLayer = Layer.succeed(
@@ -172,13 +166,6 @@ const platformConnectionSourceLayer = Layer.succeed(
   PlatformConnectionSource.of({
     registrations: Stream.empty,
   }),
-);
-
-const providedConnectionStorageLayer = connectionStorageLayer.pipe(
-  Layer.provide(Runtime.runtimeContextLayer),
-);
-const providedCapabilitiesLayer = capabilitiesLayer.pipe(
-  Layer.provide(Runtime.runtimeContextLayer),
 );
 
 const environmentOwnedDataCleanupLayer = Layer.succeed(
@@ -203,11 +190,10 @@ const environmentOwnedDataCleanupLayer = Layer.succeed(
 );
 
 type ConnectionPlatformLayerSource =
-  | typeof providedConnectionStorageLayer
-  | typeof Runtime.runtimeContextLayer
+  | typeof connectionStorageLayer
   | typeof connectivityLayer
   | typeof wakeupsLayer
-  | typeof providedCapabilitiesLayer
+  | typeof capabilitiesLayer
   | typeof platformConnectionSourceLayer
   | typeof environmentOwnedDataCleanupLayer;
 
@@ -216,11 +202,10 @@ export const connectionPlatformLayer: Layer.Layer<
   Layer.Error<ConnectionPlatformLayerSource>,
   Layer.Services<ConnectionPlatformLayerSource>
 > = Layer.mergeAll(
-  providedConnectionStorageLayer,
-  Runtime.runtimeContextLayer,
+  connectionStorageLayer,
   connectivityLayer,
   wakeupsLayer,
-  providedCapabilitiesLayer,
+  capabilitiesLayer,
   platformConnectionSourceLayer,
   environmentOwnedDataCleanupLayer,
 );

@@ -40,15 +40,8 @@ function getTimestampFormatter(
   return formatter;
 }
 
-function parseTimestampDate(isoDate: string): Date | null {
-  const date = new Date(isoDate);
-  return Number.isNaN(date.getTime()) ? null : date;
-}
-
 export function formatTimestamp(isoDate: string, timestampFormat: TimestampFormat): string {
-  const date = parseTimestampDate(isoDate);
-  if (!date) return "";
-  return getTimestampFormatter(timestampFormat, true).format(date);
+  return getTimestampFormatter(timestampFormat, true).format(new Date(isoDate));
 }
 
 const monthNameFormatter = new Intl.DateTimeFormat(undefined, { month: "long" });
@@ -76,8 +69,8 @@ export function formatChatTimestampTooltip(
   isoDate: string,
   timestampFormat: TimestampFormat,
 ): string {
-  const date = parseTimestampDate(isoDate);
-  if (!date) return "";
+  const date = new Date(isoDate);
+  if (Number.isNaN(date.getTime())) return "";
   const time = formatShortTimestamp(isoDate, timestampFormat);
   const day = date.getDate();
   const month = monthNameFormatter.format(date);
@@ -86,9 +79,7 @@ export function formatChatTimestampTooltip(
 }
 
 export function formatShortTimestamp(isoDate: string, timestampFormat: TimestampFormat): string {
-  const date = parseTimestampDate(isoDate);
-  if (!date) return "";
-  return getTimestampFormatter(timestampFormat, false).format(date);
+  return getTimestampFormatter(timestampFormat, false).format(new Date(isoDate));
 }
 
 /**
@@ -96,16 +87,8 @@ export function formatShortTimestamp(isoDate: string, timestampFormat: Timestamp
  * Returns `{ value: "20s", suffix: "ago" }` or `{ value: "just now", suffix: null }`
  * so callers can style the numeric portion independently.
  */
-type RelativeTimeParts = { value: string; suffix: string | null };
-export type RelativeTimeState =
-  | { status: "missing" }
-  | { status: "invalid" }
-  | { status: "relative"; value: string; suffix: string | null };
-
-export function formatRelativeTime(isoDate: string): RelativeTimeParts | null {
-  const date = parseTimestampDate(isoDate);
-  if (!date) return null;
-  const diffMs = Date.now() - date.getTime();
+export function formatRelativeTime(isoDate: string): { value: string; suffix: string | null } {
+  const diffMs = Date.now() - new Date(isoDate).getTime();
   if (diffMs < 0) return { value: "just now", suffix: null };
   const seconds = Math.floor(diffMs / 1000);
   if (seconds < 60) return { value: "just now", suffix: null };
@@ -119,15 +102,7 @@ export function formatRelativeTime(isoDate: string): RelativeTimeParts | null {
 
 export function formatRelativeTimeLabel(isoDate: string) {
   const relative = formatRelativeTime(isoDate);
-  if (!relative) return "";
   return relative.suffix ? `${relative.value} ${relative.suffix}` : relative.value;
-}
-
-export function getRelativeTimeState(isoDate: string | null): RelativeTimeState {
-  if (!isoDate) return { status: "missing" };
-  const relative = formatRelativeTime(isoDate);
-  if (!relative) return { status: "invalid" };
-  return { status: "relative", ...relative };
 }
 
 /**
@@ -135,9 +110,7 @@ export function getRelativeTimeState(isoDate: string | null): RelativeTimeState 
  * Useful for labels like "Connected for 3m".
  */
 export function formatElapsedDurationLabel(isoDate: string, nowMs: number = Date.now()): string {
-  const date = parseTimestampDate(isoDate);
-  if (!date) return "";
-  const diffMs = nowMs - date.getTime();
+  const diffMs = nowMs - new Date(isoDate).getTime();
   if (diffMs <= 0) return "just now";
 
   const seconds = Math.floor(diffMs / 1000);
@@ -157,10 +130,8 @@ export function formatElapsedDurationLabel(isoDate: string, nowMs: number = Date
 /**
  * Relative time until an ISO instant (e.g. expiry). Mirrors {@link formatRelativeTime} but for future times.
  */
-export function formatRelativeTimeUntil(isoDate: string): RelativeTimeParts | null {
-  const date = parseTimestampDate(isoDate);
-  if (!date) return null;
-  const diffMs = date.getTime() - Date.now();
+export function formatRelativeTimeUntil(isoDate: string): { value: string; suffix: string | null } {
+  const diffMs = new Date(isoDate).getTime() - Date.now();
   if (diffMs <= 0) return { value: "Expired", suffix: null };
   const seconds = Math.floor(diffMs / 1000);
   if (seconds < 5) return { value: "Soon", suffix: null };
@@ -175,7 +146,6 @@ export function formatRelativeTimeUntil(isoDate: string): RelativeTimeParts | nu
 
 export function formatRelativeTimeUntilLabel(isoDate: string): string {
   const relative = formatRelativeTimeUntil(isoDate);
-  if (!relative) return "";
   return relative.suffix ? `${relative.value} ${relative.suffix}` : relative.value;
 }
 
@@ -184,9 +154,7 @@ export function formatRelativeTimeUntilLabel(isoDate: string): string {
  * Pass `nowMs` when a parent tick drives re-renders so the diff matches that snapshot.
  */
 export function formatExpiresInLabel(isoDate: string, nowMs: number = Date.now()): string {
-  const date = parseTimestampDate(isoDate);
-  if (!date) return "";
-  const diffMs = date.getTime() - nowMs;
+  const diffMs = new Date(isoDate).getTime() - nowMs;
   if (diffMs <= 0) return "Expired";
 
   const totalSeconds = Math.floor(diffMs / 1000);

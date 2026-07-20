@@ -1,9 +1,11 @@
+import type { Ref } from "react";
 import {
   Text as RNText,
   TextInput as RNTextInput,
   type TextInputProps as RNTextInputProps,
   type TextProps as RNTextProps,
 } from "react-native";
+import { useThemeColor } from "../lib/useThemeColor";
 
 import { cn } from "../lib/cn";
 
@@ -17,24 +19,31 @@ export function AppText({ className, ...props }: AppTextProps) {
   return <RNText className={cn("font-sans text-foreground", className)} {...props} />;
 }
 
-export type AppTextInputProps = Omit<RNTextInputProps, "placeholderTextColor"> & {
+export type AppTextInputProps = RNTextInputProps & {
   readonly className?: string;
-  readonly ref?: React.Ref<RNTextInput>;
+  readonly ref?: Ref<RNTextInput>;
 };
 
 /**
  * Thin wrapper around RN TextInput with default input styling.
  * Uses Uniwind className — no manual style parsing.
  */
-export function AppTextInput({ className, ref, ...props }: AppTextInputProps) {
+export function AppTextInput({
+  className,
+  placeholderTextColor,
+  ref,
+  ...props
+}: AppTextInputProps) {
+  const placeholderColor = useThemeColor("--color-placeholder");
+
   return (
     <RNTextInput
       ref={ref}
       className={cn(
-        "min-h-13.5 rounded-2xl border border-input-border bg-input px-3.5 py-3 font-sans text-base text-foreground",
+        "min-h-[54px] rounded-2xl border border-input-border bg-input px-3.5 py-3 font-sans text-base text-foreground",
         className,
       )}
-      placeholderTextColorClassName="accent-placeholder"
+      placeholderTextColor={placeholderTextColor ?? placeholderColor}
       {...props}
     />
   );

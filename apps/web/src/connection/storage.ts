@@ -20,10 +20,8 @@ import {
 import {
   EnvironmentId,
   OrchestrationShellSnapshot,
-  OrchestrationThreadDetailSnapshot,
-  ServerConfig,
+  OrchestrationThread,
   ThreadId,
-  VcsListRefsResult,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -34,12 +32,10 @@ import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 
 const DATABASE_NAME = "t3code:connection-runtime";
-const DATABASE_VERSION = 4;
+const DATABASE_VERSION = 2;
 const CATALOG_STORE_NAME = "catalog";
 const SHELL_STORE_NAME = "shell";
 const THREAD_STORE_NAME = "thread";
-const SERVER_CONFIG_STORE_NAME = "server-config";
-const VCS_REFS_STORE_NAME = "vcs-refs";
 const CATALOG_KEY = "document";
 const SHELL_SNAPSHOT_CACHE_SCHEMA_VERSION = 1;
 
@@ -49,29 +45,13 @@ const StoredShellSnapshot = Schema.Struct({
   snapshot: OrchestrationShellSnapshot,
 });
 const StoredShellSnapshotJson = Schema.fromJsonString(StoredShellSnapshot);
-// v2 stores the snapshot sequence alongside the thread so a warm cache can
-// resume via `afterSequence` instead of re-downloading the full thread body.
-// Older v1 entries (no sequence) fail to decode and are treated as a cold cache.
 const StoredThreadSnapshot = Schema.Struct({
-  schemaVersion: Schema.Literal(2),
+  schemaVersion: Schema.Literal(1),
   environmentId: EnvironmentId,
   threadId: ThreadId,
-  snapshot: OrchestrationThreadDetailSnapshot,
+  thread: OrchestrationThread,
 });
 const StoredThreadSnapshotJson = Schema.fromJsonString(StoredThreadSnapshot);
-const StoredServerConfig = Schema.Struct({
-  schemaVersion: Schema.Literal(1),
-  environmentId: EnvironmentId,
-  config: ServerConfig,
-});
-const StoredServerConfigJson = Schema.fromJsonString(StoredServerConfig);
-const StoredVcsRefs = Schema.Struct({
-  schemaVersion: Schema.Literal(1),
-  environmentId: EnvironmentId,
-  cwd: Schema.String,
-  refs: VcsListRefsResult,
-});
-const StoredVcsRefsJson = Schema.fromJsonString(StoredVcsRefs);
 const ConnectionCatalogDocumentJson = Schema.fromJsonString(ConnectionCatalogDocument);
 const decodeConnectionCatalogDocument = Schema.decodeUnknownEffect(ConnectionCatalogDocumentJson);
 const encodeConnectionCatalogDocument = Schema.encodeEffect(ConnectionCatalogDocumentJson);
@@ -79,10 +59,6 @@ const decodeStoredShellSnapshot = Schema.decodeUnknownEffect(StoredShellSnapshot
 const encodeStoredShellSnapshot = Schema.encodeEffect(StoredShellSnapshotJson);
 const decodeStoredThreadSnapshot = Schema.decodeUnknownEffect(StoredThreadSnapshotJson);
 const encodeStoredThreadSnapshot = Schema.encodeEffect(StoredThreadSnapshotJson);
-const decodeStoredServerConfig = Schema.decodeUnknownEffect(StoredServerConfigJson);
-const encodeStoredServerConfig = Schema.encodeEffect(StoredServerConfigJson);
-const decodeStoredVcsRefs = Schema.decodeUnknownEffect(StoredVcsRefsJson);
-const encodeStoredVcsRefs = Schema.encodeEffect(StoredVcsRefsJson);
 
 function catalogError(operation: string, cause: unknown) {
   return new ConnectionTransientError({
@@ -101,10 +77,6 @@ function persistenceError(
     | "load-thread"
     | "save-thread"
     | "remove-thread"
-    | "load-server-config"
-    | "save-server-config"
-    | "load-vcs-refs"
-    | "save-vcs-refs"
     | "clear-environment",
   cause: unknown,
 ) {
@@ -132,12 +104,6 @@ const openDatabase = Effect.fn("web.connectionStorage.openDatabase")(function* (
       }
       if (!request.result.objectStoreNames.contains(THREAD_STORE_NAME)) {
         request.result.createObjectStore(THREAD_STORE_NAME);
-      }
-      if (!request.result.objectStoreNames.contains(SERVER_CONFIG_STORE_NAME)) {
-        request.result.createObjectStore(SERVER_CONFIG_STORE_NAME);
-      }
-      if (!request.result.objectStoreNames.contains(VCS_REFS_STORE_NAME)) {
-        request.result.createObjectStore(VCS_REFS_STORE_NAME);
       }
     });
     request.addEventListener("error", () => {
@@ -226,10 +192,6 @@ function removeDatabaseValuesInRange(database: IDBDatabase, storeName: string, r
 
 function threadCacheKey(environmentId: EnvironmentId, threadId: ThreadId) {
   return `${environmentId}:${threadId}`;
-}
-
-function vcsRefsCacheKey(environmentId: EnvironmentId, cwd: string) {
-  return `${environmentId}:${cwd}`;
 }
 
 const decodeCatalog = Effect.fn("web.connectionStorage.decodeCatalog")(function* (raw: string) {
@@ -497,40 +459,6 @@ export const connectionStorageLayer = Layer.effectContext(
               : persistenceError("save-shell", cause),
           ),
         ),
-      loadServerConfig: (environmentId) =>
-        readDatabaseValue(database, SERVER_CONFIG_STORE_NAME, environmentId).pipe(
-          Effect.flatMap((raw) => {
-            if (typeof raw !== "string") {
-              return Effect.succeed(Option.none());
-            }
-            return decodeStoredServerConfig(raw).pipe(
-              Effect.mapError((cause) => persistenceError("load-server-config", cause)),
-              Effect.map((stored) =>
-                stored.environmentId === environmentId ? Option.some(stored.config) : Option.none(),
-              ),
-            );
-          }),
-          Effect.mapError((cause) =>
-            cause._tag === "ConnectionPersistenceError"
-              ? cause
-              : persistenceError("load-server-config", cause),
-          ),
-        ),
-      saveServerConfig: (environmentId, config) =>
-        Effect.gen(function* () {
-          const encoded = yield* encodeStoredServerConfig({
-            schemaVersion: 1,
-            environmentId,
-            config,
-          }).pipe(Effect.mapError((cause) => persistenceError("save-server-config", cause)));
-          yield* writeDatabaseValue(database, SERVER_CONFIG_STORE_NAME, environmentId, encoded);
-        }).pipe(
-          Effect.mapError((cause) =>
-            cause._tag === "ConnectionPersistenceError"
-              ? cause
-              : persistenceError("save-server-config", cause),
-          ),
-        ),
       loadThread: (environmentId, threadId) =>
         readDatabaseValue(
           database,
@@ -545,7 +473,7 @@ export const connectionStorageLayer = Layer.effectContext(
               Effect.mapError((cause) => persistenceError("load-thread", cause)),
               Effect.map((stored) =>
                 stored.environmentId === environmentId && stored.threadId === threadId
-                  ? Option.some(stored.snapshot)
+                  ? Option.some(stored.thread)
                   : Option.none(),
               ),
             );
@@ -556,18 +484,18 @@ export const connectionStorageLayer = Layer.effectContext(
               : persistenceError("load-thread", cause),
           ),
         ),
-      saveThread: (environmentId, snapshot) =>
+      saveThread: (environmentId, thread) =>
         Effect.gen(function* () {
           const encoded = yield* encodeStoredThreadSnapshot({
-            schemaVersion: 2,
+            schemaVersion: 1,
             environmentId,
-            threadId: snapshot.thread.id,
-            snapshot,
+            threadId: thread.id,
+            thread,
           }).pipe(Effect.mapError((cause) => persistenceError("save-thread", cause)));
           yield* writeDatabaseValue(
             database,
             THREAD_STORE_NAME,
-            threadCacheKey(environmentId, snapshot.thread.id),
+            threadCacheKey(environmentId, thread.id),
             encoded,
           );
         }).pipe(
@@ -575,48 +503,6 @@ export const connectionStorageLayer = Layer.effectContext(
             cause._tag === "ConnectionPersistenceError"
               ? cause
               : persistenceError("save-thread", cause),
-          ),
-        ),
-      loadVcsRefs: (environmentId, cwd) =>
-        readDatabaseValue(database, VCS_REFS_STORE_NAME, vcsRefsCacheKey(environmentId, cwd)).pipe(
-          Effect.flatMap((raw) => {
-            if (typeof raw !== "string") {
-              return Effect.succeed(Option.none());
-            }
-            return decodeStoredVcsRefs(raw).pipe(
-              Effect.mapError((cause) => persistenceError("load-vcs-refs", cause)),
-              Effect.map((stored) =>
-                stored.environmentId === environmentId && stored.cwd === cwd
-                  ? Option.some(stored.refs)
-                  : Option.none(),
-              ),
-            );
-          }),
-          Effect.mapError((cause) =>
-            cause._tag === "ConnectionPersistenceError"
-              ? cause
-              : persistenceError("load-vcs-refs", cause),
-          ),
-        ),
-      saveVcsRefs: (environmentId, cwd, refs) =>
-        Effect.gen(function* () {
-          const encoded = yield* encodeStoredVcsRefs({
-            schemaVersion: 1,
-            environmentId,
-            cwd,
-            refs,
-          }).pipe(Effect.mapError((cause) => persistenceError("save-vcs-refs", cause)));
-          yield* writeDatabaseValue(
-            database,
-            VCS_REFS_STORE_NAME,
-            vcsRefsCacheKey(environmentId, cwd),
-            encoded,
-          );
-        }).pipe(
-          Effect.mapError((cause) =>
-            cause._tag === "ConnectionPersistenceError"
-              ? cause
-              : persistenceError("save-vcs-refs", cause),
           ),
         ),
       removeThread: (environmentId, threadId) =>
@@ -632,12 +518,6 @@ export const connectionStorageLayer = Layer.effectContext(
             removeDatabaseValuesInRange(
               database,
               THREAD_STORE_NAME,
-              IDBKeyRange.bound(`${environmentId}:`, `${environmentId}:\uffff`),
-            ),
-            removeDatabaseValue(database, SERVER_CONFIG_STORE_NAME, environmentId),
-            removeDatabaseValuesInRange(
-              database,
-              VCS_REFS_STORE_NAME,
               IDBKeyRange.bound(`${environmentId}:`, `${environmentId}:\uffff`),
             ),
           ],

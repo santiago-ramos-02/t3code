@@ -47,7 +47,6 @@ export function useNewThreadHandler() {
         worktreePath?: string | null;
         envMode?: DraftThreadEnvMode;
         startFromOrigin?: boolean;
-        replace?: boolean;
       },
     ): Promise<void> => {
       const {
@@ -121,7 +120,6 @@ export function useNewThreadHandler() {
           await router.navigate({
             to: "/draft/$draftId",
             params: { draftId: reusableStoredDraftThread.draftId },
-            replace: options?.replace ?? false,
           });
         })();
       }
@@ -182,7 +180,6 @@ export function useNewThreadHandler() {
         await router.navigate({
           to: "/draft/$draftId",
           params: { draftId },
-          replace: options?.replace ?? false,
         });
       })();
     },

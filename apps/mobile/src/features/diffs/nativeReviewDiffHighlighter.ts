@@ -56,11 +56,6 @@ interface NativeReviewDiffLineRow extends NativeReviewDiffRow {
   readonly content: string;
 }
 
-interface IndexedNativeReviewDiffLineRow {
-  readonly row: NativeReviewDiffLineRow;
-  readonly rowIndex: number;
-}
-
 export interface NativeReviewDiffTokenChunk {
   readonly chunkIndex: number;
   readonly fileId: string;
@@ -313,58 +308,6 @@ function isHighlightableLineRow(row: NativeReviewDiffRow): row is NativeReviewDi
   return row.kind === "line" && typeof row.fileId === "string" && typeof row.content === "string";
 }
 
-function hasConsecutiveLineNumbers(
-  previous: number | null | undefined,
-  next: number | null | undefined,
-): boolean {
-  return typeof previous === "number" && typeof next === "number" && next === previous + 1;
-}
-
-function hasOnlyCommentRowsBetween(
-  rows: ReadonlyArray<NativeReviewDiffRow>,
-  previousRowIndex: number,
-  nextRowIndex: number,
-): boolean {
-  for (let rowIndex = previousRowIndex + 1; rowIndex < nextRowIndex; rowIndex += 1) {
-    if (rows[rowIndex]?.kind !== "comment") {
-      return false;
-    }
-  }
-  return true;
-}
-
-function canShareGrammarContext(
-  previous: IndexedNativeReviewDiffLineRow,
-  next: IndexedNativeReviewDiffLineRow,
-  rows: ReadonlyArray<NativeReviewDiffRow>,
-): boolean {
-  if (
-    next.row.fileId !== previous.row.fileId ||
-    !hasOnlyCommentRowsBetween(rows, previous.rowIndex, next.rowIndex)
-  ) {
-    return false;
-  }
-
-  if (previous.row.change === "delete" || next.row.change === "delete") {
-    return (
-      previous.row.change !== "add" &&
-      next.row.change !== "add" &&
-      hasConsecutiveLineNumbers(previous.row.oldLineNumber, next.row.oldLineNumber)
-    );
-  }
-
-  if (previous.row.change === "add" || next.row.change === "add") {
-    return hasConsecutiveLineNumbers(previous.row.newLineNumber, next.row.newLineNumber);
-  }
-
-  return (
-    previous.row.change === "context" &&
-    next.row.change === "context" &&
-    hasConsecutiveLineNumbers(previous.row.oldLineNumber, next.row.oldLineNumber) &&
-    hasConsecutiveLineNumbers(previous.row.newLineNumber, next.row.newLineNumber)
-  );
-}
-
 function groupLineRowsByFileId(rows: ReadonlyArray<NativeReviewDiffRow>) {
   const rowsByFileId = new Map<string, NativeReviewDiffLineRow[]>();
   for (const row of rows) {
@@ -417,7 +360,7 @@ export async function highlightNativeReviewDiffVisibleRows(
   const maxRows = input.maxRows ?? NATIVE_REVIEW_DIFF_VISIBLE_MAX_ROWS;
   const startIndex = clampRowIndex(input.firstRowIndex - overscanRows, input.rows);
   const endIndex = clampRowIndex(input.lastRowIndex + overscanRows, input.rows);
-  const selectedRows: IndexedNativeReviewDiffLineRow[] = [];
+  const selectedRows: NativeReviewDiffLineRow[] = [];
 
   for (
     let rowIndex = startIndex;
@@ -431,12 +374,12 @@ export async function highlightNativeReviewDiffVisibleRows(
       !input.alreadyHighlightedRowIds?.has(row.id) &&
       fileMap.has(row.fileId)
     ) {
-      selectedRows.push({ row, rowIndex });
+      selectedRows.push(row);
     }
   }
 
   const tokensByRowId: Record<string, ReadonlyArray<NativeReviewDiffToken>> = {};
-  let segmentRows: IndexedNativeReviewDiffLineRow[] = [];
+  let segmentRows: NativeReviewDiffLineRow[] = [];
   let segmentFile: NativeReviewDiffFile | undefined;
 
   const flushSegment = () => {
@@ -446,34 +389,27 @@ export async function highlightNativeReviewDiffVisibleRows(
       return;
     }
 
-    const code = segmentRows.map(({ row }) => row.content).join("\n");
+    const code = segmentRows.map((row) => row.content).join("\n");
     const tokenLines = highlighter.tokenize(code, { lang: segmentFile.language, theme });
-    segmentRows.forEach(({ row }, rowIndex) => {
+    segmentRows.forEach((row, rowIndex) => {
       tokensByRowId[row.id] = tokenLines[rowIndex] ?? makePlainTokenFallback(row);
     });
     segmentRows = [];
     segmentFile = undefined;
   };
 
-  for (const selectedRow of selectedRows) {
-    const { row } = selectedRow;
+  for (const row of selectedRows) {
     const file = fileMap.get(row.fileId);
     if (!file) {
       continue;
     }
 
-    const previousRow = segmentRows.at(-1);
-    if (
-      segmentFile &&
-      (segmentFile.id !== file.id ||
-        (previousRow !== undefined &&
-          !canShareGrammarContext(previousRow, selectedRow, input.rows)))
-    ) {
+    if (segmentFile && segmentFile.id !== file.id) {
       flushSegment();
     }
 
     segmentFile = file;
-    segmentRows.push(selectedRow);
+    segmentRows.push(row);
   }
   flushSegment();
 

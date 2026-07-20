@@ -1,7 +1,7 @@
 import ExpoModulesCore
 import UIKit
 
-private struct ReviewDiffNativeRow: Decodable, Sendable {
+private struct ReviewDiffNativeRow: Decodable {
   let kind: String
   let id: String
   let fileId: String?
@@ -21,18 +21,18 @@ private struct ReviewDiffNativeRow: Decodable, Sendable {
   let commentSectionTitle: String?
 }
 
-private struct ReviewDiffNativeWordDiffRange: Decodable, Sendable {
+private struct ReviewDiffNativeWordDiffRange: Decodable {
   let start: Int
   let end: Int
 }
 
-private struct ReviewDiffNativeToken: Decodable, Sendable {
+private struct ReviewDiffNativeToken: Decodable {
   let content: String
   let color: String?
   let fontStyle: Int?
 }
 
-private struct ReviewDiffNativeTokenPatch: Decodable, Sendable {
+private struct ReviewDiffNativeTokenPatch: Decodable {
   let resetKey: String?
   let chunkIndex: Int?
   let tokensByRowId: [String: [ReviewDiffNativeToken]]?
@@ -312,10 +312,6 @@ private struct ReviewDiffNativeStyle {
 }
 
 public final class T3ReviewDiffView: ExpoView, UIScrollViewDelegate {
-  private let payloadDecodeQueue = DispatchQueue(
-    label: "com.t3tools.review-diff.payload-decode",
-    qos: .userInitiated
-  )
   private let scrollView = UIScrollView()
   private let contentView = ReviewDiffContentView()
   private var rows: [ReviewDiffNativeRow] = []
@@ -327,25 +323,14 @@ public final class T3ReviewDiffView: ExpoView, UIScrollViewDelegate {
   private var lastMetricsDebugKey = ""
   private var lastVisibleRangeDebugKey = ""
   private var tokensResetKey = ""
-  private var contentResetKey = ""
   private var initialRowIndex: Int?
   private var hasAppliedInitialRowIndex = false
-  private var lastVisibleFileId: String?
-  private var pendingScrollFileId: String?
-  private var pendingScrollAnimated = false
-  private var isProgrammaticScrollActive = false
-  private var rowsDecodeGeneration = 0
-  private var tokensDecodeGeneration = 0
 
   let onDebug = EventDispatcher()
-  let onVisibleFileChange = EventDispatcher()
   let onToggleFile = EventDispatcher()
   let onToggleViewedFile = EventDispatcher()
   let onPressLine = EventDispatcher()
   let onToggleComment = EventDispatcher()
-  let onPullToRefresh = EventDispatcher()
-
-  private let pullRefreshControl = UIRefreshControl()
 
   public required init(appContext: AppContext? = nil) {
     super.init(appContext: appContext)
@@ -360,8 +345,6 @@ public final class T3ReviewDiffView: ExpoView, UIScrollViewDelegate {
     scrollView.showsVerticalScrollIndicator = true
     scrollView.showsHorizontalScrollIndicator = false
     scrollView.backgroundColor = contentView.theme.background
-    pullRefreshControl.addTarget(self, action: #selector(handlePullToRefresh), for: .valueChanged)
-    scrollView.refreshControl = pullRefreshControl
     addSubview(scrollView)
 
     contentView.backgroundColor = contentView.theme.background
@@ -396,13 +379,6 @@ public final class T3ReviewDiffView: ExpoView, UIScrollViewDelegate {
     updateViewportFrame()
   }
 
-  public func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
-    // A direct gesture takes ownership from any interrupted programmatic jump.
-    // Resume visible-file events immediately so the inspector follows the finger.
-    isProgrammaticScrollActive = false
-    contentView.isVerticalScrollActive = true
-  }
-
   public func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
     guard !decelerate else {
       return
@@ -420,125 +396,77 @@ public final class T3ReviewDiffView: ExpoView, UIScrollViewDelegate {
   }
 
   func setRowsJson(_ rowsJson: String) {
-    rowsDecodeGeneration += 1
-    let generation = rowsDecodeGeneration
+    guard let data = rowsJson.data(using: .utf8) else {
+      return
+    }
 
-    payloadDecodeQueue.async { [weak self] in
-      guard let data = rowsJson.data(using: .utf8) else {
-        return
-      }
-
-      do {
-        let decodedRows = try JSONDecoder().decode([ReviewDiffNativeRow].self, from: data)
-        DispatchQueue.main.async { [weak self] in
-          guard let self, generation == self.rowsDecodeGeneration else {
-            return
-          }
-          self.rows = decodedRows
-          self.contentView.rows = decodedRows
-          self.hasAppliedInitialRowIndex = false
-          self.lastVisibleFileId = nil
-          self.emitDebug("rows-decoded", [
-            "rows": decodedRows.count,
-            "firstKind": decodedRows.first?.kind ?? "none",
-          ])
-          self.updateContentMetrics()
-          self.applyPendingScrollIfNeeded()
-        }
-      } catch {
-        let message = error.localizedDescription
-        DispatchQueue.main.async { [weak self] in
-          guard let self, generation == self.rowsDecodeGeneration else {
-            return
-          }
-          self.rows = []
-          self.contentView.rows = []
-          self.hasAppliedInitialRowIndex = false
-          self.lastVisibleFileId = nil
-          self.pendingScrollFileId = nil
-          self.updateContentMetrics()
-          self.emitDebug("rows-decode-failed", ["error": message])
-        }
-      }
+    do {
+      rows = try JSONDecoder().decode([ReviewDiffNativeRow].self, from: data)
+      contentView.rows = rows
+      hasAppliedInitialRowIndex = false
+      emitDebug("rows-decoded", [
+        "rows": rows.count,
+        "firstKind": rows.first?.kind ?? "none",
+      ])
+      updateContentMetrics()
+    } catch {
+      rows = []
+      contentView.rows = []
+      hasAppliedInitialRowIndex = false
+      updateContentMetrics()
+      emitDebug("rows-decode-failed", [
+        "error": error.localizedDescription,
+      ])
     }
   }
 
   func setTokensJson(_ tokensJson: String) {
-    tokensDecodeGeneration += 1
-    let generation = tokensDecodeGeneration
+    guard let data = tokensJson.data(using: .utf8) else {
+      return
+    }
 
-    payloadDecodeQueue.async { [weak self] in
-      guard let data = tokensJson.data(using: .utf8) else {
-        return
-      }
-
-      do {
-        let decodedTokens = try JSONDecoder().decode(
-          [String: [ReviewDiffNativeToken]].self,
-          from: data
-        )
-        DispatchQueue.main.async { [weak self] in
-          guard let self, generation == self.tokensDecodeGeneration else {
-            return
-          }
-          self.contentView.tokensByRowId = decodedTokens
-        }
-      } catch {
-        let message = error.localizedDescription
-        DispatchQueue.main.async { [weak self] in
-          guard let self, generation == self.tokensDecodeGeneration else {
-            return
-          }
-          self.contentView.tokensByRowId = [:]
-          self.emitDebug("tokens-decode-failed", ["error": message])
-        }
-      }
+    do {
+      contentView.tokensByRowId = try JSONDecoder().decode(
+        [String: [ReviewDiffNativeToken]].self,
+        from: data
+      )
+    } catch {
+      contentView.tokensByRowId = [:]
+      emitDebug("tokens-decode-failed", [
+        "error": error.localizedDescription,
+      ])
     }
   }
 
   func setTokensPatchJson(_ tokensPatchJson: String) {
-    let contentResetKey = self.contentResetKey
+    guard let data = tokensPatchJson.data(using: .utf8) else {
+      return
+    }
 
-    payloadDecodeQueue.async { [weak self] in
-      guard let data = tokensPatchJson.data(using: .utf8) else {
+    do {
+      let patch = try JSONDecoder().decode(ReviewDiffNativeTokenPatch.self, from: data)
+      if let resetKey = patch.resetKey, resetKey != tokensResetKey {
+        tokensResetKey = resetKey
+        contentView.tokensByRowId = [:]
+      }
+
+      let tokensByRowId = patch.tokensByRowId ?? [:]
+      if tokensByRowId.isEmpty {
         return
       }
 
-      do {
-        let patch = try JSONDecoder().decode(ReviewDiffNativeTokenPatch.self, from: data)
-        DispatchQueue.main.async { [weak self] in
-          guard let self else {
-            return
-          }
-          guard contentResetKey == self.contentResetKey else {
-            return
-          }
-          // A highlighter request from the previous file can finish after the view has
-          // already reset. Never let that stale patch roll the native token state back.
-          if let resetKey = patch.resetKey, resetKey != self.tokensResetKey {
-            return
-          }
-
-          let tokensByRowId = patch.tokensByRowId ?? [:]
-          if tokensByRowId.isEmpty {
-            return
-          }
-
-          self.contentView.mergeTokensByRowId(tokensByRowId)
-          if let chunkIndex = patch.chunkIndex, chunkIndex < 5 || chunkIndex.isMultiple(of: 10) {
-            self.emitDebug("tokens-patch-decoded", [
-              "chunkIndex": chunkIndex,
-              "rows": tokensByRowId.count,
-              "totalRows": self.contentView.tokensByRowId.count,
-            ])
-          }
-        }
-      } catch {
-        let message = error.localizedDescription
-        DispatchQueue.main.async { [weak self] in
-          self?.emitDebug("tokens-patch-decode-failed", ["error": message])
-        }
+      contentView.mergeTokensByRowId(tokensByRowId)
+      if let chunkIndex = patch.chunkIndex, chunkIndex < 5 || chunkIndex.isMultiple(of: 10) {
+        emitDebug("tokens-patch-decoded", [
+          "chunkIndex": chunkIndex,
+          "rows": tokensByRowId.count,
+          "totalRows": contentView.tokensByRowId.count,
+        ])
       }
+    } catch {
+      emitDebug("tokens-patch-decode-failed", [
+        "error": error.localizedDescription,
+      ])
     }
   }
 
@@ -552,27 +480,6 @@ public final class T3ReviewDiffView: ExpoView, UIScrollViewDelegate {
     emitDebug("tokens-reset", [
       "resetKey": tokensResetKey,
     ])
-  }
-
-  func setContentResetKey(_ contentResetKey: String) {
-    guard contentResetKey != self.contentResetKey else {
-      return
-    }
-
-    self.contentResetKey = contentResetKey
-    rowsDecodeGeneration += 1
-    tokensDecodeGeneration += 1
-    contentView.tokensByRowId = [:]
-    rows = []
-    contentView.rows = []
-    hasAppliedInitialRowIndex = false
-    pendingScrollFileId = nil
-    isProgrammaticScrollActive = false
-    scrollView.setContentOffset(.zero, animated: false)
-    updateContentMetrics()
-    updateViewportFrame()
-    lastVisibleFileId = nil
-    applyInitialRowIndexIfNeeded()
   }
 
   func setCollapsedFileIdsJson(_ collapsedFileIdsJson: String) {
@@ -666,8 +573,6 @@ public final class T3ReviewDiffView: ExpoView, UIScrollViewDelegate {
     contentView.invalidateVisibleViewport()
     contentView.setNeedsDisplay()
     applyInitialRowIndexIfNeeded()
-    applyPendingScrollIfNeeded()
-    emitVisibleFileIfNeeded()
 
     let debugKey = "\(rows.count):\(Int(bounds.width)):\(Int(bounds.height)):\(Int(height))"
     if debugKey != lastMetricsDebugKey {
@@ -691,39 +596,9 @@ public final class T3ReviewDiffView: ExpoView, UIScrollViewDelegate {
   }
 
   private func finishVerticalScroll() {
-    isProgrammaticScrollActive = false
     contentView.isVerticalScrollActive = false
     updateViewportFrame()
     emitVisibleRange(reason: "scroll-end")
-  }
-
-  private func emitVisibleFileIfNeeded() {
-    // Keep the explicit destination selected while UIKit animates through the files
-    // between the old and new offsets. Emitting every intermediate header forces a
-    // React render per crossing and makes the navigator visibly flash.
-    guard !isProgrammaticScrollActive else {
-      return
-    }
-
-    // The top of the combined diff is the explicit "All files" destination.
-    // Treat it as a first-class selection instead of immediately resolving the
-    // first file header and undoing the navigator's optimistic selection.
-    if scrollView.contentOffset.y <= 0.5 {
-      guard lastVisibleFileId != nil else {
-        return
-      }
-      lastVisibleFileId = nil
-      onVisibleFileChange(["fileId": NSNull()])
-      return
-    }
-
-    guard let fileId = contentView.visibleFileId(atVerticalOffset: scrollView.contentOffset.y),
-          fileId != lastVisibleFileId else {
-      return
-    }
-
-    lastVisibleFileId = fileId
-    onVisibleFileChange(["fileId": fileId])
   }
 
   private func emitVisibleRange(reason: String) {
@@ -795,33 +670,6 @@ public final class T3ReviewDiffView: ExpoView, UIScrollViewDelegate {
     applyInitialRowIndexIfNeeded()
   }
 
-  func scrollToFile(_ fileId: String, animated: Bool) {
-    pendingScrollFileId = fileId
-    pendingScrollAnimated = animated
-    applyPendingScrollIfNeeded()
-  }
-
-  func scrollToTop(animated: Bool) {
-    pendingScrollFileId = nil
-    pendingScrollAnimated = false
-    setVerticalContentOffset(0, animated: animated)
-  }
-
-  @objc private func handlePullToRefresh() {
-    onPullToRefresh([:])
-  }
-
-  /// Driven from JS: set to false once the reload completes to dismiss the spinner.
-  func setRefreshing(_ refreshing: Bool) {
-    if refreshing {
-      if !pullRefreshControl.isRefreshing {
-        pullRefreshControl.beginRefreshing()
-      }
-    } else if pullRefreshControl.isRefreshing {
-      pullRefreshControl.endRefreshing()
-    }
-  }
-
   private func applyStyle() {
     contentView.style = ReviewDiffNativeStyle
       .resolve(stylePayload)
@@ -838,38 +686,6 @@ public final class T3ReviewDiffView: ExpoView, UIScrollViewDelegate {
     )
     contentView.verticalOffset = scrollView.contentOffset.y
     contentView.invalidateVisibleViewport()
-    emitVisibleFileIfNeeded()
-  }
-
-  private func applyPendingScrollIfNeeded() {
-    guard let fileId = pendingScrollFileId,
-          bounds.height > 0 else {
-      return
-    }
-
-    guard let headerOffset = contentView.fileHeaderOffset(forFileId: fileId) else {
-      if !rows.isEmpty {
-        pendingScrollFileId = nil
-      }
-      return
-    }
-
-    let animated = pendingScrollAnimated
-    pendingScrollFileId = nil
-    pendingScrollAnimated = false
-    setVerticalContentOffset(headerOffset, animated: animated)
-  }
-
-  private func setVerticalContentOffset(_ targetOffset: CGFloat, animated: Bool) {
-    let maxOffset = max(scrollView.contentSize.height - scrollView.bounds.height, 0)
-    let clampedOffset = min(max(targetOffset, 0), maxOffset)
-    let shouldAnimate = animated && abs(scrollView.contentOffset.y - clampedOffset) > 0.5
-    isProgrammaticScrollActive = shouldAnimate
-    contentView.isVerticalScrollActive = shouldAnimate
-    scrollView.setContentOffset(CGPoint(x: 0, y: clampedOffset), animated: shouldAnimate)
-    if !shouldAnimate {
-      updateViewportFrame()
-    }
   }
 
   private func applyInitialRowIndexIfNeeded() {
@@ -1437,32 +1253,6 @@ private final class ReviewDiffContentView: UIView, UIGestureRecognizerDelegate {
     }
 
     return rowOffsets[rowIndex]
-  }
-
-  func visibleFileId(atVerticalOffset verticalOffset: CGFloat) -> String? {
-    guard let firstHeaderRowIndex = fileHeaderRowIndices.first else {
-      return nil
-    }
-
-    var lowerBound = 0
-    var upperBound = fileHeaderRowIndices.count
-    while lowerBound < upperBound {
-      let midpoint = (lowerBound + upperBound) / 2
-      let rowIndex = fileHeaderRowIndices[midpoint]
-      if rowOffsets[rowIndex] <= verticalOffset + 0.5 {
-        lowerBound = midpoint + 1
-      } else {
-        upperBound = midpoint
-      }
-    }
-
-    let rowIndex = lowerBound > 0
-      ? fileHeaderRowIndices[lowerBound - 1]
-      : firstHeaderRowIndex
-    guard rows.indices.contains(rowIndex) else {
-      return nil
-    }
-    return resolvedFileId(for: rows[rowIndex])
   }
 
   private func fileHeaderRowIndex(forFileId fileId: String) -> Int? {

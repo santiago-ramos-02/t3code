@@ -1,5 +1,4 @@
 import { type CursorSettings, type ProviderOptionSelection } from "@t3tools/contracts";
-import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Scope from "effect/Scope";
@@ -36,7 +35,7 @@ export function buildCursorAcpSpawnInput(
   environment?: NodeJS.ProcessEnv,
 ): AcpSessionRuntime.AcpSpawnInput {
   return {
-    command: cursorSettings?.binaryPath || "cursor-agent",
+    command: cursorSettings?.binaryPath || "agent",
     args: [
       ...(cursorSettings?.apiEndpoint ? (["-e", cursorSettings.apiEndpoint] as const) : []),
       "acp",
@@ -51,7 +50,7 @@ export const makeCursorAcpRuntime = (
 ): Effect.Effect<
   AcpSessionRuntime.AcpSessionRuntime["Service"],
   EffectAcpErrors.AcpError,
-  Crypto.Crypto | Scope.Scope
+  Scope.Scope
 > =>
   Effect.gen(function* () {
     const acpContext = yield* Layer.build(
