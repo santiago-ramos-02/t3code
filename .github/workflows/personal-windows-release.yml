@@ -217,7 +217,9 @@ jobs:
         shell: bash
         run: |
           if [[ "${{ matrix.platform }}" == "mac" ]]; then
-            ulimit -n 65536 2>/dev/null || ulimit -n 10240
+            echo "macOS open-file limit before: soft=$(ulimit -Sn) hard=$(ulimit -Hn)"
+            ulimit -n "$(ulimit -Hn)"
+            echo "macOS open-file limit after: soft=$(ulimit -Sn) hard=$(ulimit -Hn)"
           fi
 
           args=(
