@@ -201,6 +201,22 @@ jobs:
       - name: Align package versions
         run: node scripts/update-release-package-versions.ts "${{ needs.prepare.outputs.version }}"
 
+      - name: Keep unsigned macOS packaging within runner limits
+        if: matrix.platform == 'mac'
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require("node:fs");
+          const path = "scripts/build-desktop-artifact.ts";
+          const source = fs.readFileSync(path, "utf8");
+          const before = 'asarUnpack: [...DESKTOP_ASAR_UNPACK, "apps/server/dist/**", "**/node_modules/**"],';
+          const after = "asarUnpack: DESKTOP_ASAR_UNPACK,";
+          if (!source.includes(before)) {
+            throw new Error("Expected stable desktop asarUnpack configuration was not found");
+          }
+          fs.writeFileSync(path, source.replace(before, after));
+          NODE
+
       - name: Install Spectre-mitigated MSVC libraries
         if: matrix.platform == 'win'
         shell: pwsh
