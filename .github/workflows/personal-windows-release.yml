@@ -324,7 +324,7 @@ jobs:
       - name: Publish GitHub prerelease
         shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.PERSONAL_RELEASE_TOKEN }}
           BUILD_SHA: ${{ needs.sync.outputs.build_sha }}
           RELEASE_NAME: ${{ needs.prepare.outputs.name }}
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
@@ -371,6 +371,8 @@ jobs:
               tree_sha="$(git rev-parse "$BUILD_SHA^{tree}")"
               release_sha="$(printf 'Release %s\n' "$RELEASE_TAG" | git commit-tree "$tree_sha" -p "$BUILD_SHA")"
               git tag "$RELEASE_TAG" "$release_sha"
+              git config --local --unset-all http.https://github.com/.extraheader || true
+              git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
               git push origin "refs/tags/$RELEASE_TAG"
             fi
 

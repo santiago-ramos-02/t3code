@@ -34,7 +34,7 @@ jobs:
         name: Apply personal changes to the latest upstream stable
         shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.PERSONAL_RELEASE_TOKEN }}
         run: |
           set -euo pipefail
 
@@ -103,6 +103,8 @@ jobs:
             tree_sha="$(git write-tree)"
             build_sha="$(printf 'Apply personal changes to %s\n' "$upstream_tag" | git commit-tree "$tree_sha" -p "$fork_sha")"
             git tag "$release_tag" "$build_sha"
+            git config --local --unset-all http.https://github.com/.extraheader || true
+            git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
             git push origin "refs/tags/${release_tag}"
           fi
 
@@ -354,7 +356,7 @@ jobs:
       - name: Publish GitHub release
         shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.PERSONAL_RELEASE_TOKEN }}
           BUILD_SHA: ${{ needs.prepare.outputs.build_sha }}
           RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
           RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
