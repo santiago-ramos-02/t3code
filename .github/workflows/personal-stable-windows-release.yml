@@ -230,6 +230,10 @@ jobs:
       - name: Build unsigned desktop artifact
         shell: bash
         run: |
+          if [[ "${{ matrix.platform }}" == "mac" ]]; then
+            ulimit -n 65536 2>/dev/null || ulimit -n 10240
+          fi
+
           args=(
             --platform "${{ matrix.platform }}"
             --target "${{ matrix.target }}"
