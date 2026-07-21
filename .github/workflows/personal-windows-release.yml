@@ -363,9 +363,17 @@ jobs:
               --repo "$GITHUB_REPOSITORY" \
               --clobber
           else
+            if ! git ls-remote --exit-code origin "refs/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+              git config user.name "personal-release-bot"
+              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+              tree_sha="$(git rev-parse "$BUILD_SHA^{tree}")"
+              release_sha="$(printf 'Release %s\n' "$RELEASE_TAG" | git commit-tree "$tree_sha" -p "$BUILD_SHA")"
+              git tag "$RELEASE_TAG" "$release_sha"
+              git push origin "refs/tags/$RELEASE_TAG"
+            fi
+
             gh release create "$RELEASE_TAG" "${assets[@]}" \
               --repo "$GITHUB_REPOSITORY" \
-              --target "$BUILD_SHA" \
               --title "$RELEASE_NAME" \
               --notes "$notes" \
               --prerelease
