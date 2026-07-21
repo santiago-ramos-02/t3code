@@ -21,6 +21,12 @@ import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 const EMPTY_DIRECTORY_OVERRIDES: Record<string, boolean> = {};
+const DIRECTORY_EXPANSION_STORAGE_PREFIX = "t3code:changed-files-directory-expansion:v1:";
+
+type DirectoryExpansionState = {
+  key: string;
+  overrides: Record<string, boolean>;
+};
 
 export const ChangedFilesCard = memo(function ChangedFilesCard(props: {
   turnId: TurnId;
@@ -116,10 +122,18 @@ export const ChangedFilesTree = memo(function ChangedFilesTree(props: {
   turnId: TurnId;
   files: ReadonlyArray<TurnDiffFileChange>;
   allDirectoriesExpanded: boolean;
+  expansionStorageKey?: string;
   resolvedTheme: "light" | "dark";
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
 }) {
-  const { files, allDirectoriesExpanded, onOpenTurnDiff, resolvedTheme, turnId } = props;
+  const {
+    files,
+    allDirectoriesExpanded,
+    expansionStorageKey,
+    onOpenTurnDiff,
+    resolvedTheme,
+    turnId,
+  } = props;
   const treeNodes = useMemo(() => buildTurnDiffTree(files), [files]);
   const directoryPathsKey = useMemo(
     () => collectDirectoryPaths(treeNodes).join("\u0000"),
@@ -127,13 +141,9 @@ export const ChangedFilesTree = memo(function ChangedFilesTree(props: {
   );
   const hasDirectoryNodes = directoryPathsKey.length > 0;
   const expansionStateKey = `${allDirectoriesExpanded ? "expanded" : "collapsed"}\u0000${directoryPathsKey}`;
-  const [directoryExpansionState, setDirectoryExpansionState] = useState<{
-    key: string;
-    overrides: Record<string, boolean>;
-  }>(() => ({
-    key: expansionStateKey,
-    overrides: {},
-  }));
+  const [directoryExpansionState, setDirectoryExpansionState] = useState<DirectoryExpansionState>(
+    () => readDirectoryExpansionState(expansionStorageKey, expansionStateKey),
+  );
   const expandedDirectories =
     directoryExpansionState.key === expansionStateKey
       ? directoryExpansionState.overrides
@@ -143,16 +153,18 @@ export const ChangedFilesTree = memo(function ChangedFilesTree(props: {
     (pathValue: string) => {
       setDirectoryExpansionState((current) => {
         const nextOverrides = current.key === expansionStateKey ? current.overrides : {};
-        return {
+        const nextState = {
           key: expansionStateKey,
           overrides: {
             ...nextOverrides,
             [pathValue]: !(nextOverrides[pathValue] ?? allDirectoriesExpanded),
           },
         };
+        persistDirectoryExpansionState(expansionStorageKey, nextState);
+        return nextState;
       });
     },
-    [allDirectoriesExpanded, expansionStateKey],
+    [allDirectoriesExpanded, expansionStateKey, expansionStorageKey],
   );
 
   const renderTreeNode = (node: TurnDiffTreeNode, depth: number) => {
@@ -238,4 +250,40 @@ function collectDirectoryPaths(nodes: ReadonlyArray<TurnDiffTreeNode>): string[]
     paths.push(...collectDirectoryPaths(node.children));
   }
   return paths;
+}
+
+function readDirectoryExpansionState(
+  storageKey: string | undefined,
+  expansionStateKey: string,
+): DirectoryExpansionState {
+  const fallback = { key: expansionStateKey, overrides: {} };
+  if (!storageKey || typeof window === "undefined") return fallback;
+
+  try {
+    const stored = JSON.parse(
+      window.localStorage.getItem(`${DIRECTORY_EXPANSION_STORAGE_PREFIX}${storageKey}`) ?? "null",
+    ) as Partial<DirectoryExpansionState> | null;
+    if (stored?.key !== expansionStateKey || !stored.overrides) return fallback;
+    const overrides = Object.fromEntries(
+      Object.entries(stored.overrides).filter((entry) => typeof entry[1] === "boolean"),
+    );
+    return { key: expansionStateKey, overrides };
+  } catch {
+    return fallback;
+  }
+}
+
+function persistDirectoryExpansionState(
+  storageKey: string | undefined,
+  state: DirectoryExpansionState,
+): void {
+  if (!storageKey || typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      `${DIRECTORY_EXPANSION_STORAGE_PREFIX}${storageKey}`,
+      JSON.stringify(state),
+    );
+  } catch {
+    // Ignore unavailable or full storage; expansion still works for the mounted tree.
+  }
 }

@@ -1,6 +1,6 @@
 import { TurnId } from "@t3tools/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { ChangedFilesCard, ChangedFilesTree } from "./ChangedFilesTree";
 
@@ -30,6 +30,41 @@ describe("ChangedFilesCard", () => {
 });
 
 describe("ChangedFilesTree", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("restores individual directory expansion after the tree remounts", () => {
+    const localStorage = createLocalStorageStub();
+    const expansionStorageKey = "environment:thread-1\u0000turn-1";
+    localStorage.setItem(
+      `t3code:changed-files-directory-expansion:v1:${expansionStorageKey}`,
+      JSON.stringify({
+        key: "expanded\u0000apps/web/src",
+        overrides: { "apps/web/src": false },
+      }),
+    );
+    vi.stubGlobal("window", { localStorage });
+
+    const markup = renderToStaticMarkup(
+      <ChangedFilesTree
+        turnId={TurnId.make("turn-1")}
+        files={[
+          { path: "apps/web/src/index.ts", kind: "modified", additions: 2, deletions: 1 },
+          { path: "apps/web/src/main.ts", kind: "modified", additions: 3, deletions: 0 },
+        ]}
+        allDirectoriesExpanded
+        expansionStorageKey={expansionStorageKey}
+        resolvedTheme="light"
+        onOpenTurnDiff={() => {}}
+      />,
+    );
+
+    expect(markup).toContain("apps/web/src");
+    expect(markup).not.toContain("index.ts");
+    expect(markup).not.toContain("main.ts");
+  });
+
   it.each([
     {
       name: "a compacted single-chain directory",
@@ -169,3 +204,17 @@ describe("ChangedFilesTree", () => {
     },
   );
 });
+
+function createLocalStorageStub(): Storage {
+  const store = new Map<string, string>();
+  return {
+    clear: () => store.clear(),
+    getItem: (key) => store.get(key) ?? null,
+    key: (index) => [...store.keys()][index] ?? null,
+    get length() {
+      return store.size;
+    },
+    removeItem: (key) => store.delete(key),
+    setItem: (key, value) => store.set(key, value),
+  };
+}

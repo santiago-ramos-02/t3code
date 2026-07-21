@@ -1333,6 +1333,7 @@ function AssistantChangedFilesSectionInner({
         turnId={turnSummary.turnId}
         files={checkpointFiles}
         allDirectoriesExpanded={allDirectoriesExpanded}
+        expansionStorageKey={`${routeThreadKey}\u0000${turnSummary.turnId}`}
         resolvedTheme={resolvedTheme}
         onOpenTurnDiff={onOpenTurnDiff}
       />
