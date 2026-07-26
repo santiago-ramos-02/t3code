@@ -67,7 +67,7 @@ import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { isElectron } from "../env";
 import { readLocalApi } from "../localApi";
-import { useDiffPanelStore } from "../diffPanelStore";
+import { openTurnDiffPrimaryAction } from "../diffFileActions";
 import {
   collapseExpandedComposerCursor,
   parseStandaloneComposerSlashCommand,
@@ -5235,11 +5235,22 @@ function ChatViewContent(props: ChatViewProps) {
   const onOpenTurnDiff = useCallback(
     (turnId: TurnId, filePath?: string) => {
       if (!isServerThread || !activeThreadRef) return;
-      useDiffPanelStore.getState().selectTurn(activeThreadRef, turnId, filePath);
-      useRightPanelStore.getState().open(activeThreadRef, "diff");
+      openTurnDiffPrimaryAction({
+        threadRef: activeThreadRef,
+        turnId,
+        ...(filePath ? { filePath } : {}),
+        planSidebarOpen,
+        dismissPlanSidebar: dismissPlanSidebarForCurrentTurn,
+      });
       onDiffPanelOpen?.();
     },
-    [activeThreadRef, isServerThread, onDiffPanelOpen],
+    [
+      activeThreadRef,
+      dismissPlanSidebarForCurrentTurn,
+      isServerThread,
+      onDiffPanelOpen,
+      planSidebarOpen,
+    ],
   );
   // Both the Map and the revert handler are read from refs at call-time so
   // the callback reference is fully stable and never busts context identity.

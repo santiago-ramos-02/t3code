@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vite-plus/test";
-import { buildPatchCacheKey, getRenderablePatch } from "./diffRendering";
+import { buildPatchCacheKey, DIFF_CODE_VIEW_CLASS_NAME, getRenderablePatch } from "./diffRendering";
+
+describe("DIFF_CODE_VIEW_CLASS_NAME", () => {
+  it("leaves virtualized content positioning under the diff renderer's control", () => {
+    expect(DIFF_CODE_VIEW_CLASS_NAME).toContain("overflow-auto");
+    expect(DIFF_CODE_VIEW_CLASS_NAME).not.toContain("top-0!");
+    expect(DIFF_CODE_VIEW_CLASS_NAME).not.toContain("bottom-auto!");
+  });
+});
 
 describe("buildPatchCacheKey", () => {
   it("returns a stable cache key for identical content", () => {

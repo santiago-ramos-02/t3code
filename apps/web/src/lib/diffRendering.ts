@@ -6,6 +6,8 @@ export const DIFF_THEME_NAMES = {
   dark: "pierre-dark",
 } as const;
 
+export const DIFF_CODE_VIEW_CLASS_NAME = "diff-render-surface h-full min-h-0 overflow-auto";
+
 export type DiffThemeName = (typeof DIFF_THEME_NAMES)[keyof typeof DIFF_THEME_NAMES];
 
 export function resolveDiffThemeName(theme: "light" | "dark"): DiffThemeName {

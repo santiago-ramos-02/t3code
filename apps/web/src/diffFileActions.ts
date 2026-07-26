@@ -1,5 +1,6 @@
-import type { ScopedThreadRef } from "@t3tools/contracts";
+import type { ScopedThreadRef, TurnId } from "@t3tools/contracts";
 
+import { useDiffPanelStore } from "./diffPanelStore";
 import { useRightPanelStore } from "./rightPanelStore";
 import { resolvePathLinkTarget } from "./terminal-links";
 
@@ -22,4 +23,26 @@ export function openDiffFilePrimaryAction({
   }
 
   openInEditor(activeCwd ? resolvePathLinkTarget(filePath, activeCwd) : filePath);
+}
+
+interface OpenTurnDiffPrimaryActionInput {
+  readonly threadRef: ScopedThreadRef;
+  readonly turnId: TurnId;
+  readonly filePath?: string;
+  readonly planSidebarOpen: boolean;
+  readonly dismissPlanSidebar: () => void;
+}
+
+export function openTurnDiffPrimaryAction({
+  threadRef,
+  turnId,
+  filePath,
+  planSidebarOpen,
+  dismissPlanSidebar,
+}: OpenTurnDiffPrimaryActionInput): void {
+  if (planSidebarOpen) {
+    dismissPlanSidebar();
+  }
+  useDiffPanelStore.getState().selectTurn(threadRef, turnId, filePath);
+  useRightPanelStore.getState().open(threadRef, "diff");
 }

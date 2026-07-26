@@ -1,8 +1,9 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { EnvironmentId, ThreadId, TurnId } from "@t3tools/contracts";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { openDiffFilePrimaryAction } from "./diffFileActions";
+import { selectThreadDiffPanelSelection, useDiffPanelStore } from "./diffPanelStore";
+import { openDiffFilePrimaryAction, openTurnDiffPrimaryAction } from "./diffFileActions";
 import { selectThreadRightPanelState, useRightPanelStore } from "./rightPanelStore";
 
 const THREAD_REF = scopeThreadRef(
@@ -13,6 +14,7 @@ const THREAD_REF = scopeThreadRef(
 describe("openDiffFilePrimaryAction", () => {
   beforeEach(() => {
     useRightPanelStore.setState({ byThreadKey: {} });
+    useDiffPanelStore.setState({ byThreadKey: {}, branchBaseRefByThreadKey: {} });
   });
 
   it("opens diff files in the thread file viewer", () => {
@@ -47,5 +49,41 @@ describe("openDiffFilePrimaryAction", () => {
     expect(openInEditor).toHaveBeenCalledWith(
       "/repo/project/apps/web/src/components/DiffPanel.tsx",
     );
+  });
+});
+
+describe("openTurnDiffPrimaryAction", () => {
+  beforeEach(() => {
+    useRightPanelStore.setState({ byThreadKey: {} });
+    useDiffPanelStore.setState({ byThreadKey: {}, branchBaseRefByThreadKey: {} });
+  });
+
+  it("dismisses an auto-open plan before activating the requested turn diff", () => {
+    const dismissPlanSidebar = vi.fn();
+    const turnId = TurnId.make("turn-1");
+    useRightPanelStore.getState().open(THREAD_REF, "plan");
+
+    openTurnDiffPrimaryAction({
+      threadRef: THREAD_REF,
+      turnId,
+      filePath: "apps/web/src/components/DiffPanel.tsx",
+      planSidebarOpen: true,
+      dismissPlanSidebar,
+    });
+
+    expect(dismissPlanSidebar).toHaveBeenCalledOnce();
+    expect(
+      selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, THREAD_REF),
+    ).toMatchObject({
+      isOpen: true,
+      activeSurfaceId: "diff",
+    });
+    expect(
+      selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, THREAD_REF),
+    ).toMatchObject({
+      kind: "turn",
+      turnId,
+      filePath: "apps/web/src/components/DiffPanel.tsx",
+    });
   });
 });
