@@ -40,6 +40,7 @@ import { codexSessionAppServerArgs } from "./codexLaunchArgs.ts";
 import { expandHomePath } from "../../pathExpansion.ts";
 import { buildCodexDeveloperInstructions } from "../CodexDeveloperInstructions.ts";
 const decodeV2TurnStartResponse = Schema.decodeUnknownEffect(EffectCodexSchema.V2TurnStartResponse);
+const decodeV2TurnSteerResponse = Schema.decodeUnknownEffect(EffectCodexSchema.V2TurnSteerResponse);
 
 const PROVIDER = ProviderDriverKind.make("codex");
 
@@ -123,6 +124,9 @@ export interface CodexSessionRuntimeSendTurnInput {
 export interface CodexThreadTurnSnapshot {
   readonly id: TurnId;
   readonly items: ReadonlyArray<CodexThreadItem>;
+  readonly status?: EffectCodexSchema.V2ThreadReadResponse__TurnStatus;
+  readonly startedAt?: number | null;
+  readonly completedAt?: number | null;
 }
 
 export interface CodexThreadSnapshot {
@@ -441,6 +445,37 @@ export function isRecoverableThreadResumeError(error: unknown): boolean {
   return RECOVERABLE_THREAD_RESUME_ERROR_SNIPPETS.some((snippet) => message.includes(snippet));
 }
 
+export function findActiveCodexTurn<Turn extends { readonly status: string }>(
+  turns: ReadonlyArray<Turn>,
+): Turn | undefined {
+  return turns.findLast((turn) => turn.status === "inProgress");
+}
+
+export function buildCodexTurnSubmission(
+  params: CodexTurnStartParamsWithCollaborationMode,
+  activeTurnId: TurnId | undefined,
+):
+  | {
+      readonly method: "turn/start";
+      readonly params: CodexTurnStartParamsWithCollaborationMode;
+    }
+  | {
+      readonly method: "turn/steer";
+      readonly params: EffectCodexSchema.V2TurnSteerParams;
+    } {
+  if (activeTurnId === undefined) {
+    return { method: "turn/start", params };
+  }
+  return {
+    method: "turn/steer",
+    params: {
+      threadId: params.threadId,
+      expectedTurnId: activeTurnId,
+      input: params.input,
+    },
+  };
+}
+
 type CodexThreadOpenResponse =
   | CodexRpc.ClientRequestResponsesByMethod["thread/start"]
   | CodexRpc.ClientRequestResponsesByMethod["thread/resume"];
@@ -703,6 +738,9 @@ function parseThreadSnapshot(
     turns: response.thread.turns.map((turn) => ({
       id: TurnId.make(turn.id),
       items: turn.items,
+      status: turn.status,
+      ...(turn.startedAt !== undefined ? { startedAt: turn.startedAt } : {}),
+      ...(turn.completedAt !== undefined ? { completedAt: turn.completedAt } : {}),
     })),
   };
 }
@@ -1230,9 +1268,13 @@ export const makeCodexSessionRuntime = (
       });
 
       const providerThreadId = opened.thread.id;
+      const resumedActiveTurn = findActiveCodexTurn(opened.thread.turns);
+      const resumedActiveTurnId =
+        resumedActiveTurn === undefined ? undefined : TurnId.make(resumedActiveTurn.id);
       const session = {
         ...(yield* Ref.get(sessionRef)),
-        status: "ready",
+        status: resumedActiveTurnId === undefined ? "ready" : "running",
+        activeTurnId: resumedActiveTurnId,
         cwd: opened.cwd,
         model: opened.model,
         resumeCursor: { threadId: providerThreadId },
@@ -1240,6 +1282,18 @@ export const makeCodexSessionRuntime = (
       } satisfies ProviderSession;
       yield* Ref.set(sessionRef, session);
       yield* emitSessionEvent("session/ready", "Codex App Server session ready.");
+      if (resumedActiveTurn !== undefined) {
+        yield* emitEvent({
+          kind: "notification",
+          threadId: options.threadId,
+          method: "turn/started",
+          turnId: TurnId.make(resumedActiveTurn.id),
+          payload: {
+            threadId: providerThreadId,
+            turn: resumedActiveTurn,
+          },
+        });
+      }
       return session;
     });
 
@@ -1264,11 +1318,9 @@ export const makeCodexSessionRuntime = (
         status: "closed",
         activeTurnId: undefined,
       });
-      yield* emitSessionEvent("session/closed", "Session stopped").pipe(
-        Effect.catch((cause) =>
-          Effect.logError("Failed to emit Codex session closed event.", { cause }),
-        ),
-      );
+      // Closing this local app-server process does not stop the remote Codex
+      // harness. Explicit user stops are projected by the command reactor, and
+      // unexpected child exits are handled by the exit watcher above.
       yield* Scope.close(runtimeScope, Exit.void);
       yield* Queue.shutdown(serverNotifications);
       yield* Queue.shutdown(events);
@@ -1302,17 +1354,33 @@ export const makeCodexSessionRuntime = (
             ...(input.effort ? { effort: input.effort } : {}),
             ...(input.interactionMode ? { interactionMode: input.interactionMode } : {}),
           });
-          const rawResponse = yield* client.raw.request("turn/start", params);
-          const response = yield* decodeV2TurnStartResponse(rawResponse).pipe(
-            Effect.mapError((error) =>
-              CodexErrors.CodexAppServerProtocolParseError.fromSchemaError(
-                "decode-response-payload",
-                error,
-                { method: "turn/start" },
-              ),
-            ),
-          );
-          const turnId = TurnId.make(response.turn.id);
+          const activeTurnId = (yield* Ref.get(sessionRef)).activeTurnId;
+          const submission = buildCodexTurnSubmission(params, activeTurnId);
+          const rawResponse = yield* client.raw.request(submission.method, submission.params);
+          const turnId =
+            submission.method === "turn/steer"
+              ? TurnId.make(
+                  (yield* decodeV2TurnSteerResponse(rawResponse).pipe(
+                    Effect.mapError((error) =>
+                      CodexErrors.CodexAppServerProtocolParseError.fromSchemaError(
+                        "decode-response-payload",
+                        error,
+                        { method: "turn/steer" },
+                      ),
+                    ),
+                  )).turnId,
+                )
+              : TurnId.make(
+                  (yield* decodeV2TurnStartResponse(rawResponse).pipe(
+                    Effect.mapError((error) =>
+                      CodexErrors.CodexAppServerProtocolParseError.fromSchemaError(
+                        "decode-response-payload",
+                        error,
+                        { method: "turn/start" },
+                      ),
+                    ),
+                  )).turn.id,
+                );
           yield* updateSession(sessionRef, {
             status: "running",
             activeTurnId: turnId,

@@ -482,6 +482,43 @@ describe("ProviderCommandReactor", () => {
     expect(thread?.session?.runtimeMode).toBe("approval-required");
   });
 
+  it("restores the provider's active turn while reconnecting a resumed session", async () => {
+    const recoveredTurnId = asTurnId("turn-running-before-restart");
+    const harness = await createHarness({
+      startSessionEffect: (session) =>
+        Effect.succeed({
+          ...session,
+          status: "running",
+          activeTurnId: recoveredTurnId,
+        }),
+    });
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-turn-start-after-restart"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-after-restart"),
+          role: "user",
+          text: "Continue",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: "2026-01-01T00:00:01.000Z",
+      }),
+    );
+
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    const readModel = await harness.readModel();
+    const session = readModel.threads.find(
+      (entry) => entry.id === ThreadId.make("thread-1"),
+    )?.session;
+    expect(session?.status).toBe("running");
+    expect(session?.activeTurnId).toBe(recoveredTurnId);
+  });
+
   effectIt.effect("projects starting before a slow provider session finishes", () =>
     Effect.gen(function* () {
       const releaseStart = yield* Deferred.make<void>();

@@ -431,6 +431,7 @@ sessionErrorLayer("CodexAdapterLive session errors", (it) => {
         turns: [
           {
             id: asTurnId("turn-missed-while-closed"),
+            startedAt: Date.parse("2025-12-31T23:59:00.000Z") / 1_000,
             items: [
               {
                 type: "agentMessage",
@@ -486,6 +487,7 @@ sessionErrorLayer("CodexAdapterLive session errors", (it) => {
       NodeAssert.equal(recoveredEvent.value.threadId, "thread-resumed");
       NodeAssert.equal(recoveredEvent.value.turnId, "turn-missed-while-closed");
       NodeAssert.equal(recoveredEvent.value.itemId, "msg_missed_while_closed");
+      NodeAssert.equal(recoveredEvent.value.createdAt, "2025-12-31T23:59:00.000Z");
       NodeAssert.equal(
         recoveredEvent.value.payload.detail,
         "This completed while T3 Code was closed.",

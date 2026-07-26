@@ -4,7 +4,7 @@ import { it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { describe } from "vite-plus/test";
-import { DEFAULT_MODEL, ThreadId } from "@t3tools/contracts";
+import { DEFAULT_MODEL, ThreadId, TurnId } from "@t3tools/contracts";
 import * as CodexErrors from "effect-codex-app-server/errors";
 import * as CodexRpc from "effect-codex-app-server/rpc";
 
@@ -15,7 +15,9 @@ import {
 } from "../CodexDeveloperInstructions.ts";
 import { codexSessionAppServerArgs } from "./codexLaunchArgs.ts";
 import {
+  buildCodexTurnSubmission,
   buildTurnStartParams,
+  findActiveCodexTurn,
   hasConfiguredMcpServer,
   isRecoverableThreadResumeError,
   openCodexThread,
@@ -466,6 +468,42 @@ describe("openCodexThread", () => {
 
       NodeAssert.ok(isCodexAppServerRequestError(error));
       NodeAssert.equal(error.errorMessage, "timed out waiting for server");
+    }),
+  );
+});
+
+describe("Codex active-turn recovery", () => {
+  it("finds the active turn returned by thread/resume", () => {
+    const activeTurn = findActiveCodexTurn([
+      { id: "turn-complete", status: "completed" },
+      { id: "turn-running", status: "inProgress" },
+    ]);
+
+    NodeAssert.deepStrictEqual(activeTurn, {
+      id: "turn-running",
+      status: "inProgress",
+    });
+  });
+
+  it.effect("steers the recovered active turn instead of starting a competing turn", () =>
+    Effect.gen(function* () {
+      const startParams = yield* buildTurnStartParams({
+        threadId: "provider-thread-1",
+        runtimeMode: "full-access",
+        prompt: "Continue",
+      });
+
+      NodeAssert.deepStrictEqual(
+        buildCodexTurnSubmission(startParams, TurnId.make("turn-running")),
+        {
+          method: "turn/steer",
+          params: {
+            expectedTurnId: "turn-running",
+            input: [{ type: "text", text: "Continue" }],
+            threadId: "provider-thread-1",
+          },
+        },
+      );
     }),
   );
 });
