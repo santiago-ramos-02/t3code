@@ -1032,26 +1032,6 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     yield* Effect.forEach(currentAdapters, ([, adapter]) => adapter.stopAll()).pipe(Effect.asVoid);
     yield* McpSessionRegistry.revokeAllActiveMcpCredentials();
     McpProviderSession.clearAllMcpProviderSessions();
-    const bindings = yield* directory.listBindings().pipe(Effect.orElseSucceed(() => []));
-    yield* Effect.forEach(bindings, (binding) =>
-      Effect.gen(function* () {
-        const providerInstanceId = dieOnMissingBindingInstanceId(
-          "ProviderService.stopAll",
-          binding,
-        );
-        return yield* directory.upsert({
-          threadId: binding.threadId,
-          provider: binding.provider,
-          providerInstanceId,
-          status: "stopped",
-          runtimePayload: {
-            activeTurnId: null,
-            lastRuntimeEvent: "provider.stopAll",
-            lastRuntimeEventAt: yield* nowIso,
-          },
-        });
-      }),
-    ).pipe(Effect.asVoid);
     yield* analytics.record("provider.sessions.stopped_all", {
       sessionCount: threadIds.length,
     });

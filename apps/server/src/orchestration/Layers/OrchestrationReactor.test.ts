@@ -43,6 +43,7 @@ describe("OrchestrationReactor", () => {
               started.push("provider-command-reactor");
               return Effect.void;
             },
+            reconcileThread: () => Effect.void,
             drain: Effect.void,
           }),
         ),

@@ -437,6 +437,7 @@ describe("ProviderCommandReactor", () => {
       generateThreadTitle,
       runtimeSessions,
       stateDir,
+      reactor,
       startReactor,
       drain,
     };
@@ -1888,6 +1889,50 @@ describe("ProviderCommandReactor", () => {
       runtimeMode: "approval-required",
     });
     expect(harness.sendTurn).not.toHaveBeenCalled();
+  });
+
+  it("reconciles a selected stopped thread without requiring a new user turn", async () => {
+    const recoveredTurnId = asTurnId("turn-running-while-t3-was-closed");
+    const harness = await createHarness({
+      startSessionEffect: (session) =>
+        Effect.succeed({
+          ...session,
+          status: "running",
+          activeTurnId: recoveredTurnId,
+        }),
+    });
+    const now = "2026-01-01T00:00:00.000Z";
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.make("cmd-session-set-stopped-before-selection"),
+        threadId: ThreadId.make("thread-1"),
+        session: {
+          threadId: ThreadId.make("thread-1"),
+          status: "stopped",
+          providerName: "codex",
+          providerInstanceId: ProviderInstanceId.make("codex"),
+          runtimeMode: "approval-required",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+
+    await runtime!.runPromise(harness.reactor.reconcileThread(ThreadId.make("thread-1")));
+
+    expect(harness.startSession).toHaveBeenCalledTimes(1);
+    expect(harness.sendTurn).not.toHaveBeenCalled();
+    const readModel = await harness.readModel();
+    expect(
+      readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"))?.session,
+    ).toMatchObject({
+      status: "running",
+      activeTurnId: recoveredTurnId,
+    });
   });
 
   it("rejects active runtime sessions that are missing provider instance ids", async () => {

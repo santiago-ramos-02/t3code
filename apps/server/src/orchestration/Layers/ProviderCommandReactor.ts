@@ -16,13 +16,16 @@ import { isTemporaryWorktreeBranch, WORKTREE_BRANCH_PREFIX } from "@t3tools/shar
 import * as Cache from "effect/Cache";
 import * as Cause from "effect/Cause";
 import * as Crypto from "effect/Crypto";
+import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Equal from "effect/Equal";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
+import * as SynchronizedRef from "effect/SynchronizedRef";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
@@ -36,6 +39,7 @@ import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import {
   ProviderCommandReactor,
+  ProviderSessionReconcileError,
   type ProviderCommandReactorShape,
 } from "../Services/ProviderCommandReactor.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
@@ -204,6 +208,9 @@ const make = Effect.gen(function* () {
     timeToLive: HANDLED_TURN_START_KEY_TTL,
     lookup: () => Effect.succeed(true),
   });
+  const sessionReconcileLocks = yield* SynchronizedRef.make(
+    new Map<ThreadId, Semaphore.Semaphore>(),
+  );
 
   const hasHandledTurnStartRecently = (key: string) =>
     Cache.getOption(handledTurnStartKeys, key).pipe(
@@ -354,7 +361,7 @@ const make = Effect.gen(function* () {
     });
   });
 
-  const ensureSessionForThread = Effect.fn("ensureSessionForThread")(function* (
+  const ensureSessionForThreadUnlocked = Effect.fn("ensureSessionForThreadUnlocked")(function* (
     threadId: ThreadId,
     createdAt: string,
     options?: {
@@ -605,6 +612,48 @@ const make = Effect.gen(function* () {
     const startedSession = yield* startProviderSession(undefined);
     yield* bindSessionToThread(startedSession);
     return startedSession.threadId;
+  });
+
+  const ensureSessionForThread = (
+    threadId: ThreadId,
+    createdAt: string,
+    options?: {
+      readonly modelSelection?: ModelSelection;
+      readonly pendingTurnStart?: boolean;
+    },
+  ) =>
+    SynchronizedRef.modifyEffect(sessionReconcileLocks, (locks) => {
+      const existing = locks.get(threadId);
+      if (existing) {
+        return Effect.succeed([existing, locks] as const);
+      }
+      return Semaphore.make(1).pipe(
+        Effect.map((semaphore) => {
+          const next = new Map(locks);
+          next.set(threadId, semaphore);
+          return [semaphore, next] as const;
+        }),
+      );
+    }).pipe(
+      Effect.flatMap((semaphore) =>
+        semaphore.withPermit(ensureSessionForThreadUnlocked(threadId, createdAt, options)),
+      ),
+    );
+
+  const reconcileThread: ProviderCommandReactorShape["reconcileThread"] = Effect.fn(
+    "reconcileThread",
+  )(function* (threadId) {
+    const createdAt = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
+    yield* ensureSessionForThread(threadId, createdAt).pipe(
+      Effect.mapError(
+        (cause) =>
+          new ProviderSessionReconcileError({
+            threadId,
+            message: `Failed to reconcile provider session for thread ${threadId}`,
+            cause,
+          }),
+      ),
+    );
   });
 
   const buildSendTurnRequestForThread = Effect.fnUntraced(function* (input: {
@@ -1140,6 +1189,7 @@ const make = Effect.gen(function* () {
 
   return {
     start,
+    reconcileThread,
     drain: worker.drain,
   } satisfies ProviderCommandReactorShape;
 });

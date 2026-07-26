@@ -71,6 +71,7 @@ import * as ExternalLauncher from "./process/externalLauncher.ts";
 import { normalizeDispatchCommand } from "./orchestration/Normalizer.ts";
 import * as OrchestrationEngine from "./orchestration/Services/OrchestrationEngine.ts";
 import * as ProjectionSnapshotQuery from "./orchestration/Services/ProjectionSnapshotQuery.ts";
+import * as ProviderCommandReactor from "./orchestration/Services/ProviderCommandReactor.ts";
 import {
   observeRpcEffect as instrumentRpcEffect,
   observeRpcStream as instrumentRpcStream,
@@ -292,6 +293,7 @@ const RPC_REQUIRED_SCOPE = new Map<string, AuthEnvironmentScope>([
   [ORCHESTRATION_WS_METHODS.replayEvents, AuthOrchestrationReadScope],
   [ORCHESTRATION_WS_METHODS.subscribeShell, AuthOrchestrationReadScope],
   [ORCHESTRATION_WS_METHODS.getArchivedShellSnapshot, AuthOrchestrationReadScope],
+  [ORCHESTRATION_WS_METHODS.reconcileThreadSession, AuthOrchestrationOperateScope],
   [ORCHESTRATION_WS_METHODS.subscribeThread, AuthOrchestrationReadScope],
   [WS_METHODS.serverProbe, AuthOrchestrationReadScope],
   [WS_METHODS.serverGetConfig, AuthOrchestrationReadScope],
@@ -408,6 +410,7 @@ const makeWsRpcLayer = (
       const crypto = yield* Crypto.Crypto;
       const projectionSnapshotQuery = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
       const orchestrationEngine = yield* OrchestrationEngine.OrchestrationEngineService;
+      const providerCommandReactor = yield* ProviderCommandReactor.ProviderCommandReactor;
       const checkpointDiffQuery = yield* CheckpointDiffQuery.CheckpointDiffQuery;
       const keybindings = yield* Keybindings.Keybindings;
       const externalLauncher = yield* ExternalLauncher.ExternalLauncher;
@@ -1341,6 +1344,21 @@ const makeWsRpcLayer = (
                 (cause) =>
                   new OrchestrationGetSnapshotError({
                     message: "Failed to load archived orchestration shell snapshot",
+                    cause,
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "orchestration" },
+          ),
+        [ORCHESTRATION_WS_METHODS.reconcileThreadSession]: (input) =>
+          observeRpcEffect(
+            ORCHESTRATION_WS_METHODS.reconcileThreadSession,
+            providerCommandReactor.reconcileThread(input.threadId).pipe(
+              Effect.as({}),
+              Effect.mapError(
+                (cause) =>
+                  new OrchestrationGetSnapshotError({
+                    message: `Failed to reconcile provider session for thread ${input.threadId}`,
                     cause,
                   }),
               ),

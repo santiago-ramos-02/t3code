@@ -28,6 +28,7 @@ export const ORCHESTRATION_WS_METHODS = {
   getFullThreadDiff: "orchestration.getFullThreadDiff",
   replayEvents: "orchestration.replayEvents",
   getArchivedShellSnapshot: "orchestration.getArchivedShellSnapshot",
+  reconcileThreadSession: "orchestration.reconcileThreadSession",
   subscribeShell: "orchestration.subscribeShell",
   subscribeThread: "orchestration.subscribeThread",
 } as const;
@@ -1391,6 +1392,10 @@ export const OrchestrationRpcSchemas = {
   getArchivedShellSnapshot: {
     input: Schema.Struct({}),
     output: OrchestrationShellSnapshot,
+  },
+  reconcileThreadSession: {
+    input: Schema.Struct({ threadId: ThreadId }),
+    output: Schema.Struct({}),
   },
   subscribeThread: {
     input: OrchestrationSubscribeThreadInput,

@@ -80,6 +80,7 @@ import * as ExternalLauncher from "./process/externalLauncher.ts";
 import * as OrchestrationEngine from "./orchestration/Services/OrchestrationEngine.ts";
 import { OrchestrationListenerCallbackError } from "./orchestration/Errors.ts";
 import * as ProjectionSnapshotQuery from "./orchestration/Services/ProjectionSnapshotQuery.ts";
+import * as ProviderCommandReactor from "./orchestration/Services/ProviderCommandReactor.ts";
 import { SqlitePersistenceMemory } from "./persistence/Layers/Sqlite.ts";
 import { PersistenceSqlError } from "./persistence/Errors.ts";
 import * as ProviderRegistry from "./provider/Services/ProviderRegistry.ts";
@@ -340,6 +341,7 @@ const buildAppUnderTest = (options?: {
     terminalManager?: Partial<TerminalManager.TerminalManager["Service"]>;
     orchestrationEngine?: Partial<OrchestrationEngine.OrchestrationEngineService["Service"]>;
     projectionSnapshotQuery?: Partial<ProjectionSnapshotQuery.ProjectionSnapshotQuery["Service"]>;
+    providerCommandReactor?: Partial<ProviderCommandReactor.ProviderCommandReactor["Service"]>;
     checkpointDiffQuery?: Partial<CheckpointDiffQuery.CheckpointDiffQuery["Service"]>;
     browserTraceCollector?: Partial<BrowserTraceCollector.BrowserTraceCollector["Service"]>;
     serverLifecycleEvents?: Partial<ServerLifecycleEvents.ServerLifecycleEvents["Service"]>;
@@ -682,13 +684,21 @@ const buildAppUnderTest = (options?: {
         ),
       ),
       Layer.provide(
-        Layer.mock(OrchestrationEngine.OrchestrationEngineService)({
-          readEvents: () => Stream.empty,
-          dispatch: () => Effect.succeed({ sequence: 0 }),
-          streamDomainEvents: Stream.empty,
-          latestSequence: Effect.succeed(0),
-          ...options?.layers?.orchestrationEngine,
-        }),
+        Layer.mergeAll(
+          Layer.mock(OrchestrationEngine.OrchestrationEngineService)({
+            readEvents: () => Stream.empty,
+            dispatch: () => Effect.succeed({ sequence: 0 }),
+            streamDomainEvents: Stream.empty,
+            latestSequence: Effect.succeed(0),
+            ...options?.layers?.orchestrationEngine,
+          }),
+          Layer.mock(ProviderCommandReactor.ProviderCommandReactor)({
+            start: () => Effect.void,
+            reconcileThread: () => Effect.void,
+            drain: Effect.void,
+            ...options?.layers?.providerCommandReactor,
+          }),
+        ),
       ),
       Layer.provide(
         Layer.mock(ProjectionSnapshotQuery.ProjectionSnapshotQuery)({
@@ -5672,6 +5682,31 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
       assert.equal(items[0]?.kind, "snapshot");
       assert.deepEqual(items[1], { kind: "synchronized" });
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("reconciles a selected thread provider session over websocket rpc", () =>
+    Effect.gen(function* () {
+      const reconcileThread = vi.fn(() => Effect.void);
+      yield* buildAppUnderTest({
+        layers: {
+          providerCommandReactor: {
+            reconcileThread,
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const response = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[ORCHESTRATION_WS_METHODS.reconcileThreadSession]({
+            threadId: defaultThreadId,
+          }),
+        ),
+      );
+
+      assert.deepEqual(response, {});
+      assert.deepEqual(reconcileThread.mock.calls, [[defaultThreadId]]);
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
