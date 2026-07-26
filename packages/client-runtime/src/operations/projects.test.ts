@@ -12,7 +12,10 @@ import {
   buildProjectCreateCommand,
   findExistingAddProject,
   getAddProjectInitialQuery,
+  inferAddProjectCloneDirectoryName,
   resolveAddProjectPath,
+  resolveAddProjectCloneDestination,
+  selectAddProjectCloneUrl,
   sortAddProjectProviderSources,
 } from "./projects.ts";
 import type { EnvironmentProject } from "../state/models.ts";
@@ -87,6 +90,54 @@ describe("add project shared logic", () => {
     expect(readiness.github.ready).toBe(true);
     expect(readiness.gitlab).toEqual({ ready: false, hint: "Run glab auth login" });
     expect(sortAddProjectProviderSources(readiness)[0]).toBe("github");
+  });
+
+  it("defaults provider repository clones to HTTPS", () => {
+    expect(
+      selectAddProjectCloneUrl({
+        provider: "github",
+        nameWithOwner: "octocat/t3code",
+        url: "https://github.com/octocat/t3code",
+        sshUrl: "git@github.com:octocat/t3code.git",
+      }),
+    ).toBe("https://github.com/octocat/t3code");
+  });
+
+  it("derives standard git clone directory names from HTTPS and SSH URLs", () => {
+    expect(inferAddProjectCloneDirectoryName("https://github.com/opengeos/GeoLibre.git")).toBe(
+      "GeoLibre",
+    );
+    expect(inferAddProjectCloneDirectoryName("git@github.com:opengeos/GeoLibre.git")).toBe(
+      "GeoLibre",
+    );
+    expect(
+      inferAddProjectCloneDirectoryName("https://github.com/opengeos/GeoLibre.git?ref=main#readme"),
+    ).toBe("GeoLibre");
+    expect(inferAddProjectCloneDirectoryName("https://github.com")).toBeNull();
+    expect(inferAddProjectCloneDirectoryName("https://example.com/%2E%2E.git")).toBeNull();
+  });
+
+  it("clones into a repository-named child of the selected parent folder", () => {
+    expect(
+      resolveAddProjectCloneDestination(
+        "C:\\Users\\octocat\\Projects",
+        "https://github.com/opengeos/GeoLibre.git",
+      ),
+    ).toEqual({
+      ok: true,
+      path: "C:\\Users\\octocat\\Projects\\GeoLibre",
+      directoryName: "GeoLibre",
+    });
+    expect(
+      resolveAddProjectCloneDestination(
+        "/home/octocat/projects/",
+        "git@github.com:opengeos/GeoLibre.git",
+      ),
+    ).toEqual({
+      ok: true,
+      path: "/home/octocat/projects/GeoLibre",
+      directoryName: "GeoLibre",
+    });
   });
 
   it("finds existing projects by normalized path in the target environment", () => {

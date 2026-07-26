@@ -7,6 +7,8 @@ import {
   findExistingAddProject,
   getAddProjectInitialQuery,
   resolveAddProjectPath,
+  resolveAddProjectCloneDestination,
+  selectAddProjectCloneUrl,
   sortAddProjectProviderSources,
   type AddProjectRemoteSource,
 } from "@t3tools/client-runtime/operations/projects";
@@ -553,7 +555,7 @@ export function AddProjectRepositoryScreen(props: {
         params: {
           environmentId: environment.environmentId,
           source,
-          remoteUrl: repository.sshUrl,
+          remoteUrl: selectAddProjectCloneUrl(repository),
           repositoryTitle: repository.nameWithOwner,
         },
       });
@@ -780,13 +782,18 @@ export function AddProjectDestinationScreen(props: {
       setError(resolved.error);
       return;
     }
+    const destination = resolveAddProjectCloneDestination(resolved.path, remoteUrl);
+    if (!destination.ok) {
+      setError(destination.error);
+      return;
+    }
 
     setIsSubmitting(true);
     const cloneResult = await cloneRepository({
       environmentId: environment.environmentId,
       input: {
         remoteUrl,
-        destinationPath: resolved.path,
+        destinationPath: destination.path,
       },
     });
     if (AsyncResult.isFailure(cloneResult)) {

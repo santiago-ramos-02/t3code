@@ -17,6 +17,7 @@ import {
   inferProjectTitleFromPath,
   isExplicitRelativeProjectPath,
   isUnsupportedWindowsProjectPath,
+  normalizeProjectPathForDispatch,
   resolveProjectPathForDispatch,
 } from "../state/projects.ts";
 import type { EnvironmentProject } from "../state/models.ts";
@@ -96,6 +97,72 @@ export function addProjectRemoteSourceProvider(
   source: AddProjectRemoteSource,
 ): AddProjectRemoteProviderKind | null {
   return source === "url" ? null : source;
+}
+
+export function selectAddProjectCloneUrl(repository: SourceControlRepositoryInfo): string {
+  return repository.url;
+}
+
+export function inferAddProjectCloneDirectoryName(remoteUrl: string): string | null {
+  const withoutQueryOrFragment = remoteUrl.trim().replace(/[?#].*$/u, "");
+  let pathLike = withoutQueryOrFragment;
+  if (/^[a-z][a-z0-9+.-]*:\/\//iu.test(pathLike)) {
+    try {
+      pathLike = new URL(pathLike).pathname;
+    } catch {
+      return null;
+    }
+  }
+
+  const withoutTrailingSeparators = pathLike.replace(/[\\/]+$/u, "");
+  const lastPathSegment = withoutTrailingSeparators.split(/[\\/]/u).at(-1) ?? "";
+  const humanishSegment = lastPathSegment.slice(lastPathSegment.lastIndexOf(":") + 1);
+  const withoutGitSuffix = humanishSegment.replace(/\.git$/iu, "").trim();
+  if (withoutGitSuffix.length === 0) {
+    return null;
+  }
+
+  let directoryName = withoutGitSuffix;
+  try {
+    directoryName = decodeURIComponent(withoutGitSuffix);
+  } catch {
+    // Git accepts remotes with literal percent characters, so retain the
+    // undecoded humanish segment when it is not valid URI encoding.
+  }
+
+  if (
+    directoryName === "." ||
+    directoryName === ".." ||
+    directoryName.includes("/") ||
+    directoryName.includes("\\") ||
+    directoryName.includes("\0")
+  ) {
+    return null;
+  }
+  return directoryName;
+}
+
+export function resolveAddProjectCloneDestination(
+  parentPath: string,
+  remoteUrl: string,
+):
+  | { readonly ok: true; readonly path: string; readonly directoryName: string }
+  | { readonly ok: false; readonly error: string } {
+  const directoryName = inferAddProjectCloneDirectoryName(remoteUrl);
+  if (!directoryName) {
+    return {
+      ok: false,
+      error: "Could not determine the repository folder name from the clone URL.",
+    };
+  }
+
+  return {
+    ok: true,
+    path: normalizeProjectPathForDispatch(
+      `${ensureBrowseDirectoryPath(parentPath)}${directoryName}`,
+    ),
+    directoryName,
+  };
 }
 
 export function sortAddProjectProviderSources(

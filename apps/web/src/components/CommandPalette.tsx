@@ -2,6 +2,10 @@
 
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
+  resolveAddProjectCloneDestination,
+  selectAddProjectCloneUrl,
+} from "@t3tools/client-runtime/operations/projects";
+import {
   isAtomCommandInterrupted,
   settlePromise,
   squashAtomCommandFailure,
@@ -1474,7 +1478,7 @@ function OpenCommandPaletteDialog(props: {
         source: addProjectCloneFlow.source,
         repositoryInput: rawRepository,
         repository,
-        remoteUrl: repository.sshUrl,
+        remoteUrl: selectAddProjectCloneUrl(repository),
       });
       setHighlightedItemValue(null);
       setQuery(destinationPath);
@@ -1509,11 +1513,22 @@ function OpenCommandPaletteDialog(props: {
       return;
     }
 
-    const destinationPath = resolveProjectPathForDispatch(
-      rawDestination,
-      currentProjectCwdForBrowse,
+    const parentPath = resolveProjectPathForDispatch(rawDestination, currentProjectCwdForBrowse);
+    if (parentPath.length === 0) {
+      return;
+    }
+    const destination = resolveAddProjectCloneDestination(
+      parentPath,
+      addProjectCloneFlow.remoteUrl,
     );
-    if (destinationPath.length === 0) {
+    if (!destination.ok) {
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Clone failed",
+          description: destination.error,
+        }),
+      );
       return;
     }
 
@@ -1522,7 +1537,7 @@ function OpenCommandPaletteDialog(props: {
       environmentId: addProjectCloneFlow.environmentId,
       input: {
         remoteUrl: addProjectCloneFlow.remoteUrl,
-        destinationPath,
+        destinationPath: destination.path,
       },
     });
     setIsRemoteProjectCloning(false);
