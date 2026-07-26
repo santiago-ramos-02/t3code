@@ -1101,6 +1101,42 @@ const make = Effect.gen(function* () {
     yield* Effect.forkScoped(
       Stream.runForEach(orchestrationEngine.streamDomainEvents, processEvent),
     );
+
+    yield* projectionSnapshotQuery.getShellSnapshot().pipe(
+      Effect.flatMap((shellSnapshot) => {
+        const interruptedThreads = shellSnapshot.threads.filter(
+          (thread) =>
+            thread.session?.activeTurnId !== null && thread.session?.activeTurnId !== undefined,
+        );
+        return Effect.forEach(
+          interruptedThreads,
+          (thread) =>
+            ensureSessionForThread(
+              thread.id,
+              thread.session?.updatedAt ?? shellSnapshot.updatedAt,
+            ).pipe(
+              Effect.catch((error) => {
+                return Effect.logWarning(
+                  "provider command reactor failed to recover interrupted session",
+                  {
+                    threadId: thread.id,
+                    cause: String(error),
+                  },
+                );
+              }),
+            ),
+          { concurrency: 4, discard: true },
+        );
+      }),
+      Effect.catch((error) => {
+        return Effect.logWarning(
+          "provider command reactor could not scan for interrupted sessions",
+          {
+            cause: String(error),
+          },
+        );
+      }),
+    );
   });
 
   return {

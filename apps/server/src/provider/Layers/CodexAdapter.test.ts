@@ -160,10 +160,11 @@ class FakeCodexRuntime implements CodexSessionRuntimeShape {
   }
 }
 
-function makeRuntimeFactory() {
+function makeRuntimeFactory(configure?: (runtime: FakeCodexRuntime) => void) {
   const runtimes: Array<FakeCodexRuntime> = [];
   const factory = vi.fn((options: CodexSessionRuntimeOptions) => {
     const runtime = new FakeCodexRuntime(options);
+    configure?.(runtime);
     runtimes.push(runtime);
     return Effect.succeed(runtime);
   });
@@ -420,6 +421,75 @@ sessionErrorLayer("CodexAdapterLive session errors", (it) => {
       const runtime = runtimeFactory.lastRuntime;
       NodeAssert.ok(runtime);
       NodeAssert.equal(runtime.options.launchArgs, "--strict-config --enable env-feature");
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("replays the latest resumed Codex turn into the canonical event stream", () => {
+    const runtimeFactory = makeRuntimeFactory((runtime) => {
+      runtime.readThreadImpl.mockResolvedValue({
+        threadId: "provider-thread-resumed",
+        turns: [
+          {
+            id: asTurnId("turn-missed-while-closed"),
+            items: [
+              {
+                type: "agentMessage",
+                id: "msg_missed_while_closed",
+                text: "This completed while T3 Code was closed.",
+              },
+            ],
+          },
+        ],
+      });
+    });
+    const layer = Layer.effect(
+      CodexAdapter,
+      Effect.gen(function* () {
+        const codexConfig = decodeCodexSettings({});
+        return yield* makeCodexAdapter(codexConfig, {
+          makeRuntime: runtimeFactory.factory,
+        });
+      }),
+    ).pipe(
+      Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
+      Layer.provideMerge(ServerSettingsService.layerTest()),
+      Layer.provideMerge(providerSessionDirectoryTestLayer),
+      Layer.provideMerge(NodeServices.layer),
+    );
+
+    return Effect.gen(function* () {
+      const adapter = yield* CodexAdapter;
+      const recoveredEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(
+        Effect.forkChild,
+      );
+
+      yield* adapter.startSession({
+        provider: ProviderDriverKind.make("codex"),
+        threadId: asThreadId("thread-resumed"),
+        resumeCursor: { threadId: "provider-thread-resumed" },
+        runtimeMode: "full-access",
+      });
+
+      const runtime = runtimeFactory.lastRuntime;
+      NodeAssert.ok(runtime);
+      NodeAssert.equal(runtime.readThreadImpl.mock.calls.length, 1);
+
+      const recoveredEvent = yield* Fiber.join(recoveredEventFiber);
+      NodeAssert.equal(recoveredEvent._tag, "Some");
+      if (recoveredEvent._tag !== "Some") {
+        return;
+      }
+      NodeAssert.equal(recoveredEvent.value.type, "item.completed");
+      if (recoveredEvent.value.type !== "item.completed") {
+        return;
+      }
+      NodeAssert.equal(recoveredEvent.value.threadId, "thread-resumed");
+      NodeAssert.equal(recoveredEvent.value.turnId, "turn-missed-while-closed");
+      NodeAssert.equal(recoveredEvent.value.itemId, "msg_missed_while_closed");
+      NodeAssert.equal(
+        recoveredEvent.value.payload.detail,
+        "This completed while T3 Code was closed.",
+      );
     }).pipe(Effect.provide(layer));
   });
 
