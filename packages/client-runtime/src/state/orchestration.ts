@@ -20,11 +20,5 @@ export function createOrchestrationEnvironmentAtoms<R, E>(
       label: "environment-data:orchestration:archived-shell-snapshot",
       tag: ORCHESTRATION_WS_METHODS.getArchivedShellSnapshot,
     }),
-    reconcileThreadSession: createEnvironmentRpcQueryAtomFamily(runtime, {
-      label: "environment-data:orchestration:reconcile-thread-session",
-      tag: ORCHESTRATION_WS_METHODS.reconcileThreadSession,
-      staleTimeMs: 0,
-      idleTtlMs: 0,
-    }),
   };
 }

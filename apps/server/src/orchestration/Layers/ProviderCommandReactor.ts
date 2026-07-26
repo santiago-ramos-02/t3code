@@ -39,7 +39,6 @@ import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import {
   ProviderCommandReactor,
-  ProviderSessionReconcileError,
   type ProviderCommandReactorShape,
 } from "../Services/ProviderCommandReactor.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
@@ -208,9 +207,7 @@ const make = Effect.gen(function* () {
     timeToLive: HANDLED_TURN_START_KEY_TTL,
     lookup: () => Effect.succeed(true),
   });
-  const sessionReconcileLocks = yield* SynchronizedRef.make(
-    new Map<ThreadId, Semaphore.Semaphore>(),
-  );
+  const sessionLocks = yield* SynchronizedRef.make(new Map<ThreadId, Semaphore.Semaphore>());
 
   const hasHandledTurnStartRecently = (key: string) =>
     Cache.getOption(handledTurnStartKeys, key).pipe(
@@ -314,30 +311,6 @@ const make = Effect.gen(function* () {
         updatedAt: input.createdAt,
       },
       createdAt: input.createdAt,
-    });
-  });
-
-  const acknowledgeAcceptedTurn = Effect.fnUntraced(function* (input: {
-    readonly threadId: ThreadId;
-    readonly turnId: TurnId;
-  }) {
-    const thread = yield* resolveThread(input.threadId);
-    const session = thread?.session;
-    if (!thread || !session || (session.status !== "starting" && session.status !== "running")) {
-      return;
-    }
-
-    const acceptedAt = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
-    yield* setThreadSession({
-      threadId: input.threadId,
-      session: {
-        ...session,
-        status: "running",
-        activeTurnId: input.turnId,
-        lastError: null,
-        updatedAt: acceptedAt,
-      },
-      createdAt: acceptedAt,
     });
   });
 
@@ -547,36 +520,20 @@ const make = Effect.gen(function* () {
             detail: `Provider session '${session.threadId}' started without a provider instance id.`,
           });
         }
-        const projectedActiveTurnId = thread.session?.activeTurnId ?? null;
-        const resumedTurnStatus =
-          session.lastTurn?.status === "interrupted"
-            ? "interrupted"
-            : session.lastTurn?.status === "failed"
-              ? "error"
-              : session.status === "ready" &&
-                  session.activeTurnId === undefined &&
-                  projectedActiveTurnId !== null &&
-                  session.lastTurn?.status !== "completed"
-                ? "interrupted"
-                : undefined;
-        const status =
-          options?.pendingTurnStart === true && session.status === "ready"
-            ? "starting"
-            : (resumedTurnStatus ?? mapProviderSessionStatusToOrchestrationStatus(session.status));
-        const lastError =
-          status === "interrupted"
-            ? "The provider stopped before reporting that the active turn completed. You can continue from the last recovered message."
-            : (session.lastError ?? null);
         yield* setThreadSession({
           threadId,
           session: {
             threadId,
-            status,
+            status:
+              options?.pendingTurnStart === true && session.status === "ready"
+                ? "starting"
+                : mapProviderSessionStatusToOrchestrationStatus(session.status),
             providerName: session.provider,
             providerInstanceId: session.providerInstanceId,
             runtimeMode: desiredRuntimeMode,
-            activeTurnId: session.activeTurnId ?? null,
-            lastError,
+            // Provider turn ids are not orchestration turn ids.
+            activeTurnId: null,
+            lastError: session.lastError ?? null,
             updatedAt: session.updatedAt,
           },
           createdAt,
@@ -663,7 +620,7 @@ const make = Effect.gen(function* () {
       readonly pendingTurnStart?: boolean;
     },
   ) =>
-    SynchronizedRef.modifyEffect(sessionReconcileLocks, (locks) => {
+    SynchronizedRef.modifyEffect(sessionLocks, (locks) => {
       const existing = locks.get(threadId);
       if (existing) {
         return Effect.succeed([existing, locks] as const);
@@ -686,13 +643,11 @@ const make = Effect.gen(function* () {
   )(function* (threadId) {
     const createdAt = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
     yield* ensureSessionForThread(threadId, createdAt).pipe(
-      Effect.mapError(
-        (cause) =>
-          new ProviderSessionReconcileError({
-            threadId,
-            message: `Failed to reconcile provider session for thread ${threadId}`,
-            cause,
-          }),
+      Effect.catch((cause) =>
+        Effect.logWarning("provider session refresh failed", {
+          threadId,
+          cause: String(cause),
+        }),
       ),
     );
   });
@@ -968,16 +923,9 @@ const make = Effect.gen(function* () {
       return;
     }
 
-    yield* providerService.sendTurn(sendTurnRequest.value).pipe(
-      Effect.tap((result) =>
-        acknowledgeAcceptedTurn({
-          threadId: event.payload.threadId,
-          turnId: result.turnId,
-        }),
-      ),
-      Effect.catchCause(recoverTurnStartFailure),
-      Effect.forkScoped,
-    );
+    yield* providerService
+      .sendTurn(sendTurnRequest.value)
+      .pipe(Effect.catchCause(recoverTurnStartFailure), Effect.forkScoped);
   });
 
   const processTurnInterruptRequested = Effect.fn("processTurnInterruptRequested")(function* (
@@ -1196,42 +1144,6 @@ const make = Effect.gen(function* () {
 
     yield* Effect.forkScoped(
       Stream.runForEach(orchestrationEngine.streamDomainEvents, processEvent),
-    );
-
-    yield* projectionSnapshotQuery.getShellSnapshot().pipe(
-      Effect.flatMap((shellSnapshot) => {
-        const interruptedThreads = shellSnapshot.threads.filter(
-          (thread) =>
-            thread.session?.activeTurnId !== null && thread.session?.activeTurnId !== undefined,
-        );
-        return Effect.forEach(
-          interruptedThreads,
-          (thread) =>
-            ensureSessionForThread(
-              thread.id,
-              thread.session?.updatedAt ?? shellSnapshot.updatedAt,
-            ).pipe(
-              Effect.catch((error) => {
-                return Effect.logWarning(
-                  "provider command reactor failed to recover interrupted session",
-                  {
-                    threadId: thread.id,
-                    cause: String(error),
-                  },
-                );
-              }),
-            ),
-          { concurrency: 4, discard: true },
-        );
-      }),
-      Effect.catch((error) => {
-        return Effect.logWarning(
-          "provider command reactor could not scan for interrupted sessions",
-          {
-            cause: String(error),
-          },
-        );
-      }),
     );
   });
 

@@ -28,7 +28,6 @@ import {
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Crypto from "effect/Crypto";
-import * as DateTime from "effect/DateTime";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
@@ -36,7 +35,6 @@ import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
-import * as Option from "effect/Option";
 import { ChildProcessSpawner } from "effect/unstable/process";
 import * as CodexErrors from "effect-codex-app-server/errors";
 import * as EffectCodexSchema from "effect-codex-app-server/schema";
@@ -1466,7 +1464,7 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
             }
             yield* Queue.offerAll(runtimeEventQueue, runtimeEvents);
           }),
-        ).pipe(Effect.forkChild);
+        ).pipe(Effect.forkIn(sessionScope));
 
         const started = yield* runtime.start().pipe(
           Effect.mapError(
@@ -1494,14 +1492,6 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
               if (!latestTurn) {
                 return Effect.void;
               }
-              const recoveredAtSeconds = latestTurn.completedAt ?? latestTurn.startedAt;
-              const recoveredAt =
-                typeof recoveredAtSeconds === "number" && Number.isFinite(recoveredAtSeconds)
-                  ? Option.getOrElse(
-                      Option.map(DateTime.make(recoveredAtSeconds * 1_000), DateTime.formatIso),
-                      () => started.updatedAt,
-                    )
-                  : started.updatedAt;
 
               return Effect.forEach(
                 latestTurn.items,
@@ -1517,12 +1507,12 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
                       provider: PROVIDER,
                       providerInstanceId: boundInstanceId,
                       threadId: input.threadId,
-                      createdAt: recoveredAt,
+                      createdAt: started.updatedAt,
                       method: "item/completed",
                       turnId: latestTurn.id,
                       itemId: ProviderItemId.make(item.id),
                       payload: {
-                        completedAtMs: Date.parse(recoveredAt),
+                        completedAtMs: Date.parse(started.updatedAt),
                         threadId: snapshot.threadId,
                         turnId: latestTurn.id,
                         item,
@@ -1537,7 +1527,7 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
               );
             }),
             Effect.tapError((cause) =>
-              Effect.logWarning("failed to replay resumed Codex thread history", {
+              Effect.logWarning("failed to refresh resumed Codex thread history", {
                 threadId: input.threadId,
                 cause: cause.message,
               }),

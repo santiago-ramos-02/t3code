@@ -779,7 +779,7 @@ it.effect(
       }).pipe(Effect.provide(runtimeRepositoryLayer));
       assert.equal(Option.isSome(persistedAfterStopAll), true);
       if (Option.isSome(persistedAfterStopAll)) {
-        assert.equal(persistedAfterStopAll.value.status, "running");
+        assert.equal(persistedAfterStopAll.value.status, "stopped");
         assert.deepEqual(persistedAfterStopAll.value.resumeCursor, updatedResumeCursor);
       }
 

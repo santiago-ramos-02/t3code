@@ -5685,27 +5685,31 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
-  it.effect("reconciles a selected thread provider session over websocket rpc", () =>
+  it.effect("refreshes the provider session when a thread subscription opens", () =>
     Effect.gen(function* () {
+      const thread = makeDefaultOrchestrationReadModel().threads[0]!;
       const reconcileThread = vi.fn(() => Effect.void);
       yield* buildAppUnderTest({
         layers: {
           providerCommandReactor: {
             reconcileThread,
           },
+          projectionSnapshotQuery: {
+            getThreadDetailSnapshot: () =>
+              Effect.succeed(Option.some({ snapshotSequence: 1, thread })),
+          },
         },
       });
 
       const wsUrl = yield* getWsServerUrl("/ws");
-      const response = yield* Effect.scoped(
+      yield* Effect.scoped(
         withWsRpcClient(wsUrl, (client) =>
-          client[ORCHESTRATION_WS_METHODS.reconcileThreadSession]({
+          client[ORCHESTRATION_WS_METHODS.subscribeThread]({
             threadId: defaultThreadId,
-          }),
+          }).pipe(Stream.runHead),
         ),
       );
 
-      assert.deepEqual(response, {});
       assert.deepEqual(reconcileThread.mock.calls, [[defaultThreadId]]);
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );

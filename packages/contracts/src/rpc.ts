@@ -646,15 +646,6 @@ export const WsOrchestrationGetArchivedShellSnapshotRpc = Rpc.make(
   },
 );
 
-export const WsOrchestrationReconcileThreadSessionRpc = Rpc.make(
-  ORCHESTRATION_WS_METHODS.reconcileThreadSession,
-  {
-    payload: OrchestrationRpcSchemas.reconcileThreadSession.input,
-    success: OrchestrationRpcSchemas.reconcileThreadSession.output,
-    error: Schema.Union([OrchestrationGetSnapshotError, EnvironmentAuthorizationError]),
-  },
-);
-
 export const WsOrchestrationSubscribeShellRpc = Rpc.make(ORCHESTRATION_WS_METHODS.subscribeShell, {
   payload: OrchestrationRpcSchemas.subscribeShell.input,
   success: OrchestrationRpcSchemas.subscribeShell.output,
@@ -776,7 +767,6 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationGetFullThreadDiffRpc,
   WsOrchestrationReplayEventsRpc,
   WsOrchestrationGetArchivedShellSnapshotRpc,
-  WsOrchestrationReconcileThreadSessionRpc,
   WsOrchestrationSubscribeShellRpc,
   WsOrchestrationSubscribeThreadRpc,
 );

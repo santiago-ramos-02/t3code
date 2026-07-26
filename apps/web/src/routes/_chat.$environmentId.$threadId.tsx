@@ -13,7 +13,6 @@ import {
   useThreadStatus,
 } from "../state/entities";
 import { useEnvironmentQuery } from "../state/query";
-import { orchestrationEnvironment } from "../state/orchestration";
 import { environmentShell } from "../state/shell";
 
 function ChatThreadRouteView() {
@@ -51,14 +50,6 @@ function ChatThreadRouteView() {
   });
   const serverThreadStarted = threadHasStarted(serverThreadDetail);
   const environmentHasAnyThreads = environmentHasServerThreads || environmentHasDraftThreads;
-  useEnvironmentQuery(
-    threadRef === null || serverThreadDetail === null
-      ? null
-      : orchestrationEnvironment.reconcileThreadSession({
-          environmentId: threadRef.environmentId,
-          input: { threadId: threadRef.threadId },
-        }),
-  );
 
   useEffect(() => {
     if (!threadRef || !bootstrapComplete) {

@@ -35,10 +35,6 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
 
     const sweep = Effect.gen(function* () {
       const bindings = yield* directory.listBindings();
-      const liveSessions = yield* providerService.listSessions();
-      const liveSessionsByThreadId = new Map(
-        liveSessions.map((session) => [session.threadId, session] as const),
-      );
       const now = yield* Clock.currentTimeMillis;
       let reapedCount = 0;
 
@@ -59,16 +55,6 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
 
         const idleDurationMs = now - lastSeenMs;
         if (idleDurationMs < inactivityThresholdMs) {
-          continue;
-        }
-
-        const liveSession = liveSessionsByThreadId.get(binding.threadId);
-        if (liveSession?.status === "running" || liveSession?.activeTurnId != null) {
-          yield* Effect.logDebug("provider.session.reaper.skipped-live-turn", {
-            threadId: binding.threadId,
-            activeTurnId: liveSession.activeTurnId,
-            idleDurationMs,
-          });
           continue;
         }
 

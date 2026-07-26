@@ -31,12 +31,6 @@ const ProviderSessionStatus = Schema.Literals([
   "closed",
 ]);
 
-export const ProviderTerminalTurn = Schema.Struct({
-  turnId: TurnId,
-  status: Schema.Literals(["completed", "interrupted", "failed"]),
-});
-export type ProviderTerminalTurn = typeof ProviderTerminalTurn.Type;
-
 export const ProviderSession = Schema.Struct({
   provider: ProviderDriverKind,
   // Optional during the driver/instance migration. Once every producer
@@ -50,7 +44,6 @@ export const ProviderSession = Schema.Struct({
   threadId: ThreadId,
   resumeCursor: Schema.optional(Schema.Unknown),
   activeTurnId: Schema.optional(TurnId),
-  lastTurn: Schema.optional(ProviderTerminalTurn),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   lastError: Schema.optional(TrimmedNonEmptyString),

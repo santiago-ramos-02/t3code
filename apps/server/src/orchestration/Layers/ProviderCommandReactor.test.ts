@@ -146,7 +146,6 @@ describe("ProviderCommandReactor", () => {
     readonly threadModelSelection?: ModelSelection;
     readonly sessionModelSwitch?: "unsupported" | "in-session";
     readonly requiresNewThreadForModelChange?: boolean;
-    readonly startReactor?: boolean;
     readonly startSessionEffect?: (
       session: ProviderSession,
     ) => Effect.Effect<ProviderSession, ProviderAdapterRequestError>;
@@ -389,10 +388,7 @@ describe("ProviderCommandReactor", () => {
     const snapshotQuery = await runtime.runPromise(Effect.service(ProjectionSnapshotQuery));
     const reactor = await runtime.runPromise(Effect.service(ProviderCommandReactor));
     scope = await Effect.runPromise(Scope.make("sequential"));
-    const startReactor = () => Effect.runPromise(reactor.start().pipe(Scope.provide(scope!)));
-    if (input?.startReactor !== false) {
-      await startReactor();
-    }
+    await Effect.runPromise(reactor.start().pipe(Scope.provide(scope)));
     const drain = () => Effect.runPromise(reactor.drain);
 
     await Effect.runPromise(
@@ -438,7 +434,6 @@ describe("ProviderCommandReactor", () => {
       runtimeSessions,
       stateDir,
       reactor,
-      startReactor,
       drain,
     };
   }
@@ -476,58 +471,11 @@ describe("ProviderCommandReactor", () => {
       runtimeMode: "approval-required",
     });
 
-    await waitFor(async () => {
-      const readModel = await harness.readModel();
-      return readModel.threads.some(
-        (entry) =>
-          entry.id === ThreadId.make("thread-1") &&
-          entry.session?.status === "running" &&
-          entry.session.activeTurnId === asTurnId("turn-1"),
-      );
-    });
     const readModel = await harness.readModel();
     const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
     expect(thread?.session?.threadId).toBe("thread-1");
-    expect(thread?.session?.status).toBe("running");
-    expect(thread?.session?.activeTurnId).toBe(asTurnId("turn-1"));
+    expect(thread?.session?.status).toBe("starting");
     expect(thread?.session?.runtimeMode).toBe("approval-required");
-  });
-
-  it("restores the provider's active turn while reconnecting a resumed session", async () => {
-    const recoveredTurnId = asTurnId("turn-running-before-restart");
-    const harness = await createHarness({
-      startSessionEffect: (session) =>
-        Effect.succeed({
-          ...session,
-          status: "running",
-          activeTurnId: recoveredTurnId,
-        }),
-    });
-
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.turn.start",
-        commandId: CommandId.make("cmd-turn-start-after-restart"),
-        threadId: ThreadId.make("thread-1"),
-        message: {
-          messageId: asMessageId("user-message-after-restart"),
-          role: "user",
-          text: "Continue",
-          attachments: [],
-        },
-        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
-        runtimeMode: "approval-required",
-        createdAt: "2026-01-01T00:00:01.000Z",
-      }),
-    );
-
-    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
-    const readModel = await harness.readModel();
-    const session = readModel.threads.find(
-      (entry) => entry.id === ThreadId.make("thread-1"),
-    )?.session;
-    expect(session?.status).toBe("running");
-    expect(session?.activeTurnId).toBe(recoveredTurnId);
   });
 
   effectIt.effect("projects starting before a slow provider session finishes", () =>
@@ -1866,108 +1814,8 @@ describe("ProviderCommandReactor", () => {
     });
   });
 
-  it("recovers a projected active session when the reactor starts", async () => {
-    const harness = await createHarness({ startReactor: false });
-    const now = "2026-01-01T00:00:00.000Z";
-
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.session.set",
-        commandId: CommandId.make("cmd-session-set-active-before-restart"),
-        threadId: ThreadId.make("thread-1"),
-        session: {
-          threadId: ThreadId.make("thread-1"),
-          status: "running",
-          providerName: "codex",
-          providerInstanceId: ProviderInstanceId.make("codex"),
-          runtimeMode: "approval-required",
-          activeTurnId: asTurnId("turn-active-before-restart"),
-          lastError: null,
-          updatedAt: now,
-        },
-        createdAt: now,
-      }),
-    );
-
-    await harness.startReactor();
-    await harness.drain();
-
-    expect(harness.startSession).toHaveBeenCalledTimes(1);
-    expect(harness.startSession.mock.calls[0]?.[1]).toMatchObject({
-      threadId: ThreadId.make("thread-1"),
-      providerInstanceId: ProviderInstanceId.make("codex"),
-      runtimeMode: "approval-required",
-    });
-    expect(harness.sendTurn).not.toHaveBeenCalled();
-    const recoveredThread = (await harness.readModel()).threads.find(
-      (entry) => entry.id === ThreadId.make("thread-1"),
-    );
-    expect(recoveredThread?.session).toMatchObject({
-      status: "interrupted",
-      activeTurnId: null,
-      lastError:
-        "The provider stopped before reporting that the active turn completed. You can continue from the last recovered message.",
-    });
-  });
-
-  it("preserves a provider-confirmed completed turn while reconnecting", async () => {
-    const completedTurnId = asTurnId("turn-completed-while-closed");
-    const harness = await createHarness({
-      startReactor: false,
-      startSessionEffect: (session) =>
-        Effect.succeed({
-          ...session,
-          status: "ready",
-          lastTurn: {
-            turnId: completedTurnId,
-            status: "completed",
-          },
-        }),
-    });
-    const now = "2026-01-01T00:00:00.000Z";
-
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.session.set",
-        commandId: CommandId.make("cmd-session-set-completed-before-restart"),
-        threadId: ThreadId.make("thread-1"),
-        session: {
-          threadId: ThreadId.make("thread-1"),
-          status: "running",
-          providerName: "codex",
-          providerInstanceId: ProviderInstanceId.make("codex"),
-          runtimeMode: "approval-required",
-          activeTurnId: completedTurnId,
-          lastError: null,
-          updatedAt: now,
-        },
-        createdAt: now,
-      }),
-    );
-
-    await harness.startReactor();
-    await harness.drain();
-
-    const recoveredThread = (await harness.readModel()).threads.find(
-      (entry) => entry.id === ThreadId.make("thread-1"),
-    );
-    expect(recoveredThread?.session).toMatchObject({
-      status: "ready",
-      activeTurnId: null,
-      lastError: null,
-    });
-  });
-
-  it("reconciles a selected stopped thread without requiring a new user turn", async () => {
-    const recoveredTurnId = asTurnId("turn-running-while-t3-was-closed");
-    const harness = await createHarness({
-      startSessionEffect: (session) =>
-        Effect.succeed({
-          ...session,
-          status: "running",
-          activeTurnId: recoveredTurnId,
-        }),
-    });
+  it("refreshes a selected stopped thread without sending a model turn", async () => {
+    const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";
 
     await Effect.runPromise(
@@ -1997,55 +1845,8 @@ describe("ProviderCommandReactor", () => {
     expect(
       readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"))?.session,
     ).toMatchObject({
-      status: "running",
-      activeTurnId: recoveredTurnId,
-    });
-  });
-
-  it("repairs a falsely completed thread from the provider's interrupted turn status", async () => {
-    const interruptedTurnId = asTurnId("turn-interrupted-during-restart");
-    const harness = await createHarness({
-      startSessionEffect: (session) =>
-        Effect.succeed({
-          ...session,
-          status: "ready",
-          lastTurn: {
-            turnId: interruptedTurnId,
-            status: "interrupted",
-          },
-        }),
-    });
-    const now = "2026-01-01T00:00:00.000Z";
-
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.session.set",
-        commandId: CommandId.make("cmd-session-set-falsely-completed"),
-        threadId: ThreadId.make("thread-1"),
-        session: {
-          threadId: ThreadId.make("thread-1"),
-          status: "ready",
-          providerName: "codex",
-          providerInstanceId: ProviderInstanceId.make("codex"),
-          runtimeMode: "approval-required",
-          activeTurnId: null,
-          lastError: null,
-          updatedAt: now,
-        },
-        createdAt: now,
-      }),
-    );
-
-    await runtime!.runPromise(harness.reactor.reconcileThread(ThreadId.make("thread-1")));
-
-    const recoveredThread = (await harness.readModel()).threads.find(
-      (entry) => entry.id === ThreadId.make("thread-1"),
-    );
-    expect(recoveredThread?.session).toMatchObject({
-      status: "interrupted",
+      status: "ready",
       activeTurnId: null,
-      lastError:
-        "The provider stopped before reporting that the active turn completed. You can continue from the last recovered message.",
     });
   });
 
