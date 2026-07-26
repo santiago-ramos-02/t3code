@@ -2391,6 +2391,71 @@ describe("ProviderRuntimeIngestion", () => {
     expect(finalMessage?.streaming).toBe(false);
   });
 
+  effectIt.effect("coalesces bursty streaming deltas before durable orchestration", () =>
+    Effect.gen(function* () {
+      const harness = yield* Effect.promise(() =>
+        createHarness({ serverSettings: { enableAssistantStreaming: true } }),
+      );
+      const now = "2026-01-01T00:00:00.000Z";
+      const deltaCount = 200;
+
+      harness.emit({
+        type: "turn.started",
+        eventId: asEventId("evt-turn-started-streaming-burst"),
+        provider: ProviderDriverKind.make("codex"),
+        createdAt: now,
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId("turn-streaming-burst"),
+      });
+      yield* Effect.promise(() =>
+        waitForThread(
+          harness.readModel,
+          (thread) => thread.session?.activeTurnId === "turn-streaming-burst",
+        ),
+      );
+
+      for (let index = 0; index < deltaCount; index += 1) {
+        harness.emit({
+          type: "content.delta",
+          eventId: asEventId(`evt-message-delta-streaming-burst-${index}`),
+          provider: ProviderDriverKind.make("codex"),
+          createdAt: now,
+          threadId: asThreadId("thread-1"),
+          turnId: asTurnId("turn-streaming-burst"),
+          itemId: asItemId("item-streaming-burst"),
+          payload: {
+            streamKind: "assistant_text",
+            delta: "x",
+          },
+        });
+      }
+      yield* Effect.promise(() => harness.drain());
+
+      const thread = yield* Effect.promise(() =>
+        waitForThread(harness.readModel, (entry) =>
+          entry.messages.some(
+            (message: ProviderRuntimeTestMessage) =>
+              message.id === "assistant:item-streaming-burst" &&
+              message.streaming &&
+              message.text.length === deltaCount,
+          ),
+        ),
+      );
+      const message = thread.messages.find(
+        (entry: ProviderRuntimeTestMessage) => entry.id === "assistant:item-streaming-burst",
+      );
+      expect(message?.text).toBe("x".repeat(deltaCount));
+
+      const events = Array.from(yield* Stream.runCollect(harness.engine.readEvents(0)));
+      const messageEvents = events.filter(
+        (event) =>
+          event.type === "thread.message-sent" &&
+          event.payload.messageId === asMessageId("assistant:item-streaming-burst"),
+      );
+      expect(messageEvents.length).toBeLessThanOrEqual(4);
+    }),
+  );
+
   it("spills oversized buffered deltas and still finalizes full assistant text", async () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";

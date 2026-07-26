@@ -26,6 +26,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
+import { makeKeyedCoalescingWorker } from "@t3tools/shared/KeyedCoalescingWorker";
 
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
@@ -92,6 +93,7 @@ const BUFFERED_PROPOSED_PLAN_BY_ID_TTL = Duration.minutes(120);
 const TASK_DESCRIPTION_BY_TASK_CACHE_CAPACITY = 10_000;
 const TASK_DESCRIPTION_BY_TASK_TTL = Duration.minutes(120);
 const MAX_BUFFERED_ASSISTANT_CHARS = 24_000;
+const STREAMING_ASSISTANT_DELTA_COALESCE_WINDOW = Duration.millis(100);
 const STRICT_PROVIDER_LIFECYCLE_GUARD = process.env.T3CODE_STRICT_PROVIDER_LIFECYCLE_GUARD !== "0";
 
 type TurnStartRequestedDomainEvent = Extract<
@@ -108,6 +110,31 @@ type RuntimeIngestionInput =
       source: "domain";
       event: TurnStartRequestedDomainEvent;
     };
+
+type ContentDeltaEvent = Extract<ProviderRuntimeEvent, { type: "content.delta" }>;
+type AssistantTextDeltaEvent = ContentDeltaEvent & {
+  readonly payload: ContentDeltaEvent["payload"] & {
+    readonly streamKind: "assistant_text";
+  };
+};
+
+function isAssistantTextDeltaEvent(event: ProviderRuntimeEvent): event is AssistantTextDeltaEvent {
+  return event.type === "content.delta" && event.payload.streamKind === "assistant_text";
+}
+
+function mergeAssistantTextDeltaEvents(
+  current: AssistantTextDeltaEvent,
+  next: AssistantTextDeltaEvent,
+): AssistantTextDeltaEvent {
+  return {
+    ...next,
+    createdAt: current.createdAt,
+    payload: {
+      ...next.payload,
+      delta: `${current.payload.delta}${next.payload.delta}`,
+    },
+  };
+}
 
 function toTurnId(value: TurnId | string | undefined): TurnId | undefined {
   return value === undefined ? undefined : TurnId.make(String(value));
@@ -1800,7 +1827,47 @@ const make = Effect.gen(function* () {
       }),
     );
 
-  const worker = yield* makeDrainableWorker(processInputSafely);
+  const assistantDeltaThreadIds = new Set<ThreadId>();
+  const assistantDeltaWorker = yield* makeKeyedCoalescingWorker({
+    merge: mergeAssistantTextDeltaEvents,
+    process: (_threadId: ThreadId, event: AssistantTextDeltaEvent) =>
+      Effect.sleep(STREAMING_ASSISTANT_DELTA_COALESCE_WINDOW).pipe(
+        Effect.andThen(processInputSafely({ source: "runtime", event })),
+      ),
+  });
+
+  const processQueuedInput = (input: RuntimeIngestionInput) => {
+    if (input.source === "domain") {
+      return processInputSafely(input);
+    }
+
+    if (isAssistantTextDeltaEvent(input.event)) {
+      assistantDeltaThreadIds.add(input.event.threadId);
+      return assistantDeltaWorker.enqueue(input.event.threadId, input.event);
+    }
+
+    // Tool/reasoning output deltas are rendered from their lifecycle events
+    // and do not mutate orchestration state. Skip the per-event projection
+    // lookups entirely; verbose commands can otherwise enqueue thousands of
+    // no-op database reads ahead of assistant text.
+    if (input.event.type === "content.delta") {
+      return Effect.void;
+    }
+
+    // Preserve provider ordering at lifecycle boundaries. Completion,
+    // approval, and turn events must observe all assistant text that arrived
+    // before them.
+    return assistantDeltaWorker.drainKey(input.event.threadId).pipe(
+      Effect.tap(() =>
+        Effect.sync(() => {
+          assistantDeltaThreadIds.delete(input.event.threadId);
+        }),
+      ),
+      Effect.andThen(processInputSafely(input)),
+    );
+  };
+
+  const worker = yield* makeDrainableWorker(processQueuedInput);
 
   const start: ProviderRuntimeIngestionShape["start"] = () =>
     Effect.gen(function* () {
@@ -1819,9 +1886,22 @@ const make = Effect.gen(function* () {
       );
     });
 
+  const drain = Effect.fn("ProviderRuntimeIngestion.drain")(function* () {
+    yield* worker.drain;
+    yield* Effect.forEach(Array.from(assistantDeltaThreadIds), (threadId) =>
+      assistantDeltaWorker.drainKey(threadId).pipe(
+        Effect.tap(() =>
+          Effect.sync(() => {
+            assistantDeltaThreadIds.delete(threadId);
+          }),
+        ),
+      ),
+    );
+  });
+
   return {
     start,
-    drain: worker.drain,
+    drain: drain(),
   } satisfies ProviderRuntimeIngestionShape;
 });
 
