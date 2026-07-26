@@ -1400,16 +1400,32 @@ const make = Effect.gen(function* () {
           switch (event.type) {
             case "session.state.changed": {
               const runtimeStatus = orchestrationSessionStatusFromRuntimeState(event.payload.state);
-              return hasPendingTurnStart && runtimeStatus === "ready" ? "starting" : runtimeStatus;
+              if (hasPendingTurnStart && runtimeStatus === "ready") {
+                return "starting";
+              }
+              // A provider becoming ready while T3 still tracks an active turn
+              // is not a successful completion. Providers report successful
+              // turn termination through turn.completed; without it, the turn
+              // was cut short (for example by an app restart).
+              return activeTurnId !== null && runtimeStatus === "ready"
+                ? "interrupted"
+                : runtimeStatus;
             }
             case "turn.started":
               return "running";
             case "session.exited":
               return "stopped";
-            case "turn.completed":
-              return normalizeRuntimeTurnState(event.payload.state) === "failed"
-                ? "error"
-                : "ready";
+            case "turn.completed": {
+              switch (normalizeRuntimeTurnState(event.payload.state)) {
+                case "failed":
+                  return "error";
+                case "interrupted":
+                case "cancelled":
+                  return "interrupted";
+                case "completed":
+                  return "ready";
+              }
+            }
             case "session.started":
             case "thread.started":
               // Provider thread/session start notifications can arrive during an
@@ -1431,12 +1447,15 @@ const make = Effect.gen(function* () {
         const lastError =
           event.type === "session.state.changed" && event.payload.state === "error"
             ? (event.payload.reason ?? thread.session?.lastError ?? "Provider session error")
-            : event.type === "turn.completed" &&
-                normalizeRuntimeTurnState(event.payload.state) === "failed"
-              ? (event.payload.errorMessage ?? thread.session?.lastError ?? "Turn failed")
-              : status === "ready"
-                ? null
-                : (thread.session?.lastError ?? null);
+            : event.type === "session.state.changed" && status === "interrupted"
+              ? (event.payload.reason ??
+                "The provider stopped before reporting that the active turn completed. You can continue from the last recovered message.")
+              : event.type === "turn.completed" &&
+                  normalizeRuntimeTurnState(event.payload.state) === "failed"
+                ? (event.payload.errorMessage ?? thread.session?.lastError ?? "Turn failed")
+                : status === "ready"
+                  ? null
+                  : (thread.session?.lastError ?? null);
 
         if (shouldApplyThreadLifecycle) {
           if (event.type === "turn.started" && acceptedTurnStartedSourcePlan !== null) {

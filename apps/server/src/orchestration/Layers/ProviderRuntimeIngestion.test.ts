@@ -449,7 +449,7 @@ describe("ProviderRuntimeIngestion", () => {
     expect(thread.session?.lastError).toBeNull();
   });
 
-  it("clears active turn when provider session becomes ready", async () => {
+  it("marks an active turn interrupted when the provider becomes ready without completing it", async () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";
 
@@ -484,14 +484,17 @@ describe("ProviderRuntimeIngestion", () => {
     const thread = await waitForThread(
       harness.readModel,
       (entry) =>
-        entry.session?.status === "ready" &&
+        entry.session?.status === "interrupted" &&
         entry.session?.activeTurnId === null &&
-        entry.session?.lastError === null,
+        entry.session?.lastError ===
+          "The provider stopped before reporting that the active turn completed. You can continue from the last recovered message.",
       10_000,
     );
-    expect(thread.session?.status).toBe("ready");
+    expect(thread.session?.status).toBe("interrupted");
     expect(thread.session?.activeTurnId).toBeNull();
-    expect(thread.session?.lastError).toBeNull();
+    expect(thread.session?.lastError).toBe(
+      "The provider stopped before reporting that the active turn completed. You can continue from the last recovered message.",
+    );
   });
 
   effectIt.effect(
@@ -784,6 +787,41 @@ describe("ProviderRuntimeIngestion", () => {
       harness.readModel,
       (thread) => thread.session?.status === "ready" && thread.session?.activeTurnId === null,
     );
+  });
+
+  it("preserves an interrupted provider turn as interrupted", async () => {
+    const harness = await createHarness();
+    const turnId = asTurnId("turn-provider-interrupted");
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-provider-interrupted"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: "2026-01-01T00:00:00.000Z",
+      threadId: asThreadId("thread-1"),
+      turnId,
+    });
+
+    await waitForThread(
+      harness.readModel,
+      (thread) => thread.session?.status === "running" && thread.session.activeTurnId === turnId,
+    );
+
+    harness.emit({
+      type: "turn.completed",
+      eventId: asEventId("evt-turn-completed-provider-interrupted"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: "2026-01-01T00:00:01.000Z",
+      threadId: asThreadId("thread-1"),
+      turnId,
+      status: "interrupted",
+    });
+
+    const thread = await waitForThread(
+      harness.readModel,
+      (entry) => entry.session?.status === "interrupted" && entry.session.activeTurnId === null,
+    );
+    expect(thread.session?.status).toBe("interrupted");
   });
 
   it("ignores auxiliary turn completions from a different provider thread", async () => {

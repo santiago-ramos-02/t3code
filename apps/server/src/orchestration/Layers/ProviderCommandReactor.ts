@@ -317,6 +317,30 @@ const make = Effect.gen(function* () {
     });
   });
 
+  const acknowledgeAcceptedTurn = Effect.fnUntraced(function* (input: {
+    readonly threadId: ThreadId;
+    readonly turnId: TurnId;
+  }) {
+    const thread = yield* resolveThread(input.threadId);
+    const session = thread?.session;
+    if (!thread || !session || (session.status !== "starting" && session.status !== "running")) {
+      return;
+    }
+
+    const acceptedAt = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
+    yield* setThreadSession({
+      threadId: input.threadId,
+      session: {
+        ...session,
+        status: "running",
+        activeTurnId: input.turnId,
+        lastError: null,
+        updatedAt: acceptedAt,
+      },
+      createdAt: acceptedAt,
+    });
+  });
+
   const resolveProject = Effect.fnUntraced(function* (projectId: ProjectId) {
     return yield* projectionSnapshotQuery
       .getProjectShellById(projectId)
@@ -523,19 +547,36 @@ const make = Effect.gen(function* () {
             detail: `Provider session '${session.threadId}' started without a provider instance id.`,
           });
         }
+        const projectedActiveTurnId = thread.session?.activeTurnId ?? null;
+        const resumedTurnStatus =
+          session.lastTurn?.status === "interrupted"
+            ? "interrupted"
+            : session.lastTurn?.status === "failed"
+              ? "error"
+              : session.status === "ready" &&
+                  session.activeTurnId === undefined &&
+                  projectedActiveTurnId !== null &&
+                  session.lastTurn?.status !== "completed"
+                ? "interrupted"
+                : undefined;
+        const status =
+          options?.pendingTurnStart === true && session.status === "ready"
+            ? "starting"
+            : (resumedTurnStatus ?? mapProviderSessionStatusToOrchestrationStatus(session.status));
+        const lastError =
+          status === "interrupted"
+            ? "The provider stopped before reporting that the active turn completed. You can continue from the last recovered message."
+            : (session.lastError ?? null);
         yield* setThreadSession({
           threadId,
           session: {
             threadId,
-            status:
-              options?.pendingTurnStart === true && session.status === "ready"
-                ? "starting"
-                : mapProviderSessionStatusToOrchestrationStatus(session.status),
+            status,
             providerName: session.provider,
             providerInstanceId: session.providerInstanceId,
             runtimeMode: desiredRuntimeMode,
             activeTurnId: session.activeTurnId ?? null,
-            lastError: session.lastError ?? null,
+            lastError,
             updatedAt: session.updatedAt,
           },
           createdAt,
@@ -927,9 +968,16 @@ const make = Effect.gen(function* () {
       return;
     }
 
-    yield* providerService
-      .sendTurn(sendTurnRequest.value)
-      .pipe(Effect.catchCause(recoverTurnStartFailure), Effect.forkScoped);
+    yield* providerService.sendTurn(sendTurnRequest.value).pipe(
+      Effect.tap((result) =>
+        acknowledgeAcceptedTurn({
+          threadId: event.payload.threadId,
+          turnId: result.turnId,
+        }),
+      ),
+      Effect.catchCause(recoverTurnStartFailure),
+      Effect.forkScoped,
+    );
   });
 
   const processTurnInterruptRequested = Effect.fn("processTurnInterruptRequested")(function* (

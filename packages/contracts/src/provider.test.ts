@@ -186,6 +186,27 @@ describe("providerInstanceId routing key (slice-2 invariant)", () => {
     expect(session.providerInstanceId).toBe("codex_work");
   });
 
+  it("preserves a terminal provider turn outcome for restart reconciliation", () => {
+    const session = decodeProviderSession({
+      provider: "codex",
+      providerInstanceId: "codex",
+      status: "ready",
+      runtimeMode: "full-access",
+      threadId: "thread-1",
+      lastTurn: {
+        turnId: "turn-interrupted",
+        status: "interrupted",
+      },
+      createdAt: "2024-01-01T00:00:00Z",
+      updatedAt: "2024-01-01T00:00:00Z",
+    });
+
+    expect(session.lastTurn).toEqual({
+      turnId: "turn-interrupted",
+      status: "interrupted",
+    });
+  });
+
   it("decodes ProviderSession for fork-provided driver kinds", () => {
     const session = decodeProviderSession({
       provider: "ollama",

@@ -476,10 +476,20 @@ describe("ProviderCommandReactor", () => {
       runtimeMode: "approval-required",
     });
 
+    await waitFor(async () => {
+      const readModel = await harness.readModel();
+      return readModel.threads.some(
+        (entry) =>
+          entry.id === ThreadId.make("thread-1") &&
+          entry.session?.status === "running" &&
+          entry.session.activeTurnId === asTurnId("turn-1"),
+      );
+    });
     const readModel = await harness.readModel();
     const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
     expect(thread?.session?.threadId).toBe("thread-1");
-    expect(thread?.session?.status).toBe("starting");
+    expect(thread?.session?.status).toBe("running");
+    expect(thread?.session?.activeTurnId).toBe(asTurnId("turn-1"));
     expect(thread?.session?.runtimeMode).toBe("approval-required");
   });
 
@@ -1889,6 +1899,63 @@ describe("ProviderCommandReactor", () => {
       runtimeMode: "approval-required",
     });
     expect(harness.sendTurn).not.toHaveBeenCalled();
+    const recoveredThread = (await harness.readModel()).threads.find(
+      (entry) => entry.id === ThreadId.make("thread-1"),
+    );
+    expect(recoveredThread?.session).toMatchObject({
+      status: "interrupted",
+      activeTurnId: null,
+      lastError:
+        "The provider stopped before reporting that the active turn completed. You can continue from the last recovered message.",
+    });
+  });
+
+  it("preserves a provider-confirmed completed turn while reconnecting", async () => {
+    const completedTurnId = asTurnId("turn-completed-while-closed");
+    const harness = await createHarness({
+      startReactor: false,
+      startSessionEffect: (session) =>
+        Effect.succeed({
+          ...session,
+          status: "ready",
+          lastTurn: {
+            turnId: completedTurnId,
+            status: "completed",
+          },
+        }),
+    });
+    const now = "2026-01-01T00:00:00.000Z";
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.make("cmd-session-set-completed-before-restart"),
+        threadId: ThreadId.make("thread-1"),
+        session: {
+          threadId: ThreadId.make("thread-1"),
+          status: "running",
+          providerName: "codex",
+          providerInstanceId: ProviderInstanceId.make("codex"),
+          runtimeMode: "approval-required",
+          activeTurnId: completedTurnId,
+          lastError: null,
+          updatedAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+
+    await harness.startReactor();
+    await harness.drain();
+
+    const recoveredThread = (await harness.readModel()).threads.find(
+      (entry) => entry.id === ThreadId.make("thread-1"),
+    );
+    expect(recoveredThread?.session).toMatchObject({
+      status: "ready",
+      activeTurnId: null,
+      lastError: null,
+    });
   });
 
   it("reconciles a selected stopped thread without requiring a new user turn", async () => {
@@ -1932,6 +1999,53 @@ describe("ProviderCommandReactor", () => {
     ).toMatchObject({
       status: "running",
       activeTurnId: recoveredTurnId,
+    });
+  });
+
+  it("repairs a falsely completed thread from the provider's interrupted turn status", async () => {
+    const interruptedTurnId = asTurnId("turn-interrupted-during-restart");
+    const harness = await createHarness({
+      startSessionEffect: (session) =>
+        Effect.succeed({
+          ...session,
+          status: "ready",
+          lastTurn: {
+            turnId: interruptedTurnId,
+            status: "interrupted",
+          },
+        }),
+    });
+    const now = "2026-01-01T00:00:00.000Z";
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.make("cmd-session-set-falsely-completed"),
+        threadId: ThreadId.make("thread-1"),
+        session: {
+          threadId: ThreadId.make("thread-1"),
+          status: "ready",
+          providerName: "codex",
+          providerInstanceId: ProviderInstanceId.make("codex"),
+          runtimeMode: "approval-required",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+
+    await runtime!.runPromise(harness.reactor.reconcileThread(ThreadId.make("thread-1")));
+
+    const recoveredThread = (await harness.readModel()).threads.find(
+      (entry) => entry.id === ThreadId.make("thread-1"),
+    );
+    expect(recoveredThread?.session).toMatchObject({
+      status: "interrupted",
+      activeTurnId: null,
+      lastError:
+        "The provider stopped before reporting that the active turn completed. You can continue from the last recovered message.",
     });
   });
 

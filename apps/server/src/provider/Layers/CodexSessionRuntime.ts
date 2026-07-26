@@ -979,6 +979,14 @@ export const makeCodexSessionRuntime = (
           return updateSession(sessionRef, {
             status: payload.turn.status === "failed" ? "error" : "ready",
             activeTurnId: undefined,
+            ...(payload.turn.status === "inProgress"
+              ? {}
+              : {
+                  lastTurn: {
+                    turnId: TurnId.make(payload.turn.id),
+                    status: payload.turn.status,
+                  },
+                }),
             ...(lastError ? { lastError } : {}),
           });
         }),
@@ -1271,10 +1279,21 @@ export const makeCodexSessionRuntime = (
       const resumedActiveTurn = findActiveCodexTurn(opened.thread.turns);
       const resumedActiveTurnId =
         resumedActiveTurn === undefined ? undefined : TurnId.make(resumedActiveTurn.id);
+      const latestTurn = opened.thread.turns.at(-1);
+      const lastTurn =
+        latestTurn?.status === "completed" ||
+        latestTurn?.status === "interrupted" ||
+        latestTurn?.status === "failed"
+          ? {
+              turnId: TurnId.make(latestTurn.id),
+              status: latestTurn.status,
+            }
+          : undefined;
       const session = {
         ...(yield* Ref.get(sessionRef)),
         status: resumedActiveTurnId === undefined ? "ready" : "running",
         activeTurnId: resumedActiveTurnId,
+        ...(lastTurn !== undefined ? { lastTurn } : {}),
         cwd: opened.cwd,
         model: opened.model,
         resumeCursor: { threadId: providerThreadId },
