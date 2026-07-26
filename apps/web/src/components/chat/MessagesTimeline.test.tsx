@@ -28,6 +28,7 @@ vi.mock("@legendapp/list/react", async () => {
           animated?: boolean;
           on?: {
             dataChange?: boolean;
+            footerLayout?: boolean;
             itemLayout?: boolean;
             layout?: boolean;
           };
@@ -68,6 +69,11 @@ vi.mock("@legendapp/list/react", async () => {
         data-maintain-scroll-at-end-item-layout={
           typeof props.maintainScrollAtEnd === "object"
             ? props.maintainScrollAtEnd.on?.itemLayout
+            : undefined
+        }
+        data-maintain-scroll-at-end-footer-layout={
+          typeof props.maintainScrollAtEnd === "object"
+            ? props.maintainScrollAtEnd.on?.footerLayout
             : undefined
         }
         data-maintain-scroll-at-end-layout={
@@ -190,9 +196,6 @@ function buildProps() {
     resolvedTheme: "light" as const,
     timestampFormat: "locale" as const,
     workspaceRoot: undefined,
-    anchorMessageId: null,
-    onAnchorReady: () => {},
-    onAnchorSizeChanged: () => {},
     contentInsetEndAdjustment: 0,
     onIsAtEndChange: () => {},
     onManualNavigation: () => {},
@@ -357,9 +360,7 @@ describe("MessagesTimeline", () => {
     expect(resolveTimelineMinimapInteractiveWidth(40, true)).toBe("22rem");
   });
 
-  it("anchors a sent attachment message using its measured height", () => {
-    const onAnchorReady = vi.fn();
-    const onAnchorSizeChanged = vi.fn();
+  it("keeps appended and resized chat rows pinned to the real end", () => {
     const firstEntry = buildUserTimelineEntry("First prompt.");
     const secondEntry = {
       ...buildUserTimelineEntry("Newest prompt."),
@@ -382,27 +383,26 @@ describe("MessagesTimeline", () => {
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         {...buildProps()}
-        anchorMessageId={secondEntry.message.id}
-        onAnchorReady={onAnchorReady}
-        onAnchorSizeChanged={onAnchorSizeChanged}
         contentInsetEndAdjustment={144}
         timelineEntries={[firstEntry, secondEntry]}
       />,
     );
 
-    expect(markup).toContain('data-anchor-index="1"');
-    expect(markup).toContain('data-anchor-offset="16"');
-    expect(markup).toContain('data-anchor-on-ready="true"');
+    expect(markup).not.toContain("data-anchor-index=");
+    expect(markup).not.toContain("data-anchor-offset=");
+    expect(markup).toContain('data-anchor-on-ready="false"');
     expect(markup).not.toContain("data-anchor-max-size=");
     expect(markup).toContain('data-content-inset-end="144"');
     expect(markup).toContain("[overflow-anchor:none]");
-    expect(markup).not.toContain('data-maintain-scroll-at-end="enabled"');
+    expect(markup).toContain('data-maintain-scroll-at-end="enabled"');
+    expect(markup).toContain('data-maintain-scroll-at-end-animated="false"');
+    expect(markup).toContain('data-maintain-scroll-at-end-data-change="true"');
+    expect(markup).toContain('data-maintain-scroll-at-end-footer-layout="true"');
+    expect(markup).toContain('data-maintain-scroll-at-end-item-layout="true"');
+    expect(markup).toContain('data-maintain-scroll-at-end-layout="true"');
     expect(markup).toContain('data-maintain-visible-content-position="object"');
     expect(markup).toContain('data-maintain-visible-content-position-data="true"');
-    expect(markup).toContain('data-maintain-visible-content-position-size="false"');
-    expect(onAnchorReady).toHaveBeenCalledOnce();
-    expect(onAnchorReady).toHaveBeenCalledWith(secondEntry.message.id, 1);
-    expect(onAnchorSizeChanged).toHaveBeenCalledWith(secondEntry.message.id, 240);
+    expect(markup).toContain('data-maintain-visible-content-position-size="true"');
   });
 
   it("renders collapse controls for long user messages", () => {
@@ -414,7 +414,6 @@ describe("MessagesTimeline", () => {
     );
 
     expect(markup).toContain("Show full message");
-    expect(markup).not.toContain('data-maintain-scroll-at-end="enabled"');
     expect(markup).toContain('data-user-message-collapsed="true"');
     expect(markup).toContain('data-user-message-fade="true"');
     expect(markup).toContain('data-user-message-footer="true"');

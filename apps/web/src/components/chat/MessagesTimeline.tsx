@@ -6,7 +6,6 @@ import {
   type TurnId,
 } from "@t3tools/contracts";
 import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
-import { resolveChatListAnchoredEndSpace } from "@t3tools/shared/chatList";
 import {
   createContext,
   Fragment,
@@ -176,9 +175,6 @@ interface MessagesTimelineProps {
   timestampFormat: TimestampFormat;
   workspaceRoot: string | undefined;
   skills?: ReadonlyArray<Pick<ServerProviderSkill, "name" | "displayName">>;
-  anchorMessageId: MessageId | null;
-  onAnchorReady: (messageId: MessageId, anchorIndex: number) => void;
-  onAnchorSizeChanged: (messageId: MessageId, size: number) => void;
   contentInsetEndAdjustment: number;
   onIsAtEndChange: (isAtEnd: boolean) => void;
   onManualNavigation: () => void;
@@ -211,9 +207,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   timestampFormat,
   workspaceRoot,
   skills = EMPTY_TIMELINE_SKILLS,
-  anchorMessageId,
-  onAnchorReady,
-  onAnchorSizeChanged,
   contentInsetEndAdjustment,
   onIsAtEndChange,
   onManualNavigation,
@@ -330,31 +323,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   );
   const [minimapHasPersistentGutter, setMinimapHasPersistentGutter] = useState(false);
   const [minimapHitStripWidth, setMinimapHitStripWidth] = useState(0);
-  const handleAnchorReady = useCallback(
-    (info: { anchorIndex: number | undefined }) => {
-      if (anchorMessageId !== null && info.anchorIndex !== undefined) {
-        onAnchorReady(anchorMessageId, info.anchorIndex);
-      }
-    },
-    [anchorMessageId, onAnchorReady],
-  );
-  const handleAnchorSizeChanged = useCallback(
-    (size: number) => {
-      if (anchorMessageId !== null) {
-        onAnchorSizeChanged(anchorMessageId, size);
-      }
-    },
-    [anchorMessageId, onAnchorSizeChanged],
-  );
-  const anchoredEndSpace = useMemo(() => {
-    const config = resolveChatListAnchoredEndSpace(rows, anchorMessageId, (row) =>
-      row.kind === "message" ? row.message.id : null,
-    );
-    return config
-      ? { ...config, onReady: handleAnchorReady, onSizeChanged: handleAnchorSizeChanged }
-      : undefined;
-  }, [anchorMessageId, handleAnchorReady, handleAnchorSizeChanged, rows]);
-
   const handleScroll = useCallback(() => {
     const state = listRef.current?.getState?.();
     const isAtEnd = resolveTimelineIsAtEnd(state);
@@ -492,11 +460,19 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             renderItem={renderItem}
             estimatedItemSize={90}
             initialScrollAtEnd
-            {...(anchoredEndSpace ? { anchoredEndSpace } : {})}
             contentInsetEndAdjustment={contentInsetEndAdjustment}
+            maintainScrollAtEnd={{
+              animated: false,
+              on: {
+                dataChange: true,
+                footerLayout: true,
+                itemLayout: true,
+                layout: true,
+              },
+            }}
             maintainVisibleContentPosition={{
               data: true,
-              size: false,
+              size: true,
             }}
             onScroll={handleScroll}
             className={cn(
