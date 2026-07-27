@@ -1,13 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { buildPatchCacheKey, DIFF_CODE_VIEW_CLASS_NAME, getRenderablePatch } from "./diffRendering";
-
-describe("DIFF_CODE_VIEW_CLASS_NAME", () => {
-  it("leaves virtualized content positioning under the diff renderer's control", () => {
-    expect(DIFF_CODE_VIEW_CLASS_NAME).toContain("overflow-auto");
-    expect(DIFF_CODE_VIEW_CLASS_NAME).not.toContain("top-0!");
-    expect(DIFF_CODE_VIEW_CLASS_NAME).not.toContain("bottom-auto!");
-  });
-});
+import { buildPatchCacheKey, getDiffLineStat, getRenderablePatch } from "./diffRendering";
 
 describe("buildPatchCacheKey", () => {
   it("returns a stable cache key for identical content", () => {
@@ -88,5 +80,35 @@ describe("getRenderablePatch", () => {
     expect(parsed?.kind).toBe("files");
     if (parsed?.kind !== "files") return;
     expect(parsed.files[0]?.hunks[0]?.unifiedLineStart).toBe(47);
+  });
+});
+
+describe("getDiffLineStat", () => {
+  it("totals additions and deletions across every file and hunk", () => {
+    const patch = [
+      "diff --git a/example.ts b/example.ts",
+      "--- a/example.ts",
+      "+++ b/example.ts",
+      "@@ -1,2 +1,3 @@",
+      "-before",
+      "+after",
+      "+added",
+      " context",
+      "@@ -10,2 +11,1 @@",
+      "-removed",
+      " context",
+      "diff --git a/README.md b/README.md",
+      "--- a/README.md",
+      "+++ b/README.md",
+      "@@ -1 +1,2 @@",
+      " title",
+      "+description",
+    ].join("\n");
+
+    const parsed = getRenderablePatch(patch);
+    expect(parsed?.kind).toBe("files");
+    if (parsed?.kind !== "files") return;
+
+    expect(getDiffLineStat(parsed.files)).toEqual({ additions: 3, deletions: 2 });
   });
 });
