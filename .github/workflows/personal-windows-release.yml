@@ -1,6 +1,9 @@
 name: Personal Desktop Release
 
 on:
+  push:
+    branches:
+      - main
   schedule:
     - cron: "17 */3 * * *"
   workflow_dispatch:
@@ -52,7 +55,7 @@ jobs:
             git commit --no-edit
             git push origin HEAD:main
             should_build=true
-          elif [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+          elif [[ "${GITHUB_EVENT_NAME}" == "push" || "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
             should_build=true
           fi
 
