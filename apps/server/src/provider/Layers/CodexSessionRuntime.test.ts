@@ -488,6 +488,22 @@ describe("codexSessionActivityFromThread", () => {
     );
   });
 
+  it("keeps an in-progress turn running when the resumed thread snapshot is idle", () => {
+    NodeAssert.deepStrictEqual(
+      codexSessionActivityFromThread({
+        status: { type: "idle" },
+        turns: [
+          { id: "turn-completed", status: "completed" },
+          { id: "turn-running", status: "inProgress" },
+        ],
+      }),
+      {
+        status: "running",
+        activeTurnId: TurnId.make("turn-running"),
+      },
+    );
+  });
+
   it("maps an idle resumed thread to ready", () => {
     NodeAssert.deepStrictEqual(
       codexSessionActivityFromThread({

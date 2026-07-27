@@ -520,6 +520,10 @@ const make = Effect.gen(function* () {
             detail: `Provider session '${session.threadId}' started without a provider instance id.`,
           });
         }
+        const resumedWithoutActiveTurn =
+          options?.pendingTurnStart !== true &&
+          thread.session?.status === "running" &&
+          session.status === "ready";
         const resumedActiveTurnId =
           session.status === "running" && thread.session?.status === "running"
             ? thread.session.activeTurnId
@@ -531,7 +535,9 @@ const make = Effect.gen(function* () {
             status:
               options?.pendingTurnStart === true && session.status === "ready"
                 ? "starting"
-                : mapProviderSessionStatusToOrchestrationStatus(session.status),
+                : resumedWithoutActiveTurn
+                  ? "interrupted"
+                  : mapProviderSessionStatusToOrchestrationStatus(session.status),
             providerName: session.provider,
             providerInstanceId: session.providerInstanceId,
             runtimeMode: desiredRuntimeMode,
@@ -539,7 +545,9 @@ const make = Effect.gen(function* () {
             // provider turn continues the orchestration turn that was live
             // before the server restarted.
             activeTurnId: resumedActiveTurnId,
-            lastError: session.lastError ?? null,
+            lastError: resumedWithoutActiveTurn
+              ? "T3 Code restarted before the active provider turn completed."
+              : (session.lastError ?? null),
             updatedAt: session.updatedAt,
           },
           createdAt,

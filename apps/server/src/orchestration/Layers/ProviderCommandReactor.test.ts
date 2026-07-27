@@ -1893,6 +1893,46 @@ describe("ProviderCommandReactor", () => {
     });
   });
 
+  it("marks a previously running turn interrupted when the resumed provider is ready", async () => {
+    const harness = await createHarness();
+    const now = "2026-01-01T00:00:00.000Z";
+    const orchestrationTurnId = TurnId.make("orchestration-turn-before-restart");
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.make("cmd-session-set-running-before-interrupted-resume"),
+        threadId: ThreadId.make("thread-1"),
+        session: {
+          threadId: ThreadId.make("thread-1"),
+          status: "running",
+          providerName: "codex",
+          providerInstanceId: ProviderInstanceId.make("codex"),
+          runtimeMode: "approval-required",
+          activeTurnId: orchestrationTurnId,
+          lastError: null,
+          updatedAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+
+    await runtime!.runPromise(harness.reactor.reconcileThread(ThreadId.make("thread-1")));
+
+    expect(harness.startSession).toHaveBeenCalledTimes(1);
+    const readModel = await harness.readModel();
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
+    expect(thread?.session).toMatchObject({
+      status: "interrupted",
+      activeTurnId: null,
+      lastError: "T3 Code restarted before the active provider turn completed.",
+    });
+    expect(thread?.latestTurn).toMatchObject({
+      turnId: orchestrationTurnId,
+      state: "interrupted",
+    });
+  });
+
   it("rejects active runtime sessions that are missing provider instance ids", async () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";

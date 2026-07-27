@@ -1485,7 +1485,7 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
           ),
         );
 
-        if (isCodexResumeCursorSchema(input.resumeCursor)) {
+        if (isCodexResumeCursorSchema(input.resumeCursor) && started.status === "ready") {
           yield* runtime.readThread.pipe(
             Effect.flatMap((snapshot) => {
               const latestTurn = snapshot.turns.at(-1);
@@ -1512,6 +1512,7 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
                       turnId: latestTurn.id,
                       itemId: ProviderItemId.make(item.id),
                       payload: {
+                        recoveredFromThreadSnapshot: true,
                         completedAtMs: Date.parse(started.updatedAt),
                         threadId: snapshot.threadId,
                         turnId: latestTurn.id,

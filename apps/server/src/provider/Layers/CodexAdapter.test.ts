@@ -62,17 +62,18 @@ class FakeCodexRuntime implements CodexSessionRuntimeShape {
   private readonly eventQueue = Effect.runSync(Queue.unbounded<ProviderEvent>());
   private readonly now = "2026-01-01T00:00:00.000Z";
 
-  public readonly startImpl = vi.fn(() =>
-    Promise.resolve({
-      provider: ProviderDriverKind.make("codex"),
-      status: "ready" as const,
-      runtimeMode: this.options.runtimeMode,
-      threadId: this.options.threadId,
-      cwd: this.options.cwd,
-      ...(this.options.model ? { model: this.options.model } : {}),
-      createdAt: this.now,
-      updatedAt: this.now,
-    } satisfies ProviderSession),
+  public readonly startImpl = vi.fn(
+    (): Promise<ProviderSession> =>
+      Promise.resolve({
+        provider: ProviderDriverKind.make("codex"),
+        status: "ready" as const,
+        runtimeMode: this.options.runtimeMode,
+        threadId: this.options.threadId,
+        cwd: this.options.cwd,
+        ...(this.options.model ? { model: this.options.model } : {}),
+        createdAt: this.now,
+        updatedAt: this.now,
+      } satisfies ProviderSession),
   );
 
   public readonly sendTurnImpl = vi.fn(
@@ -494,6 +495,72 @@ sessionErrorLayer("CodexAdapterLive session errors", (it) => {
         recoveredEvent.value.payload.detail,
         "This completed while T3 Code was closed.",
       );
+      NodeAssert.equal(
+        (
+          recoveredEvent.value.raw?.payload as {
+            readonly recoveredFromThreadSnapshot?: unknown;
+          }
+        ).recoveredFromThreadSnapshot,
+        true,
+      );
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("does not replay the thread snapshot while a resumed Codex turn is running", () => {
+    const runtimeFactory = makeRuntimeFactory((runtime) => {
+      runtime.startImpl.mockResolvedValue({
+        provider: ProviderDriverKind.make("codex"),
+        status: "running",
+        runtimeMode: runtime.options.runtimeMode,
+        threadId: runtime.options.threadId,
+        cwd: runtime.options.cwd,
+        activeTurnId: asTurnId("turn-still-running"),
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      });
+      runtime.readThreadImpl.mockResolvedValue({
+        threadId: "provider-thread-running",
+        turns: [
+          {
+            id: asTurnId("turn-still-running"),
+            items: [
+              {
+                type: "agentMessage",
+                id: "msg_already_projected",
+                text: "Do not replay this live turn.",
+              },
+            ],
+          },
+        ],
+      });
+    });
+    const layer = Layer.effect(
+      CodexAdapter,
+      Effect.gen(function* () {
+        const codexConfig = decodeCodexSettings({});
+        return yield* makeCodexAdapter(codexConfig, {
+          makeRuntime: runtimeFactory.factory,
+        });
+      }),
+    ).pipe(
+      Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
+      Layer.provideMerge(ServerSettingsService.layerTest()),
+      Layer.provideMerge(providerSessionDirectoryTestLayer),
+      Layer.provideMerge(NodeServices.layer),
+    );
+
+    return Effect.gen(function* () {
+      const adapter = yield* CodexAdapter;
+      yield* adapter.startSession({
+        provider: ProviderDriverKind.make("codex"),
+        threadId: asThreadId("thread-running"),
+        resumeCursor: { threadId: "provider-thread-running" },
+        runtimeMode: "full-access",
+      });
+
+      const runtime = runtimeFactory.lastRuntime;
+      NodeAssert.ok(runtime);
+      NodeAssert.equal(runtime.readThreadImpl.mock.calls.length, 0);
     }).pipe(Effect.provide(layer));
   });
 

@@ -457,14 +457,20 @@ export function codexSessionActivityFromThread(input: {
   if (input.status.type === "systemError") {
     return { status: "error" };
   }
+
+  const activeTurn = input.turns.findLast((turn) => turn.status === "inProgress");
+  if (activeTurn) {
+    return {
+      status: "running",
+      activeTurnId: TurnId.make(activeTurn.id),
+    };
+  }
   if (input.status.type !== "active") {
     return { status: "ready" };
   }
 
-  const activeTurn = input.turns.findLast((turn) => turn.status === "inProgress");
   return {
     status: "running",
-    ...(activeTurn ? { activeTurnId: TurnId.make(activeTurn.id) } : {}),
   };
 }
 
@@ -1262,7 +1268,11 @@ export const makeCodexSessionRuntime = (
         updatedAt: yield* nowIso,
       } satisfies ProviderSession;
       yield* Ref.set(sessionRef, session);
-      yield* emitSessionEvent("session/ready", "Codex App Server session ready.");
+      // `start()` returns the authoritative initial session to the adapter,
+      // which binds it to orchestration before any turn is sent. Publishing a
+      // second ready event here races that binding during resume: the event can
+      // settle a previously running turn as completed just before the caller
+      // records that the old process actually interrupted it.
       return session;
     });
 

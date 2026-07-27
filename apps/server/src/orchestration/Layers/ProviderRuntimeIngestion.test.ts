@@ -978,6 +978,68 @@ describe("ProviderRuntimeIngestion", () => {
     expect(message?.streaming).toBe(false);
   });
 
+  it("does not recreate an assistant message recovered from a resumed thread snapshot", async () => {
+    const harness = await createHarness();
+    const originalAt = "2026-01-01T00:00:00.000Z";
+    const recoveredAt = "2026-01-01T00:01:00.000Z";
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-live-assistant-completed"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: originalAt,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-resumed"),
+      itemId: asItemId("msg_live"),
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+        detail: "This message was already projected before restart.",
+      },
+    });
+
+    await waitForThread(harness.readModel, (entry) =>
+      entry.messages.some(
+        (message: ProviderRuntimeTestMessage) =>
+          message.id === "assistant:msg_live" && !message.streaming,
+      ),
+    );
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-recovered-assistant-completed"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: recoveredAt,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-resumed"),
+      itemId: asItemId("item-snapshot"),
+      raw: {
+        source: "codex.app-server.notification",
+        method: "item/completed",
+        payload: {
+          recoveredFromThreadSnapshot: true,
+        },
+      },
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+        detail: "This message was already projected before restart.",
+      },
+    });
+
+    await harness.drain();
+    const snapshot = await harness.readModel();
+    const thread = snapshot.threads.find((entry) => entry.id === "thread-1");
+    const matchingMessages =
+      thread?.messages.filter(
+        (message) => message.text === "This message was already projected before restart.",
+      ) ?? [];
+
+    expect(matchingMessages).toHaveLength(1);
+    expect(matchingMessages[0]?.id).toBe("assistant:msg_live");
+    expect(matchingMessages[0]?.updatedAt).toBe(originalAt);
+  });
+
   it("preserves completed tool metadata on projected tool activities", async () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";
