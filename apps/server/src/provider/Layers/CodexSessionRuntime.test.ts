@@ -4,7 +4,7 @@ import { it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { describe } from "vite-plus/test";
-import { DEFAULT_MODEL, ThreadId } from "@t3tools/contracts";
+import { DEFAULT_MODEL, ThreadId, TurnId } from "@t3tools/contracts";
 import * as CodexErrors from "effect-codex-app-server/errors";
 import * as CodexRpc from "effect-codex-app-server/rpc";
 
@@ -16,6 +16,7 @@ import {
 import { codexSessionAppServerArgs } from "./codexLaunchArgs.ts";
 import {
   buildTurnStartParams,
+  codexSessionActivityFromThread,
   hasConfiguredMcpServer,
   isRecoverableThreadResumeError,
   openCodexThread,
@@ -468,4 +469,32 @@ describe("openCodexThread", () => {
       NodeAssert.equal(error.errorMessage, "timed out waiting for server");
     }),
   );
+});
+
+describe("codexSessionActivityFromThread", () => {
+  it("keeps a resumed in-progress turn running", () => {
+    NodeAssert.deepStrictEqual(
+      codexSessionActivityFromThread({
+        status: { type: "active" },
+        turns: [
+          { id: "turn-completed", status: "completed" },
+          { id: "turn-running", status: "inProgress" },
+        ],
+      }),
+      {
+        status: "running",
+        activeTurnId: TurnId.make("turn-running"),
+      },
+    );
+  });
+
+  it("maps an idle resumed thread to ready", () => {
+    NodeAssert.deepStrictEqual(
+      codexSessionActivityFromThread({
+        status: { type: "idle" },
+        turns: [{ id: "turn-completed", status: "completed" }],
+      }),
+      { status: "ready" },
+    );
+  });
 });

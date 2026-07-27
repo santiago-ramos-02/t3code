@@ -113,6 +113,10 @@ import {
   type ReviewCommentContext,
 } from "../../reviewCommentContext";
 
+// Release live-edge following as soon as the reader moves more than a tiny
+// distance away. LegendList expresses this as a fraction of viewport height.
+const TIMELINE_MAINTAIN_END_THRESHOLD = 0.025;
+
 // ---------------------------------------------------------------------------
 // Context — shared state consumed by every row component via Context.
 // Propagates through LegendList's memo boundaries for shared callbacks and
@@ -470,6 +474,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                 layout: true,
               },
             }}
+            maintainScrollAtEndThreshold={TIMELINE_MAINTAIN_END_THRESHOLD}
             maintainVisibleContentPosition={{
               data: true,
               size: true,

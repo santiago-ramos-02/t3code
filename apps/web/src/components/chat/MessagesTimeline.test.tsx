@@ -33,6 +33,7 @@ vi.mock("@legendapp/list/react", async () => {
             layout?: boolean;
           };
         };
+    maintainScrollAtEndThreshold?: number;
     maintainVisibleContentPosition?:
       | boolean
       | {
@@ -81,6 +82,7 @@ vi.mock("@legendapp/list/react", async () => {
             ? props.maintainScrollAtEnd.on?.layout
             : undefined
         }
+        data-maintain-scroll-at-end-threshold={props.maintainScrollAtEndThreshold}
         data-maintain-visible-content-position={
           typeof props.maintainVisibleContentPosition === "object"
             ? "object"
@@ -400,6 +402,7 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain('data-maintain-scroll-at-end-footer-layout="true"');
     expect(markup).toContain('data-maintain-scroll-at-end-item-layout="true"');
     expect(markup).toContain('data-maintain-scroll-at-end-layout="true"');
+    expect(markup).toContain('data-maintain-scroll-at-end-threshold="0.025"');
     expect(markup).toContain('data-maintain-visible-content-position="object"');
     expect(markup).toContain('data-maintain-visible-content-position-data="true"');
     expect(markup).toContain('data-maintain-visible-content-position-size="true"');

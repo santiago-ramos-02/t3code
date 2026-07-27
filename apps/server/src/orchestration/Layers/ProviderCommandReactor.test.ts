@@ -1814,7 +1814,7 @@ describe("ProviderCommandReactor", () => {
     });
   });
 
-  it("refreshes a selected stopped thread without sending a model turn", async () => {
+  it("leaves a selected stopped thread passive without sending a model turn", async () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";
 
@@ -1839,14 +1839,57 @@ describe("ProviderCommandReactor", () => {
 
     await runtime!.runPromise(harness.reactor.reconcileThread(ThreadId.make("thread-1")));
 
-    expect(harness.startSession).toHaveBeenCalledTimes(1);
+    expect(harness.startSession).not.toHaveBeenCalled();
     expect(harness.sendTurn).not.toHaveBeenCalled();
     const readModel = await harness.readModel();
     expect(
       readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"))?.session,
     ).toMatchObject({
-      status: "ready",
+      status: "stopped",
       activeTurnId: null,
+    });
+  });
+
+  it("reattaches a live provider turn without losing its orchestration turn", async () => {
+    const harness = await createHarness({
+      startSessionEffect: (session) =>
+        Effect.succeed({
+          ...session,
+          status: "running",
+          activeTurnId: TurnId.make("provider-turn-1"),
+        }),
+    });
+    const now = "2026-01-01T00:00:00.000Z";
+    const orchestrationTurnId = TurnId.make("orchestration-turn-1");
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.make("cmd-session-set-running-before-restart"),
+        threadId: ThreadId.make("thread-1"),
+        session: {
+          threadId: ThreadId.make("thread-1"),
+          status: "running",
+          providerName: "codex",
+          providerInstanceId: ProviderInstanceId.make("codex"),
+          runtimeMode: "approval-required",
+          activeTurnId: orchestrationTurnId,
+          lastError: null,
+          updatedAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+
+    await runtime!.runPromise(harness.reactor.reconcileThread(ThreadId.make("thread-1")));
+
+    expect(harness.startSession).toHaveBeenCalledTimes(1);
+    const readModel = await harness.readModel();
+    expect(
+      readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"))?.session,
+    ).toMatchObject({
+      status: "running",
+      activeTurnId: orchestrationTurnId,
     });
   });
 
@@ -2215,7 +2258,7 @@ describe("ProviderCommandReactor", () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";
 
-    await Effect.runPromise(
+    await runtime!.runPromise(
       harness.engine.dispatch({
         type: "thread.session.set",
         commandId: CommandId.make("cmd-session-set-for-stop"),
@@ -2234,7 +2277,7 @@ describe("ProviderCommandReactor", () => {
       }),
     );
 
-    await Effect.runPromise(
+    await runtime!.runPromise(
       harness.engine.dispatch({
         type: "thread.session.stop",
         commandId: CommandId.make("cmd-session-stop"),

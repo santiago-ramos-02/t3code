@@ -520,6 +520,10 @@ const make = Effect.gen(function* () {
             detail: `Provider session '${session.threadId}' started without a provider instance id.`,
           });
         }
+        const resumedActiveTurnId =
+          session.status === "running" && thread.session?.status === "running"
+            ? thread.session.activeTurnId
+            : null;
         yield* setThreadSession({
           threadId,
           session: {
@@ -531,8 +535,10 @@ const make = Effect.gen(function* () {
             providerName: session.provider,
             providerInstanceId: session.providerInstanceId,
             runtimeMode: desiredRuntimeMode,
-            // Provider turn ids are not orchestration turn ids.
-            activeTurnId: null,
+            // Provider turn ids are not orchestration turn ids. A resumed
+            // provider turn continues the orchestration turn that was live
+            // before the server restarted.
+            activeTurnId: resumedActiveTurnId,
             lastError: session.lastError ?? null,
             updatedAt: session.updatedAt,
           },
@@ -641,6 +647,19 @@ const make = Effect.gen(function* () {
   const reconcileThread: ProviderCommandReactorShape["reconcileThread"] = Effect.fn(
     "reconcileThread",
   )(function* (threadId) {
+    const thread = yield* resolveThread(threadId).pipe(
+      Effect.catch((cause) =>
+        Effect.logWarning("provider session refresh failed", {
+          threadId,
+          cause: String(cause),
+        }).pipe(Effect.as(null)),
+      ),
+    );
+    // Opening a historical or empty thread is observation, not a command to
+    // create provider work. A later turn start recovers the provider lazily.
+    if (thread == null || thread.session === null || thread.session.status === "stopped") {
+      return;
+    }
     const createdAt = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
     yield* ensureSessionForThread(threadId, createdAt).pipe(
       Effect.catch((cause) =>

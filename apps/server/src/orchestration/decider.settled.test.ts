@@ -5,6 +5,7 @@ import {
   ProjectId,
   ProviderInstanceId,
   ThreadId,
+  TurnId,
   type OrchestrationReadModel,
   type OrchestrationSession,
   type OrchestrationThread,
@@ -62,7 +63,7 @@ function makeSession(status: OrchestrationSession["status"]): OrchestrationSessi
     status,
     providerName: "Codex",
     runtimeMode: "full-access",
-    activeTurnId: null,
+    activeTurnId: status === "running" ? TurnId.make("turn-running") : null,
     lastError: null,
     updatedAt: NOW,
   };
@@ -108,19 +109,29 @@ it.layer(NodeServices.layer)("settled thread decider", (it) => {
     }),
   );
 
-  it.effect("rejects settling a thread with a live session", () =>
+  it.effect("rejects settling a live turn but allows connection-only startup", () =>
     Effect.gen(function* () {
-      for (const status of ["starting", "running"] as const) {
-        const error = yield* decideOrchestrationCommand({
-          command: {
-            type: "thread.settle",
-            commandId: CommandId.make(`cmd-settle-live-${status}`),
-            threadId: ThreadId.make("thread-1"),
-          },
-          readModel: makeReadModel(null, null, makeSession(status)),
-        }).pipe(Effect.flip);
-        expect(error._tag).toBe("OrchestrationCommandInvariantError");
-      }
+      const error = yield* decideOrchestrationCommand({
+        command: {
+          type: "thread.settle",
+          commandId: CommandId.make("cmd-settle-live-running"),
+          threadId: ThreadId.make("thread-1"),
+        },
+        readModel: makeReadModel(null, null, makeSession("running")),
+      }).pipe(Effect.flip);
+      expect(error._tag).toBe("OrchestrationCommandInvariantError");
+
+      const starting = yield* decideOrchestrationCommand({
+        command: {
+          type: "thread.settle",
+          commandId: CommandId.make("cmd-settle-connection-starting"),
+          threadId: ThreadId.make("thread-1"),
+        },
+        readModel: makeReadModel(null, null, makeSession("starting")),
+      });
+      const startingEvents = Array.isArray(starting) ? starting : [starting];
+      expect(startingEvents[0]?.type).toBe("thread.settled");
+
       // Stopped/error sessions are settleable — only live work is protected.
       const settled = yield* decideOrchestrationCommand({
         command: {
@@ -453,7 +464,7 @@ it.layer(NodeServices.layer)("settled thread decider", (it) => {
 
   it.effect("does not unsettle for session stop/error status writes", () =>
     Effect.gen(function* () {
-      for (const status of ["stopped", "error", "ready", "idle"] as const) {
+      for (const status of ["starting", "stopped", "error", "ready", "idle"] as const) {
         const result = yield* decideOrchestrationCommand({
           command: {
             type: "thread.session.set",

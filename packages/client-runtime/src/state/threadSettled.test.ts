@@ -59,7 +59,7 @@ function makeShell(input: {
             status: input.sessionStatus,
             providerName: "Codex",
             runtimeMode: "full-access",
-            activeTurnId: null,
+            activeTurnId: input.sessionStatus === "running" ? TurnId.make("turn-running") : null,
             lastError: null,
             updatedAt: NOW,
           },
@@ -207,7 +207,7 @@ describe("effectiveSettled", () => {
     expect(effectiveSettled(shell, { ...options, now: "2026-04-10T00:30:00.001Z" })).toBe(true);
   });
 
-  it("never settles a starting session, even with a settled override", () => {
+  it("does not treat connection-only startup as live work", () => {
     const shell = makeShell({
       settledOverride: "settled",
       activityAt: STALE,
@@ -219,7 +219,7 @@ describe("effectiveSettled", () => {
         autoSettleAfterDays: 3,
         changeRequestState: "merged",
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("keeps a new turn active from queued through starting and running", () => {
@@ -354,7 +354,7 @@ describe("canSettle", () => {
     expect(canSettle(makeShell({ activityAt: FRESH }), { now: NOW })).toBe(true);
     expect(
       canSettle(makeShell({ activityAt: FRESH, sessionStatus: "starting" }), { now: NOW }),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       canSettle(makeShell({ activityAt: FRESH, sessionStatus: "running" }), { now: NOW }),
     ).toBe(false);

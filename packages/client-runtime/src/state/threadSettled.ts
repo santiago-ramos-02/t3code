@@ -83,7 +83,9 @@ export function canSettle(
   options: { readonly now: string },
 ): boolean {
   if (shell.hasPendingApprovals || shell.hasPendingUserInput) return false;
-  if (shell.session?.status === "starting" || shell.session?.status === "running") return false;
+  // Provider connection startup alone is not user work. A newly requested
+  // turn is protected by hasQueuedTurnStart below until it becomes running.
+  if (shell.session?.status === "running") return false;
   // Queued work is as blocked-on-progress as a live session: settling it
   // (or auto-settling it on a closed PR) would hide a just-requested turn.
   if (hasQueuedTurnStart(shell, options)) return false;
@@ -249,7 +251,7 @@ export function effectiveSettled(
 ): boolean {
   // Blocked work must remain visible even when a user explicitly settled it.
   if (shell.hasPendingApprovals || shell.hasPendingUserInput) return false;
-  if (shell.session?.status === "starting" || shell.session?.status === "running") return false;
+  if (shell.session?.status === "running") return false;
   if (hasQueuedTurnStart(shell, { now: options.now })) {
     // The queued-turn blocker alone is forgivable: it is clock-derived, and
     // list callers pass a coarser `now` than the settle action used. When

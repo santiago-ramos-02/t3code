@@ -451,10 +451,10 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
-      // Server-side twin of the client's canSettle session check: a stale
-      // or raced client must not settle a thread whose session is coming
-      // alive or working.
-      if (thread.session?.status === "starting" || thread.session?.status === "running") {
+      // Server-side twin of the client's canSettle session check. Provider
+      // connection startup is not user work; queued-turn detection below
+      // protects a newly requested turn until it becomes running.
+      if (thread.session?.status === "running") {
         return yield* Effect.fail(
           new OrchestrationCommandInvariantError({
             commandType: command.type,
@@ -968,8 +968,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       // surfaces immediately — effectiveSnoozed refuses to classify a thread
       // with a raised hand (approval / input / failure / fresh completion)
       // as snoozed, without spending the return ticket.
-      const isSessionActivity =
-        command.session.status === "starting" || command.session.status === "running";
+      const isSessionActivity = command.session.status === "running";
       // Real activity resets ANY override (settled wakes, active unpins).
       if (thread.settledOverride === null || !isSessionActivity) {
         return sessionSetEvent;

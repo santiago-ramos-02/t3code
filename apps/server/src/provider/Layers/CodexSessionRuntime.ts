@@ -445,6 +445,29 @@ type CodexThreadOpenResponse =
   | CodexRpc.ClientRequestResponsesByMethod["thread/start"]
   | CodexRpc.ClientRequestResponsesByMethod["thread/resume"];
 
+export function codexSessionActivityFromThread(input: {
+  readonly status: { readonly type: "notLoaded" | "idle" | "systemError" | "active" };
+  readonly turns: ReadonlyArray<{
+    readonly id: string;
+    readonly status: "completed" | "interrupted" | "failed" | "inProgress";
+  }>;
+}):
+  | { readonly status: "ready" | "error" }
+  | { readonly status: "running"; readonly activeTurnId?: TurnId } {
+  if (input.status.type === "systemError") {
+    return { status: "error" };
+  }
+  if (input.status.type !== "active") {
+    return { status: "ready" };
+  }
+
+  const activeTurn = input.turns.findLast((turn) => turn.status === "inProgress");
+  return {
+    status: "running",
+    ...(activeTurn ? { activeTurnId: TurnId.make(activeTurn.id) } : {}),
+  };
+}
+
 type CodexThreadOpenMethod = "thread/start" | "thread/resume";
 
 interface CodexThreadOpenClient {
@@ -1232,7 +1255,7 @@ export const makeCodexSessionRuntime = (
       const providerThreadId = opened.thread.id;
       const session = {
         ...(yield* Ref.get(sessionRef)),
-        status: "ready",
+        ...codexSessionActivityFromThread(opened.thread),
         cwd: opened.cwd,
         model: opened.model,
         resumeCursor: { threadId: providerThreadId },
