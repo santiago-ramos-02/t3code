@@ -878,7 +878,7 @@ export default function DiffPanel({
                 <AnnotatableCodeView
                   viewerRef={codeViewRef}
                   key={collapseScopeKey ?? reviewSectionId}
-                  className={DIFF_CODE_VIEW_CLASS_NAME}
+                  className="diff-render-surface h-full min-h-0 overflow-auto"
                   files={codeViewFiles}
                   sectionId={reviewSectionId}
                   sectionTitle={reviewSectionTitle}
@@ -924,7 +924,8 @@ export default function DiffPanel({
                     themeType: resolvedTheme as DiffThemeType,
                     unsafeCSS: DIFF_PANEL_UNSAFE_CSS,
                     stickyHeaders: true,
-                    layout: { paddingTop: 8, paddingBottom: 8, gap: 8 },
+                    itemMetrics: { diffHeaderHeight: 33 },
+                    layout: { paddingTop: 0, paddingBottom: 8, gap: 8 },
                   }}
                 />
               </div>
