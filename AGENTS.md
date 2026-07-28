@@ -2,6 +2,7 @@
 
 ## Task Completion Requirements
 
+- Treat an explicit user request to implement or fix something as authorization for ordinary in-scope edits and focused verification. Do not ask for redundant confirmation unless a higher-priority instruction requires a separate gate or the work materially expands beyond the requested scope.
 - Keep local verification focused on the files and packages changed. Run the smallest relevant test set; do not run the full workspace test suite as a routine completion step.
   - Use `vp test run <test-files>` for focused built-in Vite+ tests. Use `vp run test` only when the affected package specifically requires its `test` script.
   - Backend changes must include and run focused tests for the changed behavior.

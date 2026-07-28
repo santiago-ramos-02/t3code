@@ -438,7 +438,7 @@ describe("ProviderCommandReactor", () => {
     };
   }
 
-  it("reacts to thread.turn.start by ensuring session and sending provider turn", async () => {
+  it("acknowledges a provider-accepted turn without waiting for turn.started", async () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";
 
@@ -471,10 +471,18 @@ describe("ProviderCommandReactor", () => {
       runtimeMode: "approval-required",
     });
 
+    await waitFor(async () => {
+      const readModel = await harness.readModel();
+      const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
+      return (
+        thread?.session?.status === "running" && thread.session.activeTurnId === asTurnId("turn-1")
+      );
+    });
     const readModel = await harness.readModel();
     const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
     expect(thread?.session?.threadId).toBe("thread-1");
-    expect(thread?.session?.status).toBe("starting");
+    expect(thread?.session?.status).toBe("running");
+    expect(thread?.session?.activeTurnId).toBe(asTurnId("turn-1"));
     expect(thread?.session?.runtimeMode).toBe("approval-required");
   });
 
