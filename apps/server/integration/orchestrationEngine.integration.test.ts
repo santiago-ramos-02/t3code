@@ -1349,6 +1349,12 @@ it.live("reverts claudeAgent turns and rolls back provider conversation state", 
             model: "claude-sonnet-4-6",
           },
         });
+        yield* harness.waitForReceipt(
+          (receipt): receipt is TurnProcessingQuiescedReceipt =>
+            receipt.type === "turn.processing.quiesced" &&
+            receipt.threadId === THREAD_ID &&
+            receipt.checkpointTurnCount === 1,
+        );
 
         yield* harness.waitForThread(
           THREAD_ID,
@@ -1403,6 +1409,12 @@ it.live("reverts claudeAgent turns and rolls back provider conversation state", 
           messageId: "msg-user-claude-revert-2",
           text: "Second Claude edit",
         });
+        yield* harness.waitForReceipt(
+          (receipt): receipt is TurnProcessingQuiescedReceipt =>
+            receipt.type === "turn.processing.quiesced" &&
+            receipt.threadId === THREAD_ID &&
+            receipt.checkpointTurnCount === 2,
+        );
 
         yield* harness.waitForThread(
           THREAD_ID,
