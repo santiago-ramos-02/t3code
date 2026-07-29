@@ -236,6 +236,7 @@ import {
 import { ThreadErrorBanner } from "./chat/ThreadErrorBanner";
 import { resolveThreadPr } from "./ThreadStatusIndicators";
 import { ComposerBannerStack, type ComposerBannerStackItem } from "./chat/ComposerBannerStack";
+import { ThreadSyncStatusPill } from "./chat/ThreadSyncStatusPill";
 import {
   DRAFT_HERO_TRANSITION_ANIMATION_ID,
   DRAFT_HERO_TRANSITION_DURATION_MS,
@@ -249,6 +250,7 @@ import {
   branchMismatchKey,
   buildExpiredTerminalContextToastCopy,
   buildLocalDraftThread,
+  buildLoadingThreadFromShell,
   buildThreadTurnInterruptInput,
   collectUserMessageBlobPreviewUrls,
   createLocalDispatchSnapshot,
@@ -270,9 +272,11 @@ import {
   resolveSendEnvMode,
   revokeBlobPreviewUrl,
   revokeUserMessagePreviewUrls,
+  shouldWriteThreadErrorToCurrentServerThread,
   startNewThreadForProject,
   waitForStartedServerThread,
 } from "./ChatView.logic";
+import type { ThreadSyncPhase } from "../threadSync";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { useComposerHandleContext } from "../composerHandleContext";
 import { sanitizeThreadErrorMessage } from "~/rpc/transportError";
@@ -463,6 +467,7 @@ type ChatViewProps =
       onDiffPanelOpen?: () => void;
       reserveTitleBarControlInset?: boolean;
       forceExpandedMobileComposer?: boolean;
+      threadSyncPhase?: ThreadSyncPhase | null;
       routeKind: "server";
       draftId?: never;
     }
@@ -472,6 +477,7 @@ type ChatViewProps =
       onDiffPanelOpen?: () => void;
       reserveTitleBarControlInset?: boolean;
       forceExpandedMobileComposer?: boolean;
+      threadSyncPhase?: never;
       routeKind: "draft";
       draftId: DraftId;
     };
@@ -1130,6 +1136,8 @@ function ChatViewContent(props: ChatViewProps) {
     forceExpandedMobileComposer = false,
   } = props;
   const draftId = routeKind === "draft" ? props.draftId : null;
+  const threadSyncPhase = routeKind === "server" ? (props.threadSyncPhase ?? null) : null;
+  const threadDetailLoading = threadSyncPhase === "loading";
   const handleNewThread = useNewThreadHandler();
   const routeThreadRef = useMemo(
     () => scopeThreadRef(environmentId, threadId),
@@ -1186,7 +1194,16 @@ function ChatViewContent(props: ChatViewProps) {
         ? store.getDraftSession(draftId)
         : null,
   );
+  const routeServerThreadShell = useThreadShell(routeKind === "server" ? routeThreadRef : null);
   const serverThread = useThread(routeThreadRef, { waitForShell: draftThread !== null });
+  const loadingServerThread = useMemo(
+    () =>
+      threadDetailLoading && routeServerThreadShell
+        ? buildLoadingThreadFromShell(routeServerThreadShell)
+        : null,
+    [routeServerThreadShell, threadDetailLoading],
+  );
+  const activeServerThread = serverThread ?? loadingServerThread;
   const markThreadVisited = useUiStateStore((store) => store.markThreadVisited);
   const activeThreadLastVisitedAt = useUiStateStore(
     (store) => store.threadLastVisitedAtById[routeThreadKey],
@@ -1366,7 +1383,7 @@ function ChatViewContent(props: ChatViewProps) {
     ? scopeProjectRef(draftThread.environmentId, draftThread.projectId)
     : null;
   const fallbackDraftProject = useProject(fallbackDraftProjectRef);
-  const localDraftError = serverThread
+  const localDraftError = activeServerThread
     ? null
     : ((draftId ? localDraftErrorsByDraftId[draftId]?.message : null) ?? null);
   const localServerError = localServerErrorsByThreadKey[routeThreadKey]?.message ?? null;
@@ -1375,7 +1392,7 @@ function ChatViewContent(props: ChatViewProps) {
   // a failed send would silently disappear on promotion. When both keys hold
   // an entry, the most recent write wins.
   useEffect(() => {
-    if (!serverThread || !draftId) {
+    if (!activeServerThread || !draftId) {
       return;
     }
     const pendingDraftEntry = localDraftErrorsByDraftId[draftId];
@@ -1404,7 +1421,7 @@ function ChatViewContent(props: ChatViewProps) {
         [routeThreadKey]: pendingDraftEntry,
       };
     });
-  }, [draftId, localDraftErrorsByDraftId, routeThreadKey, serverThread]);
+  }, [activeServerThread, draftId, localDraftErrorsByDraftId, routeThreadKey]);
   const localDraftThread = useMemo(
     () =>
       draftThread
@@ -1419,10 +1436,10 @@ function ChatViewContent(props: ChatViewProps) {
   // Promotion is data-driven: the draft route keeps rendering while the
   // server thread (same pre-allocated ref) starts, so live state must not
   // depend on which route is mounted.
-  const isServerThread = serverThread !== null;
-  const activeThread = isServerThread ? serverThread : localDraftThread;
+  const isServerThread = activeServerThread !== null;
+  const activeThread = activeServerThread ?? localDraftThread;
   const threadError = isServerThread
-    ? (localServerError ?? serverThread?.session?.lastError ?? null)
+    ? (localServerError ?? activeServerThread?.session?.lastError ?? null)
     : localDraftError;
   const runtimeMode = composerRuntimeMode ?? activeThread?.runtimeMode ?? DEFAULT_RUNTIME_MODE;
   const interactionMode =
@@ -2480,10 +2497,11 @@ function ChatViewContent(props: ChatViewProps) {
       const nextError = sanitizeThreadErrorMessage(error);
       const nextEntry: LocalThreadErrorEntry = { message: nextError, at: Date.now() };
       if (
-        serverThread &&
-        targetThreadId === routeThreadRef.threadId &&
-        serverThread.environmentId === routeThreadRef.environmentId &&
-        serverThread.id === targetThreadId
+        shouldWriteThreadErrorToCurrentServerThread({
+          activeServerThread,
+          routeThreadRef,
+          targetThreadId,
+        })
       ) {
         setLocalServerErrorsByThreadKey((existing) => {
           if ((existing[routeThreadKey]?.message ?? null) === nextError) {
@@ -2507,7 +2525,7 @@ function ChatViewContent(props: ChatViewProps) {
         };
       });
     },
-    [draftId, routeThreadKey, routeThreadRef, serverThread],
+    [activeServerThread, draftId, routeThreadKey, routeThreadRef],
   );
 
   const focusComposer = useCallback(() => {
@@ -4245,6 +4263,7 @@ function ChatViewContent(props: ChatViewProps) {
       !activeThread ||
       isSendBusy ||
       isConnecting ||
+      threadDetailLoading ||
       activeEnvironmentUnavailable ||
       sendInFlightRef.current
     )
@@ -5498,7 +5517,7 @@ function ChatViewContent(props: ChatViewProps) {
                 contentInsetEndAdjustment={composerOverlayHeight}
                 onIsAtEndChange={onIsAtEndChange}
                 onManualNavigation={cancelTimelineLiveFollowForUserNavigation}
-                hideEmptyPlaceholder={isDraftHeroState}
+                hideEmptyPlaceholder={isDraftHeroState || threadDetailLoading}
                 topFadeEnabled={!hasTimelineTopBanner}
               />
 
@@ -5559,6 +5578,9 @@ function ChatViewContent(props: ChatViewProps) {
                   ) : (
                     <ComposerBannerStack className="relative z-0" items={composerBannerItems} />
                   )}
+                  {threadSyncPhase && !activeEnvironmentUnavailable ? (
+                    <ThreadSyncStatusPill phase={threadSyncPhase} />
+                  ) : null}
                   <div
                     className="relative"
                     style={
@@ -5592,6 +5614,7 @@ function ChatViewContent(props: ChatViewProps) {
                             phase={phase}
                             isConnecting={isConnecting}
                             isSendBusy={isSendBusy}
+                            sendDisabledReason={threadDetailLoading ? "Messages loading" : null}
                             isPreparingWorktree={isPreparingWorktree}
                             environmentUnavailable={activeEnvironmentUnavailableState}
                             activePendingApproval={activePendingApproval}
