@@ -27,6 +27,7 @@ import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as ManagedRuntime from "effect/ManagedRuntime";
 import * as PubSub from "effect/PubSub";
+import * as Queue from "effect/Queue";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import { it as effectIt } from "@effect/vitest";
@@ -420,6 +421,7 @@ describe("ProviderCommandReactor", () => {
 
     return {
       engine,
+      snapshotQuery,
       readModel: () => Effect.runPromise(snapshotQuery.getSnapshot()),
       startSession,
       sendTurn,
@@ -485,6 +487,121 @@ describe("ProviderCommandReactor", () => {
     expect(thread?.session?.activeTurnId).toBe(asTurnId("turn-1"));
     expect(thread?.session?.runtimeMode).toBe("approval-required");
   });
+
+  effectIt.effect(
+    "does not resurrect a completed turn when a steer acknowledgement races completion",
+    () =>
+      Effect.gen(function* () {
+        const harness = yield* Effect.promise(() => createHarness());
+        const threadId = ThreadId.make("thread-1");
+        const turnId = asTurnId("turn-1");
+        const startedAt = "2026-01-01T00:00:00.000Z";
+        const completedAt = "2026-01-01T00:00:01.000Z";
+        const conditionalSessionSetCompletions = yield* Queue.unbounded<void>();
+        const originalDispatch = harness.engine.dispatch;
+        Object.defineProperty(harness.engine, "dispatch", {
+          configurable: true,
+          value: (command: Parameters<typeof originalDispatch>[0]) =>
+            originalDispatch(command).pipe(
+              Effect.ensuring(
+                command.type === "thread.session.set" && command.expectedSession !== undefined
+                  ? Queue.offer(conditionalSessionSetCompletions, undefined)
+                  : Effect.void,
+              ),
+            ),
+        });
+
+        yield* harness.engine.dispatch({
+          type: "thread.turn.start",
+          commandId: CommandId.make("cmd-turn-start-race-1"),
+          threadId,
+          message: {
+            messageId: asMessageId("user-message-race-1"),
+            role: "user",
+            text: "start",
+            attachments: [],
+          },
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "approval-required",
+          createdAt: startedAt,
+        });
+        yield* Queue.take(conditionalSessionSetCompletions);
+
+        const runningThread = (yield* harness.snapshotQuery.getSnapshot()).threads.find(
+          (entry) => entry.id === threadId,
+        );
+        expect(runningThread?.session?.status).toBe("running");
+        expect(runningThread?.session?.activeTurnId).toBe(turnId);
+
+        const staleReadCaptured = yield* Deferred.make<void>();
+        const releaseStaleRead = yield* Deferred.make<void>();
+        const originalGetThreadDetailById = harness.snapshotQuery.getThreadDetailById;
+        let gateAcceptedTurnRead = false;
+        Object.defineProperty(harness.snapshotQuery, "getThreadDetailById", {
+          configurable: true,
+          value: (requestedThreadId: ThreadId) =>
+            originalGetThreadDetailById(requestedThreadId).pipe(
+              Effect.flatMap((snapshot) => {
+                if (!gateAcceptedTurnRead) {
+                  return Effect.succeed(snapshot);
+                }
+                gateAcceptedTurnRead = false;
+                return Deferred.succeed(staleReadCaptured, undefined).pipe(
+                  Effect.andThen(Deferred.await(releaseStaleRead)),
+                  Effect.as(snapshot),
+                );
+              }),
+            ),
+        });
+        harness.sendTurn.mockImplementationOnce(() =>
+          Effect.sync(() => {
+            gateAcceptedTurnRead = true;
+            return { threadId, turnId };
+          }),
+        );
+
+        yield* harness.engine.dispatch({
+          type: "thread.turn.start",
+          commandId: CommandId.make("cmd-turn-steer-race-2"),
+          threadId,
+          message: {
+            messageId: asMessageId("user-message-race-2"),
+            role: "user",
+            text: "steer",
+            attachments: [],
+          },
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "approval-required",
+          createdAt: completedAt,
+        });
+        yield* Deferred.await(staleReadCaptured);
+
+        yield* harness.engine.dispatch({
+          type: "thread.session.set",
+          commandId: CommandId.make("cmd-turn-completed-race"),
+          threadId,
+          session: {
+            threadId,
+            status: "ready",
+            providerName: ProviderDriverKind.make("codex"),
+            providerInstanceId: ProviderInstanceId.make("codex"),
+            runtimeMode: "approval-required",
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: completedAt,
+          },
+          createdAt: completedAt,
+        });
+        yield* Deferred.succeed(releaseStaleRead, undefined);
+        yield* Queue.take(conditionalSessionSetCompletions);
+
+        const completedThread = (yield* harness.snapshotQuery.getSnapshot()).threads.find(
+          (entry) => entry.id === threadId,
+        );
+        expect(completedThread?.session?.status).toBe("ready");
+        expect(completedThread?.session?.activeTurnId).toBeNull();
+      }),
+  );
 
   effectIt.effect("projects starting before a slow provider session finishes", () =>
     Effect.gen(function* () {

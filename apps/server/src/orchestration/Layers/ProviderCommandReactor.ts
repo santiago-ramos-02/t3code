@@ -275,6 +275,7 @@ const make = Effect.gen(function* () {
   const setThreadSession = (input: {
     readonly threadId: ThreadId;
     readonly session: OrchestrationSession;
+    readonly expectedSession?: Pick<OrchestrationSession, "status" | "activeTurnId" | "updatedAt">;
     readonly createdAt: string;
   }) =>
     serverCommandId("provider-session-set").pipe(
@@ -284,6 +285,9 @@ const make = Effect.gen(function* () {
           commandId,
           threadId: input.threadId,
           session: input.session,
+          ...(input.expectedSession !== undefined
+            ? { expectedSession: input.expectedSession }
+            : {}),
           createdAt: input.createdAt,
         }),
       ),
@@ -337,8 +341,13 @@ const make = Effect.gen(function* () {
         lastError: null,
         updatedAt: acceptedAt,
       },
+      expectedSession: {
+        status: session.status,
+        activeTurnId: session.activeTurnId,
+        updatedAt: session.updatedAt,
+      },
       createdAt: acceptedAt,
-    });
+    }).pipe(Effect.catchTag("OrchestrationCommandInvariantError", () => Effect.void));
   });
 
   const resolveProject = Effect.fnUntraced(function* (projectId: ProjectId) {

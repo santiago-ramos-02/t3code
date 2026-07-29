@@ -2480,7 +2480,9 @@ it.layer(makeProjectionPipelinePrefixedTestLayer("t3-pending-turn-terminal-test-
         const eventStore = yield* OrchestrationEventStore;
         const sql = yield* SqlClient.SqlClient;
 
-        for (const [index, status] of (["error", "interrupted", "stopped"] as const).entries()) {
+        for (const [index, status] of (
+          ["ready", "error", "interrupted", "stopped"] as const
+        ).entries()) {
           const threadId = ThreadId.make(`thread-terminal-${status}`);
           const requestedAt = `2026-02-26T14:00:0${index}.000Z`;
           yield* eventStore.append({
