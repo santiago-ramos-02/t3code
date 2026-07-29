@@ -166,7 +166,7 @@ function ConfiguredSettingsRouteScreen() {
   const environmentCount = connections.length;
   const accountLabel = useMemo(() => {
     if (!isLoaded) return "Checking";
-    if (!isSignedIn) return "Sign in";
+    if (!isSignedIn) return "Request access";
     return user?.primaryEmailAddress?.emailAddress ?? "Signed in";
   }, [isLoaded, isSignedIn, user?.primaryEmailAddress?.emailAddress]);
 
