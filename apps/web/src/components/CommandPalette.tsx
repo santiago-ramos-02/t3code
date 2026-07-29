@@ -2,6 +2,10 @@
 
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
+  resolveAddProjectCloneDestination,
+  selectAddProjectCloneUrl,
+} from "@t3tools/client-runtime/operations/projects";
+import {
   canPreloadBrowsePath,
   createBrowseNavigationCoordinator,
   filterFilesystemBrowseEntries,
