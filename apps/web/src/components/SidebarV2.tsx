@@ -384,7 +384,6 @@ function SnoozePopoverButton(props: {
 
 const SidebarV2Row = memo(function SidebarV2Row(props: {
   thread: SidebarThreadSummary;
-  environmentConnected: boolean;
   variant: "card" | "slim";
   // Slim rows are either settled (action: un-settle) or merely quiet
   // (seen Ready threads — action: settle).
@@ -458,7 +457,7 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
   // Same semantics as v1 (never-visited counts as read): flipping the beta
   // flag must not light up every historical thread as unread.
   const isUnread = hasUnseenCompletion({ ...thread, lastVisitedAt });
-  const status = resolveSidebarV2Status(thread, props.environmentConnected);
+  const status = resolveSidebarV2Status(thread);
   // A woken thread reappears at its original position (the sort is
   // deliberately static), so the pill has to carry the weight. Snoozing is
   // an explicit act, so unlike Done, a never-visited woke thread still
@@ -1152,16 +1151,6 @@ export default function SidebarV2() {
     () =>
       new Map(
         environments.map((environment) => [environment.environmentId, environment.label] as const),
-      ),
-    [environments],
-  );
-  const environmentConnectedById = useMemo(
-    () =>
-      new Map(
-        environments.map(
-          (environment) =>
-            [environment.environmentId, environment.connection.phase === "connected"] as const,
-        ),
       ),
     [environments],
   );
@@ -2516,9 +2505,6 @@ export default function SidebarV2() {
                       // painted over text).
                       key={`${threadKey}:${rowVariant}`}
                       thread={thread}
-                      environmentConnected={
-                        environmentConnectedById.get(thread.environmentId) === true
-                      }
                       variant={rowVariant}
                       // Snoozed rows wake; settled rows un-settle (explicit
                       // settles clear the override, auto-settled rows get

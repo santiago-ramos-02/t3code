@@ -16,16 +16,13 @@ import { isTemporaryWorktreeBranch, WORKTREE_BRANCH_PREFIX } from "@t3tools/shar
 import * as Cache from "effect/Cache";
 import * as Cause from "effect/Cause";
 import * as Crypto from "effect/Crypto";
-import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Equal from "effect/Equal";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
-import * as SynchronizedRef from "effect/SynchronizedRef";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
@@ -210,7 +207,6 @@ const make = Effect.gen(function* () {
     timeToLive: HANDLED_TURN_START_KEY_TTL,
     lookup: () => Effect.succeed(true),
   });
-  const sessionLocks = yield* SynchronizedRef.make(new Map<ThreadId, Semaphore.Semaphore>());
 
   const hasHandledTurnStartRecently = (key: string) =>
     Cache.getOption(handledTurnStartKeys, key).pipe(
@@ -275,7 +271,6 @@ const make = Effect.gen(function* () {
   const setThreadSession = (input: {
     readonly threadId: ThreadId;
     readonly session: OrchestrationSession;
-    readonly expectedSession?: Pick<OrchestrationSession, "status" | "activeTurnId" | "updatedAt">;
     readonly createdAt: string;
   }) =>
     serverCommandId("provider-session-set").pipe(
@@ -285,9 +280,6 @@ const make = Effect.gen(function* () {
           commandId,
           threadId: input.threadId,
           session: input.session,
-          ...(input.expectedSession !== undefined
-            ? { expectedSession: input.expectedSession }
-            : {}),
           createdAt: input.createdAt,
         }),
       ),
@@ -319,35 +311,6 @@ const make = Effect.gen(function* () {
       },
       createdAt: input.createdAt,
     });
-  });
-
-  const acknowledgeAcceptedTurn = Effect.fnUntraced(function* (input: {
-    readonly threadId: ThreadId;
-    readonly turnId: TurnId;
-  }) {
-    const thread = yield* resolveThread(input.threadId);
-    const session = thread?.session;
-    if (!thread || !session || (session.status !== "starting" && session.status !== "running")) {
-      return;
-    }
-
-    const acceptedAt = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
-    yield* setThreadSession({
-      threadId: input.threadId,
-      session: {
-        ...session,
-        status: "running",
-        activeTurnId: input.turnId,
-        lastError: null,
-        updatedAt: acceptedAt,
-      },
-      expectedSession: {
-        status: session.status,
-        activeTurnId: session.activeTurnId,
-        updatedAt: session.updatedAt,
-      },
-      createdAt: acceptedAt,
-    }).pipe(Effect.catchTag("OrchestrationCommandInvariantError", () => Effect.void));
   });
 
   const resolveProject = Effect.fnUntraced(function* (projectId: ProjectId) {
@@ -394,7 +357,7 @@ const make = Effect.gen(function* () {
     });
   });
 
-  const ensureSessionForThreadUnlocked = Effect.fn("ensureSessionForThreadUnlocked")(function* (
+  const ensureSessionForThread = Effect.fn("ensureSessionForThread")(function* (
     threadId: ThreadId,
     createdAt: string,
     options?: {
@@ -556,14 +519,6 @@ const make = Effect.gen(function* () {
             detail: `Provider session '${session.threadId}' started without a provider instance id.`,
           });
         }
-        const resumedWithoutActiveTurn =
-          options?.pendingTurnStart !== true &&
-          thread.session?.status === "running" &&
-          session.status === "ready";
-        const resumedActiveTurnId =
-          session.status === "running" && thread.session?.status === "running"
-            ? thread.session.activeTurnId
-            : null;
         yield* setThreadSession({
           threadId,
           session: {
@@ -571,19 +526,13 @@ const make = Effect.gen(function* () {
             status:
               options?.pendingTurnStart === true && session.status === "ready"
                 ? "starting"
-                : resumedWithoutActiveTurn
-                  ? "interrupted"
-                  : mapProviderSessionStatusToOrchestrationStatus(session.status),
+                : mapProviderSessionStatusToOrchestrationStatus(session.status),
             providerName: session.provider,
             providerInstanceId: session.providerInstanceId,
             runtimeMode: desiredRuntimeMode,
-            // Provider turn ids are not orchestration turn ids. A resumed
-            // provider turn continues the orchestration turn that was live
-            // before the server restarted.
-            activeTurnId: resumedActiveTurnId,
-            lastError: resumedWithoutActiveTurn
-              ? "T3 Code restarted before the active provider turn completed."
-              : (session.lastError ?? null),
+            // Provider turn ids are not orchestration turn ids.
+            activeTurnId: null,
+            lastError: session.lastError ?? null,
             updatedAt: session.updatedAt,
           },
           createdAt,
@@ -660,59 +609,6 @@ const make = Effect.gen(function* () {
     const startedSession = yield* startProviderSession(undefined);
     yield* bindSessionToThread(startedSession);
     return startedSession.threadId;
-  });
-
-  const ensureSessionForThread = (
-    threadId: ThreadId,
-    createdAt: string,
-    options?: {
-      readonly modelSelection?: ModelSelection;
-      readonly pendingTurnStart?: boolean;
-    },
-  ) =>
-    SynchronizedRef.modifyEffect(sessionLocks, (locks) => {
-      const existing = locks.get(threadId);
-      if (existing) {
-        return Effect.succeed([existing, locks] as const);
-      }
-      return Semaphore.make(1).pipe(
-        Effect.map((semaphore) => {
-          const next = new Map(locks);
-          next.set(threadId, semaphore);
-          return [semaphore, next] as const;
-        }),
-      );
-    }).pipe(
-      Effect.flatMap((semaphore) =>
-        semaphore.withPermit(ensureSessionForThreadUnlocked(threadId, createdAt, options)),
-      ),
-    );
-
-  const reconcileThread: ProviderCommandReactorShape["reconcileThread"] = Effect.fn(
-    "reconcileThread",
-  )(function* (threadId) {
-    const thread = yield* resolveThread(threadId).pipe(
-      Effect.catch((cause) =>
-        Effect.logWarning("provider session refresh failed", {
-          threadId,
-          cause: String(cause),
-        }).pipe(Effect.as(null)),
-      ),
-    );
-    // Opening a historical or empty thread is observation, not a command to
-    // create provider work. A later turn start recovers the provider lazily.
-    if (thread == null || thread.session === null || thread.session.status === "stopped") {
-      return;
-    }
-    const createdAt = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
-    yield* ensureSessionForThread(threadId, createdAt).pipe(
-      Effect.catch((cause) =>
-        Effect.logWarning("provider session refresh failed", {
-          threadId,
-          cause: String(cause),
-        }),
-      ),
-    );
   });
 
   const buildSendTurnRequestForThread = Effect.fnUntraced(function* (input: {
@@ -992,16 +888,9 @@ const make = Effect.gen(function* () {
       return;
     }
 
-    yield* providerService.sendTurn(sendTurnRequest.value).pipe(
-      Effect.tap((result) =>
-        acknowledgeAcceptedTurn({
-          threadId: event.payload.threadId,
-          turnId: result.turnId,
-        }),
-      ),
-      Effect.catchCause(recoverTurnStartFailure),
-      Effect.forkScoped,
-    );
+    yield* providerService
+      .sendTurn(sendTurnRequest.value)
+      .pipe(Effect.catchCause(recoverTurnStartFailure), Effect.forkScoped);
   });
 
   const processTurnInterruptRequested = Effect.fn("processTurnInterruptRequested")(function* (
@@ -1225,7 +1114,6 @@ const make = Effect.gen(function* () {
 
   return {
     start,
-    reconcileThread,
     drain: worker.drain,
   } satisfies ProviderCommandReactorShape;
 });

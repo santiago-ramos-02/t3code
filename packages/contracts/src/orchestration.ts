@@ -799,13 +799,6 @@ const ThreadSessionSetCommand = Schema.Struct({
   commandId: CommandId,
   threadId: ThreadId,
   session: OrchestrationSession,
-  expectedSession: Schema.optional(
-    Schema.Struct({
-      status: OrchestrationSessionStatus,
-      activeTurnId: Schema.NullOr(TurnId),
-      updatedAt: IsoDateTime,
-    }),
-  ),
   createdAt: IsoDateTime,
 });
 

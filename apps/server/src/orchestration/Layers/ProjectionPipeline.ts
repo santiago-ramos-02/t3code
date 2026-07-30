@@ -809,9 +809,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           }
           yield* projectionThreadRepository.upsert({
             ...existingRow.value,
-            // Session attachment/reconciliation often has no active turn.
-            // It must not erase the thread's last projected turn.
-            latestTurnId: event.payload.session.activeTurnId ?? existingRow.value.latestTurnId,
+            latestTurnId: event.payload.session.activeTurnId,
             updatedAt: event.occurredAt,
           });
           yield* refreshThreadShellSummary(event.payload.threadId);
@@ -1095,18 +1093,19 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         case "thread.session-set": {
           const turnId = event.payload.session.activeTurnId;
           if (turnId === null || event.payload.session.status !== "running") {
-            // Leaving the "running" session status is the turn-end signal:
-            // settle still-running turns so their duration reflects the whole
-            // turn rather than the last assistant message.
-            const settledTurnState = settledTurnStateForSessionStatus(event.payload.session.status);
-            // A pending start that no turn adopted must not survive a settled
-            // session. This includes ready after same-turn steering; genuine
-            // starts still awaiting adoption are projected as starting.
-            if (settledTurnState !== null) {
+            if (
+              event.payload.session.status === "error" ||
+              event.payload.session.status === "stopped" ||
+              event.payload.session.status === "interrupted"
+            ) {
               yield* projectionTurnRepository.deletePendingTurnStartByThreadId({
                 threadId: event.payload.threadId,
               });
             }
+            // Leaving the "running" session status is the turn-end signal:
+            // settle still-running turns so their duration reflects the whole
+            // turn rather than the last assistant message.
+            const settledTurnState = settledTurnStateForSessionStatus(event.payload.session.status);
             if (settledTurnState === null) {
               return;
             }

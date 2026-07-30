@@ -62,18 +62,17 @@ class FakeCodexRuntime implements CodexSessionRuntimeShape {
   private readonly eventQueue = Effect.runSync(Queue.unbounded<ProviderEvent>());
   private readonly now = "2026-01-01T00:00:00.000Z";
 
-  public readonly startImpl = vi.fn(
-    (): Promise<ProviderSession> =>
-      Promise.resolve({
-        provider: ProviderDriverKind.make("codex"),
-        status: "ready" as const,
-        runtimeMode: this.options.runtimeMode,
-        threadId: this.options.threadId,
-        cwd: this.options.cwd,
-        ...(this.options.model ? { model: this.options.model } : {}),
-        createdAt: this.now,
-        updatedAt: this.now,
-      } satisfies ProviderSession),
+  public readonly startImpl = vi.fn(() =>
+    Promise.resolve({
+      provider: ProviderDriverKind.make("codex"),
+      status: "ready" as const,
+      runtimeMode: this.options.runtimeMode,
+      threadId: this.options.threadId,
+      cwd: this.options.cwd,
+      ...(this.options.model ? { model: this.options.model } : {}),
+      createdAt: this.now,
+      updatedAt: this.now,
+    } satisfies ProviderSession),
   );
 
   public readonly sendTurnImpl = vi.fn(
@@ -161,11 +160,10 @@ class FakeCodexRuntime implements CodexSessionRuntimeShape {
   }
 }
 
-function makeRuntimeFactory(configure?: (runtime: FakeCodexRuntime) => void) {
+function makeRuntimeFactory() {
   const runtimes: Array<FakeCodexRuntime> = [];
   const factory = vi.fn((options: CodexSessionRuntimeOptions) => {
     const runtime = new FakeCodexRuntime(options);
-    configure?.(runtime);
     runtimes.push(runtime);
     return Effect.succeed(runtime);
   });
@@ -361,208 +359,6 @@ sessionErrorLayer("CodexAdapterLive session errors", (it) => {
       });
     }),
   );
-
-  it.effect("keeps forwarding live events after the session starter fiber exits", () => {
-    const runtimeFactory = makeRuntimeFactory();
-    const layer = Layer.effect(
-      CodexAdapter,
-      Effect.gen(function* () {
-        const codexConfig = decodeCodexSettings({});
-        return yield* makeCodexAdapter(codexConfig, {
-          makeRuntime: runtimeFactory.factory,
-        });
-      }),
-    ).pipe(
-      Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
-      Layer.provideMerge(ServerSettingsService.layerTest()),
-      Layer.provideMerge(providerSessionDirectoryTestLayer),
-      Layer.provideMerge(NodeServices.layer),
-    );
-
-    return Effect.gen(function* () {
-      const adapter = yield* CodexAdapter;
-      const starter = yield* adapter
-        .startSession({
-          provider: ProviderDriverKind.make("codex"),
-          threadId: asThreadId("thread-short-lived-starter"),
-          runtimeMode: "full-access",
-        })
-        .pipe(Effect.forkChild);
-      yield* Fiber.join(starter);
-
-      const runtime = runtimeFactory.lastRuntime;
-      NodeAssert.ok(runtime);
-      const liveEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
-
-      yield* runtime.emit({
-        id: asEventId("evt-after-starter-exit"),
-        kind: "notification",
-        provider: ProviderDriverKind.make("codex"),
-        createdAt: "2026-01-01T00:00:01.000Z",
-        method: "item/completed",
-        threadId: asThreadId("thread-short-lived-starter"),
-        turnId: asTurnId("turn-after-starter-exit"),
-        itemId: asItemId("msg_after_starter_exit"),
-        payload: {
-          completedAtMs: 1_767_225_601_000,
-          threadId: "provider-thread-short-lived-starter",
-          turnId: "turn-after-starter-exit",
-          item: {
-            type: "agentMessage",
-            id: "msg_after_starter_exit",
-            text: "Live output still arrives.",
-          },
-        },
-      });
-
-      yield* Effect.yieldNow;
-      const liveEventExit = liveEventFiber.pollUnsafe();
-      NodeAssert.ok(liveEventExit);
-      NodeAssert.equal(liveEventExit._tag, "Success");
-      if (liveEventExit._tag === "Success") {
-        NodeAssert.equal(liveEventExit.value._tag, "Some");
-        if (liveEventExit.value._tag === "Some") {
-          NodeAssert.equal(liveEventExit.value.value.type, "item.completed");
-          NodeAssert.equal(liveEventExit.value.value.threadId, "thread-short-lived-starter");
-        }
-      }
-    }).pipe(Effect.provide(layer));
-  });
-
-  it.effect("refreshes the latest assistant message when a Codex thread resumes", () => {
-    const runtimeFactory = makeRuntimeFactory((runtime) => {
-      runtime.readThreadImpl.mockResolvedValue({
-        threadId: "provider-thread-resumed",
-        turns: [
-          {
-            id: asTurnId("turn-finished-while-closed"),
-            items: [
-              {
-                type: "agentMessage",
-                id: "msg_finished_while_closed",
-                text: "This completed while T3 Code was closed.",
-              },
-            ],
-          },
-        ],
-      });
-    });
-    const layer = Layer.effect(
-      CodexAdapter,
-      Effect.gen(function* () {
-        const codexConfig = decodeCodexSettings({});
-        return yield* makeCodexAdapter(codexConfig, {
-          makeRuntime: runtimeFactory.factory,
-        });
-      }),
-    ).pipe(
-      Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
-      Layer.provideMerge(ServerSettingsService.layerTest()),
-      Layer.provideMerge(providerSessionDirectoryTestLayer),
-      Layer.provideMerge(NodeServices.layer),
-    );
-
-    return Effect.gen(function* () {
-      const adapter = yield* CodexAdapter;
-      const recoveredEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(
-        Effect.forkChild,
-      );
-
-      yield* adapter.startSession({
-        provider: ProviderDriverKind.make("codex"),
-        threadId: asThreadId("thread-resumed"),
-        resumeCursor: { threadId: "provider-thread-resumed" },
-        runtimeMode: "full-access",
-      });
-
-      const runtime = runtimeFactory.lastRuntime;
-      NodeAssert.ok(runtime);
-      NodeAssert.equal(runtime.readThreadImpl.mock.calls.length, 1);
-
-      const recoveredEvent = yield* Fiber.join(recoveredEventFiber);
-      NodeAssert.equal(recoveredEvent._tag, "Some");
-      if (recoveredEvent._tag !== "Some") {
-        return;
-      }
-      NodeAssert.equal(recoveredEvent.value.type, "item.completed");
-      if (recoveredEvent.value.type !== "item.completed") {
-        return;
-      }
-      NodeAssert.equal(recoveredEvent.value.threadId, "thread-resumed");
-      NodeAssert.equal(recoveredEvent.value.turnId, "turn-finished-while-closed");
-      NodeAssert.equal(recoveredEvent.value.itemId, "msg_finished_while_closed");
-      NodeAssert.equal(
-        recoveredEvent.value.payload.detail,
-        "This completed while T3 Code was closed.",
-      );
-      NodeAssert.equal(
-        (
-          recoveredEvent.value.raw?.payload as {
-            readonly recoveredFromThreadSnapshot?: unknown;
-          }
-        ).recoveredFromThreadSnapshot,
-        true,
-      );
-    }).pipe(Effect.provide(layer));
-  });
-
-  it.effect("does not replay the thread snapshot while a resumed Codex turn is running", () => {
-    const runtimeFactory = makeRuntimeFactory((runtime) => {
-      runtime.startImpl.mockResolvedValue({
-        provider: ProviderDriverKind.make("codex"),
-        status: "running",
-        runtimeMode: runtime.options.runtimeMode,
-        threadId: runtime.options.threadId,
-        cwd: runtime.options.cwd,
-        activeTurnId: asTurnId("turn-still-running"),
-        createdAt: "2026-01-01T00:00:00.000Z",
-        updatedAt: "2026-01-01T00:00:00.000Z",
-      });
-      runtime.readThreadImpl.mockResolvedValue({
-        threadId: "provider-thread-running",
-        turns: [
-          {
-            id: asTurnId("turn-still-running"),
-            items: [
-              {
-                type: "agentMessage",
-                id: "msg_already_projected",
-                text: "Do not replay this live turn.",
-              },
-            ],
-          },
-        ],
-      });
-    });
-    const layer = Layer.effect(
-      CodexAdapter,
-      Effect.gen(function* () {
-        const codexConfig = decodeCodexSettings({});
-        return yield* makeCodexAdapter(codexConfig, {
-          makeRuntime: runtimeFactory.factory,
-        });
-      }),
-    ).pipe(
-      Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
-      Layer.provideMerge(ServerSettingsService.layerTest()),
-      Layer.provideMerge(providerSessionDirectoryTestLayer),
-      Layer.provideMerge(NodeServices.layer),
-    );
-
-    return Effect.gen(function* () {
-      const adapter = yield* CodexAdapter;
-      yield* adapter.startSession({
-        provider: ProviderDriverKind.make("codex"),
-        threadId: asThreadId("thread-running"),
-        resumeCursor: { threadId: "provider-thread-running" },
-        runtimeMode: "full-access",
-      });
-
-      const runtime = runtimeFactory.lastRuntime;
-      NodeAssert.ok(runtime);
-      NodeAssert.equal(runtime.readThreadImpl.mock.calls.length, 0);
-    }).pipe(Effect.provide(layer));
-  });
 
   it.effect("passes configured launch args into the session runtime", () => {
     const runtimeFactory = makeRuntimeFactory();

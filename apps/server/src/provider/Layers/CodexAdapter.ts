@@ -11,11 +11,9 @@ import {
   type CanonicalItemType,
   type CanonicalRequestType,
   type CodexSettings,
-  EventId,
   ProviderDriverKind,
   type ProviderEvent,
   ProviderInstanceId,
-  ProviderItemId,
   type ProviderRuntimeEvent,
   type ProviderRequestKind,
   type ThreadTokenUsageSnapshot,
@@ -1464,7 +1462,7 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
             }
             yield* Queue.offerAll(runtimeEventQueue, runtimeEvents);
           }),
-        ).pipe(Effect.forkIn(sessionScope));
+        ).pipe(Effect.forkChild);
 
         const started = yield* runtime.start().pipe(
           Effect.mapError(
@@ -1484,58 +1482,6 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
             ),
           ),
         );
-
-        if (isCodexResumeCursorSchema(input.resumeCursor) && started.status === "ready") {
-          yield* runtime.readThread.pipe(
-            Effect.flatMap((snapshot) => {
-              const latestTurn = snapshot.turns.at(-1);
-              if (!latestTurn) {
-                return Effect.void;
-              }
-
-              return Effect.forEach(
-                latestTurn.items,
-                (item) =>
-                  Effect.gen(function* () {
-                    if (toCanonicalItemType(item.type) !== "assistant_message") {
-                      return;
-                    }
-
-                    const event: ProviderEvent = {
-                      id: EventId.make(yield* crypto.randomUUIDv4),
-                      kind: "notification",
-                      provider: PROVIDER,
-                      providerInstanceId: boundInstanceId,
-                      threadId: input.threadId,
-                      createdAt: started.updatedAt,
-                      method: "item/completed",
-                      turnId: latestTurn.id,
-                      itemId: ProviderItemId.make(item.id),
-                      payload: {
-                        recoveredFromThreadSnapshot: true,
-                        completedAtMs: Date.parse(started.updatedAt),
-                        threadId: snapshot.threadId,
-                        turnId: latestTurn.id,
-                        item,
-                      },
-                    };
-                    yield* Queue.offerAll(
-                      runtimeEventQueue,
-                      mapToRuntimeEvents(event, input.threadId),
-                    );
-                  }),
-                { discard: true },
-              );
-            }),
-            Effect.tapError((cause) =>
-              Effect.logWarning("failed to refresh resumed Codex thread history", {
-                threadId: input.threadId,
-                cause: cause.message,
-              }),
-            ),
-            Effect.ignore,
-          );
-        }
 
         sessions.set(input.threadId, {
           threadId: input.threadId,

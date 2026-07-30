@@ -445,35 +445,6 @@ type CodexThreadOpenResponse =
   | CodexRpc.ClientRequestResponsesByMethod["thread/start"]
   | CodexRpc.ClientRequestResponsesByMethod["thread/resume"];
 
-export function codexSessionActivityFromThread(input: {
-  readonly status: { readonly type: "notLoaded" | "idle" | "systemError" | "active" };
-  readonly turns: ReadonlyArray<{
-    readonly id: string;
-    readonly status: "completed" | "interrupted" | "failed" | "inProgress";
-  }>;
-}):
-  | { readonly status: "ready" | "error" }
-  | { readonly status: "running"; readonly activeTurnId?: TurnId } {
-  if (input.status.type === "systemError") {
-    return { status: "error" };
-  }
-
-  const activeTurn = input.turns.findLast((turn) => turn.status === "inProgress");
-  if (activeTurn) {
-    return {
-      status: "running",
-      activeTurnId: TurnId.make(activeTurn.id),
-    };
-  }
-  if (input.status.type !== "active") {
-    return { status: "ready" };
-  }
-
-  return {
-    status: "running",
-  };
-}
-
 type CodexThreadOpenMethod = "thread/start" | "thread/resume";
 
 interface CodexThreadOpenClient {
@@ -1261,18 +1232,14 @@ export const makeCodexSessionRuntime = (
       const providerThreadId = opened.thread.id;
       const session = {
         ...(yield* Ref.get(sessionRef)),
-        ...codexSessionActivityFromThread(opened.thread),
+        status: "ready",
         cwd: opened.cwd,
         model: opened.model,
         resumeCursor: { threadId: providerThreadId },
         updatedAt: yield* nowIso,
       } satisfies ProviderSession;
       yield* Ref.set(sessionRef, session);
-      // `start()` returns the authoritative initial session to the adapter,
-      // which binds it to orchestration before any turn is sent. Publishing a
-      // second ready event here races that binding during resume: the event can
-      // settle a previously running turn as completed just before the caller
-      // records that the old process actually interrupted it.
+      yield* emitSessionEvent("session/ready", "Codex App Server session ready.");
       return session;
     });
 

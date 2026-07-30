@@ -1429,13 +1429,6 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
       assert.deepEqual(settledRows, [
         { state: "completed", completedAt: "2026-01-01T00:01:00.000Z" },
       ]);
-
-      const threadRows = yield* sql<{ readonly latestTurnId: string | null }>`
-        SELECT latest_turn_id AS "latestTurnId"
-        FROM projection_threads
-        WHERE thread_id = ${threadId}
-      `;
-      assert.deepEqual(threadRows, [{ latestTurnId: turnId }]);
     }),
   );
 
@@ -2480,9 +2473,7 @@ it.layer(makeProjectionPipelinePrefixedTestLayer("t3-pending-turn-terminal-test-
         const eventStore = yield* OrchestrationEventStore;
         const sql = yield* SqlClient.SqlClient;
 
-        for (const [index, status] of (
-          ["ready", "error", "interrupted", "stopped"] as const
-        ).entries()) {
+        for (const [index, status] of (["error", "interrupted", "stopped"] as const).entries()) {
           const threadId = ThreadId.make(`thread-terminal-${status}`);
           const requestedAt = `2026-02-26T14:00:0${index}.000Z`;
           yield* eventStore.append({

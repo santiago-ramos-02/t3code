@@ -185,33 +185,6 @@ function findMessageById(
   return undefined;
 }
 
-function isRecoveredFromThreadSnapshot(event: ProviderRuntimeEvent): boolean {
-  const rawPayload = event.raw?.payload;
-  return (
-    typeof rawPayload === "object" &&
-    rawPayload !== null &&
-    "recoveredFromThreadSnapshot" in rawPayload &&
-    rawPayload.recoveredFromThreadSnapshot === true
-  );
-}
-
-function hasCompletedAssistantMessageWithText(
-  messages: ReadonlyArray<OrchestrationMessage>,
-  turnId: TurnId | undefined,
-  text: string | undefined,
-): boolean {
-  if (!turnId || !hasRenderableAssistantText(text)) {
-    return false;
-  }
-  return messages.some(
-    (message) =>
-      message.role === "assistant" &&
-      message.turnId === turnId &&
-      !message.streaming &&
-      message.text === text,
-  );
-}
-
 function findProposedPlanById(
   proposedPlans: ReadonlyArray<
     Pick<OrchestrationProposedPlan, "id" | "createdAt" | "implementedAt" | "implementationThreadId">
@@ -1627,11 +1600,9 @@ const make = Effect.gen(function* () {
         const detailedThread = yield* getLoadedThreadDetail();
         const messages = detailedThread?.messages ?? [];
         const turnId = toTurnId(event.turnId);
-        const recoveredFromThreadSnapshot = isRecoveredFromThreadSnapshot(event);
-        const activeAssistantMessageId =
-          turnId && !recoveredFromThreadSnapshot
-            ? yield* getActiveAssistantMessageIdForTurn(thread.id, turnId)
-            : Option.none<MessageId>();
+        const activeAssistantMessageId = turnId
+          ? yield* getActiveAssistantMessageIdForTurn(thread.id, turnId)
+          : Option.none<MessageId>();
         const hasAssistantMessagesForTurn =
           turnId !== undefined ? hasAssistantMessageForTurn(messages, turnId) : false;
         const assistantMessageId = Option.getOrElse(
@@ -1642,23 +1613,14 @@ const make = Effect.gen(function* () {
         const shouldApplyFallbackCompletionText =
           !existingAssistantMessage || existingAssistantMessage.text.length === 0;
 
-        const shouldSkipRecoveredCompletion =
-          recoveredFromThreadSnapshot &&
-          ((existingAssistantMessage !== undefined && !existingAssistantMessage.streaming) ||
-            hasCompletedAssistantMessageWithText(
-              messages,
-              turnId,
-              assistantCompletion.fallbackText,
-            ));
         const shouldSkipRedundantCompletion =
-          shouldSkipRecoveredCompletion ||
-          (Option.isNone(activeAssistantMessageId) &&
-            turnId !== undefined &&
-            hasAssistantMessagesForTurn &&
-            (assistantCompletion.fallbackText?.trim().length ?? 0) === 0);
+          Option.isNone(activeAssistantMessageId) &&
+          turnId !== undefined &&
+          hasAssistantMessagesForTurn &&
+          (assistantCompletion.fallbackText?.trim().length ?? 0) === 0;
 
         if (!shouldSkipRedundantCompletion) {
-          if (turnId && Option.isNone(activeAssistantMessageId) && !recoveredFromThreadSnapshot) {
+          if (turnId && Option.isNone(activeAssistantMessageId)) {
             yield* rememberAssistantMessageId(thread.id, turnId, assistantMessageId);
           }
 
@@ -1676,12 +1638,12 @@ const make = Effect.gen(function* () {
               : {}),
           });
 
-          if (turnId && !recoveredFromThreadSnapshot) {
+          if (turnId) {
             yield* forgetAssistantMessageId(thread.id, turnId, assistantMessageId);
           }
         }
 
-        if (turnId && !recoveredFromThreadSnapshot) {
+        if (turnId) {
           yield* clearAssistantSegmentStateForTurn(thread.id, turnId);
         }
       }

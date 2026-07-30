@@ -628,10 +628,6 @@ describe("resolveSidebarV2Status", () => {
     ).toBe("working");
   });
 
-  it("does not report a cached running session as working while its environment is unavailable", () => {
-    expect(resolveSidebarV2Status({ ...idle, session }, false)).toBe("ready");
-  });
-
   it("reports failed only while the session status is error", () => {
     expect(
       resolveSidebarV2Status({

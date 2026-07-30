@@ -69,7 +69,6 @@ import {
 import { normalizeDispatchCommand } from "./orchestration/Normalizer.ts";
 import * as OrchestrationEngine from "./orchestration/Services/OrchestrationEngine.ts";
 import * as ProjectionSnapshotQuery from "./orchestration/Services/ProjectionSnapshotQuery.ts";
-import * as ProviderCommandReactor from "./orchestration/Services/ProviderCommandReactor.ts";
 import {
   observeRpcEffect as instrumentRpcEffect,
   observeRpcStream as instrumentRpcStream,
@@ -345,7 +344,6 @@ const makeWsRpcLayer = (
       const crypto = yield* Crypto.Crypto;
       const projectionSnapshotQuery = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
       const orchestrationEngine = yield* OrchestrationEngine.OrchestrationEngineService;
-      const providerCommandReactor = yield* ProviderCommandReactor.ProviderCommandReactor;
       const checkpointDiffQuery = yield* CheckpointDiffQuery.CheckpointDiffQuery;
       const keybindings = yield* Keybindings.Keybindings;
       const externalLauncher = yield* ExternalLauncher.ExternalLauncher;
@@ -1250,7 +1248,6 @@ const makeWsRpcLayer = (
               yield* Effect.forkScoped(
                 liveStream.pipe(Stream.runForEach((item) => Queue.offer(liveBuffer, item))),
               );
-              yield* providerCommandReactor.reconcileThread(input.threadId).pipe(Effect.forkScoped);
               const bufferedLiveStream = Stream.fromQueue(liveBuffer);
 
               // When the client already loaded the snapshot over HTTP it passes
