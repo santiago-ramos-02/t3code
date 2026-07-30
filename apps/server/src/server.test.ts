@@ -739,6 +739,7 @@ const buildAppUnderTest = (options?: {
               threads: [],
               updatedAt: "1970-01-01T00:00:00.000Z",
             }),
+          searchThreads: () => Effect.succeed({ matches: [] }),
           getSnapshotSequence: () => Effect.succeed({ snapshotSequence: 0 }),
           getProjectShellById: () => Effect.succeed(Option.none()),
           getThreadShellById: () => Effect.succeed(Option.none()),
@@ -5733,6 +5734,18 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         layers: {
           projectionSnapshotQuery: {
             getSnapshot: () => Effect.succeed(snapshot),
+            searchThreads: () =>
+              Effect.succeed({
+                matches: [
+                  {
+                    threadId: ThreadId.make("thread-1"),
+                    projectId: ProjectId.make("project-a"),
+                    source: "assistant",
+                    snippet: "Search reached the final response.",
+                    messageCreatedAt: now,
+                  },
+                ],
+              }),
           },
           orchestrationEngine: {
             dispatch: () => Effect.succeed({ sequence: 7 }),
@@ -5790,6 +5803,23 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         ),
       );
       assert.equal(fullDiffResult.diff, "full-diff");
+
+      const searchResult = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[ORCHESTRATION_WS_METHODS.searchThreads]({
+            query: "final response",
+          }),
+        ),
+      );
+      assert.deepEqual(searchResult.matches, [
+        {
+          threadId: ThreadId.make("thread-1"),
+          projectId: ProjectId.make("project-a"),
+          source: "assistant",
+          snippet: "Search reached the final response.",
+          messageCreatedAt: now,
+        },
+      ]);
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
