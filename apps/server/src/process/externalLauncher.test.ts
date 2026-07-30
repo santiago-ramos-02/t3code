@@ -8,6 +8,7 @@ import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
+import * as Tracer from "effect/Tracer";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import { HostProcessEnvironment, HostProcessPlatform } from "@t3tools/shared/hostProcess";
@@ -210,6 +211,38 @@ it.effect("checks editor availability concurrently while preserving editor order
       EDITORS.map((editor) => editor.id),
     );
     assert.ok(maximumActiveChecks > 1);
+  }),
+);
+
+it.effect("does not trace editor discovery command probes", () =>
+  Effect.gen(function* () {
+    const spanNames: Array<string> = [];
+    const tracer = Tracer.make({
+      span: (options) => {
+        const span = new Tracer.NativeSpan(options);
+        const end = span.end.bind(span);
+        span.end = (endTime, exit) => {
+          end(endTime, exit);
+          spanNames.push(span.name);
+        };
+        return span;
+      },
+    });
+
+    const editors = yield* Effect.gen(function* () {
+      const launcher = yield* ExternalLauncher.ExternalLauncher;
+      return yield* launcher.resolveAvailableEditors();
+    }).pipe(
+      Effect.provideService(CommandAvailability, () => Effect.succeed(true)),
+      Effect.provide(testLayer({ platform: "win32", env: {} })),
+      Effect.withTracer(tracer),
+    );
+
+    assert.deepEqual(
+      editors,
+      EDITORS.map((editor) => editor.id),
+    );
+    assert.deepEqual(spanNames, []);
   }),
 );
 

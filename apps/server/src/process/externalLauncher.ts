@@ -432,7 +432,10 @@ export const make = Effect.gen(function* () {
     );
 
   return ExternalLauncher.of({
-    resolveAvailableEditors: () => provideCommandResolutionServices(resolveAvailableEditors()),
+    resolveAvailableEditors: () =>
+      provideCommandResolutionServices(resolveAvailableEditors()).pipe(
+        Effect.withTracerEnabled(false),
+      ),
     launchBrowser: (target) =>
       launchBrowser(target).pipe(
         Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
