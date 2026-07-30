@@ -3912,6 +3912,44 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }),
   );
 
+  it.effect("reuses editor discovery across config request and subscription", () =>
+    Effect.gen(function* () {
+      let discoveryCount = 0;
+      yield* buildAppUnderTest({
+        layers: {
+          externalLauncher: {
+            resolveAvailableEditors: () =>
+              Effect.sync(() => {
+                discoveryCount += 1;
+                return discoveryCount === 1 ? (["vscode"] as const) : [];
+              }),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const [initialConfig, snapshot] = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          Effect.gen(function* () {
+            const initialConfig = yield* client[WS_METHODS.serverGetConfig]({});
+            const snapshot = yield* client[WS_METHODS.subscribeServerConfig]({}).pipe(
+              Stream.runHead,
+              Effect.map(Option.getOrThrow),
+            );
+            return [initialConfig, snapshot] as const;
+          }),
+        ),
+      );
+
+      assert.deepEqual(initialConfig.availableEditors, ["vscode"]);
+      assert.equal(snapshot.type, "snapshot");
+      if (snapshot.type === "snapshot") {
+        assert.deepEqual(snapshot.config.availableEditors, ["vscode"]);
+      }
+      assert.equal(discoveryCount, 1);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
   it.effect(
     "rejects websocket rpc handshake when a session token is only provided via query string",
     () =>

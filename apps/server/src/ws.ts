@@ -351,6 +351,9 @@ const makeWsRpcLayer = (
       const checkpointDiffQuery = yield* CheckpointDiffQuery.CheckpointDiffQuery;
       const keybindings = yield* Keybindings.Keybindings;
       const externalLauncher = yield* ExternalLauncher.ExternalLauncher;
+      const loadAvailableEditors = yield* Effect.cached(
+        resolveAvailableEditorsForConfig(externalLauncher.resolveAvailableEditors()),
+      );
       const gitWorkflow = yield* GitWorkflowService.GitWorkflowService;
       const review = yield* ReviewService.ReviewService;
       const vcsProvisioning = yield* VcsProvisioningService.VcsProvisioningService;
@@ -986,9 +989,7 @@ const makeWsRpcLayer = (
           keybindings: keybindingsConfig.keybindings,
           issues: keybindingsConfig.issues,
           providers,
-          availableEditors: yield* resolveAvailableEditorsForConfig(
-            externalLauncher.resolveAvailableEditors(),
-          ),
+          availableEditors: yield* loadAvailableEditors,
           observability: {
             logsDirectoryPath: config.logsDir,
             localTracingEnabled: true,
