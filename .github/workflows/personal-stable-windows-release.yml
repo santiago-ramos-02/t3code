@@ -156,6 +156,13 @@ jobs:
     timeout-minutes: 45
     env:
       T3CODE_DESKTOP_UPDATE_REPOSITORY: santiago-ramos-02/t3code
+      # Public production T3 Connect configuration compiled into the desktop
+      # client and bundled server. Personal forks cannot read upstream's
+      # production Actions environment, so keep these public values explicit.
+      T3CODE_CLERK_PUBLISHABLE_KEY: pk_live_Y2xlcmsudDMuY29kZXMk
+      T3CODE_CLERK_JWT_TEMPLATE: t3-relay
+      T3CODE_CLERK_CLI_OAUTH_CLIENT_ID: hzxSgY2cH10sDU2r
+      T3CODE_RELAY_URL: https://relay.t3.codes
     strategy:
       fail-fast: false
       matrix:
