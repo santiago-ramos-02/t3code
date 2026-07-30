@@ -18,7 +18,7 @@ import {
   type LaunchEditorInput,
 } from "@t3tools/contracts";
 import { HostProcessEnvironment, HostProcessPlatform } from "@t3tools/shared/hostProcess";
-import { isCommandAvailable, resolveSpawnCommand } from "@t3tools/shared/shell";
+import { CommandAvailability, resolveSpawnCommand } from "@t3tools/shared/shell";
 import * as Config from "effect/Config";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -71,6 +71,7 @@ const POWERSHELL_ARGUMENTS_PREFIX = [
   "Bypass",
   "-EncodedCommand",
 ] as const;
+const EDITOR_DISCOVERY_CONCURRENCY = 8;
 
 const DETACHED_IGNORE_STDIO_OPTIONS = {
   detached: true,
@@ -153,8 +154,9 @@ const resolveAvailableCommand = Effect.fn("externalLauncher.resolveAvailableComm
   commands: ReadonlyArray<string>,
   env: NodeJS.ProcessEnv,
 ): Effect.fn.Return<Option.Option<string>, never, FileSystem.FileSystem | Path.Path> {
+  const commandAvailable = yield* CommandAvailability;
   for (const command of commands) {
-    if (yield* isCommandAvailable(command, { env })) {
+    if (yield* commandAvailable(command, { env })) {
       return Option.some(command);
     }
   }
@@ -256,24 +258,17 @@ const buildAvailableEditors = Effect.fn("externalLauncher.buildAvailableEditors"
   platform: NodeJS.Platform,
   env: NodeJS.ProcessEnv,
 ): Effect.fn.Return<ReadonlyArray<EditorId>, never, FileSystem.FileSystem | Path.Path> {
-  const available: EditorId[] = [];
+  const available = yield* Effect.forEach(
+    EDITORS,
+    (editor) =>
+      Effect.gen(function* () {
+        const commands = editor.commands ?? ([fileManagerCommandForPlatform(platform)] as const);
+        return Option.isSome(yield* resolveAvailableCommand(commands, env)) ? [editor.id] : [];
+      }),
+    { concurrency: EDITOR_DISCOVERY_CONCURRENCY },
+  );
 
-  for (const editor of EDITORS) {
-    if (editor.commands === null) {
-      const command = fileManagerCommandForPlatform(platform);
-      if (yield* isCommandAvailable(command, { env })) {
-        available.push(editor.id);
-      }
-      continue;
-    }
-
-    const command = yield* resolveAvailableCommand(editor.commands, env);
-    if (Option.isSome(command)) {
-      available.push(editor.id);
-    }
-  }
-
-  return available;
+  return available.flat();
 });
 
 const resolveBrowserLaunch = Effect.fn("externalLauncher.resolveBrowserLaunch")(function* (
@@ -391,7 +386,8 @@ const launchEditorProcess = Effect.fn("externalLauncher.launchEditorProcess")(fu
   ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Path.Path
 > {
   const env = yield* HostProcessEnvironment;
-  if (!(yield* isCommandAvailable(launch.command, { env }))) {
+  const commandAvailable = yield* CommandAvailability;
+  if (!(yield* commandAvailable(launch.command, { env }))) {
     return yield* new ExternalLauncherCommandNotFoundError({
       editor: launch.editor,
       command: launch.command,

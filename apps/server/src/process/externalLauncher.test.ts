@@ -1,5 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
+import { EDITORS } from "@t3tools/contracts";
 import * as ConfigProvider from "effect/ConfigProvider";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -10,7 +11,7 @@ import * as Stream from "effect/Stream";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import { HostProcessEnvironment, HostProcessPlatform } from "@t3tools/shared/hostProcess";
-import { SpawnExecutableResolution } from "@t3tools/shared/shell";
+import { CommandAvailability, SpawnExecutableResolution } from "@t3tools/shared/shell";
 import * as ExternalLauncher from "./externalLauncher.ts";
 
 function makeMockDetachedHandle(onUnref: () => void = () => undefined) {
@@ -181,6 +182,35 @@ it.effect("discovers editors from the repaired host environment", () =>
     assert.equal(editors.includes("vscode"), true);
     assert.equal(editors.includes("file-manager"), true);
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);
+
+it.effect("checks editor availability concurrently while preserving editor order", () =>
+  Effect.gen(function* () {
+    let activeChecks = 0;
+    let maximumActiveChecks = 0;
+    const commandAvailable = () =>
+      Effect.gen(function* () {
+        activeChecks += 1;
+        maximumActiveChecks = Math.max(maximumActiveChecks, activeChecks);
+        yield* Effect.yieldNow;
+        activeChecks -= 1;
+        return true;
+      });
+
+    const editors = yield* Effect.gen(function* () {
+      const launcher = yield* ExternalLauncher.ExternalLauncher;
+      return yield* launcher.resolveAvailableEditors();
+    }).pipe(
+      Effect.provideService(CommandAvailability, commandAvailable),
+      Effect.provide(testLayer({ platform: "win32", env: {} })),
+    );
+
+    assert.deepEqual(
+      editors,
+      EDITORS.map((editor) => editor.id),
+    );
+    assert.ok(maximumActiveChecks > 1);
+  }),
 );
 
 it.effect("rejects unknown editors through the service API", () =>
