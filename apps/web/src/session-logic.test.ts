@@ -12,6 +12,7 @@ import {
   deriveActivePlanState,
   derivePendingApprovals,
   derivePendingUserInputs,
+  derivePhase,
   deriveTimelineEntries,
   deriveWorkLogEntries,
   findLatestProposedPlan,
@@ -1623,6 +1624,13 @@ describe("isLatestTurnSettled", () => {
         null,
       ),
     ).toBe(false);
+  });
+});
+
+describe("derivePhase", () => {
+  it("does not keep a cached running session active while its environment is unavailable", () => {
+    expect(derivePhase({ status: "running" } as never, false)).toBe("disconnected");
+    expect(derivePhase({ status: "running" } as never, true)).toBe("running");
   });
 });
 

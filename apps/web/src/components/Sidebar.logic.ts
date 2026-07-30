@@ -408,14 +408,20 @@ type SidebarV2StatusInput = Pick<
   "hasPendingApprovals" | "hasPendingUserInput" | "session"
 >;
 
-export function resolveSidebarV2Status(thread: SidebarV2StatusInput): SidebarV2Status {
+export function resolveSidebarV2Status(
+  thread: SidebarV2StatusInput,
+  environmentConnected = true,
+): SidebarV2Status {
   if (thread.hasPendingApprovals) {
     return "approval";
   }
   if (thread.hasPendingUserInput) {
     return "input";
   }
-  if (thread.session?.status === "running" || thread.session?.status === "starting") {
+  if (
+    environmentConnected &&
+    (thread.session?.status === "running" || thread.session?.status === "starting")
+  ) {
     return "working";
   }
   if (thread.session?.status === "error") {
