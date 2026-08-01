@@ -14,7 +14,11 @@ const THREAD_REF = scopeThreadRef(
 describe("openDiffFilePrimaryAction", () => {
   beforeEach(() => {
     useRightPanelStore.setState({ byThreadKey: {} });
-    useDiffPanelStore.setState({ byThreadKey: {}, branchBaseRefByThreadKey: {} });
+    useDiffPanelStore.setState({
+      byThreadKey: {},
+      branchBaseRefByThreadKey: {},
+      collapsedFileKeysByScope: {},
+    });
   });
 
   it("opens diff files in the thread file viewer", () => {
@@ -55,7 +59,11 @@ describe("openDiffFilePrimaryAction", () => {
 describe("openTurnDiffPrimaryAction", () => {
   beforeEach(() => {
     useRightPanelStore.setState({ byThreadKey: {} });
-    useDiffPanelStore.setState({ byThreadKey: {}, branchBaseRefByThreadKey: {} });
+    useDiffPanelStore.setState({
+      byThreadKey: {},
+      branchBaseRefByThreadKey: {},
+      collapsedFileKeysByScope: {},
+    });
   });
 
   it("dismisses an auto-open plan before activating the requested turn diff", () => {
