@@ -446,16 +446,25 @@ export default function DiffPanel({
       }),
     [collapsedDiffFileKeys, renderableFiles],
   );
+  const selectedFileKey = useMemo(
+    () => codeViewFiles.find((candidate) => candidate.filePath === selectedFilePath)?.fileKey,
+    [codeViewFiles, selectedFilePath],
+  );
   const diffFileKeys = useMemo(() => codeViewFiles.map((file) => file.fileKey), [codeViewFiles]);
   const allDiffFilesCollapsed = areAllDiffFilesCollapsed(diffFileKeys, collapsedDiffFileKeys);
   const diffLineStat = useMemo(() => getDiffLineStat(renderableFiles), [renderableFiles]);
 
   useEffect(() => {
-    if (!selectedFilePath) return;
-    const file = codeViewFiles.find((candidate) => candidate.filePath === selectedFilePath);
-    if (!file) return;
-    codeViewRef.current?.scrollTo({ type: "item", id: file.fileKey, align: "start" });
-  }, [codeViewFiles, selectedFilePath, selectedFileRevealRequestId]);
+    if (!selectedFilePath || !selectedFileKey) return;
+    codeViewRef.current?.scrollTo({ type: "item", id: selectedFileKey, align: "start" });
+  }, [
+    collapseScopeKey,
+    renderablePatch,
+    reviewSectionId,
+    selectedFileKey,
+    selectedFilePath,
+    selectedFileRevealRequestId,
+  ]);
 
   const openDiffFile = useCallback(
     (filePath: string) => {
@@ -847,6 +856,7 @@ export default function DiffPanel({
               <div
                 className="min-h-0 flex-1"
                 onClickCapture={(event) => {
+                  if (event.target instanceof Element && event.target.closest("button")) return;
                   const composedPath = event.nativeEvent.composedPath?.() ?? [];
                   const title = composedPath.find(
                     (node): node is HTMLElement =>
