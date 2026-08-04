@@ -77,7 +77,7 @@ import * as BackgroundPolicy from "./background/BackgroundPolicy.ts";
 import * as ServerConfig from "./config.ts";
 import * as HttpResponseCompression from "./httpCompression/HttpResponseCompression.ts";
 import { makeRoutesLayer } from "./server.ts";
-import { resolveAvailableEditorsForConfig } from "./ws.ts";
+import { makeAvailableEditorsLoader, resolveAvailableEditorsForConfig } from "./ws.ts";
 import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import * as GitManager from "./git/GitManager.ts";
 import * as Keybindings from "./keybindings.ts";
@@ -3987,6 +3987,26 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       }
       assert.equal(discoveryCount, 1);
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("retries editor discovery after a timed-out request", () =>
+    Effect.gen(function* () {
+      let discoveryCount = 0;
+      const loadAvailableEditors = yield* makeAvailableEditorsLoader(
+        Effect.suspend(() => {
+          discoveryCount += 1;
+          return discoveryCount === 1 ? Effect.never : Effect.succeed(["vscode"] as const);
+        }),
+      );
+      const firstConfigFiber = yield* loadAvailableEditors.pipe(Effect.forkChild);
+      yield* TestClock.adjust(Duration.seconds(5));
+      const firstConfig = yield* Fiber.join(firstConfigFiber);
+      const secondConfig = yield* loadAvailableEditors;
+
+      assert.deepEqual(firstConfig, []);
+      assert.deepEqual(secondConfig, ["vscode"]);
+      assert.equal(discoveryCount, 2);
+    }),
   );
 
   it.effect(
