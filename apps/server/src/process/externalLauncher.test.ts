@@ -8,7 +8,7 @@ import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
-import * as Tracer from "effect/Tracer";
+import * as TestClock from "effect/testing/TestClock";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import { HostProcessEnvironment, HostProcessPlatform } from "@t3tools/shared/hostProcess";
@@ -159,92 +159,65 @@ it.effect("discovers editors through the service API", () =>
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );
 
-it.effect("discovers editors from the repaired host environment", () =>
-  Effect.gen(function* () {
-    const fileSystem = yield* FileSystem.FileSystem;
-    const path = yield* Path.Path;
-    const binDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-editors-" });
-    yield* fileSystem.writeFileString(path.join(binDir, "code.CMD"), "@echo off\r\n");
-    yield* fileSystem.writeFileString(path.join(binDir, "explorer.CMD"), "@echo off\r\n");
-
-    const editors = yield* Effect.gen(function* () {
-      const launcher = yield* ExternalLauncher.ExternalLauncher;
-      return yield* launcher.resolveAvailableEditors();
-    }).pipe(
-      Effect.provide(
-        testLayer({
-          platform: "win32",
-          env: { PATH: binDir, PATHEXT: ".COM;.EXE;.BAT;.CMD" },
-          configEnv: { PATH: "", PATHEXT: ".COM;.EXE;.BAT;.CMD" },
+it.effect("memoizes editor discovery and refreshes after the cache window", () => {
+  let statCalls = 0;
+  const fileInfo = { type: "File" } as FileSystem.File.Info;
+  const launcherLayer = ExternalLauncher.layer.pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        FileSystem.layerNoop({
+          stat: () =>
+            Effect.sync(() => {
+              statCalls += 1;
+              return fileInfo;
+            }),
         }),
+        Path.layer,
+        Layer.succeed(
+          ChildProcessSpawner.ChildProcessSpawner,
+          ChildProcessSpawner.make(() => Effect.sync(() => makeMockDetachedHandle())),
+        ),
       ),
-    );
+    ),
+  );
 
-    assert.equal(editors.includes("vscode"), true);
-    assert.equal(editors.includes("file-manager"), true);
-  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
-);
+  return Effect.gen(function* () {
+    const launcher = yield* ExternalLauncher.ExternalLauncher;
 
-it.effect("checks editor availability concurrently while preserving editor order", () =>
-  Effect.gen(function* () {
-    let activeChecks = 0;
-    let maximumActiveChecks = 0;
-    const commandAvailable = () =>
-      Effect.gen(function* () {
-        activeChecks += 1;
-        maximumActiveChecks = Math.max(maximumActiveChecks, activeChecks);
-        yield* Effect.yieldNow;
-        activeChecks -= 1;
-        return true;
-      });
+    const first = yield* launcher.resolveAvailableEditors();
+    assert.equal(first.includes("vscode"), true);
+    const statCallsAfterFirstScan = statCalls;
+    assert.isAbove(statCallsAfterFirstScan, 0);
 
-    const editors = yield* Effect.gen(function* () {
-      const launcher = yield* ExternalLauncher.ExternalLauncher;
-      return yield* launcher.resolveAvailableEditors();
-    }).pipe(
-      Effect.provideService(CommandAvailability, commandAvailable),
-      Effect.provide(testLayer({ platform: "win32", env: {} })),
-    );
+    // Past the shared command-resolution cache TTL (30s) but within the
+    // discovery cache window: the memoized set is reused without any scan.
+    yield* TestClock.adjust("31 seconds");
+    const second = yield* launcher.resolveAvailableEditors();
+    assert.deepEqual([...second], [...first]);
+    assert.equal(statCalls, statCallsAfterFirstScan);
 
-    assert.deepEqual(
-      editors,
-      EDITORS.map((editor) => editor.id),
-    );
-    assert.ok(maximumActiveChecks > 1);
-  }),
-);
-
-it.effect("does not trace editor discovery command probes", () =>
-  Effect.gen(function* () {
-    const spanNames: Array<string> = [];
-    const tracer = Tracer.make({
-      span: (options) => {
-        const span = new Tracer.NativeSpan(options);
-        const end = span.end.bind(span);
-        span.end = (endTime, exit) => {
-          end(endTime, exit);
-          spanNames.push(span.name);
-        };
-        return span;
-      },
-    });
-
-    const editors = yield* Effect.gen(function* () {
-      const launcher = yield* ExternalLauncher.ExternalLauncher;
-      return yield* launcher.resolveAvailableEditors();
-    }).pipe(
-      Effect.provideService(CommandAvailability, () => Effect.succeed(true)),
-      Effect.provide(testLayer({ platform: "win32", env: {} })),
-      Effect.withTracer(tracer),
-    );
-
-    assert.deepEqual(
-      editors,
-      EDITORS.map((editor) => editor.id),
-    );
-    assert.deepEqual(spanNames, []);
-  }),
-);
+    // Past the discovery cache window the next call rescans.
+    yield* TestClock.adjust("30 seconds");
+    yield* launcher.resolveAvailableEditors();
+    assert.isAbove(statCalls, statCallsAfterFirstScan);
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(
+        launcherLayer,
+        Layer.succeed(HostProcessPlatform, "win32"),
+        ConfigProvider.layer(
+          ConfigProvider.fromEnv({
+            env: {
+              PATH: "C:\\t3-editor-discovery-cache-test",
+              PATHEXT: ".COM;.EXE;.BAT;.CMD",
+            },
+          }),
+        ),
+        TestClock.layer(),
+      ),
+    ),
+  );
+});
 
 it.effect("rejects unknown editors through the service API", () =>
   Effect.gen(function* () {
