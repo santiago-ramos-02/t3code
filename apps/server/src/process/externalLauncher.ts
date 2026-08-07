@@ -73,7 +73,6 @@ const POWERSHELL_ARGUMENTS_PREFIX = [
   "Bypass",
   "-EncodedCommand",
 ] as const;
-const EDITOR_DISCOVERY_CONCURRENCY = 8;
 
 const DETACHED_IGNORE_STDIO_OPTIONS = {
   detached: true,
@@ -102,7 +101,15 @@ const BrowserLaunchEnvConfig = Config.all({
   container: Config.string("container").pipe(Config.option),
 }).pipe(Config.map(compactEnv));
 
+const CommandLookupEnvConfig = Config.all({
+  PATH: Config.string("PATH").pipe(Config.option),
+  Path: Config.string("Path").pipe(Config.option),
+  path: Config.string("path").pipe(Config.option),
+  PATHEXT: Config.string("PATHEXT").pipe(Config.option),
+}).pipe(Config.map(compactEnv));
+
 const readBrowserLaunchEnv = BrowserLaunchEnvConfig.pipe(Effect.orElseSucceed(() => ({})));
+const readCommandLookupEnv = CommandLookupEnvConfig.pipe(Effect.orElseSucceed(() => ({})));
 
 function parseTargetPathAndPosition(target: string): Option.Option<TargetPathAndPosition> {
   const match = TARGET_WITH_POSITION_PATTERN.exec(target);
@@ -156,9 +163,8 @@ const resolveAvailableCommand = Effect.fn("externalLauncher.resolveAvailableComm
   commands: ReadonlyArray<string>,
   env: NodeJS.ProcessEnv,
 ): Effect.fn.Return<Option.Option<string>, never, FileSystem.FileSystem | Path.Path> {
-  const commandAvailable = yield* CommandAvailability;
   for (const command of commands) {
-    if (yield* commandAvailable(command, { env })) {
+    if (yield* isCommandAvailable(command, { env })) {
       return Option.some(command);
     }
   }
@@ -260,17 +266,24 @@ const buildAvailableEditors = Effect.fn("externalLauncher.buildAvailableEditors"
   platform: NodeJS.Platform,
   env: NodeJS.ProcessEnv,
 ): Effect.fn.Return<ReadonlyArray<EditorId>, never, FileSystem.FileSystem | Path.Path> {
-  const available = yield* Effect.forEach(
-    EDITORS,
-    (editor) =>
-      Effect.gen(function* () {
-        const commands = editor.commands ?? ([fileManagerCommandForPlatform(platform)] as const);
-        return Option.isSome(yield* resolveAvailableCommand(commands, env)) ? [editor.id] : [];
-      }),
-    { concurrency: EDITOR_DISCOVERY_CONCURRENCY },
-  );
+  const available: EditorId[] = [];
 
-  return available.flat();
+  for (const editor of EDITORS) {
+    if (editor.commands === null) {
+      const command = fileManagerCommandForPlatform(platform);
+      if (yield* isCommandAvailable(command, { env })) {
+        available.push(editor.id);
+      }
+      continue;
+    }
+
+    const command = yield* resolveAvailableCommand(editor.commands, env);
+    if (Option.isSome(command)) {
+      available.push(editor.id);
+    }
+  }
+
+  return available;
 });
 
 const resolveBrowserLaunch = Effect.fn("externalLauncher.resolveBrowserLaunch")(function* (
@@ -283,7 +296,7 @@ const resolveBrowserLaunch = Effect.fn("externalLauncher.resolveBrowserLaunch")(
 
 const resolveAvailableEditors = Effect.fn("externalLauncher.resolveAvailableEditors")(function* () {
   const platform = yield* HostProcessPlatform;
-  const env = yield* HostProcessEnvironment;
+  const env = yield* readCommandLookupEnv;
   return yield* buildAvailableEditors(platform, env);
 });
 
@@ -335,7 +348,7 @@ const resolveEditorLaunch = Effect.fn("resolveEditorLaunch")(function* (
   input: LaunchEditorInput,
 ): Effect.fn.Return<EditorLaunch, ExternalLauncherError, FileSystem.FileSystem | Path.Path> {
   const platform = yield* HostProcessPlatform;
-  const env = yield* HostProcessEnvironment;
+  const env = yield* readCommandLookupEnv;
   yield* Effect.annotateCurrentSpan({
     "externalLauncher.editor": input.editor,
     "externalLauncher.cwd": input.cwd,
@@ -409,9 +422,8 @@ const launchEditorProcess = Effect.fn("externalLauncher.launchEditorProcess")(fu
   ExternalLauncherError,
   ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Path.Path
 > {
-  const env = yield* HostProcessEnvironment;
-  const commandAvailable = yield* CommandAvailability;
-  if (!(yield* commandAvailable(launch.command, { env }))) {
+  const env = yield* readCommandLookupEnv;
+  if (!(yield* isCommandAvailable(launch.command, { env }))) {
     return yield* new ExternalLauncherCommandNotFoundError({
       editor: launch.editor,
       command: launch.command,

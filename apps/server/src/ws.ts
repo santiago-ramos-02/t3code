@@ -152,20 +152,6 @@ export const resolveAvailableEditorsForConfig = <A, E, R>(
     Effect.map(Option.getOrElse(() => [])),
   );
 
-export const makeAvailableEditorsLoader = <A, E, R>(
-  discovery: Effect.Effect<ReadonlyArray<A>, E, R>,
-) =>
-  Effect.cachedInvalidateWithTTL(discovery, Duration.infinity).pipe(
-    Effect.map(([cachedDiscovery, invalidate]) =>
-      cachedDiscovery.pipe(
-        Effect.timeoutOption(EDITOR_DISCOVERY_TIMEOUT),
-        Effect.flatMap((result) =>
-          Option.isSome(result) ? Effect.succeed(result.value) : invalidate.pipe(Effect.as([])),
-        ),
-      ),
-    ),
-  );
-
 function unexpectedCompatibilityError(error: never): never {
   throw new Error(`Unhandled compatibility error: ${String(error)}`);
 }
@@ -392,9 +378,6 @@ const makeWsRpcLayer = (
       const checkpointDiffQuery = yield* CheckpointDiffQuery.CheckpointDiffQuery;
       const keybindings = yield* Keybindings.Keybindings;
       const externalLauncher = yield* ExternalLauncher.ExternalLauncher;
-      const loadAvailableEditors = yield* makeAvailableEditorsLoader(
-        externalLauncher.resolveAvailableEditors(),
-      );
       const gitWorkflow = yield* GitWorkflowService.GitWorkflowService;
       const review = yield* ReviewService.ReviewService;
       const vcsProvisioning = yield* VcsProvisioningService.VcsProvisioningService;
@@ -1042,7 +1025,9 @@ const makeWsRpcLayer = (
           ),
           issues: keybindingsConfig.issues,
           providers,
-          availableEditors: yield* loadAvailableEditors,
+          availableEditors: yield* resolveAvailableEditorsForConfig(
+            externalLauncher.resolveAvailableEditors(),
+          ),
           observability: {
             logsDirectoryPath: config.logsDir,
             localTracingEnabled: true,

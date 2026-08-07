@@ -4028,64 +4028,6 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }),
   );
 
-  it.effect("reuses editor discovery across config request and subscription", () =>
-    Effect.gen(function* () {
-      let discoveryCount = 0;
-      yield* buildAppUnderTest({
-        layers: {
-          externalLauncher: {
-            resolveAvailableEditors: () =>
-              Effect.sync(() => {
-                discoveryCount += 1;
-                return discoveryCount === 1 ? (["vscode"] as const) : [];
-              }),
-          },
-        },
-      });
-
-      const wsUrl = yield* getWsServerUrl("/ws");
-      const [initialConfig, snapshot] = yield* Effect.scoped(
-        withWsRpcClient(wsUrl, (client) =>
-          Effect.gen(function* () {
-            const initialConfig = yield* client[WS_METHODS.serverGetConfig]({});
-            const snapshot = yield* client[WS_METHODS.subscribeServerConfig]({}).pipe(
-              Stream.runHead,
-              Effect.map(Option.getOrThrow),
-            );
-            return [initialConfig, snapshot] as const;
-          }),
-        ),
-      );
-
-      assert.deepEqual(initialConfig.availableEditors, ["vscode"]);
-      assert.equal(snapshot.type, "snapshot");
-      if (snapshot.type === "snapshot") {
-        assert.deepEqual(snapshot.config.availableEditors, ["vscode"]);
-      }
-      assert.equal(discoveryCount, 1);
-    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
-  );
-
-  it.effect("retries editor discovery after a timed-out request", () =>
-    Effect.gen(function* () {
-      let discoveryCount = 0;
-      const loadAvailableEditors = yield* makeAvailableEditorsLoader(
-        Effect.suspend(() => {
-          discoveryCount += 1;
-          return discoveryCount === 1 ? Effect.never : Effect.succeed(["vscode"] as const);
-        }),
-      );
-      const firstConfigFiber = yield* loadAvailableEditors.pipe(Effect.forkChild);
-      yield* TestClock.adjust(Duration.seconds(5));
-      const firstConfig = yield* Fiber.join(firstConfigFiber);
-      const secondConfig = yield* loadAvailableEditors;
-
-      assert.deepEqual(firstConfig, []);
-      assert.deepEqual(secondConfig, ["vscode"]);
-      assert.equal(discoveryCount, 2);
-    }),
-  );
-
   it.effect(
     "rejects websocket rpc handshake when a session token is only provided via query string",
     () =>
