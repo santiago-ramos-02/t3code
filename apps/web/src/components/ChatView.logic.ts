@@ -1,6 +1,7 @@
 import {
   type EnvironmentId,
   isProviderDriverKind,
+  type MessageId,
   ProjectId,
   type ModelSelection,
   type ProviderDriverKind,
@@ -39,6 +40,14 @@ export function hasEnvironmentReconnectWarningGraceElapsed(
   elapsedEnvironmentId: EnvironmentId | null,
 ): boolean {
   return activeEnvironmentId !== null && activeEnvironmentId === elapsedEnvironmentId;
+}
+
+export function resolveTimelineAnchorAfterScroll(input: {
+  readonly anchorMessageId: MessageId | null;
+  readonly isAtEnd: boolean;
+  readonly scrollMode: "following-end" | "anchoring-new-turn" | "free-scrolling";
+}): MessageId | null {
+  return input.isAtEnd && input.scrollMode === "free-scrolling" ? null : input.anchorMessageId;
 }
 
 export function startNewThreadForProject(

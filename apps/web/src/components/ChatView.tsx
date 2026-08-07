@@ -315,6 +315,7 @@ import {
   deriveLockedProvider,
   readFileAsDataUrl,
   reconcileMountedTerminalThreadIds,
+  resolveTimelineAnchorAfterScroll,
   resolveThreadMetadataUpdateForNextTurn,
   resolveSendEnvMode,
   revokeBlobPreviewUrl,
@@ -3940,6 +3941,17 @@ function ChatViewContent(props: ChatViewProps) {
       showScrollDebouncer.current.cancel();
       setShowScrollToBottom(false);
       return;
+    }
+    const scrollMode = timelineScrollModeRef.current;
+    if (isAtEnd) {
+      setTimelineAnchor((current) => {
+        const messageId = resolveTimelineAnchorAfterScroll({
+          anchorMessageId: current.messageId,
+          isAtEnd,
+          scrollMode,
+        });
+        return messageId === current.messageId ? current : { ...current, messageId };
+      });
     }
     if (isAtEndRef.current === isAtEnd) return;
     isAtEndRef.current = isAtEnd;
