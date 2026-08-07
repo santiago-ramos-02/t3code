@@ -17,18 +17,6 @@ const IOS_NATIVE_LEADING_TITLE_OFFSET = -6;
 const IPAD_NATIVE_LEADING_TITLE_OFFSET = 7;
 
 /**
- * Horizontal correction applied to content rendered in the brand title slot,
- * shared with the connection-status swap so both align identically.
- */
-export function brandTitleOffset(nativeLeadingItem: boolean): number {
-  if (Platform.OS !== "ios") return 0;
-  if (nativeLeadingItem) {
-    return Platform.isPad ? IPAD_NATIVE_LEADING_TITLE_OFFSET : IOS_NATIVE_LEADING_TITLE_OFFSET;
-  }
-  return Platform.isPad ? IPAD_HOME_TITLE_OFFSET : 0;
-}
-
-/**
  * Compact brand lockup sized for native navigation bars.
  */
 export function CompactBrandTitle(
@@ -40,7 +28,16 @@ export function CompactBrandTitle(
   const mutedColor = useThemeColor("--color-foreground-muted");
   const subtleColor = useThemeColor("--color-subtle");
   const stageLabel = resolveMobileStageLabel(Constants.expoConfig?.extra?.appVariant);
-  const titleOffset = brandTitleOffset(props.nativeLeadingItem === true);
+  const titleOffset =
+    Platform.OS !== "ios"
+      ? 0
+      : props.nativeLeadingItem
+        ? Platform.isPad
+          ? IPAD_NATIVE_LEADING_TITLE_OFFSET
+          : IOS_NATIVE_LEADING_TITLE_OFFSET
+        : Platform.isPad
+          ? IPAD_HOME_TITLE_OFFSET
+          : 0;
 
   return (
     <View
