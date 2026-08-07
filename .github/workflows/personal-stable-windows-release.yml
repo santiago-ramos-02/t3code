@@ -255,7 +255,22 @@ jobs:
           if [[ "${{ matrix.platform }}" == "win" ]]; then
             args+=(--wsl-prebuild "$GITHUB_WORKSPACE/wsl-prebuild/pty.node")
           fi
-          vp run dist:desktop:artifact "${args[@]}"
+          attempts=1
+          if [[ "${{ matrix.platform }}" == "mac" ]]; then
+            attempts=3
+          fi
+
+          for attempt in $(seq 1 "$attempts"); do
+            if vp run dist:desktop:artifact "${args[@]}"; then
+              break
+            fi
+            if (( attempt == attempts )); then
+              exit 1
+            fi
+            echo "::warning::macOS packaging attempt ${attempt} failed; retrying after temporary disk images settle."
+            hdiutil info || true
+            sleep 10
+          done
 
       - name: Collect updater assets
         shell: bash
