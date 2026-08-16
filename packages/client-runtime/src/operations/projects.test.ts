@@ -16,6 +16,7 @@ import {
   getCloneDestinationBrowsePath,
   getCloneDestinationPath,
   getCloneDirectoryName,
+  inferAddProjectCloneDirectoryName,
   resolveAddProjectPath,
   resolveAddProjectCloneDestination,
   selectAddProjectCloneUrl,
