@@ -455,6 +455,11 @@ interface CodexThreadOpenClient {
   ) => Effect.Effect<CodexRpc.ClientRequestResponsesByMethod[M], CodexErrors.CodexAppServerError>;
 }
 
+// The generated protocol type does not include this newer optional field yet.
+type CodexThreadResumeParams = CodexRpc.ClientRequestParamsByMethod["thread/resume"] & {
+  readonly excludeTurns?: boolean;
+};
+
 export const openCodexThread = (input: {
   readonly client: CodexThreadOpenClient;
   readonly threadId: ThreadId;
@@ -476,22 +481,26 @@ export const openCodexThread = (input: {
     return input.client.request("thread/start", startParams);
   }
 
-  return input.client
-    .request("thread/resume", {
-      threadId: resumeThreadId,
-      ...startParams,
-    })
-    .pipe(
-      Effect.catchIf(isRecoverableThreadResumeError, (error) =>
-        Effect.logWarning("codex app-server thread resume fell back to fresh start", {
-          threadId: input.threadId,
-          requestedRuntimeMode: input.runtimeMode,
-          resumeThreadId,
-          recoverable: true,
-          cause: error,
-        }).pipe(Effect.andThen(input.client.request("thread/start", startParams))),
-      ),
-    );
+  const resumeParams = {
+    threadId: resumeThreadId,
+    ...startParams,
+    // T3 already persists and renders its own thread history. Replaying the
+    // complete Codex rollout here makes large threads block before a turn can
+    // be submitted.
+    excludeTurns: true,
+  } satisfies CodexThreadResumeParams;
+
+  return input.client.request("thread/resume", resumeParams).pipe(
+    Effect.catchIf(isRecoverableThreadResumeError, (error) =>
+      Effect.logWarning("codex app-server thread resume fell back to fresh start", {
+        threadId: input.threadId,
+        requestedRuntimeMode: input.runtimeMode,
+        resumeThreadId,
+        recoverable: true,
+        cause: error,
+      }).pipe(Effect.andThen(input.client.request("thread/start", startParams))),
+    ),
+  );
 };
 
 function readNotificationThreadId(notification: CodexServerNotification): string | undefined {

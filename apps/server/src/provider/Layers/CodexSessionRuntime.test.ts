@@ -582,6 +582,11 @@ describe("openCodexThread", () => {
         calls.map((call) => call.method),
         ["thread/resume", "thread/start"],
       );
+      const resumeCall = calls.find((call) => call.method === "thread/resume");
+      NodeAssert.equal(
+        (resumeCall?.payload as { readonly excludeTurns?: boolean } | undefined)?.excludeTurns,
+        true,
+      );
     }),
   );
 
