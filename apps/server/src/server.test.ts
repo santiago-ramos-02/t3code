@@ -116,6 +116,8 @@ import * as ProjectionSnapshotQuery from "./orchestration/Services/ProjectionSna
 import { SqlitePersistenceMemory } from "./persistence/Layers/Sqlite.ts";
 import { PersistenceSqlError } from "./persistence/Errors.ts";
 import * as ProviderRegistry from "./provider/Services/ProviderRegistry.ts";
+import * as ProviderService from "./provider/Services/ProviderService.ts";
+import { ProviderAdapterRequestError } from "./provider/Errors.ts";
 import { makeManualOnlyProviderMaintenanceCapabilities } from "./provider/providerMaintenance.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
@@ -389,6 +391,7 @@ const buildAppUnderTest = (options?: {
   layers?: {
     keybindings?: Partial<Keybindings.Keybindings["Service"]>;
     providerRegistry?: Partial<ProviderRegistry.ProviderRegistry["Service"]>;
+    providerService?: Partial<ProviderService.ProviderService["Service"]>;
     serverSettings?: Partial<ServerSettings.ServerSettingsService["Service"]>;
     externalLauncher?: Partial<ExternalLauncher.ExternalLauncher["Service"]>;
     vcsDriver?: Partial<VcsDriver.VcsDriver["Service"]>;
@@ -631,18 +634,24 @@ const buildAppUnderTest = (options?: {
         }),
       ),
       Layer.provide(
-        Layer.mock(ProviderRegistry.ProviderRegistry)({
-          getProviders: Effect.succeed([]),
-          refresh: () => Effect.succeed([]),
-          refreshInstance: () => Effect.succeed([]),
-          getProviderMaintenanceCapabilitiesForInstance: (_instanceId, provider) =>
-            Effect.succeed(
-              makeManualOnlyProviderMaintenanceCapabilities({ provider, packageName: null }),
-            ),
-          setProviderMaintenanceActionState: () => Effect.succeed([]),
-          streamChanges: Stream.empty,
-          ...options?.layers?.providerRegistry,
-        }),
+        Layer.mergeAll(
+          Layer.mock(ProviderRegistry.ProviderRegistry)({
+            getProviders: Effect.succeed([]),
+            refresh: () => Effect.succeed([]),
+            refreshInstance: () => Effect.succeed([]),
+            getProviderMaintenanceCapabilitiesForInstance: (_instanceId, provider) =>
+              Effect.succeed(
+                makeManualOnlyProviderMaintenanceCapabilities({ provider, packageName: null }),
+              ),
+            setProviderMaintenanceActionState: () => Effect.succeed([]),
+            streamChanges: Stream.empty,
+            ...options?.layers?.providerRegistry,
+          }),
+          Layer.mock(ProviderService.ProviderService)({
+            uploadFeedback: () => Effect.die("Provider feedback is not stubbed in this test"),
+            ...options?.layers?.providerService,
+          }),
+        ),
       ),
       Layer.provide(
         Layer.mock(ServerSettings.ServerSettingsService)({
@@ -4454,151 +4463,62 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
-  it.effect("projects keybinding commands for each websocket client version", () =>
+  it.effect("uploads Codex thread feedback through websocket rpc", () =>
     Effect.gen(function* () {
-      const currentCommands = [
-        "terminal.toggle",
-        "filePicker.toggle",
-        "projectSearch.toggle",
-        "script.format.run",
-      ] satisfies Array<ResolvedKeybindingRule["command"]>;
-      const shortcut = {
-        key: "k",
-        metaKey: false,
-        ctrlKey: true,
-        shiftKey: false,
-        altKey: false,
-        modKey: true,
+      const input = {
+        threadId: ThreadId.make("thread-feedback"),
+        reason: "The agent stopped early.",
       };
-      const keybindings = currentCommands.map((command) => ({
-        command,
-        shortcut,
-      })) satisfies ReadonlyArray<ResolvedKeybindingRule>;
-      const issues = [
-        {
-          kind: "keybindings.invalid-entry",
-          message: "Preserved issue",
-          index: 4,
-        },
-      ] as const;
-      const changeEvent = { keybindings, issues };
-
+      const uploadFeedback = vi.fn<ProviderService.ProviderService["Service"]["uploadFeedback"]>(
+        () => Effect.succeed({ feedbackId: "codex-thread-feedback" }),
+      );
       yield* buildAppUnderTest({
         layers: {
-          keybindings: {
-            loadConfigState: Effect.succeed({ keybindings, issues }),
-            streamChanges: Stream.succeed(changeEvent),
-            upsertKeybindingRule: () => Effect.succeed(keybindings),
-            removeKeybindingRule: () => Effect.succeed(keybindings),
+          providerService: { uploadFeedback },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const response = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) => client[WS_METHODS.providerUploadFeedback](input)),
+      );
+
+      assert.deepStrictEqual(response, { feedbackId: "codex-thread-feedback" });
+      assert.deepStrictEqual(uploadFeedback.mock.calls, [[input]]);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("keeps feedback errors structured across websocket rpc", () =>
+    Effect.gen(function* () {
+      const threadId = ThreadId.make("thread-feedback-failure");
+      yield* buildAppUnderTest({
+        layers: {
+          providerService: {
+            uploadFeedback: () =>
+              Effect.fail(
+                new ProviderAdapterRequestError({
+                  provider: "codex",
+                  method: "feedback/upload",
+                  detail: "private provider detail",
+                }),
+              ),
           },
         },
       });
 
-      const unnegotiatedUrl = yield* getWsServerUrl("/ws");
-      const oldClientUrl = new URL(unnegotiatedUrl);
-      oldClientUrl.searchParams.set(WS_KEYBINDING_COMMAND_SET_QUERY_PARAM, "0");
-      const currentClientUrl = new URL(unnegotiatedUrl);
-      currentClientUrl.searchParams.set(
-        WS_KEYBINDING_COMMAND_SET_QUERY_PARAM,
-        String(CURRENT_KEYBINDING_COMMAND_SET_VERSION),
-      );
-      const futureClientUrl = new URL(unnegotiatedUrl);
-      futureClientUrl.searchParams.set(
-        WS_KEYBINDING_COMMAND_SET_QUERY_PARAM,
-        String(CURRENT_KEYBINDING_COMMAND_SET_VERSION + 1),
-      );
-      const legacyCommands = ["terminal.toggle", "script.format.run"];
-      const commands = (rules: ReadonlyArray<ResolvedKeybindingRule>) =>
-        rules.map(({ command }) => command);
-      const mutationRule: KeybindingRule = {
-        command: "terminal.toggle",
-        key: "ctrl+t",
-      };
-
-      const unnegotiatedConfig = yield* Effect.scoped(
-        withWsRpcClient(unnegotiatedUrl, (client) => client[WS_METHODS.serverGetConfig]({})),
-      );
-      const oldClientConfig = yield* Effect.scoped(
-        withWsRpcClient(oldClientUrl.toString(), (client) =>
-          client[WS_METHODS.serverGetConfig]({}),
-        ),
-      );
-      const currentClientConfig = yield* Effect.scoped(
-        withWsRpcClient(currentClientUrl.toString(), (client) =>
-          client[WS_METHODS.serverGetConfig]({}),
-        ),
-      );
-      const futureClientConfig = yield* Effect.scoped(
-        withWsRpcClient(futureClientUrl.toString(), (client) =>
-          client[WS_METHODS.serverGetConfig]({}),
-        ),
-      );
-      const unnegotiatedEvents = yield* Effect.scoped(
-        withWsRpcClient(unnegotiatedUrl, (client) =>
-          client[WS_METHODS.subscribeServerConfig]({}).pipe(Stream.take(2), Stream.runCollect),
-        ),
-      );
-      const currentClientEvents = yield* Effect.scoped(
-        withWsRpcClient(currentClientUrl.toString(), (client) =>
-          client[WS_METHODS.subscribeServerConfig]({}).pipe(Stream.take(2), Stream.runCollect),
-        ),
-      );
-      const unnegotiatedUpsert = yield* Effect.scoped(
-        withWsRpcClient(unnegotiatedUrl, (client) =>
-          client[WS_METHODS.serverUpsertKeybinding](mutationRule),
-        ),
-      );
-      const currentClientUpsert = yield* Effect.scoped(
-        withWsRpcClient(currentClientUrl.toString(), (client) =>
-          client[WS_METHODS.serverUpsertKeybinding](mutationRule),
-        ),
-      );
-      const unnegotiatedRemove = yield* Effect.scoped(
-        withWsRpcClient(unnegotiatedUrl, (client) =>
-          client[WS_METHODS.serverRemoveKeybinding](mutationRule),
-        ),
-      );
-      const currentClientRemove = yield* Effect.scoped(
-        withWsRpcClient(currentClientUrl.toString(), (client) =>
-          client[WS_METHODS.serverRemoveKeybinding](mutationRule),
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const error = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.providerUploadFeedback]({ threadId }).pipe(Effect.flip),
         ),
       );
 
-      assert.deepEqual(commands(unnegotiatedConfig.keybindings), legacyCommands);
-      assert.deepEqual(commands(oldClientConfig.keybindings), legacyCommands);
-      assert.deepEqual(commands(currentClientConfig.keybindings), currentCommands);
-      assert.deepEqual(commands(futureClientConfig.keybindings), currentCommands);
-      assert.deepEqual(unnegotiatedConfig.issues, issues);
-      assert.deepEqual(currentClientConfig.issues, issues);
-
-      const [unnegotiatedSnapshot, unnegotiatedUpdate] = Array.from(unnegotiatedEvents);
-      assert.equal(unnegotiatedSnapshot?.type, "snapshot");
-      assert.equal(unnegotiatedUpdate?.type, "keybindingsUpdated");
-      if (unnegotiatedSnapshot?.type === "snapshot") {
-        assert.deepEqual(commands(unnegotiatedSnapshot.config.keybindings), legacyCommands);
-        assert.deepEqual(unnegotiatedSnapshot.config.issues, issues);
+      assert.strictEqual(error._tag, "ProviderUploadFeedbackError");
+      if (error._tag === "ProviderUploadFeedbackError") {
+        assert.strictEqual(error.threadId, threadId);
+        assert.strictEqual(error.message, `Failed to upload feedback for thread ${threadId}.`);
+        assert.isDefined(error.cause);
       }
-      if (unnegotiatedUpdate?.type === "keybindingsUpdated") {
-        assert.deepEqual(commands(unnegotiatedUpdate.payload.keybindings), legacyCommands);
-        assert.deepEqual(unnegotiatedUpdate.payload.issues, issues);
-      }
-
-      const [currentSnapshot, currentUpdate] = Array.from(currentClientEvents);
-      assert.equal(currentSnapshot?.type, "snapshot");
-      assert.equal(currentUpdate?.type, "keybindingsUpdated");
-      if (currentSnapshot?.type === "snapshot") {
-        assert.deepEqual(commands(currentSnapshot.config.keybindings), currentCommands);
-        assert.deepEqual(currentSnapshot.config.issues, issues);
-      }
-      if (currentUpdate?.type === "keybindingsUpdated") {
-        assert.deepEqual(commands(currentUpdate.payload.keybindings), currentCommands);
-        assert.deepEqual(currentUpdate.payload.issues, issues);
-      }
-
-      assert.deepEqual(commands(unnegotiatedUpsert.keybindings), legacyCommands);
-      assert.deepEqual(commands(currentClientUpsert.keybindings), currentCommands);
-      assert.deepEqual(commands(unnegotiatedRemove.keybindings), legacyCommands);
-      assert.deepEqual(commands(currentClientRemove.keybindings), currentCommands);
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 

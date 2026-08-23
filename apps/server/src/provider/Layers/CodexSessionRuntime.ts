@@ -145,6 +145,9 @@ export interface CodexSessionRuntimeShape {
   readonly rollbackThread: (
     numTurns: number,
   ) => Effect.Effect<CodexThreadSnapshot, CodexSessionRuntimeError>;
+  readonly uploadFeedback: (
+    reason?: string,
+  ) => Effect.Effect<EffectCodexSchema.V2FeedbackUploadResponse, CodexSessionRuntimeError>;
   readonly respondToRequest: (
     requestId: ApprovalRequestId,
     decision: ProviderApprovalDecision,
@@ -1953,6 +1956,16 @@ export const makeCodexSessionRuntime = (
             activeTurnId: undefined,
           });
           return parseThreadSnapshot(response);
+        }),
+      uploadFeedback: (reason) =>
+        Effect.gen(function* () {
+          const providerThreadId = yield* readProviderThreadId;
+          return yield* client.request("feedback/upload", {
+            classification: "bug",
+            includeLogs: true,
+            ...(reason ? { reason } : {}),
+            threadId: providerThreadId,
+          });
         }),
       respondToRequest: (requestId, decision) =>
         Effect.gen(function* () {
