@@ -4132,6 +4132,17 @@ function ChatViewContent(props: ChatViewProps) {
       setShowScrollToBottom(false);
       return;
     }
+    const scrollMode = timelineScrollModeRef.current;
+    if (isAtEnd) {
+      setTimelineAnchor((current) => {
+        const messageId = resolveTimelineAnchorAfterScroll({
+          anchorMessageId: current.messageId,
+          isAtEnd,
+          scrollMode,
+        });
+        return messageId === current.messageId ? current : { ...current, messageId };
+      });
+    }
     if (isAtEndRef.current === isAtEnd) return;
     isAtEndRef.current = isAtEnd;
     if (isAtEnd) {
