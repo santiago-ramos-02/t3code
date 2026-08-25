@@ -1,0 +1,441 @@
+name: Personal Stable Desktop Release
+
+on:
+  schedule:
+    - cron: "47 */3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: personal-stable-windows-release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Prepare upstream stable with personal changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    outputs:
+      build_sha: ${{ steps.prepare.outputs.build_sha }}
+      candidate_branch: ${{ steps.prepare.outputs.candidate_branch }}
+      release_tag: ${{ steps.prepare.outputs.release_tag }}
+      should_build: ${{ steps.prepare.outputs.should_build }}
+      upstream_tag: ${{ steps.prepare.outputs.upstream_tag }}
+      version: ${{ steps.prepare.outputs.version }}
+    steps:
+      - name: Checkout personal main
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - id: prepare
+        name: Apply personal changes to the latest upstream stable
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PERSONAL_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          upstream_tag="$(gh api repos/pingdotgg/t3code/releases/latest --jq .tag_name)"
+          version="${upstream_tag#v}"
+          release_tag="personal-v${version}"
+
+          echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
+          echo "upstream_tag=$upstream_tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+          if gh release view "$release_tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            mapfile -t published_assets < <(
+              gh release view "$release_tag" --repo "$GITHUB_REPOSITORY" \
+                --json assets --jq '.assets[].name'
+            )
+            has_asset() {
+              local pattern="$1"
+              printf '%s\n' "${published_assets[@]}" | grep -Eq "$pattern"
+            }
+            dmg_count="$(printf '%s\n' "${published_assets[@]}" | grep -Ec '\.dmg$' || true)"
+
+            if has_asset '\.exe$' && \
+              has_asset '\.AppImage$' && \
+              (( dmg_count >= 2 )) && \
+              has_asset '^latest\.yml$' && \
+              has_asset '^latest-linux\.yml$' && \
+              has_asset '^latest-mac\.yml$'; then
+              echo "Personal stable $version is already published for every desktop platform."
+              echo "should_build=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            echo "Personal stable $version is incomplete; rebuilding its desktop assets."
+          fi
+
+          git remote add upstream https://github.com/pingdotgg/t3code.git
+          git fetch upstream main --no-tags
+          git fetch upstream --no-tags "refs/tags/${upstream_tag}:refs/tags/upstream-${upstream_tag}"
+
+          fork_sha="$(git rev-parse HEAD)"
+          merge_base="$(git merge-base upstream/main "$fork_sha")"
+          git diff --binary "$merge_base" "$fork_sha" -- . \
+            ':(exclude).github/**' > "$RUNNER_TEMP/personal.patch"
+
+          git switch --detach "refs/tags/upstream-${upstream_tag}^{commit}"
+          if [[ -s "$RUNNER_TEMP/personal.patch" ]]; then
+            git apply --3way --index "$RUNNER_TEMP/personal.patch"
+          fi
+          git restore --source="$fork_sha" --staged --worktree -- .github/workflows
+
+          git config user.name "personal-release-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          candidate_tree="$(git write-tree)"
+          build_sha="$(printf 'chore(fork): build personal %s\n' "$upstream_tag" | git commit-tree "$candidate_tree" -p "$fork_sha")"
+          git switch --detach "$build_sha"
+          candidate_branch="automation/personal-stable-candidate"
+
+          echo "build_sha=$build_sha" >> "$GITHUB_OUTPUT"
+          echo "candidate_branch=$candidate_branch" >> "$GITHUB_OUTPUT"
+          echo "should_build=true" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Vite+
+        if: steps.prepare.outputs.should_build == 'true'
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: true
+
+      - name: Validate stable candidate
+        if: steps.prepare.outputs.should_build == 'true'
+        run: |
+          vp run --filter t3 --filter @t3tools/web typecheck
+          vp exec tsc --noEmit -p apps/web/tsconfig.json
+          node scripts/release-smoke.ts
+          git diff --exit-code
+
+      - name: Publish stable candidate ref
+        if: steps.prepare.outputs.should_build == 'true'
+        shell: bash
+        env:
+          CANDIDATE_BRANCH: ${{ steps.prepare.outputs.candidate_branch }}
+          GH_TOKEN: ${{ secrets.PERSONAL_RELEASE_TOKEN }}
+        run: |
+          git config --local --unset-all http.https://github.com/.extraheader || true
+          git -c http.extraHeader= push --force \
+            "https://santiago-ramos-02:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            "HEAD:refs/heads/${CANDIDATE_BRANCH}"
+
+  build_wsl_node_pty:
+    name: Build WSL node-pty
+    needs: prepare
+    if: needs.prepare.outputs.should_build == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout stable build commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.build_sha }}
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: true
+
+      - name: Build Linux x64 node-pty binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          pty_pkg="$(node -e "console.log(require.resolve('node-pty/package.json', { paths: ['$GITHUB_WORKSPACE/apps/server'] }))")"
+          pty_dir="$(dirname "$pty_pkg")"
+          (cd "$pty_dir" && npx --yes node-gyp rebuild)
+          mkdir -p wsl-prebuild
+          cp "$pty_dir/build/Release/pty.node" wsl-prebuild/pty.node
+          file wsl-prebuild/pty.node
+
+      - name: Upload WSL binary
+        uses: actions/upload-artifact@v7
+        with:
+          name: personal-stable-wsl-node-pty-x64
+          path: wsl-prebuild/pty.node
+          if-no-files-found: error
+
+  build_desktop:
+    name: Build stable ${{ matrix.label }}
+    needs: [prepare, build_wsl_node_pty]
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.should_build == 'true' }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    env:
+      T3CODE_DESKTOP_UPDATE_REPOSITORY: santiago-ramos-02/t3code
+      # Public production T3 Connect configuration compiled into the desktop
+      # client and bundled server. Personal forks cannot read upstream's
+      # production Actions environment, so keep these public values explicit.
+      T3CODE_CLERK_PUBLISHABLE_KEY: pk_live_Y2xlcmsudDMuY29kZXMk
+      T3CODE_CLERK_JWT_TEMPLATE: t3-relay
+      T3CODE_CLERK_CLI_OAUTH_CLIENT_ID: hzxSgY2cH10sDU2r
+      T3CODE_RELAY_URL: https://relay.t3.codes
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macOS arm64
+            runner: macos-15
+            platform: mac
+            target: dmg
+            arch: arm64
+          - label: macOS x64
+            runner: macos-15-intel
+            platform: mac
+            target: dmg
+            arch: x64
+          - label: Linux x64
+            runner: ubuntu-latest
+            platform: linux
+            target: AppImage
+            arch: x64
+          - label: Windows x64
+            runner: windows-latest
+            platform: win
+            target: nsis
+            arch: x64
+    steps:
+      - name: Checkout stable build commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.build_sha }}
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: true
+
+      - name: Download WSL node-pty binary
+        if: matrix.platform == 'win'
+        uses: actions/download-artifact@v8
+        with:
+          name: personal-stable-wsl-node-pty-x64
+          path: wsl-prebuild
+
+      - name: Align package versions
+        run: node scripts/update-release-package-versions.ts "${{ needs.prepare.outputs.version }}"
+
+      - name: Install Spectre-mitigated MSVC libraries
+        if: matrix.platform == 'win'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $installPath = & $vswhere -products * -latest -property installationPath
+          $setupExe = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\setup.exe"
+          $process = Start-Process -FilePath $setupExe `
+            -ArgumentList "modify", "--installPath", "`"$installPath`"", "--add", `
+            "Microsoft.VisualStudio.Component.VC.Tools.x86.x64.Spectre", "--quiet", "--norestart" `
+            -Wait -PassThru -NoNewWindow
+          if ($null -eq $process -or $process.ExitCode -ne 0) {
+            $exitCode = if ($null -ne $process) { $process.ExitCode } else { 1 }
+            throw "Visual Studio Installer failed with exit code $exitCode"
+          }
+
+      - name: Install ImageMagick
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          if ! command -v magick >/dev/null 2>&1 && ! command -v convert >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y imagemagick
+          fi
+
+      - name: Build unsigned desktop artifact
+        shell: bash
+        run: |
+          if [[ "${{ matrix.platform }}" == "mac" ]]; then
+            echo "macOS open-file limit before: soft=$(ulimit -Sn) hard=$(ulimit -Hn)"
+            ulimit -n "$(ulimit -Hn)"
+            echo "macOS open-file limit after: soft=$(ulimit -Sn) hard=$(ulimit -Hn)"
+          fi
+
+          args=(
+            --platform "${{ matrix.platform }}"
+            --target "${{ matrix.target }}"
+            --arch "${{ matrix.arch }}"
+            --build-version "${{ needs.prepare.outputs.version }}"
+            --verbose
+          )
+          if [[ "${{ matrix.platform }}" == "win" ]]; then
+            args+=(--wsl-prebuild "$GITHUB_WORKSPACE/wsl-prebuild/pty.node")
+          fi
+          attempts=1
+          if [[ "${{ matrix.platform }}" == "mac" ]]; then
+            attempts=3
+          fi
+
+          for attempt in $(seq 1 "$attempts"); do
+            if vp run dist:desktop:artifact "${args[@]}"; then
+              break
+            fi
+            if (( attempt == attempts )); then
+              exit 1
+            fi
+            echo "::warning::macOS packaging attempt ${attempt} failed; retrying after temporary disk images settle."
+            hdiutil info || true
+            sleep 10
+          done
+
+      - name: Collect updater assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-publish
+          shopt -s nullglob
+
+          case "${{ matrix.platform }}" in
+            mac)
+              manifests=(release/*-mac.yml)
+              if (( ${#manifests[@]} != 1 )); then
+                echo "Expected one macOS updater manifest, found ${#manifests[@]}." >&2
+                exit 1
+              fi
+              assets=(release/*.dmg release/*.zip release/*.blockmap "${manifests[0]}")
+              ;;
+            linux)
+              manifests=(release/*-linux.yml)
+              if (( ${#manifests[@]} != 1 )); then
+                echo "Expected one Linux updater manifest, found ${#manifests[@]}." >&2
+                exit 1
+              fi
+              assets=(release/*.AppImage release/*.blockmap "${manifests[0]}")
+              ;;
+            win)
+              if [[ ! -f release/latest.yml ]]; then
+                echo "The Windows stable updater manifest was not produced." >&2
+                exit 1
+              fi
+              assets=(release/*.exe release/*.blockmap release/latest.yml)
+              ;;
+          esac
+
+          cp "${assets[@]}" release-publish/
+
+          if [[ "${{ matrix.platform }}" == "mac" && "${{ matrix.arch }}" == "x64" ]]; then
+            manifest="release-publish/$(basename "${manifests[0]}")"
+            mv "$manifest" "${manifest%.yml}-x64.yml"
+          fi
+
+      - name: Upload desktop release assets
+        uses: actions/upload-artifact@v7
+        with:
+          name: personal-stable-desktop-release-${{ matrix.platform }}-${{ matrix.arch }}
+          path: release-publish/*
+          if-no-files-found: error
+
+  release:
+    name: Publish personal stable release
+    needs: [prepare, build_desktop]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout stable build commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.build_sha }}
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: true
+
+      - name: Download desktop release assets
+        uses: actions/download-artifact@v8
+        with:
+          pattern: personal-stable-desktop-release-*
+          merge-multiple: true
+          path: release-assets
+
+      - name: Merge macOS updater manifests
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          for x64_manifest in release-assets/*-mac-x64.yml; do
+            arm64_manifest="${x64_manifest%-x64.yml}.yml"
+            if [[ ! -f "$arm64_manifest" ]]; then
+              echo "Missing matching arm64 macOS manifest for $x64_manifest" >&2
+              exit 1
+            fi
+            node scripts/merge-update-manifests.ts --platform mac "$arm64_manifest" "$x64_manifest"
+            rm "$x64_manifest"
+          done
+
+      - name: Publish GitHub release
+        shell: bash
+        env:
+          CANDIDATE_BRANCH: ${{ needs.prepare.outputs.candidate_branch }}
+          GH_TOKEN: ${{ secrets.PERSONAL_RELEASE_TOKEN }}
+          BUILD_SHA: ${{ needs.prepare.outputs.build_sha }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+          UPSTREAM_TAG: ${{ needs.prepare.outputs.upstream_tag }}
+        run: |
+          set -euo pipefail
+          for manifest in latest.yml latest-linux.yml latest-mac.yml; do
+            if [[ ! -f "release-assets/$manifest" ]]; then
+              echo "Missing updater manifest: $manifest" >&2
+              exit 1
+            fi
+          done
+          for pattern in '*.exe' '*.AppImage' '*.dmg'; do
+            if ! compgen -G "release-assets/$pattern" >/dev/null; then
+              echo "Missing desktop artifact matching $pattern" >&2
+              exit 1
+            fi
+          done
+          if (( $(find release-assets -maxdepth 1 -name '*.dmg' | wc -l) < 2 )); then
+            echo "Expected both arm64 and x64 macOS disk images." >&2
+            exit 1
+          fi
+
+          mapfile -t assets < <(find release-assets -maxdepth 1 -type f -print | sort)
+          if (( ${#assets[@]} == 0 )); then
+            echo "No release assets were downloaded." >&2
+            exit 1
+          fi
+
+          git config user.name "personal-release-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag --force "$RELEASE_TAG" "$BUILD_SHA"
+          git config --local --unset-all http.https://github.com/.extraheader || true
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push --force origin "refs/tags/${RELEASE_TAG}"
+
+          notes="Unsigned personal Windows, Linux, and macOS builds of upstream T3 Code ${UPSTREAM_TAG} with your changes.
+
+          Personal build commit: ${BUILD_SHA}"
+
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "${assets[@]}" \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+            gh release edit "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "T3 Code Personal Stable ${RELEASE_VERSION}" \
+              --notes "$notes" \
+              --latest
+          else
+            gh release create "$RELEASE_TAG" "${assets[@]}" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$BUILD_SHA" \
+              --title "T3 Code Personal Stable ${RELEASE_VERSION}" \
+              --notes "$notes" \
+              --latest
+          fi
+
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json url --jq .url
+          git push origin --delete "$CANDIDATE_BRANCH" || true
