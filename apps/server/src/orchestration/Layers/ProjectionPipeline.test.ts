@@ -269,17 +269,15 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
       const settledRows = yield* sql<{
         readonly settledOverride: string | null;
         readonly settledAt: string | null;
-        readonly unsettledAt: string | null;
       }>`
         SELECT
           settled_override AS "settledOverride",
-          settled_at AS "settledAt",
-          unsettled_at AS "unsettledAt"
+          settled_at AS "settledAt"
         FROM projection_threads
         WHERE thread_id = 'thread-1'
       `;
       assert.deepEqual(settledRows, [
-        { settledOverride: "settled", settledAt: "2026-01-01T00:00:01.000Z", unsettledAt: null },
+        { settledOverride: "settled", settledAt: "2026-01-01T00:00:01.000Z" },
       ]);
 
       yield* eventStore.append({
@@ -303,24 +301,14 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
       const unsettledRows = yield* sql<{
         readonly settledOverride: string | null;
         readonly settledAt: string | null;
-        readonly unsettledAt: string | null;
       }>`
         SELECT
           settled_override AS "settledOverride",
-          settled_at AS "settledAt",
-          unsettled_at AS "unsettledAt"
+          settled_at AS "settledAt"
         FROM projection_threads
         WHERE thread_id = 'thread-1'
       `;
-      // The un-settle stamps the active-list re-entry time so clients can
-      // surface the thread at the top of the list.
-      assert.deepEqual(unsettledRows, [
-        {
-          settledOverride: "active",
-          settledAt: null,
-          unsettledAt: "2026-01-01T00:00:02.000Z",
-        },
-      ]);
+      assert.deepEqual(unsettledRows, [{ settledOverride: "active", settledAt: null }]);
     }),
   );
 });
