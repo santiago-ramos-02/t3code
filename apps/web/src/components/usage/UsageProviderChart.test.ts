@@ -86,7 +86,6 @@ describe("buildDayColumns", () => {
     expect(first?.bands).toEqual([
       { provider: "codex", value: 10 },
       { provider: "claude", value: 20 },
-      { provider: "grok", value: 0 },
     ]);
   });
 
