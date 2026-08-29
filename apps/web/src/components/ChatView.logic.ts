@@ -39,6 +39,17 @@ export const ENVIRONMENT_RECONNECT_WARNING_GRACE_MS = 2_000;
 
 export const LastInvokedScriptByProjectSchema = Schema.Record(ProjectId, Schema.String);
 
+export function shoulderTabReserve(overlay: HTMLElement): number {
+  if (overlay.querySelector(".chat-composer-tasks-tab")) return 0;
+  const tab = overlay.querySelector<HTMLElement>(".chat-composer-shoulder-tab");
+  const surface = overlay.querySelector<HTMLElement>('[data-chat-composer-main-surface="true"]');
+  if (!tab || !surface) return 0;
+  return Math.max(
+    0,
+    Math.round(surface.getBoundingClientRect().top - tab.getBoundingClientRect().top),
+  );
+}
+
 export function shouldDockDraftHeroForSubmission(input: {
   isDraftHeroState: boolean;
   activeThreadKey: string | null;
@@ -115,14 +126,6 @@ export function hasEnvironmentReconnectWarningGraceElapsed(
   elapsedEnvironmentId: EnvironmentId | null,
 ): boolean {
   return activeEnvironmentId !== null && activeEnvironmentId === elapsedEnvironmentId;
-}
-
-export function resolveTimelineAnchorAfterScroll(input: {
-  readonly anchorMessageId: MessageId | null;
-  readonly isAtEnd: boolean;
-  readonly scrollMode: "following-end" | "anchoring-new-turn" | "free-scrolling";
-}): MessageId | null {
-  return input.isAtEnd && input.scrollMode === "free-scrolling" ? null : input.anchorMessageId;
 }
 
 export function startNewThreadForProject(
