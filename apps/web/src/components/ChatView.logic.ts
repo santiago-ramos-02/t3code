@@ -128,14 +128,6 @@ export function hasEnvironmentReconnectWarningGraceElapsed(
   return activeEnvironmentId !== null && activeEnvironmentId === elapsedEnvironmentId;
 }
 
-export function resolveTimelineAnchorAfterScroll(input: {
-  readonly anchorMessageId: MessageId | null;
-  readonly isAtEnd: boolean;
-  readonly scrollMode: "following-end" | "anchoring-new-turn" | "free-scrolling";
-}): MessageId | null {
-  return input.isAtEnd && input.scrollMode === "free-scrolling" ? null : input.anchorMessageId;
-}
-
 export function startNewThreadForProject(
   projectRef: ScopedProjectRef | null,
   handleNewThread: (projectRef: ScopedProjectRef) => Promise<unknown>,
@@ -296,6 +288,21 @@ export function revokeBlobPreviewUrl(previewUrl: string | undefined): void {
     return;
   }
   URL.revokeObjectURL(previewUrl);
+}
+
+export async function loadVideoPreviewUrl(url: string, signal?: AbortSignal): Promise<string> {
+  const response = await fetch(url, signal ? { signal } : {});
+  if (!response.ok) throw new Error(`Could not load video (${response.status}).`);
+  return URL.createObjectURL(await response.blob());
+}
+
+export function isVideoPreviewRequestCurrent(
+  requestThreadKey: string,
+  currentThreadKey: string,
+  requestId: number,
+  currentRequestId: number,
+): boolean {
+  return requestThreadKey === currentThreadKey && requestId === currentRequestId;
 }
 
 export function revokeUserMessagePreviewUrls(message: ChatMessage): void {
