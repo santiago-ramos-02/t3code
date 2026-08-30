@@ -9,6 +9,7 @@ import {
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import type { Thread, ThreadShell } from "../types";
+import type { CodexArtifactTemplate } from "@t3tools/client-runtime/codex-artifact-templates";
 import {
   MAX_HIDDEN_MOUNTED_PREVIEW_THREADS,
   MAX_HIDDEN_MOUNTED_TERMINAL_THREADS,
@@ -30,13 +31,13 @@ import {
   reconcileRetainedMountedThreadIds,
   resolveBackgroundDraftWorkspaceOptions,
   resolveDraftPromotionNavigationTarget,
-  resolveTimelineAnchorAfterScroll,
   resolveThreadMetadataUpdateForNextTurn,
   resolveSendEnvMode,
   resolveDraftHeroState,
   scheduleEnvironmentReconnectWarning,
   shoulderTabReserve,
   startNewThreadForProject,
+  codexArtifactTemplatePromptToAppend,
   shouldDockDraftHeroForSubmission,
   shouldReleaseTimelineAnchorForToolActivity,
   shouldShowBranchMismatchBanner,
@@ -73,6 +74,20 @@ const environmentId = EnvironmentId.make("environment-local");
 const projectId = ProjectId.make("project-1");
 const threadId = ThreadId.make("thread-1");
 const now = "2026-03-29T00:00:00.000Z";
+const helloWorldTemplate: CodexArtifactTemplate = {
+  artifactKind: "document",
+  displayName: "Hello World",
+  skillDirectory: "/Users/test/.codex/skills/artifact-template-hello-world",
+  skillName: "artifact-template-hello-world",
+};
+
+describe("artifact template composer insertion", () => {
+  it("does not insert an already-present prompt", () => {
+    const prompt = "Create a document using this $artifact-template-hello-world about…";
+
+    expect(codexArtifactTemplatePromptToAppend(prompt, helloWorldTemplate)).toBeNull();
+  });
+});
 
 describe("shoulderTabReserve", () => {
   it("ignores the top drawer when measuring the shoulder tab band", () => {
@@ -267,40 +282,6 @@ describe("environment reconnect warning grace", () => {
     expect(hasEnvironmentReconnectWarningGraceElapsed(anotherEnvironmentId, environmentId)).toBe(
       false,
     );
-  });
-});
-
-describe("resolveTimelineAnchorAfterScroll", () => {
-  const anchorMessageId = MessageId.make("message-anchor");
-
-  it("releases sent-turn end space when the user returns to the bottom", () => {
-    expect(
-      resolveTimelineAnchorAfterScroll({
-        anchorMessageId,
-        isAtEnd: true,
-        scrollMode: "free-scrolling",
-      }),
-    ).toBeNull();
-  });
-
-  it("keeps sent-turn end space while the new turn is being positioned", () => {
-    expect(
-      resolveTimelineAnchorAfterScroll({
-        anchorMessageId,
-        isAtEnd: true,
-        scrollMode: "anchoring-new-turn",
-      }),
-    ).toBe(anchorMessageId);
-  });
-
-  it("keeps the anchor while the user remains away from the bottom", () => {
-    expect(
-      resolveTimelineAnchorAfterScroll({
-        anchorMessageId,
-        isAtEnd: false,
-        scrollMode: "free-scrolling",
-      }),
-    ).toBe(anchorMessageId);
   });
 });
 
