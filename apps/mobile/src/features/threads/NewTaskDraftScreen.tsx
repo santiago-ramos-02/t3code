@@ -25,13 +25,12 @@ import { PROVIDER_SEND_TURN_MAX_ATTACHMENTS } from "@t3tools/contracts";
 
 import { ComposerEditor, type ComposerEditorHandle } from "../../components/ComposerEditor";
 import {
-  ComposerActionButton,
   ComposerInlineControl,
+  ComposerToolbarButton,
   ComposerToolbarRow,
   ComposerToolbarScroller,
 } from "../../components/ComposerToolbar";
 import { AndroidScreenHeader } from "../../components/AndroidScreenHeader";
-import { ComposerAttachmentButton } from "../../components/ComposerAttachmentButton";
 import { ComposerAttachmentStrip } from "../../components/ComposerAttachmentStrip";
 import { ProviderIcon } from "../../components/ProviderIcon";
 import { SymbolView } from "../../components/AppSymbol";
@@ -56,7 +55,7 @@ import { makeTurnCommandMetadata } from "../../lib/commandMetadata";
 import {
   convertPastedImagesToAttachments,
   pickComposerFiles,
-  pickComposerMedia,
+  pickComposerImages,
 } from "../../lib/composerImages";
 import { useScaledTextRole } from "../settings/appearance/useScaledTextRole";
 import {
@@ -716,20 +715,12 @@ export function NewTaskDraftScreen(props: {
   });
   const showBranchLoading = flow.branchesLoading && flow.availableBranches.length === 0;
 
-  async function handlePickMedia(): Promise<void> {
+  async function handlePickImages(): Promise<void> {
     if (isComposerInteractionLocked || voiceInput.isBusy) {
       return;
     }
-    const capabilities = selectedEnvironmentServerConfig?.environment.capabilities;
-    const result = await pickComposerMedia({
-      existingCount: flow.attachments.length,
-      maxVideoBytes:
-        capabilities?.attachmentUploads === true
-          ? capabilities.fileAttachments?.maxUploadBytes
-          : undefined,
-    });
-    const rejectedCount =
-      result.attachments.length > 0 ? flow.appendAttachments(result.attachments) : 0;
+    const result = await pickComposerImages({ existingCount: flow.attachments.length });
+    const rejectedCount = result.images.length > 0 ? flow.appendAttachments(result.images) : 0;
     const problems = [
       ...(result.error ? [result.error] : []),
       ...(rejectedCount > 0
@@ -737,7 +728,7 @@ export function NewTaskDraftScreen(props: {
         : []),
     ];
     if (problems.length > 0) {
-      Alert.alert("Could not attach photo or video", problems.join("\n\n"));
+      Alert.alert("Could not attach photo", problems.join("\n\n"));
     }
   }
 
@@ -1000,6 +991,7 @@ export function NewTaskDraftScreen(props: {
       style={{
         minHeight: 72,
         maxHeight: 160,
+        paddingHorizontal: 4,
         paddingVertical: 4,
       }}
       textStyle={{ ...bodyText, color: foregroundColor, fontFamily: regularFontFamily }}
@@ -1123,7 +1115,7 @@ export function NewTaskDraftScreen(props: {
   );
 
   const composerDock = (
-    <View className="bg-sheet px-[12px] pt-1" style={{ paddingBottom: controlsBottomPadding }}>
+    <View className="bg-sheet px-4 pt-1" style={{ paddingBottom: controlsBottomPadding }}>
       {!voiceInput.isBusy && composerMenu.trigger && composerMenu.items.length > 0 ? (
         <View className="mb-2">
           <ComposerCommandPopover
@@ -1142,11 +1134,12 @@ export function NewTaskDraftScreen(props: {
           minHeight: 140,
           overflow: "hidden",
           paddingBottom: 6,
+          paddingHorizontal: 14,
           paddingTop: 14,
         }}
       >
         {flow.attachments.length > 0 ? (
-          <View className="px-[14px] pb-2.5">
+          <View className="pb-2.5">
             <ComposerAttachmentStrip
               attachments={flow.attachments}
               imageBorderRadius={16}
@@ -1160,17 +1153,12 @@ export function NewTaskDraftScreen(props: {
           </View>
         ) : null}
 
-        <View className="px-[14px]">{promptEditor}</View>
+        {promptEditor}
         <View className="h-1" />
 
         <Animated.View layout={COMPOSER_LAYOUT_TRANSITION} collapsable={false}>
           <ComposerDictationToolbar showsDictation={isVoiceInputPresented}>
-            <ComposerToolbarRow
-              paddingBottom={0}
-              paddingHorizontal={0}
-              paddingTop={0}
-              style={{ gap: 0 }}
-            >
+            <ComposerToolbarRow paddingBottom={0} paddingHorizontal={0} paddingTop={0}>
               <ComposerDictationCancelAction
                 presentation={voicePresentation}
                 onCancel={voiceInput.cancel}
@@ -1184,52 +1172,58 @@ export function NewTaskDraftScreen(props: {
                   onDismissError={voiceInput.cancel}
                 />
               ) : (
-                <>
-                  <ComposerAttachmentButton
+                <ComposerToolbarScroller contentPaddingRight={8} fadeSurface="sheet">
+                  <ComposerToolbarButton
+                    accessibilityLabel="Add attachment"
                     disabled={isComposerInteractionLocked}
-                    supportsFiles={Boolean(
-                      selectedEnvironmentServerConfig?.environment.capabilities.fileAttachments,
-                    )}
-                    onPickMedia={handlePickMedia}
-                    onPickFiles={handlePickFiles}
+                    icon="plus"
+                    onPress={() => {
+                      if (
+                        selectedEnvironmentServerConfig?.environment.capabilities.fileAttachments
+                      ) {
+                        Alert.alert("Add attachment", undefined, [
+                          { text: "Photos", onPress: () => void handlePickImages() },
+                          { text: "Files", onPress: () => void handlePickFiles() },
+                          { text: "Cancel", style: "cancel" },
+                        ]);
+                        return;
+                      }
+                      void handlePickImages();
+                    }}
+                    showChevron={false}
                   />
-                  <ComposerToolbarScroller align="end" contentPaddingRight={0} fadeSurface="sheet">
+                  <ComposerInlineControl
+                    accessibilityLabel="Model and reasoning settings"
+                    disabled={isComposerInteractionLocked}
+                    emphasized
+                    iconNode={
+                      <ProviderIcon provider={flow.selectedModelOption?.providerDriver} size={16} />
+                    }
+                    label={flow.selectedModelOption?.label ?? "Choose model"}
+                    maxWidth={152}
+                    onPress={settingsSheetPresentation.open}
+                  />
+                  {flow.planModeEnabled ? (
                     <ComposerInlineControl
-                      accessibilityLabel="Model and reasoning settings"
+                      accessibilityHint={`Switches to ${flow.interactionMode === "plan" ? "Build" : "Plan"} mode`}
+                      accessibilityLabel={`Interaction mode: ${flow.interactionMode === "plan" ? "Plan" : "Build"}`}
                       disabled={isComposerInteractionLocked}
                       emphasized
-                      iconNode={
-                        <ProviderIcon
-                          provider={flow.selectedModelOption?.providerDriver}
-                          size={16}
-                        />
+                      icon={
+                        flow.interactionMode === "plan"
+                          ? { ios: "list.bullet.clipboard", android: "auto_awesome" }
+                          : { ios: "hammer", android: "construction" }
                       }
-                      label={flow.selectedModelOption?.label ?? "Choose model"}
-                      maxWidth={152}
-                      onPress={settingsSheetPresentation.open}
+                      label={flow.interactionMode === "plan" ? "Plan" : "Build"}
+                      onPress={() =>
+                        flow.setInteractionMode(
+                          flow.interactionMode === "plan" ? "default" : "plan",
+                        )
+                      }
+                      showChevron={false}
                     />
-                    {flow.planModeEnabled ? (
-                      <ComposerInlineControl
-                        accessibilityHint={`Switches to ${flow.interactionMode === "plan" ? "Build" : "Plan"} mode`}
-                        accessibilityLabel={`Interaction mode: ${flow.interactionMode === "plan" ? "Plan" : "Build"}`}
-                        disabled={isComposerInteractionLocked}
-                        emphasized
-                        icon={
-                          flow.interactionMode === "plan"
-                            ? { ios: "list.bullet.clipboard", android: "auto_awesome" }
-                            : { ios: "hammer", android: "construction" }
-                        }
-                        label={flow.interactionMode === "plan" ? "Plan" : "Build"}
-                        onPress={() =>
-                          flow.setInteractionMode(
-                            flow.interactionMode === "plan" ? "default" : "plan",
-                          )
-                        }
-                        showChevron={false}
-                      />
-                    ) : null}
-                  </ComposerToolbarScroller>
-                </>
+                  ) : null}
+                </ComposerToolbarScroller>
               )}
               <ComposerDictationPrimaryAction
                 state={voiceInput.state}
@@ -1241,7 +1235,7 @@ export function NewTaskDraftScreen(props: {
                 onCancel={voiceInput.cancel}
               />
               {voicePresentation.showsSend ? (
-                <ComposerActionButton
+                <ComposerToolbarButton
                   accessibilityLabel={
                     flow.submitting
                       ? "Starting task"
@@ -1252,6 +1246,7 @@ export function NewTaskDraftScreen(props: {
                   disabled={!canStart}
                   icon={environmentConnected ? "arrow.up" : "tray.and.arrow.up"}
                   onPress={() => void handleStart()}
+                  showChevron={false}
                   variant="primary"
                 />
               ) : null}

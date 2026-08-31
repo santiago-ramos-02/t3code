@@ -157,40 +157,6 @@ export async function removePersistedComposerAttachmentFile(uri: string): Promis
   }
 }
 
-async function createComposerFileAttachment(input: {
-  readonly uri: string;
-  readonly name: string;
-  readonly mimeType: string;
-  readonly sizeBytes: number | null;
-  readonly maxBytes: number;
-}): Promise<DraftComposerFileAttachment> {
-  if (input.sizeBytes !== null && input.sizeBytes > input.maxBytes) {
-    throw new Error(fileAttachmentTooLargeMessage(input.name, input.maxBytes));
-  }
-  const { File } = await import("expo-file-system");
-  const fileUri = await persistComposerAttachmentFile(input.uri, input.name, input.maxBytes);
-  try {
-    const sizeBytes = new File(fileUri).size ?? input.sizeBytes ?? 0;
-    if (sizeBytes <= 0) {
-      throw new Error(`'${input.name}' is empty or could not be read.`);
-    }
-    if (sizeBytes > input.maxBytes) {
-      throw new Error(fileAttachmentTooLargeMessage(input.name, input.maxBytes));
-    }
-    return {
-      id: uuidv4(),
-      type: "file",
-      name: input.name,
-      mimeType: input.mimeType,
-      sizeBytes,
-      fileUri,
-    };
-  } catch (error) {
-    await removePersistedComposerAttachmentFile(fileUri);
-    throw error;
-  }
-}
-
 export async function pickComposerFiles(input: {
   readonly existingCount: number;
   readonly maxBytes?: number;
@@ -233,16 +199,32 @@ export async function pickComposerFiles(input: {
     // contract rejects empty names at send time, so fall back before the name
     // reaches storage, errors, or the attachment itself.
     const name = file.name.trim().length > 0 ? file.name : "file";
+    const sizeBytes = file.size ?? null;
+    if (sizeBytes !== null && sizeBytes > maxBytes) {
+      error = fileAttachmentTooLargeMessage(name, maxBytes);
+      continue;
+    }
     try {
-      attachments.push(
-        await createComposerFileAttachment({
-          uri: file.uri,
-          name,
-          mimeType: file.type || "application/octet-stream",
-          sizeBytes: file.size ?? null,
-          maxBytes,
-        }),
-      );
+      const fileUri = await persistComposerAttachmentFile(file.uri, name, maxBytes);
+      const storedSizeBytes = new File(fileUri).size ?? sizeBytes ?? 0;
+      if (storedSizeBytes <= 0) {
+        await removePersistedComposerAttachmentFile(fileUri);
+        error = `'${name}' is empty or could not be read.`;
+        continue;
+      }
+      if (storedSizeBytes > maxBytes) {
+        await removePersistedComposerAttachmentFile(fileUri);
+        error = fileAttachmentTooLargeMessage(name, maxBytes);
+        continue;
+      }
+      attachments.push({
+        id: uuidv4(),
+        type: "file",
+        name,
+        mimeType: file.type || "application/octet-stream",
+        sizeBytes: storedSizeBytes,
+        fileUri,
+      });
     } catch (cause) {
       error = cause instanceof Error ? cause.message : `Could not read '${name}'.`;
     }
@@ -257,7 +239,7 @@ async function loadImagePicker() {
   try {
     return await import("expo-image-picker");
   } catch (error) {
-    throw new Error("The photo library is unavailable right now.", { cause: error });
+    throw new Error("Image attachments are unavailable right now.", { cause: error });
   }
 }
 
@@ -273,26 +255,11 @@ export async function pickComposerImages(input: { readonly existingCount: number
   readonly images: ReadonlyArray<DraftComposerImageAttachment>;
   readonly error: string | null;
 }> {
-  const result = await pickComposerMedia(input);
-  return {
-    images: result.attachments.filter((attachment) => attachment.type === "image"),
-    error: result.error,
-  };
-}
-
-/** Videos use file uploads; omit maxVideoBytes for image-only destinations. */
-export async function pickComposerMedia(input: {
-  readonly existingCount: number;
-  readonly maxVideoBytes?: number;
-}): Promise<{
-  readonly attachments: ReadonlyArray<DraftComposerAttachment>;
-  readonly error: string | null;
-}> {
   const remainingSlots = PROVIDER_SEND_TURN_MAX_ATTACHMENTS - input.existingCount;
   if (remainingSlots <= 0) {
     return {
-      attachments: [],
-      error: `You can attach up to ${PROVIDER_SEND_TURN_MAX_ATTACHMENTS} attachments per message.`,
+      images: [],
+      error: `You can attach up to ${PROVIDER_SEND_TURN_MAX_ATTACHMENTS} images per message.`,
     };
   }
 
@@ -301,8 +268,9 @@ export async function pickComposerMedia(input: {
     imagePicker = await loadImagePicker();
   } catch (error) {
     return {
-      attachments: [],
-      error: error instanceof Error ? error.message : "The photo library is unavailable right now.",
+      images: [],
+      error:
+        error instanceof Error ? error.message : "Image attachments are unavailable right now.",
     };
   }
 
@@ -312,61 +280,28 @@ export async function pickComposerMedia(input: {
   let result: Awaited<ReturnType<typeof imagePicker.launchImageLibraryAsync>>;
   try {
     result = await imagePicker.launchImageLibraryAsync({
-      mediaTypes: input.maxVideoBytes === undefined ? ["images"] : ["images", "videos"],
+      mediaTypes: ["images"],
       allowsMultipleSelection: true,
       selectionLimit: remainingSlots,
       base64: true,
       quality: 1,
-      shouldDownloadFromNetwork: true,
     });
-  } catch (error) {
-    return {
-      attachments: [],
-      error: error instanceof Error ? error.message : "Could not open the photo library.",
-    };
   } finally {
     endHandoff();
   }
 
   if (result.canceled) {
     return {
-      attachments: [],
+      images: [],
       error: null,
     };
   }
 
-  const attachments: DraftComposerAttachment[] = [];
+  const nextImages: DraftComposerImageAttachment[] = [];
   let error: string | null = null;
 
   for (const asset of result.assets) {
-    if (attachments.length >= remainingSlots) {
-      error = `You can attach up to ${PROVIDER_SEND_TURN_MAX_ATTACHMENTS} attachments per message.`;
-      break;
-    }
     const mimeType = asset.mimeType?.toLowerCase();
-    if (asset.type === "video" || mimeType?.startsWith("video/")) {
-      if (input.maxVideoBytes === undefined) {
-        error = "Video attachments are unavailable here.";
-        continue;
-      }
-      try {
-        const { File } = await import("expo-file-system");
-        const file = new File(asset.uri);
-        attachments.push(
-          await createComposerFileAttachment({
-            uri: asset.uri,
-            name: asset.fileName?.trim() || file.name || "video",
-            mimeType: mimeType || file.type || "application/octet-stream",
-            sizeBytes: asset.fileSize ?? null,
-            maxBytes: clampFileAttachmentUploadBytes(input.maxVideoBytes),
-          }),
-        );
-      } catch (cause) {
-        error =
-          cause instanceof Error ? cause.message : `Could not read '${asset.fileName ?? "video"}'.`;
-      }
-      continue;
-    }
     if (!mimeType?.startsWith("image/")) {
       error = `Unsupported file type for '${asset.fileName ?? "image"}'.`;
       continue;
@@ -388,7 +323,7 @@ export async function pickComposerMedia(input: {
       continue;
     }
 
-    attachments.push({
+    nextImages.push({
       id: uuidv4(),
       type: "image",
       name: asset.fileName ?? "image",
@@ -400,7 +335,7 @@ export async function pickComposerMedia(input: {
   }
 
   return {
-    attachments,
+    images: nextImages,
     error,
   };
 }

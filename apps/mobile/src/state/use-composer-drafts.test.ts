@@ -221,49 +221,40 @@ describe("mobile composer drafts", () => {
     });
   });
 
-  it("releases videos rejected by the live draft limit and keeps accepted files", async () => {
-    const outboxLoad = vi.spyOn(threadOutboxManager, "load").mockResolvedValue(true);
-    onTestFinished(() => outboxLoad.mockRestore());
-    const cleanup = Promise.withResolvers<void>();
-    composerAttachmentCleanupMocks.remove.mockImplementationOnce(async () => {
-      cleanup.resolve();
-    });
+  it("caps appended attachments at the send limit against the live draft", () => {
     const makeAttachment = (id: string) => ({
       id,
       type: "file" as const,
-      name: `${id}.mov`,
-      mimeType: "video/quicktime",
+      name: `${id}.pdf`,
+      mimeType: "application/pdf",
       sizeBytes: 42,
-      fileUri: `file:///documents/t3-composer-attachments/${id}.mov`,
+      fileUri: `file:///documents/t3-composer-attachments/${id}.pdf`,
     });
-    const draftKey = "new-task:environment-1:project-cap";
     const existing = Array.from({ length: 7 }, (_, index) => makeAttachment(`held-${index}`));
     appAtomRegistry.set(composerDraftsAtom, {
-      [draftKey]: { text: "send this", attachments: existing },
+      "environment-1:thread-cap": { text: "send this", attachments: existing },
     });
 
-    const rejected = appendComposerDraftAttachments(draftKey, [
+    const rejected = appendComposerDraftAttachments("environment-1:thread-cap", [
       makeAttachment("incoming-1"),
       makeAttachment("incoming-2"),
     ]);
 
     expect(rejected).toBe(1);
-    const draft = appAtomRegistry.get(composerDraftsAtom)[draftKey];
+    const draft = appAtomRegistry.get(composerDraftsAtom)["environment-1:thread-cap"];
     expect(draft?.attachments).toHaveLength(8);
     expect(draft?.attachments.at(-1)?.id).toBe("incoming-1");
-    await cleanup.promise;
-    expect(composerAttachmentCleanupMocks.remove).toHaveBeenCalledExactlyOnceWith(
-      makeAttachment("incoming-2").fileUri,
-    );
 
     // Restore paths bypass the cap so a failed send never drops its files.
     const overflowRejected = appendComposerDraftAttachments(
-      draftKey,
+      "environment-1:thread-cap",
       [makeAttachment("restored-1")],
       { allowOverflow: true },
     );
     expect(overflowRejected).toBe(0);
-    expect(appAtomRegistry.get(composerDraftsAtom)[draftKey]?.attachments).toHaveLength(9);
+    expect(
+      appAtomRegistry.get(composerDraftsAtom)["environment-1:thread-cap"]?.attachments,
+    ).toHaveLength(9);
   });
 
   it("keeps shared attachment files until every draft releases them", async () => {

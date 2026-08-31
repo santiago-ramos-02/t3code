@@ -238,12 +238,6 @@ export const SETTINGS_SEARCH_ITEMS = [
     targetId: "browser",
   },
   {
-    id: "browser-recording-frame-rate",
-    title: "Browser recording frame rate",
-    to: "/settings/integrations",
-    targetId: "browser",
-  },
-  {
     id: "browser-auto-show-floating-preview",
     title: "Auto-show floating preview",
     to: "/settings/integrations",

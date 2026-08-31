@@ -148,7 +148,6 @@ const sharingPlugin: NonNullable<ExpoConfig["plugins"]>[number] = [
         supportsText: true,
         supportsWebUrlWithMaxCount: 1,
         supportsImageWithMaxCount: 8,
-        supportsMovieWithMaxCount: 8,
         supportsFileWithMaxCount: 8,
       },
     },

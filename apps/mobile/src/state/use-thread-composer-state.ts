@@ -28,7 +28,7 @@ import {
   convertPastedImagesToAttachments,
   pasteComposerClipboard,
   pickComposerFiles,
-  pickComposerMedia,
+  pickComposerImages,
 } from "../lib/composerImages";
 import type { DraftComposerImageAttachment } from "../lib/composerImages";
 import { scopedThreadKey } from "../lib/scopedEntities";
@@ -316,31 +316,26 @@ export function useThreadComposerState() {
     [selectedThreadShell],
   );
 
-  const onPickDraftMedia = useCallback(async () => {
+  const onPickDraftImages = useCallback(async () => {
     if (!selectedThreadShell) {
       return;
     }
 
     const threadKey = scopedThreadKey(selectedThreadShell.environmentId, selectedThreadShell.id);
-    const capabilities = selectedEnvironmentRuntime?.serverConfig?.environment.capabilities;
-    const result = await pickComposerMedia({
+    const result = await pickComposerImages({
       existingCount: composerDrafts[threadKey]?.attachments.length ?? 0,
-      maxVideoBytes:
-        capabilities?.attachmentUploads === true
-          ? capabilities.fileAttachments?.maxUploadBytes
-          : undefined,
     });
-    const rejectedCount = appendComposerDraftAttachments(threadKey, result.attachments);
+    const rejectedImageCount = appendComposerDraftAttachments(threadKey, result.images);
     const problems = [
       ...(result.error ? [result.error] : []),
-      ...(rejectedCount > 0
+      ...(rejectedImageCount > 0
         ? [`You can attach up to ${PROVIDER_SEND_TURN_MAX_ATTACHMENTS} attachments per message.`]
         : []),
     ];
     if (problems.length > 0) {
-      Alert.alert("Could not attach photo or video", problems.join("\n\n"));
+      Alert.alert("Could not attach image", problems.join("\n\n"));
     }
-  }, [composerDrafts, selectedEnvironmentRuntime?.serverConfig, selectedThreadShell]);
+  }, [composerDrafts, selectedThreadShell]);
 
   const onPickDraftFiles = useCallback(async () => {
     if (!selectedThreadShell) {
@@ -475,7 +470,7 @@ export function useThreadComposerState() {
     runtimeMode,
     interactionMode,
     onChangeDraftMessage,
-    onPickDraftMedia,
+    onPickDraftImages,
     onPickDraftFiles,
     onPasteIntoDraft,
     onNativePasteImages,
