@@ -110,13 +110,19 @@ export function resolveDraftHeroState(input: {
 
 export function resolveDraftPromotionNavigationTarget(input: {
   serverThreadRef: ScopedThreadRef | null;
-  serverThreadStarted: boolean;
+  serverThread: Pick<Thread, "latestTurn" | "session"> | null | undefined;
   backgroundSubmissionPending: boolean;
 }): ScopedThreadRef | null {
   if (input.backgroundSubmissionPending) {
     return null;
   }
-  return input.serverThreadStarted ? input.serverThreadRef : null;
+  const sessionStatus = input.serverThread?.session?.status;
+  const turnStarted = input.serverThread?.latestTurn?.startedAt != null;
+  const startupStopped =
+    sessionStatus === "error" || sessionStatus === "stopped" || sessionStatus === "interrupted";
+  // Keep local preparation feedback mounted until the server can render the
+  // running turn or its startup error on the canonical thread route.
+  return turnStarted || startupStopped ? input.serverThreadRef : null;
 }
 
 export function scheduleEnvironmentReconnectWarning(showWarning: () => void): () => void {
@@ -129,14 +135,6 @@ export function hasEnvironmentReconnectWarningGraceElapsed(
   elapsedEnvironmentId: EnvironmentId | null,
 ): boolean {
   return activeEnvironmentId !== null && activeEnvironmentId === elapsedEnvironmentId;
-}
-
-export function resolveTimelineAnchorAfterScroll(input: {
-  readonly anchorMessageId: MessageId | null;
-  readonly isAtEnd: boolean;
-  readonly scrollMode: "following-end" | "anchoring-new-turn" | "free-scrolling";
-}): MessageId | null {
-  return input.isAtEnd && input.scrollMode === "free-scrolling" ? null : input.anchorMessageId;
 }
 
 export function startNewThreadForProject(
