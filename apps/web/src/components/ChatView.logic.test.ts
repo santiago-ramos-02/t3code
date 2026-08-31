@@ -31,12 +31,10 @@ import {
   reconcileRetainedMountedThreadIds,
   resolveBackgroundDraftWorkspaceOptions,
   resolveDraftPromotionNavigationTarget,
-  resolveTimelineAnchorAfterScroll,
   resolveThreadMetadataUpdateForNextTurn,
   resolveSendEnvMode,
   resolveDraftHeroState,
   scheduleEnvironmentReconnectWarning,
-  shoulderTabReserve,
   startNewThreadForProject,
   codexArtifactTemplatePromptToAppend,
   shouldDockDraftHeroForSubmission,
@@ -87,24 +85,6 @@ describe("artifact template composer insertion", () => {
     const prompt = "Create a document using this $artifact-template-hello-world about…";
 
     expect(codexArtifactTemplatePromptToAppend(prompt, helloWorldTemplate)).toBeNull();
-  });
-});
-
-describe("shoulderTabReserve", () => {
-  it("ignores the top drawer when measuring the shoulder tab band", () => {
-    const elementAt = (top: number) => ({ getBoundingClientRect: () => ({ top }) }) as HTMLElement;
-    const elements = new Map<string, HTMLElement>([
-      ['[data-chat-composer-form="true"]', elementAt(20)],
-      [".chat-composer-shoulder-tab", elementAt(100)],
-      ['[data-chat-composer-main-surface="true"]', elementAt(128)],
-    ]);
-    const overlay = {
-      querySelector: (selector: string) => elements.get(selector) ?? null,
-    } as HTMLElement;
-
-    expect(shoulderTabReserve(overlay)).toBe(28);
-    elements.set(".chat-composer-tasks-tab", elementAt(100));
-    expect(shoulderTabReserve(overlay)).toBe(0);
   });
 });
 
@@ -283,40 +263,6 @@ describe("environment reconnect warning grace", () => {
     expect(hasEnvironmentReconnectWarningGraceElapsed(anotherEnvironmentId, environmentId)).toBe(
       false,
     );
-  });
-});
-
-describe("resolveTimelineAnchorAfterScroll", () => {
-  const anchorMessageId = MessageId.make("message-anchor");
-
-  it("releases sent-turn end space when the user returns to the bottom", () => {
-    expect(
-      resolveTimelineAnchorAfterScroll({
-        anchorMessageId,
-        isAtEnd: true,
-        scrollMode: "free-scrolling",
-      }),
-    ).toBeNull();
-  });
-
-  it("keeps sent-turn end space while the new turn is being positioned", () => {
-    expect(
-      resolveTimelineAnchorAfterScroll({
-        anchorMessageId,
-        isAtEnd: true,
-        scrollMode: "anchoring-new-turn",
-      }),
-    ).toBe(anchorMessageId);
-  });
-
-  it("keeps the anchor while the user remains away from the bottom", () => {
-    expect(
-      resolveTimelineAnchorAfterScroll({
-        anchorMessageId,
-        isAtEnd: false,
-        scrollMode: "free-scrolling",
-      }),
-    ).toBe(anchorMessageId);
   });
 });
 

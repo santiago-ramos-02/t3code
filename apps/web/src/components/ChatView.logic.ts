@@ -52,16 +52,6 @@ export function codexArtifactTemplatePromptToAppend(
     ? null
     : codexArtifactTemplateUsePrompt(template);
 }
-export function shoulderTabReserve(overlay: HTMLElement): number {
-  if (overlay.querySelector(".chat-composer-tasks-tab")) return 0;
-  const tab = overlay.querySelector<HTMLElement>(".chat-composer-shoulder-tab");
-  const surface = overlay.querySelector<HTMLElement>('[data-chat-composer-main-surface="true"]');
-  if (!tab || !surface) return 0;
-  return Math.max(
-    0,
-    Math.round(surface.getBoundingClientRect().top - tab.getBoundingClientRect().top),
-  );
-}
 
 export function shouldDockDraftHeroForSubmission(input: {
   isDraftHeroState: boolean;
@@ -139,14 +129,6 @@ export function hasEnvironmentReconnectWarningGraceElapsed(
   elapsedEnvironmentId: EnvironmentId | null,
 ): boolean {
   return activeEnvironmentId !== null && activeEnvironmentId === elapsedEnvironmentId;
-}
-
-export function resolveTimelineAnchorAfterScroll(input: {
-  readonly anchorMessageId: MessageId | null;
-  readonly isAtEnd: boolean;
-  readonly scrollMode: "following-end" | "anchoring-new-turn" | "free-scrolling";
-}): MessageId | null {
-  return input.isAtEnd && input.scrollMode === "free-scrolling" ? null : input.anchorMessageId;
 }
 
 export function startNewThreadForProject(
