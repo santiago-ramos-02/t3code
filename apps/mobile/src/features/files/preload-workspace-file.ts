@@ -3,7 +3,7 @@ import type { EnvironmentId } from "@t3tools/contracts";
 
 import { appAtomRegistry } from "../../state/atom-registry";
 import { projectEnvironment } from "../../state/projects";
-import { isBrowserPreviewFile, isImagePreviewFile, isVideoPreviewFile } from "./filePath";
+import { isBrowserPreviewFile, isImagePreviewFile } from "./filePath";
 import { prepareSourceFileDocument } from "./source-file-document";
 import { sourceHighlightAtom } from "./sourceHighlightingState";
 import type { ReviewDiffTheme } from "../review/shikiReviewHighlighter";
@@ -25,11 +25,7 @@ export function preloadWorkspaceFileContents(input: {
   readonly relativePath: string;
   readonly theme: ReviewDiffTheme;
 }): void {
-  if (
-    isBrowserPreviewFile(input.relativePath) ||
-    isImagePreviewFile(input.relativePath) ||
-    isVideoPreviewFile(input.relativePath)
-  ) {
+  if (isBrowserPreviewFile(input.relativePath) || isImagePreviewFile(input.relativePath)) {
     return;
   }
 

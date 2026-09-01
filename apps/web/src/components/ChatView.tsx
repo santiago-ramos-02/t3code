@@ -365,7 +365,7 @@ import {
   cloneComposerImageForRetry,
   deriveLockedProvider,
   readFileAsDataUrl,
-  resolveFileAttachmentUrl,
+  loadVideoPreviewUrl,
   isVideoPreviewRequestCurrent,
   reconcileMountedTerminalThreadIds,
   resolveBackgroundDraftWorkspaceOptions,
@@ -425,7 +425,7 @@ import {
   resolveServerSelfUpdateCapability,
   serverUpdateGuidance,
 } from "../versionSkew";
-import { useAssetUrls } from "../assets/assetUrls";
+import { resolveAssetUrl, useAssetUrls } from "../assets/assetUrls";
 
 const ATTACHMENT_ONLY_BOOTSTRAP_PROMPT =
   "[User attached one or more files without additional text. Respond using the conversation context and the attached files.]";
@@ -1332,7 +1332,6 @@ function ChatViewContent(props: ChatViewProps) {
   const startThreadTurn = useAtomCommand(threadEnvironment.startTurn, { reportFailure: false });
   const createAttachmentAssetUrl = useAtomQueryRunner(assetEnvironment.createUrl, {
     reportFailure: false,
-    refresh: true,
   });
   const uploadThreadFeedback = useAtomCommand(threadEnvironment.uploadFeedback, {
     reportFailure: false,
@@ -1461,8 +1460,11 @@ function ChatViewContent(props: ChatViewProps) {
   const routeThreadKeyRef = useRef(routeThreadKey);
   routeThreadKeyRef.current = routeThreadKey;
   const videoPreviewRequestIdRef = useRef(0);
+  const videoPreviewAbortControllerRef = useRef<AbortController | null>(null);
   const cancelVideoPreviewRequest = useCallback(() => {
     videoPreviewRequestIdRef.current += 1;
+    videoPreviewAbortControllerRef.current?.abort();
+    videoPreviewAbortControllerRef.current = null;
   }, []);
   const [openingVideoAttachmentId, setOpeningVideoAttachmentId] = useState<string | null>(null);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
@@ -2541,8 +2543,14 @@ function ChatViewContent(props: ChatViewProps) {
         toastManager.add({ type: "error", title: "The environment is not connected." });
         return;
       }
-      const isVideo = videoMimeType(attachment) !== null;
+      const videoMime = videoMimeType(attachment);
+      const isVideo = videoMime !== null;
       const action = isVideo ? "play" : "download";
+      const videoPreviewAbortController = isVideo ? new AbortController() : null;
+      if (isVideo) {
+        videoPreviewAbortControllerRef.current?.abort();
+        videoPreviewAbortControllerRef.current = videoPreviewAbortController;
+      }
       const videoPreviewRequestId = isVideo ? ++videoPreviewRequestIdRef.current : 0;
       const isCurrentRequest = () =>
         !isVideo ||
@@ -2552,37 +2560,75 @@ function ChatViewContent(props: ChatViewProps) {
           videoPreviewRequestId,
           videoPreviewRequestIdRef.current,
         );
+      const finishVideoPreviewRequest = () => {
+        if (videoPreviewRequestIdRef.current === videoPreviewRequestId) {
+          setOpeningVideoAttachmentId(null);
+          videoPreviewAbortControllerRef.current = null;
+        }
+      };
       if (isVideo) setOpeningVideoAttachmentId(attachment.id);
 
-      try {
-        const url = await resolveFileAttachmentUrl({
-          attachment,
-          environmentId,
-          httpBaseUrl: connection.httpBaseUrl,
-          createAssetUrl: createAttachmentAssetUrl,
-        });
-        if (!isCurrentRequest()) return;
-        if (isVideo) {
-          setExpandedImage({
-            images: [{ src: url, name: attachment.name, type: "video" }],
-            index: 0,
-          });
-          return;
-        }
-        const anchor = document.createElement("a");
-        anchor.href = url;
-        anchor.download = attachment.name;
-        anchor.click();
-      } catch (error) {
-        if (!isCurrentRequest()) return;
+      // fileName and mimeType ride in the signed claims so videos render
+      // inline while other files keep their real download name and type.
+      const result = await createAttachmentAssetUrl({
+        environmentId,
+        input: {
+          resource: {
+            _tag: "attachment",
+            attachmentId: attachment.id,
+            fileName: attachment.name,
+            mimeType: videoMime ?? attachment.mimeType,
+          },
+        },
+      });
+      if (!isCurrentRequest()) {
+        finishVideoPreviewRequest();
+        return;
+      }
+      if (result._tag === "Failure") {
+        finishVideoPreviewRequest();
+        const error = squashAtomCommandFailure(result);
         toastManager.add({
           type: "error",
           title: "Could not " + action + " " + attachment.name,
           description: error instanceof Error ? error.message : "The attachment is unavailable.",
         });
-      } finally {
-        if (isVideo && isCurrentRequest()) setOpeningVideoAttachmentId(null);
+        return;
       }
+
+      const url = resolveAssetUrl(connection.httpBaseUrl, result.value.relativeUrl);
+      if (!url) {
+        finishVideoPreviewRequest();
+        toastManager.add({ type: "error", title: "Could not " + action + " " + attachment.name });
+        return;
+      }
+      if (isVideo) {
+        try {
+          const previewUrl = await loadVideoPreviewUrl(url, videoPreviewAbortController?.signal);
+          if (!isCurrentRequest()) {
+            revokeBlobPreviewUrl(previewUrl);
+            return;
+          }
+          setExpandedImage({
+            images: [{ src: previewUrl, name: attachment.name, type: "video" }],
+            index: 0,
+          });
+        } catch (error) {
+          if (!isCurrentRequest()) return;
+          toastManager.add({
+            type: "error",
+            title: "Could not play " + attachment.name,
+            description: error instanceof Error ? error.message : "The attachment is unavailable.",
+          });
+        } finally {
+          finishVideoPreviewRequest();
+        }
+        return;
+      }
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = attachment.name;
+      anchor.click();
     },
     [createAttachmentAssetUrl, environmentId, routeThreadKey],
   );

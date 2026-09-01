@@ -3,22 +3,6 @@ import { describe, expect, it } from "vite-plus/test";
 import { resolveMarkdownLinkPresentation } from "@t3tools/mobile-markdown-text/links";
 
 describe("resolveMarkdownLinkPresentation", () => {
-  it("treats protocol-relative media as an external URL, not a filesystem path", () => {
-    expect(resolveMarkdownLinkPresentation("//cdn.example.com/clip.mp4?sig=a%2fb#t=2")).toEqual({
-      kind: "external",
-      href: "https://cdn.example.com/clip.mp4?sig=a%2fb#t=2",
-      host: "cdn.example.com",
-    });
-  });
-
-  it("separates encoded filename characters from a video playback fragment", () => {
-    expect(resolveMarkdownLinkPresentation("/tmp/clip%23one.mp4#t=2")).toMatchObject({
-      path: "/tmp/clip#one.mp4",
-      label: "clip#one.mp4",
-      icon: "video",
-    });
-  });
-
   it("extracts external link hosts", () => {
     expect(resolveMarkdownLinkPresentation("https://example.com/docs?q=1")).toEqual({
       kind: "external",
@@ -27,16 +11,15 @@ describe("resolveMarkdownLinkPresentation", () => {
     });
   });
 
-  it.each([
-    ["file:///Users/julius/project/src/main.ts#L42C7", "/Users/julius/project/src/main.ts"],
-    ["file://server/share/src/main.ts#L42C7", "\\\\server\\share\\src\\main.ts"],
-  ])("preserves the file URL path and position for %s", (href, path) => {
-    expect(resolveMarkdownLinkPresentation(href)).toEqual({
+  it("renders file URLs as basename pills with positions", () => {
+    expect(
+      resolveMarkdownLinkPresentation("file:///Users/julius/project/src/main.ts#L42C7"),
+    ).toEqual({
       kind: "file",
-      href,
+      href: "file:///Users/julius/project/src/main.ts#L42C7",
       icon: "typescript",
       label: "main.ts:42:7",
-      path,
+      path: "/Users/julius/project/src/main.ts",
       line: 42,
       column: 7,
     });

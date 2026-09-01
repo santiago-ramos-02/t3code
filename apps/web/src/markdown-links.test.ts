@@ -163,7 +163,6 @@ describe("resolveMarkdownFileLinkTarget", () => {
 
   it("ignores external urls", () => {
     expect(resolveMarkdownFileLinkTarget("https://example.com/docs")).toBeNull();
-    expect(resolveMarkdownFileLinkTarget("//cdn.example.com/clip.mp4", "/workspace")).toBeNull();
   });
 
   it("does not double-decode file URLs", () => {

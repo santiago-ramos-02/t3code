@@ -1,4 +1,5 @@
 import { useIsFocused } from "@react-navigation/native";
+import type { ChatFileAttachment, EnvironmentId } from "@t3tools/contracts";
 import { videoMimeType } from "@t3tools/shared/video";
 import { useEvent } from "expo";
 import { useVideoPlayer, VideoView } from "expo-video";
@@ -18,15 +19,21 @@ import {
   downloadAttachmentForPreview,
   type AttachmentPreviewFile,
 } from "../lib/attachmentDownload";
+import type { DraftComposerFileAttachment } from "../lib/composerImages";
 import { loadLocalAttachmentPreview } from "../lib/localAttachmentPreview";
-import type { AttachmentVideoPreviewSource, VideoPreviewSource } from "../lib/videoPreviewSource";
 import { useAssetUrlState } from "../state/assets";
 import { usePreparedConnection } from "../state/session";
 import { SymbolView } from "./AppSymbol";
 import { AppText } from "./AppText";
-import { MediaVideoPreviewModal } from "./MediaVideoPreviewModal";
 
-export type { VideoPreviewSource } from "../lib/videoPreviewSource";
+export type VideoPreviewSource = (
+  | { readonly type: "local"; readonly attachment: DraftComposerFileAttachment }
+  | {
+      readonly type: "remote";
+      readonly environmentId: EnvironmentId;
+      readonly attachment: ChatFileAttachment;
+    }
+) & { readonly sourceIdentifier?: string };
 
 function VideoPlayback(props: { readonly file: AttachmentPreviewFile }) {
   const player = useVideoPlayer(props.file.uri, (player) => {
@@ -113,7 +120,7 @@ function VideoPlayback(props: { readonly file: AttachmentPreviewFile }) {
 }
 
 function OpenVideoPreviewModal(props: {
-  readonly source: AttachmentVideoPreviewSource;
+  readonly source: VideoPreviewSource;
   readonly onRequestClose: () => void;
 }) {
   const { source } = props;
@@ -243,9 +250,6 @@ export function VideoPreviewModal(props: {
   }, [isFocused, hasSource, props.onRequestClose]);
   const { source } = props;
   if (source === null || !isFocused) return null;
-  if (source.type === "media") {
-    return <MediaVideoPreviewModal source={source} onRequestClose={props.onRequestClose} />;
-  }
   const key =
     source.type === "local"
       ? `local:${source.attachment.id}:${source.attachment.fileUri}`

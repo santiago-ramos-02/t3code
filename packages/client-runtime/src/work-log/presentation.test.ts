@@ -58,7 +58,7 @@ describe("resolveViewedImageAsset", () => {
       }),
     ).toEqual({
       resource: {
-        _tag: "media-file",
+        _tag: "workspace-file",
         threadId,
         path: "/workspace/screens/logo.svg",
       },

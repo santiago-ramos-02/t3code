@@ -9,7 +9,6 @@ const testState = vi.hoisted(() => ({
 
 vi.mock("@effect/atom-react", () => ({ useAtomValue: () => null }));
 vi.mock("../assets/assetUrls", () => ({
-  useAssetUrlRefresh: () => vi.fn(),
   useAssetUrlState: (_environmentId: unknown, resource: unknown) => {
     testState.resources.push(resource);
     if (testState.assetState === "loading") return { _tag: "Loading" };
@@ -107,7 +106,7 @@ describe("ChatMarkdown workspace images", () => {
 
     expect(testState.resources).toEqual([
       {
-        _tag: "media-file",
+        _tag: "workspace-file",
         threadId: threadRef.threadId,
         path: expectedPath,
       },
@@ -127,14 +126,14 @@ describe("ChatMarkdown workspace images", () => {
 
     expect(testState.resources).toEqual([
       {
-        _tag: "media-file",
+        _tag: "workspace-file",
         threadId: threadRef.threadId,
         path: "C:\\Users\\shawn\\project\\.t3\\workspace-image.svg",
       },
-      { _tag: "media-file", threadId: threadRef.threadId, path: imagePath },
-      { _tag: "media-file", threadId: threadRef.threadId, path: imagePath },
+      { _tag: "workspace-file", threadId: threadRef.threadId, path: imagePath },
+      { _tag: "workspace-file", threadId: threadRef.threadId, path: imagePath },
       {
-        _tag: "media-file",
+        _tag: "workspace-file",
         threadId: threadRef.threadId,
         path: "\\\\server\\share\\workspace-image.svg",
       },
@@ -150,7 +149,7 @@ describe("ChatMarkdown workspace images", () => {
 
     expect(testState.resources).toEqual([
       {
-        _tag: "media-file",
+        _tag: "workspace-file",
         threadId: threadRef.threadId,
         path: "D:/screens/workspace-image.svg",
       },

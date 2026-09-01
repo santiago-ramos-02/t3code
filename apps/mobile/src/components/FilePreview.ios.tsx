@@ -3,7 +3,6 @@ import { useEffect, useEffectEvent, useId } from "react";
 import { Alert } from "react-native";
 
 import type { ResolvedFilePreviewSource } from "./FilePreviewModal";
-import { MediaImagePreview } from "./MediaImagePreview";
 
 const NativeControls = requireNativeModule<{
   presentFile(
@@ -15,7 +14,7 @@ const NativeControls = requireNativeModule<{
   dismissFile(identifier: string): Promise<void>;
 }>("T3NativeControls");
 
-function NativeFilePreview(props: {
+export function FilePreview(props: {
   readonly source: ResolvedFilePreviewSource;
   readonly onRequestClose: () => void;
 }) {
@@ -41,15 +40,4 @@ function NativeFilePreview(props: {
   }, [uri, name, sourceIdentifier, identifier]);
 
   return null;
-}
-
-export function FilePreview(props: {
-  readonly source: ResolvedFilePreviewSource;
-  readonly onRequestClose: () => void;
-}) {
-  return props.source.kind === "image" && props.source.actionsSource ? (
-    <MediaImagePreview {...props} />
-  ) : (
-    <NativeFilePreview {...props} />
-  );
 }
