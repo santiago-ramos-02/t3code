@@ -1,4 +1,5 @@
 import {
+  type AssistantCitation,
   type ChatFileAttachment,
   type EnvironmentId,
   type MessageId,
@@ -59,6 +60,7 @@ import {
   resolveDiffThemeName,
   resolveFileDiffPath,
 } from "../../lib/diffRendering";
+import { PREFERRED_HIGHLIGHTER } from "../../lib/syntaxHighlighting";
 import ChatMarkdown, { ChatMarkdownAssetImage } from "../ChatMarkdown";
 import {
   BotIcon,
@@ -94,6 +96,14 @@ import {
   keepTimelineEndVisibleAfterOverlayGrowth,
 } from "./timelineScrollAnchoring";
 import { MessageCopyButton } from "./MessageCopyButton";
+import { AssistantSelectionToolbar } from "./AssistantSelectionToolbar";
+import type { AssistantCitationSourceAnchor } from "~/lib/assistantTextSelection";
+import {
+  AssistantCitationSource,
+  type AssistantCitationRequest,
+  type AssistantCitationTarget,
+} from "./AssistantCitationSource";
+import { useAssistantCitationTarget, type CitationHistoryPage } from "./useAssistantCitationTarget";
 import {
   computeStableMessagesTimelineRows,
   deriveMessagesTimelineRows,
@@ -155,6 +165,8 @@ import {
 // ---------------------------------------------------------------------------
 
 interface TimelineRowSharedState {
+  citationRequest: AssistantCitationTarget | null;
+  listRef: React.RefObject<LegendListRef | null>;
   timestampFormat: TimestampFormat;
   routeThreadKey: string;
   threadRef: ScopedThreadRef | null;
@@ -231,6 +243,12 @@ const TIMELINE_MAINTAIN_SCROLL_AT_END = {
 // ---------------------------------------------------------------------------
 
 interface MessagesTimelineProps {
+  citationRequest?: AssistantCitationRequest | null;
+  citationHistoryLoading?: boolean;
+  onCiteAssistantText?: (
+    citation: AssistantCitation,
+    sourceAnchor: AssistantCitationSourceAnchor,
+  ) => boolean;
   agentPanelModel?: AgentPanelModel;
   onOpenAgents?: () => void;
   isWorking: boolean;
@@ -271,7 +289,7 @@ interface MessagesTimelineProps {
   hideEmptyPlaceholder?: boolean;
   topFadeEnabled?: boolean;
   /** Non-null when older turns exist beyond the loaded window. */
-  loadEarlier?: { readonly loading: boolean; readonly onLoadEarlier: () => void } | null;
+  loadEarlier?: CitationHistoryPage | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -279,6 +297,9 @@ interface MessagesTimelineProps {
 // ---------------------------------------------------------------------------
 
 export const MessagesTimeline = memo(function MessagesTimeline({
+  citationRequest = null,
+  citationHistoryLoading = false,
+  onCiteAssistantText,
   isWorking,
   isPreparingWorktree = false,
   activeTurnStartedAt,
@@ -315,6 +336,12 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   loadEarlier = null,
 }: MessagesTimelineProps) {
   const [expandedTurnIds, setExpandedTurnIds] = useState<ReadonlySet<TurnId>>(new Set());
+  const citationThreadRef = useMemo(() => parseScopedThreadKey(routeThreadKey), [routeThreadKey]);
+  const expandCitedTurn = useCallback((turnId: TurnId) => {
+    setExpandedTurnIds((current) =>
+      current.has(turnId) ? current : new Set([...current, turnId]),
+    );
+  }, []);
   const [expandedWorkGroupIds, setExpandedWorkGroupIds] = useState<ReadonlySet<string>>(new Set());
   const [disclosureToggleSettling, setDisclosureToggleSettling] = useState(false);
   const [minimapStripMap] = useState(() => new Map<string, HTMLSpanElement>());
@@ -322,16 +349,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const disclosureSettleFrameRef = useRef<number | null>(null);
   const disclosureSettleSecondFrameRef = useRef<number | null>(null);
   const previousContentInsetEndAdjustmentRef = useRef(contentInsetEndAdjustment);
-
-  useLayoutEffect(() => {
-    keepTimelineEndVisibleAfterOverlayGrowth({
-      timeline: listRef.current,
-      previousOverlayHeight: previousContentInsetEndAdjustmentRef.current,
-      overlayHeight: contentInsetEndAdjustment,
-      followingEnd: liveFollowEnabled && anchorMessageId === null,
-    });
-    previousContentInsetEndAdjustmentRef.current = contentInsetEndAdjustment;
-  }, [anchorMessageId, contentInsetEndAdjustment, listRef, liveFollowEnabled]);
 
   useEffect(() => {
     return () => {
@@ -467,6 +484,31 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const [timelineViewportElement, setTimelineViewportElement] = useState<HTMLDivElement | null>(
     null,
   );
+  const {
+    target: readyCitationRequest,
+    positioning: citationPositioning,
+    onListLoad: onCitationListLoad,
+    alwaysRender: citationAlwaysRender,
+  } = useAssistantCitationTarget({
+    request: citationRequest,
+    entries: timelineEntries,
+    rows,
+    listRef,
+    viewport: timelineViewportElement,
+    historyLoading: citationHistoryLoading,
+    loadEarlier,
+    onExpandTurn: expandCitedTurn,
+    onManualNavigation,
+  });
+  useLayoutEffect(() => {
+    keepTimelineEndVisibleAfterOverlayGrowth({
+      timeline: listRef.current,
+      previousOverlayHeight: previousContentInsetEndAdjustmentRef.current,
+      overlayHeight: contentInsetEndAdjustment,
+      followingEnd: liveFollowEnabled && anchorMessageId === null && !citationPositioning,
+    });
+    previousContentInsetEndAdjustmentRef.current = contentInsetEndAdjustment;
+  }, [anchorMessageId, citationPositioning, contentInsetEndAdjustment, listRef, liveFollowEnabled]);
   const [minimapHasPersistentGutter, setMinimapHasPersistentGutter] = useState(false);
   const [minimapHitStripWidth, setMinimapHitStripWidth] = useState(0);
   const handleAnchorReady = useCallback(
@@ -490,7 +532,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const handleScroll = useCallback(() => {
     const state = listRef.current?.getState?.();
     const isAtEnd = resolveTimelineIsAtEnd(state, contentInsetEndAdjustment);
-    if (isAtEnd !== undefined) {
+    if (isAtEnd !== undefined && !citationPositioning) {
       onIsAtEndChange(isAtEnd);
     }
     if (!state || minimapItems.length === 0) {
@@ -515,7 +557,14 @@ export const MessagesTimeline = memo(function MessagesTimeline({
 
       strip.dataset.inView = inView ? "true" : "false";
     }
-  }, [contentInsetEndAdjustment, listRef, minimapItems, minimapStripMap, onIsAtEndChange]);
+  }, [
+    citationPositioning,
+    contentInsetEndAdjustment,
+    listRef,
+    minimapItems,
+    minimapStripMap,
+    onIsAtEndChange,
+  ]);
 
   useEffect(() => {
     const frame = requestAnimationFrame(handleScroll);
@@ -549,6 +598,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
 
   const sharedState = useMemo<TimelineRowSharedState>(
     () => ({
+      citationRequest: readyCitationRequest,
+      listRef,
       timestampFormat,
       routeThreadKey,
       threadRef: parseScopedThreadKey(routeThreadKey),
@@ -569,6 +620,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       onOpenAgents,
     }),
     [
+      readyCitationRequest,
+      listRef,
       timestampFormat,
       routeThreadKey,
       markdownCwd,
@@ -623,7 +676,18 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   return (
     <TimelineRowCtx value={sharedState}>
       <TimelineRowActivityCtx value={activityState}>
-        <div ref={setTimelineViewportElement} className="relative h-full min-h-0">
+        <div
+          ref={setTimelineViewportElement}
+          className="relative h-full min-h-0"
+          data-assistant-citation-viewport="true"
+        >
+          {onCiteAssistantText && citationThreadRef ? (
+            <AssistantSelectionToolbar
+              viewport={timelineViewportElement}
+              threadRef={citationThreadRef}
+              onCite={onCiteAssistantText}
+            />
+          ) : null}
           <LegendList<MessagesTimelineRow>
             ref={listRef}
             data={rows}
@@ -631,15 +695,24 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             getItemType={getItemType}
             renderItem={renderItem}
             estimatedItemSize={90}
-            initialScrollAtEnd
+            initialScrollAtEnd={citationRequest === null}
+            // Legend needs a data refresh to mount new pins without a scroll event.
+            {...(readyCitationRequest ? { dataVersion: readyCitationRequest.key } : {})}
+            {...(citationAlwaysRender ? { alwaysRender: citationAlwaysRender } : {})}
+            onLoad={onCitationListLoad}
             {...(anchoredEndSpace ? { anchoredEndSpace } : {})}
             contentInsetEndAdjustment={contentInsetEndAdjustment}
             maintainScrollAtEnd={
-              anchoredEndSpace || !liveFollowEnabled || disclosureToggleSettling
+              citationPositioning ||
+              anchoredEndSpace ||
+              !liveFollowEnabled ||
+              disclosureToggleSettling
                 ? false
                 : TIMELINE_MAINTAIN_SCROLL_AT_END
             }
-            maintainVisibleContentPosition={maintainVisibleContentPosition}
+            maintainVisibleContentPosition={
+              citationPositioning ? false : maintainVisibleContentPosition
+            }
             onScroll={handleScroll}
             className={cn(
               "scrollbar-gutter-both h-full min-h-0 overflow-x-hidden overscroll-y-contain px-3 [overflow-anchor:none] sm:px-5",
@@ -1262,16 +1335,24 @@ function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "mess
   return (
     <>
       <div className="relative min-w-0 px-1 py-0.5">
-        <ChatMarkdown
-          text={messageText}
-          cwd={ctx.markdownCwd}
-          threadRef={ctx.threadRef ?? undefined}
-          isStreaming={Boolean(row.message.streaming)}
-          lineBreaks={shouldPreserveAssistantLineBreaks(messageText)}
-          skills={ctx.skills}
-          onUseArtifactTemplate={ctx.onUseArtifactTemplate}
-          onImageExpand={ctx.onImageExpand}
-        />
+        <AssistantCitationSource
+          messageId={row.message.id}
+          {...(ctx.threadRef ? { threadRef: ctx.threadRef } : {})}
+          itemKey={row.id}
+          request={ctx.citationRequest}
+          listRef={ctx.listRef}
+        >
+          <ChatMarkdown
+            text={messageText}
+            cwd={ctx.markdownCwd}
+            threadRef={ctx.threadRef ?? undefined}
+            isStreaming={Boolean(row.message.streaming)}
+            lineBreaks={shouldPreserveAssistantLineBreaks(messageText)}
+            skills={ctx.skills}
+            onUseArtifactTemplate={ctx.onUseArtifactTemplate}
+            onImageExpand={ctx.onImageExpand}
+          />
+        </AssistantCitationSource>
         <AssistantChangedFilesSection
           turnSummary={row.assistantTurnDiffSummary}
           routeThreadKey={ctx.routeThreadKey}
@@ -2060,6 +2141,7 @@ function UserMessageReviewCommentCard({ comment }: { comment: ReviewCommentConte
               collapsed: false,
               diffStyle: "unified",
               theme: resolveDiffThemeName(ctx.resolvedTheme),
+              preferredHighlighter: PREFERRED_HIGHLIGHTER,
             }}
           />
         ))}
@@ -2446,7 +2528,8 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
   const showFailedIndicator = workEntryDisplayIndicatesToolFailure(workEntry);
   const entryIconName =
     showWarningIndicator || showFailedIndicator ? "circle-alert" : workEntryIconName(workEntry);
-  const displayText = workEntryPreview(workEntry, workspaceRoot) ?? toolWorkEntryHeading(workEntry);
+  const previewText = workEntryPreview(workEntry, workspaceRoot) ?? toolWorkEntryHeading(workEntry);
+  const displayText = expanded && workEntry.command?.trim() ? "Command" : previewText;
   const expandedBody = buildToolCallExpandedBody(workEntry, workspaceRoot);
   const viewedImagePath = workEntryViewedImagePath(workEntry);
   const viewedImage =
@@ -2481,8 +2564,8 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
         : "text-foreground/80";
   const showEntryIcon = !isExpandedToolGroupEntry || showWarningIndicator || showFailedIndicator;
   const accessibleDisplayText = showFailedIndicator
-    ? `${displayText}, tool call failed`
-    : displayText;
+    ? `${previewText}, tool call failed`
+    : previewText;
   const rowToggleProps = canExpand
     ? {
         role: "button" as const,

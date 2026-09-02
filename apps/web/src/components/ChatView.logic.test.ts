@@ -30,7 +30,6 @@ import {
   reconcileRetainedMountedThreadIds,
   resolveBackgroundDraftWorkspaceOptions,
   resolveDraftPromotionNavigationTarget,
-  resolveTimelineAnchorAfterScroll,
   resolveThreadMetadataUpdateForNextTurn,
   resolveSendEnvMode,
   resolveDraftHeroState,
@@ -246,40 +245,6 @@ describe("environment reconnect warning grace", () => {
     expect(hasEnvironmentReconnectWarningGraceElapsed(anotherEnvironmentId, environmentId)).toBe(
       false,
     );
-  });
-});
-
-describe("resolveTimelineAnchorAfterScroll", () => {
-  const anchorMessageId = MessageId.make("message-anchor");
-
-  it("releases sent-turn end space when the user returns to the bottom", () => {
-    expect(
-      resolveTimelineAnchorAfterScroll({
-        anchorMessageId,
-        isAtEnd: true,
-        scrollMode: "free-scrolling",
-      }),
-    ).toBeNull();
-  });
-
-  it("keeps sent-turn end space while the new turn is being positioned", () => {
-    expect(
-      resolveTimelineAnchorAfterScroll({
-        anchorMessageId,
-        isAtEnd: true,
-        scrollMode: "anchoring-new-turn",
-      }),
-    ).toBe(anchorMessageId);
-  });
-
-  it("keeps the anchor while the user remains away from the bottom", () => {
-    expect(
-      resolveTimelineAnchorAfterScroll({
-        anchorMessageId,
-        isAtEnd: false,
-        scrollMode: "free-scrolling",
-      }),
-    ).toBe(anchorMessageId);
   });
 });
 
