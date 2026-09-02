@@ -18,12 +18,15 @@ const DEFAULT_WORKING_TREE_SELECTION: DiffPanelSelection = { kind: "unstaged" };
 interface DiffPanelStoreState {
   byThreadKey: Record<string, DiffPanelSelection>;
   branchBaseRefByThreadKey: Record<string, string | null>;
+  collapsedFileKeysByScope: Record<string, string[]>;
   diffRenderMode: DiffRenderMode;
   setDiffRenderMode: (mode: DiffRenderMode) => void;
   selectGitScope: (ref: ScopedThreadRef, scope: "branch" | "unstaged") => void;
   selectBranchBaseRef: (ref: ScopedThreadRef, baseRef: string | null) => void;
   selectTurn: (ref: ScopedThreadRef, turnId: TurnId, filePath?: string) => void;
   reconcileTurnSelection: (ref: ScopedThreadRef, availableTurnIds: ReadonlyArray<TurnId>) => void;
+  toggleCollapsedFileKey: (scopeKey: string, fileKey: string) => void;
+  setCollapsedFileKeys: (scopeKey: string, fileKeys: ReadonlyArray<string>) => void;
   removeThread: (ref: ScopedThreadRef) => void;
 }
 
@@ -37,6 +40,7 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
     (set) => ({
       byThreadKey: {},
       branchBaseRefByThreadKey: {},
+      collapsedFileKeysByScope: {},
       diffRenderMode: "stacked",
       setDiffRenderMode: (diffRenderMode) => set({ diffRenderMode }),
       selectGitScope: (ref, scope) =>
@@ -111,16 +115,48 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
             },
           };
         }),
+      toggleCollapsedFileKey: (scopeKey, fileKey) =>
+        set((state) => {
+          const nextFileKeys = new Set(state.collapsedFileKeysByScope[scopeKey] ?? []);
+          if (nextFileKeys.has(fileKey)) nextFileKeys.delete(fileKey);
+          else nextFileKeys.add(fileKey);
+
+          const collapsedFileKeysByScope = { ...state.collapsedFileKeysByScope };
+          if (nextFileKeys.size === 0) delete collapsedFileKeysByScope[scopeKey];
+          else collapsedFileKeysByScope[scopeKey] = [...nextFileKeys];
+          return { collapsedFileKeysByScope };
+        }),
+      setCollapsedFileKeys: (scopeKey, fileKeys) =>
+        set((state) => {
+          const nextFileKeys = [...new Set(fileKeys)];
+          const collapsedFileKeysByScope = { ...state.collapsedFileKeysByScope };
+          if (nextFileKeys.length === 0) delete collapsedFileKeysByScope[scopeKey];
+          else collapsedFileKeysByScope[scopeKey] = nextFileKeys;
+          return { collapsedFileKeysByScope };
+        }),
       removeThread: (ref) =>
         set((state) => {
           const threadKey = scopedThreadKey(ref);
-          if (!(threadKey in state.byThreadKey) && !(threadKey in state.branchBaseRefByThreadKey)) {
+          const collapseScopePrefix = `${threadKey}:`;
+          const hasCollapsedFileState = Object.keys(state.collapsedFileKeysByScope).some((key) =>
+            key.startsWith(collapseScopePrefix),
+          );
+          if (
+            !(threadKey in state.byThreadKey) &&
+            !(threadKey in state.branchBaseRefByThreadKey) &&
+            !hasCollapsedFileState
+          ) {
             return state;
           }
           const { [threadKey]: _removed, ...byThreadKey } = state.byThreadKey;
           const { [threadKey]: _removedBaseRef, ...branchBaseRefByThreadKey } =
             state.branchBaseRefByThreadKey;
-          return { byThreadKey, branchBaseRefByThreadKey };
+          const collapsedFileKeysByScope = Object.fromEntries(
+            Object.entries(state.collapsedFileKeysByScope).filter(
+              ([key]) => !key.startsWith(collapseScopePrefix),
+            ),
+          );
+          return { byThreadKey, branchBaseRefByThreadKey, collapsedFileKeysByScope };
         }),
     }),
     {
@@ -132,6 +168,7 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
       partialize: (state) => ({
         byThreadKey: state.byThreadKey,
         branchBaseRefByThreadKey: state.branchBaseRefByThreadKey,
+        collapsedFileKeysByScope: state.collapsedFileKeysByScope,
         diffRenderMode: state.diffRenderMode,
       }),
     },
