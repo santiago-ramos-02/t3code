@@ -99,6 +99,22 @@ export function shouldReleaseTimelineAnchorForToolActivity(input: {
   });
 }
 
+export function toolGroupConsumesUpwardNavigation(target: EventTarget | null): boolean {
+  const elementTarget = target instanceof Element ? target : null;
+  const group = elementTarget?.closest<HTMLElement>("[data-tool-group-scroll]");
+  if (!group) return false;
+
+  // A nested result or the group itself can consume an upward scroll.
+  for (let element = elementTarget; element; element = element.parentElement) {
+    if (element.scrollTop > 0) {
+      const overflowY = getComputedStyle(element).overflowY;
+      if (overflowY === "auto" || overflowY === "scroll") return true;
+    }
+    if (element === group) break;
+  }
+  return false;
+}
+
 export function resolveDraftHeroState(input: {
   isLocalDraftThread: boolean;
   hasTimelineEntries: boolean;
@@ -144,14 +160,6 @@ export function hasEnvironmentReconnectWarningGraceElapsed(
   elapsedEnvironmentId: EnvironmentId | null,
 ): boolean {
   return activeEnvironmentId !== null && activeEnvironmentId === elapsedEnvironmentId;
-}
-
-export function resolveTimelineAnchorAfterScroll(input: {
-  readonly anchorMessageId: MessageId | null;
-  readonly isAtEnd: boolean;
-  readonly scrollMode: "following-end" | "anchoring-new-turn" | "free-scrolling";
-}): MessageId | null {
-  return input.isAtEnd && input.scrollMode === "free-scrolling" ? null : input.anchorMessageId;
 }
 
 export function startNewThreadForProject(

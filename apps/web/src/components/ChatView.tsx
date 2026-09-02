@@ -372,7 +372,6 @@ import {
   reconcileMountedTerminalThreadIds,
   resolveBackgroundDraftWorkspaceOptions,
   resolveDraftHeroState,
-  resolveTimelineAnchorAfterScroll,
   resolveThreadMetadataUpdateForNextTurn,
   resolveSendEnvMode,
   revokeBlobPreviewUrl,
@@ -380,6 +379,7 @@ import {
   shouldWriteThreadErrorToCurrentServerThread,
   startNewThreadForProject,
   codexArtifactTemplatePromptToAppend,
+  toolGroupConsumesUpwardNavigation,
   waitForStartedServerThread,
 } from "./ChatView.logic";
 import type { ThreadSyncPhase } from "../threadSync";
@@ -4219,7 +4219,11 @@ function ChatViewContent(props: ChatViewProps) {
         // Only an upward wheel is a navigation intent; wheeling down while
         // following either does nothing (at the end) or moves toward it.
         const handleWheel = (event: WheelEvent) => {
-          if (event.deltaY < 0 && contentScrollsUp()) {
+          if (
+            event.deltaY < 0 &&
+            contentScrollsUp() &&
+            !toolGroupConsumesUpwardNavigation(event.target)
+          ) {
             handleManualNavigation();
           }
         };
@@ -4256,7 +4260,7 @@ function ChatViewContent(props: ChatViewProps) {
             case "PageUp":
             case "Home":
             case "ArrowUp":
-              if (contentScrollsUp()) {
+              if (contentScrollsUp() && !toolGroupConsumesUpwardNavigation(event.target)) {
                 handleManualNavigation();
               }
               break;
@@ -4346,17 +4350,6 @@ function ChatViewContent(props: ChatViewProps) {
       showScrollDebouncer.current.cancel();
       setShowScrollToBottom(false);
       return;
-    }
-    const scrollMode = timelineScrollModeRef.current;
-    if (isAtEnd) {
-      setTimelineAnchor((current) => {
-        const messageId = resolveTimelineAnchorAfterScroll({
-          anchorMessageId: current.messageId,
-          isAtEnd,
-          scrollMode,
-        });
-        return messageId === current.messageId ? current : { ...current, messageId };
-      });
     }
     if (isAtEndRef.current === isAtEnd) return;
     isAtEndRef.current = isAtEnd;
