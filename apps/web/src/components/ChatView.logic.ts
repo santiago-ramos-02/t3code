@@ -146,6 +146,14 @@ export function hasEnvironmentReconnectWarningGraceElapsed(
   return activeEnvironmentId !== null && activeEnvironmentId === elapsedEnvironmentId;
 }
 
+export function resolveTimelineAnchorAfterScroll(input: {
+  readonly anchorMessageId: MessageId | null;
+  readonly isAtEnd: boolean;
+  readonly scrollMode: "following-end" | "anchoring-new-turn" | "free-scrolling";
+}): MessageId | null {
+  return input.isAtEnd && input.scrollMode === "free-scrolling" ? null : input.anchorMessageId;
+}
+
 export function startNewThreadForProject(
   projectRef: ScopedProjectRef | null,
   handleNewThread: (projectRef: ScopedProjectRef) => Promise<unknown>,
