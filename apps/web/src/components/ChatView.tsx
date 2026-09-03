@@ -132,6 +132,7 @@ import {
   DEFAULT_THREAD_TERMINAL_ID,
   MAX_TERMINALS_PER_GROUP,
   type ChatMessage,
+  isBrowserPreviewAttachment,
   isImageAttachment,
   videoMimeType,
   type SessionPhase,
@@ -376,7 +377,6 @@ import {
   reconcileMountedTerminalThreadIds,
   resolveBackgroundDraftWorkspaceOptions,
   resolveDraftHeroState,
-  resolveTimelineAnchorAfterScroll,
   resolveThreadMetadataUpdateForNextTurn,
   resolveSendEnvMode,
   revokeBlobPreviewUrl,
@@ -2603,7 +2603,7 @@ function ChatViewContent(props: ChatViewProps) {
     });
   }, []);
   const serverMessages = activeThread?.messages;
-  const openFileAttachment = useCallback(
+  const downloadFileAttachment = useCallback(
     async (attachment: ChatFileAttachment) => {
       const connection = readPreparedConnection(environmentId);
       if (!connection) {
@@ -2654,6 +2654,16 @@ function ChatViewContent(props: ChatViewProps) {
       }
     },
     [createAttachmentAssetUrl, environmentId, routeThreadKey],
+  );
+  const openFileAttachment = useCallback(
+    (attachment: ChatFileAttachment) => {
+      if (isBrowserPreviewAttachment(attachment) && activeThreadRef) {
+        useRightPanelStore.getState().openAttachment(activeThreadRef, attachment);
+        return;
+      }
+      void downloadFileAttachment(attachment);
+    },
+    [activeThreadRef, downloadFileAttachment],
   );
   const serverAttachmentIds = useMemo(() => {
     const attachmentIds = new Set<string>();
@@ -4544,17 +4554,6 @@ function ChatViewContent(props: ChatViewProps) {
       showScrollDebouncer.current.cancel();
       setShowScrollToBottom(false);
       return;
-    }
-    const scrollMode = timelineScrollModeRef.current;
-    if (isAtEnd) {
-      setTimelineAnchor((current) => {
-        const messageId = resolveTimelineAnchorAfterScroll({
-          anchorMessageId: current.messageId,
-          isAtEnd,
-          scrollMode,
-        });
-        return messageId === current.messageId ? current : { ...current, messageId };
-      });
     }
     if (isAtEndRef.current === isAtEnd) return;
     isAtEndRef.current = isAtEnd;
@@ -7363,14 +7362,18 @@ function ChatViewContent(props: ChatViewProps) {
       />
     ) : (renderedRightPanelSurface?.kind === "files" ||
         renderedRightPanelSurface?.kind === "file") &&
-      activeProject &&
-      activeWorkspaceRoot ? (
+      ((activeProject && activeWorkspaceRoot) ||
+        (renderedRightPanelSurface.kind === "file" && renderedRightPanelSurface.attachment)) ? (
       <Suspense fallback={null}>
         <FilePreviewPanel
-          key={`${activeProject.environmentId}:${activeWorkspaceRoot}`}
-          environmentId={activeProject.environmentId}
-          cwd={activeWorkspaceRoot}
-          projectName={activeProject.title}
+          key={`${activeThread.environmentId}:${
+            renderedRightPanelSurface.kind === "file" && renderedRightPanelSurface.attachment
+              ? `attachment:${renderedRightPanelSurface.attachment.id}`
+              : activeWorkspaceRoot
+          }`}
+          environmentId={activeThread.environmentId}
+          cwd={activeWorkspaceRoot ?? ""}
+          projectName={activeProject?.title ?? ""}
           threadRef={activeThreadRef}
           composerDraftTarget={composerDraftTarget}
           keybindings={keybindings}
@@ -7380,6 +7383,9 @@ function ChatViewContent(props: ChatViewProps) {
               ? renderedRightPanelSurface.relativePath
               : null
           }
+          {...(renderedRightPanelSurface.kind === "file" && renderedRightPanelSurface.attachment
+            ? { attachment: renderedRightPanelSurface.attachment }
+            : {})}
           revealLine={
             renderedRightPanelSurface.kind === "file"
               ? (renderedRightPanelSurface.revealLine ?? null)
@@ -7520,6 +7526,7 @@ function ChatViewContent(props: ChatViewProps) {
                 isRevertingCheckpoint={isRevertingCheckpoint}
                 onImageExpand={onExpandTimelineImage}
                 onFileOpen={openFileAttachment}
+                onFileDownload={downloadFileAttachment}
                 openingVideoAttachmentId={openingVideoAttachmentId}
                 markdownCwd={gitCwd ?? undefined}
                 resolvedTheme={resolvedTheme}
