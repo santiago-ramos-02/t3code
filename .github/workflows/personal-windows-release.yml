@@ -88,7 +88,7 @@ jobs:
             else
               git config user.name "personal-update-bot"
               git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-              upstream_commit="$(printf 'chore(fork): sync upstream code\n' | git commit-tree "$upstream_tree" -p "$fork_sha")"
+              upstream_commit="$(printf 'chore(fork): sync upstream code\n' | git commit-tree "$upstream_tree" -p "$fork_sha" -p "$upstream_sha")"
               if [[ "$candidate_tree" == "$upstream_tree" ]]; then
                 candidate_commit="$upstream_commit"
               else
