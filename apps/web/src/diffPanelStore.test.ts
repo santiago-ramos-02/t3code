@@ -5,37 +5,14 @@ import { beforeEach, describe, expect, it } from "vite-plus/test";
 import { selectThreadDiffPanelSelection, useDiffPanelStore } from "./diffPanelStore";
 
 const THREAD_REF = scopeThreadRef(EnvironmentId.make("environment-1"), ThreadId.make("thread-1"));
-const COLLAPSE_SCOPE = "environment-1:thread-1:turn:turn-1";
 
 describe("diffPanelStore", () => {
   beforeEach(() =>
     useDiffPanelStore.setState({
       byThreadKey: {},
       branchBaseRefByThreadKey: {},
-      collapsedFileKeysByScope: {},
-      diffRenderMode: "stacked",
     }),
   );
-
-  it("keeps the selected render mode in panel and persisted state", async () => {
-    useDiffPanelStore.getState().setDiffRenderMode("split");
-
-    expect(useDiffPanelStore.getState().diffRenderMode).toBe("split");
-    expect(
-      useDiffPanelStore.persist.getOptions().partialize?.(useDiffPanelStore.getState()),
-    ).toMatchObject({ diffRenderMode: "split" });
-
-    const { name, storage } = useDiffPanelStore.persist.getOptions();
-    if (!name) throw new Error("Expected diff panel persistence to have a storage name");
-    const persisted = await storage?.getItem(name);
-    expect(persisted?.state).toMatchObject({ diffRenderMode: "split" });
-
-    useDiffPanelStore.setState({ diffRenderMode: "stacked" });
-    if (persisted) await storage?.setItem(name, persisted);
-    await useDiffPanelStore.persist.rehydrate();
-
-    expect(useDiffPanelStore.getState().diffRenderMode).toBe("split");
-  });
 
   it("defaults each thread to branch changes when the working tree is clean", () => {
     expect(
@@ -105,52 +82,6 @@ describe("diffPanelStore", () => {
       turnId: latestTurnId,
       filePath: "src/app.ts",
       revealRequestId: 1,
-    });
-  });
-
-  it("keeps collapsed files isolated and available when switching threads", () => {
-    const store = useDiffPanelStore.getState();
-    store.toggleCollapsedFileKey(COLLAPSE_SCOPE, "src/app.ts");
-
-    expect(useDiffPanelStore.getState().collapsedFileKeysByScope).toEqual({
-      [COLLAPSE_SCOPE]: ["src/app.ts"],
-    });
-
-    store.toggleCollapsedFileKey("environment-1:thread-2:turn:turn-1", "src/index.ts");
-
-    expect(useDiffPanelStore.getState().collapsedFileKeysByScope).toEqual({
-      [COLLAPSE_SCOPE]: ["src/app.ts"],
-      "environment-1:thread-2:turn:turn-1": ["src/index.ts"],
-    });
-  });
-
-  it("toggles a collapsed file key off and prunes empty scopes", () => {
-    const store = useDiffPanelStore.getState();
-    store.toggleCollapsedFileKey(COLLAPSE_SCOPE, "src/app.ts");
-    store.toggleCollapsedFileKey(COLLAPSE_SCOPE, "src/app.ts");
-
-    expect(useDiffPanelStore.getState().collapsedFileKeysByScope).toEqual({});
-  });
-
-  it("replaces the collapsed file set for a scope", () => {
-    const store = useDiffPanelStore.getState();
-    store.toggleCollapsedFileKey(COLLAPSE_SCOPE, "src/app.ts");
-    store.setCollapsedFileKeys(COLLAPSE_SCOPE, ["src/index.ts", "src/index.ts"]);
-
-    expect(useDiffPanelStore.getState().collapsedFileKeysByScope).toEqual({
-      [COLLAPSE_SCOPE]: ["src/index.ts"],
-    });
-  });
-
-  it("removes a thread's collapsed file state with the thread", () => {
-    const store = useDiffPanelStore.getState();
-    store.toggleCollapsedFileKey(COLLAPSE_SCOPE, "src/app.ts");
-    store.toggleCollapsedFileKey("environment-1:thread-2:turn:turn-1", "src/index.ts");
-
-    store.removeThread(THREAD_REF);
-
-    expect(useDiffPanelStore.getState().collapsedFileKeysByScope).toEqual({
-      "environment-1:thread-2:turn:turn-1": ["src/index.ts"],
     });
   });
 });
