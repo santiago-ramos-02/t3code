@@ -791,7 +791,6 @@ describe("openCodexThread", () => {
   it.effect("falls back to thread/start when resume fails recoverably", () =>
     Effect.gen(function* () {
       const calls: Array<{ method: "thread/start" | "thread/resume"; payload: unknown }> = [];
-      let rawResumeCalled = false;
       const started = makeThreadOpenResponse("fresh-thread");
       const client = {
         request: <M extends "thread/start" | "thread/resume">(
@@ -809,16 +808,6 @@ describe("openCodexThread", () => {
           }
           return Effect.succeed(started as CodexRpc.ClientRequestResponsesByMethod[M]);
         },
-        rawResumeRequest: (payload: unknown) => {
-          rawResumeCalled = true;
-          calls.push({ method: "thread/resume", payload });
-          return Effect.fail(
-            new CodexErrors.CodexAppServerRequestError({
-              code: -32603,
-              errorMessage: "thread not found",
-            }),
-          );
-        },
       };
 
       const opened = yield* openCodexThread({
@@ -832,15 +821,9 @@ describe("openCodexThread", () => {
       });
 
       NodeAssert.equal(opened.thread.id, "fresh-thread");
-      NodeAssert.equal(rawResumeCalled, true);
       NodeAssert.deepStrictEqual(
         calls.map((call) => call.method),
         ["thread/resume", "thread/start"],
-      );
-      const resumeCall = calls.find((call) => call.method === "thread/resume");
-      NodeAssert.equal(
-        (resumeCall?.payload as { readonly excludeTurns?: boolean } | undefined)?.excludeTurns,
-        true,
       );
     }),
   );
@@ -862,14 +845,6 @@ describe("openCodexThread", () => {
           }
           return Effect.succeed(
             makeThreadOpenResponse("fresh-thread") as CodexRpc.ClientRequestResponsesByMethod[M],
-          );
-        },
-        rawResumeRequest: (_payload: unknown) => {
-          return Effect.fail(
-            new CodexErrors.CodexAppServerRequestError({
-              code: -32603,
-              errorMessage: "timed out waiting for server",
-            }),
           );
         },
       };
