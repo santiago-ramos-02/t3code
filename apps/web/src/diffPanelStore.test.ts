@@ -5,14 +5,12 @@ import { beforeEach, describe, expect, it } from "vite-plus/test";
 import { selectThreadDiffPanelSelection, useDiffPanelStore } from "./diffPanelStore";
 
 const THREAD_REF = scopeThreadRef(EnvironmentId.make("environment-1"), ThreadId.make("thread-1"));
-const COLLAPSE_SCOPE = "environment-1:thread-1:turn:turn-1";
 
 describe("diffPanelStore", () => {
   beforeEach(() =>
     useDiffPanelStore.setState({
       byThreadKey: {},
       branchBaseRefByThreadKey: {},
-      collapsedFileKeysByScope: {},
     }),
   );
 
@@ -84,52 +82,6 @@ describe("diffPanelStore", () => {
       turnId: latestTurnId,
       filePath: "src/app.ts",
       revealRequestId: 1,
-    });
-  });
-
-  it("keeps collapsed files isolated and available when switching threads", () => {
-    const store = useDiffPanelStore.getState();
-    store.toggleCollapsedFileKey(COLLAPSE_SCOPE, "src/app.ts");
-
-    expect(useDiffPanelStore.getState().collapsedFileKeysByScope).toEqual({
-      [COLLAPSE_SCOPE]: ["src/app.ts"],
-    });
-
-    store.toggleCollapsedFileKey("environment-1:thread-2:turn:turn-1", "src/index.ts");
-
-    expect(useDiffPanelStore.getState().collapsedFileKeysByScope).toEqual({
-      [COLLAPSE_SCOPE]: ["src/app.ts"],
-      "environment-1:thread-2:turn:turn-1": ["src/index.ts"],
-    });
-  });
-
-  it("toggles a collapsed file key off and prunes empty scopes", () => {
-    const store = useDiffPanelStore.getState();
-    store.toggleCollapsedFileKey(COLLAPSE_SCOPE, "src/app.ts");
-    store.toggleCollapsedFileKey(COLLAPSE_SCOPE, "src/app.ts");
-
-    expect(useDiffPanelStore.getState().collapsedFileKeysByScope).toEqual({});
-  });
-
-  it("replaces the collapsed file set for a scope", () => {
-    const store = useDiffPanelStore.getState();
-    store.toggleCollapsedFileKey(COLLAPSE_SCOPE, "src/app.ts");
-    store.setCollapsedFileKeys(COLLAPSE_SCOPE, ["src/index.ts", "src/index.ts"]);
-
-    expect(useDiffPanelStore.getState().collapsedFileKeysByScope).toEqual({
-      [COLLAPSE_SCOPE]: ["src/index.ts"],
-    });
-  });
-
-  it("removes a thread's collapsed file state with the thread", () => {
-    const store = useDiffPanelStore.getState();
-    store.toggleCollapsedFileKey(COLLAPSE_SCOPE, "src/app.ts");
-    store.toggleCollapsedFileKey("environment-1:thread-2:turn:turn-1", "src/index.ts");
-
-    store.removeThread(THREAD_REF);
-
-    expect(useDiffPanelStore.getState().collapsedFileKeysByScope).toEqual({
-      "environment-1:thread-2:turn:turn-1": ["src/index.ts"],
     });
   });
 });
