@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   prepare:
-    name: Prepare upstream stable with personal changes
+    name: Prepare upstream stable
     runs-on: ubuntu-latest
     timeout-minutes: 25
     outputs:
@@ -32,7 +32,7 @@ jobs:
           fetch-depth: 0
 
       - id: prepare
-        name: Apply personal changes to the latest upstream stable
+        name: Prepare the latest upstream stable
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.PERSONAL_RELEASE_TOKEN }}
@@ -77,14 +77,7 @@ jobs:
           git fetch upstream --no-tags "refs/tags/${upstream_tag}:refs/tags/upstream-${upstream_tag}"
 
           fork_sha="$(git rev-parse HEAD)"
-          fork_base="$(git rev-parse "$fork_sha^")"
-          git diff --binary "$fork_base" "$fork_sha" -- . \
-            ':(exclude).github/**' > "$RUNNER_TEMP/personal.patch"
-
           git switch --detach "refs/tags/upstream-${upstream_tag}^{commit}"
-          if [[ -s "$RUNNER_TEMP/personal.patch" ]]; then
-            git apply --3way --index "$RUNNER_TEMP/personal.patch"
-          fi
           git restore --source="$fork_sha" --staged --worktree -- .github/workflows
 
           git config user.name "personal-release-bot"

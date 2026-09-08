@@ -49,55 +49,15 @@ jobs:
           needs_push=false
 
           if ! git merge-base --is-ancestor upstream/main HEAD; then
-            fork_base="$(git rev-parse "$fork_sha^")"
-            personal_patch="$(mktemp)"
-            personal_files="$(mktemp)"
-            upstream_files="$(mktemp)"
-
-            git diff --binary "$fork_base" "$fork_sha" -- \
-              . \
-              ':(exclude).github/workflows/**' > "$personal_patch"
-            git diff --name-only "$fork_base" "$fork_sha" -- \
-              . \
-              ':(exclude).github/workflows/**' | sort > "$personal_files"
-            git diff --name-only "$fork_base" upstream/main | sort > "$upstream_files"
-
-            overlap="$(comm -12 "$personal_files" "$upstream_files")"
-            if [[ -n "$overlap" ]]; then
-              {
-                echo "### Personal files changed by upstream"
-                echo
-                echo 'The personal patch was reapplied and validated against these upstream changes:'
-                echo '```'
-                echo "$overlap"
-                echo '```'
-              } >> "$GITHUB_STEP_SUMMARY"
-            fi
-
             git switch --detach upstream/main
             git restore --source="$fork_sha" --staged --worktree -- .github/workflows
-            upstream_tree="$(git write-tree)"
-            if [[ -s "$personal_patch" ]]; then
-              git apply --3way --index "$personal_patch"
-            fi
             candidate_tree="$(git write-tree)"
-            fork_tree="$(git rev-parse "$fork_sha^{tree}")"
-
-            if [[ "$candidate_tree" == "$fork_tree" ]]; then
-              git switch --detach "$fork_sha"
-            else
-              git config user.name "personal-update-bot"
-              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-              upstream_commit="$(printf 'chore(fork): sync upstream code\n' | git commit-tree "$upstream_tree" -p "$fork_sha" -p "$upstream_sha")"
-              if [[ "$candidate_tree" == "$upstream_tree" ]]; then
-                candidate_commit="$upstream_commit"
-              else
-                candidate_commit="$(printf 'chore(fork): apply personal changes\n' | git commit-tree "$candidate_tree" -p "$upstream_commit")"
-              fi
-              git switch --detach "$candidate_commit"
-              should_build=true
-              needs_push=true
-            fi
+            git config user.name "personal-update-bot"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            candidate_commit="$(printf 'chore(fork): sync upstream code\n' | git commit-tree "$candidate_tree" -p "$fork_sha" -p "$upstream_sha")"
+            git switch --detach "$candidate_commit"
+            should_build=true
+            needs_push=true
           elif [[ "${GITHUB_EVENT_NAME}" == "push" || "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
             should_build=true
           fi
