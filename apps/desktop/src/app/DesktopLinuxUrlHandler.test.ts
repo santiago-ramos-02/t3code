@@ -23,7 +23,6 @@ const makeEnvironment = (overrides: Record<string, unknown> = {}) =>
     isPackaged: true,
     isDevelopment: false,
     displayName: "T3 Code (Alpha)",
-    linuxDesktopEntryName: "com.t3tools.T3Code.desktop",
     linuxWmClass: "t3code",
     linuxApplicationsDir: "/home/alice/.local/share/applications",
     appImagePath: Option.some("/home/alice/Applications/T3-Code.AppImage"),
@@ -52,7 +51,6 @@ const makeHandlerLayer = (
     readonly environment?: Record<string, unknown>;
     readonly xdgMimeExitCode?: number;
     readonly writeError?: PlatformError.PlatformError;
-    readonly existingEntry?: string;
   } = {},
 ) =>
   DesktopLinuxUrlHandler.layer.pipe(
@@ -60,7 +58,6 @@ const makeHandlerLayer = (
       Layer.mergeAll(
         Layer.succeed(DesktopEnvironment.DesktopEnvironment, makeEnvironment(input.environment)),
         FileSystem.layerNoop({
-          readFileString: () => Effect.succeed(input.existingEntry ?? ""),
           makeDirectory: (path) =>
             Effect.sync(() => {
               recorded.directories.push(path);
@@ -131,7 +128,7 @@ describe("DesktopLinuxUrlHandler", () => {
     const writeError = new DesktopLinuxUrlHandler.DesktopLinuxUrlHandlerRegistrationError({
       step: "write-desktop-entry",
       scheme: "t3code",
-      desktopEntryPath: "/home/alice/.local/share/applications/com.t3tools.T3Code.desktop",
+      desktopEntryPath: "/home/alice/.local/share/applications/t3code-url-handler.desktop",
       cause: new Error("boom"),
     });
     assert.equal(
@@ -140,7 +137,7 @@ describe("DesktopLinuxUrlHandler", () => {
     );
     assert.equal(
       writeError.desktopEntryPath,
-      "/home/alice/.local/share/applications/com.t3tools.T3Code.desktop",
+      "/home/alice/.local/share/applications/t3code-url-handler.desktop",
     );
 
     const exitError = new DesktopLinuxUrlHandler.DesktopLinuxUrlHandlerRegistrationError({
@@ -164,7 +161,7 @@ describe("DesktopLinuxUrlHandler", () => {
       assert.equal(recorded.files.length, 1);
       assert.equal(
         recorded.files[0]?.path,
-        "/home/alice/.local/share/applications/com.t3tools.T3Code.desktop",
+        "/home/alice/.local/share/applications/t3code-url-handler.desktop",
       );
       assert.include(
         recorded.files[0]?.content,
@@ -174,7 +171,7 @@ describe("DesktopLinuxUrlHandler", () => {
       assert.deepEqual(recorded.commands, [
         {
           command: "xdg-mime",
-          args: ["default", "com.t3tools.T3Code.desktop", "x-scheme-handler/t3code"],
+          args: ["default", "t3code-url-handler.desktop", "x-scheme-handler/t3code"],
         },
       ]);
     });
@@ -193,43 +190,19 @@ describe("DesktopLinuxUrlHandler", () => {
     });
   });
 
-  it.effect("does not rewrite the pre-ready entry while the portal can be reading it", () => {
-    const recorded = emptyRecording();
-
-    return Effect.gen(function* () {
-      yield* runRegister(recorded, {
-        existingEntry: DesktopLinuxUrlHandler.renderUrlHandlerDesktopEntry({
-          displayName: "T3 Code (Alpha)",
-          execTarget: "/home/alice/Applications/T3-Code.AppImage",
-          scheme: "t3code",
-        }),
-      });
-
-      assert.deepEqual(recorded.files, []);
-      assert.deepEqual(recorded.directories, []);
-      assert.equal(recorded.commands.length, 1);
-    });
-  });
-
-  it.effect("writes the portal identity without claiming the URL scheme in development", () => {
+  it.effect("does nothing on other platforms or unpackaged builds", () => {
     const nonLinux = emptyRecording();
     const unpackaged = emptyRecording();
 
     return Effect.gen(function* () {
       yield* runRegister(nonLinux, { environment: { platform: "darwin" } });
-      yield* runRegister(unpackaged, {
-        environment: {
-          isPackaged: false,
-          linuxDesktopEntryName: "com.t3tools.T3Code.Development.desktop",
-        },
-      });
+      yield* runRegister(unpackaged, { environment: { isPackaged: false } });
 
-      assert.deepEqual(nonLinux.files, []);
-      assert.equal(
-        unpackaged.files[0]?.path,
-        "/home/alice/.local/share/applications/com.t3tools.T3Code.Development.desktop",
-      );
-      assert.deepEqual(unpackaged.commands, []);
+      for (const recorded of [nonLinux, unpackaged]) {
+        assert.deepEqual(recorded.directories, []);
+        assert.deepEqual(recorded.files, []);
+        assert.deepEqual(recorded.commands, []);
+      }
     });
   });
 
@@ -245,7 +218,7 @@ describe("DesktopLinuxUrlHandler", () => {
           module: "FileSystem",
           method: "writeFileString",
           description: "read-only filesystem",
-          pathOrDescriptor: "/home/alice/.local/share/applications/com.t3tools.T3Code.desktop",
+          pathOrDescriptor: "/home/alice/.local/share/applications/t3code-url-handler.desktop",
         }),
       });
 

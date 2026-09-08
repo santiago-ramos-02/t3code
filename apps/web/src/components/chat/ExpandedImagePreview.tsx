@@ -1,5 +1,3 @@
-import type { SnapShotSource } from "@t3tools/contracts";
-
 import type { ComposerFileAttachment } from "../../composerDraftStore";
 import { type ChatImageAttachment, isVideoAttachment } from "../../types";
 import type {
@@ -25,7 +23,6 @@ export interface ExpandedImageItem {
   src: string | null;
   name: string;
   type?: "video";
-  source?: SnapShotSource;
   autoPlay?: boolean;
   /** Authored remote destination to open when embedding fails, never a generated asset URL. */
   originalUrl?: string;
@@ -144,7 +141,7 @@ export function buildExpandedImagePreview(
   }
   const previewableImages = images.flatMap((image) =>
     image.type === "image" && image.previewUrl
-      ? [{ id: image.id, src: image.previewUrl, name: image.name, source: image.source }]
+      ? [{ id: image.id, src: image.previewUrl, name: image.name }]
       : [],
   );
   if (previewableImages.length === 0) {
@@ -158,7 +155,6 @@ export function buildExpandedImagePreview(
     images: previewableImages.map((image) => ({
       src: image.src,
       name: image.name,
-      ...(image.source?.kind === "snap-shot" ? { source: image.source } : {}),
     })),
     index: selectedIndex,
   };

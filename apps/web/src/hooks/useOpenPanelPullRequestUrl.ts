@@ -50,7 +50,6 @@ export function useOpenPanelPullRequestUrl(threadRef: ScopedThreadRef | null) {
   );
   return reference
     ? (resolveDisplayedPullRequestDetail({ live: detail, cached: cachedDetail, reference })?.url ??
-        reference.url ??
         gitHubPullRequestBrowserUrl(
           project?.repositoryIdentity,
           reference.repository,
