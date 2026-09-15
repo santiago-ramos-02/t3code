@@ -119,8 +119,8 @@ jobs:
             "https://santiago-ramos-02:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
             "HEAD:refs/heads/${CANDIDATE_BRANCH}"
 
-  build_wsl_node_pty:
-    name: Build WSL node-pty
+  build_wsl_runtime:
+    name: Build WSL runtime
     needs: prepare
     if: needs.prepare.outputs.should_build == 'true'
     runs-on: ubuntu-latest
@@ -138,27 +138,53 @@ jobs:
           cache: true
           run-install: true
 
-      - name: Build Linux x64 node-pty binary
+      - name: Align package versions
+        run: node scripts/update-release-package-versions.ts "${{ needs.prepare.outputs.version }}"
+
+      - name: Build server bundle
+        run: node apps/server/scripts/cli.ts build --verbose
+
+      - name: Build resource monitor
         shell: bash
         run: |
           set -euo pipefail
-          pty_pkg="$(node -e "console.log(require.resolve('node-pty/package.json', { paths: ['$GITHUB_WORKSPACE/apps/server'] }))")"
-          pty_dir="$(dirname "$pty_pkg")"
-          (cd "$pty_dir" && npx --yes node-gyp rebuild)
-          mkdir -p wsl-prebuild
-          cp "$pty_dir/build/Release/pty.node" wsl-prebuild/pty.node
-          file wsl-prebuild/pty.node
+          cargo build \
+            --locked \
+            --release \
+            --target x86_64-unknown-linux-gnu \
+            --manifest-path native/resource-monitor/Cargo.toml
+          mkdir -p "$RUNNER_TEMP/cli-resource-monitor/linux-x64"
+          cp \
+            native/resource-monitor/target/x86_64-unknown-linux-gnu/release/t3-resource-monitor \
+            "$RUNNER_TEMP/cli-resource-monitor/linux-x64/t3-resource-monitor"
 
-      - name: Upload WSL binary
+      - name: Build WSL runtime archive
+        shell: bash
+        env:
+          VP_NODE_VERSION: "26.8.2"
+        run: |
+          set -euo pipefail
+          node apps/server/scripts/cli.ts build-exe --verbose
+          node scripts/build-cli-archive.ts \
+            --platform linux \
+            --arch x64 \
+            --version "${{ needs.prepare.outputs.version }}" \
+            --resource-monitor-dir "$RUNNER_TEMP/cli-resource-monitor" \
+            --output-dir wsl-runtime
+          node scripts/smoke-cli-archive.ts \
+            --archive wsl-runtime/* \
+            --expect-version "${{ needs.prepare.outputs.version }}"
+
+      - name: Upload WSL runtime
         uses: actions/upload-artifact@v7
         with:
-          name: personal-stable-wsl-node-pty-x64
-          path: wsl-prebuild/pty.node
+          name: personal-stable-wsl-runtime-x64
+          path: wsl-runtime/*
           if-no-files-found: error
 
   build_desktop:
     name: Build stable ${{ matrix.label }}
-    needs: [prepare, build_wsl_node_pty]
+    needs: [prepare, build_wsl_runtime]
     if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.should_build == 'true' }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
@@ -208,12 +234,12 @@ jobs:
           cache: true
           run-install: true
 
-      - name: Download WSL node-pty binary
+      - name: Download WSL runtime
         if: matrix.platform == 'win'
         uses: actions/download-artifact@v8
         with:
-          name: personal-stable-wsl-node-pty-x64
-          path: wsl-prebuild
+          name: personal-stable-wsl-runtime-x64
+          path: wsl-runtime
 
       - name: Align package versions
         run: node scripts/update-release-package-versions.ts "${{ needs.prepare.outputs.version }}"
@@ -262,7 +288,7 @@ jobs:
             --verbose
           )
           if [[ "${{ matrix.platform }}" == "win" ]]; then
-            args+=(--wsl-prebuild "$GITHUB_WORKSPACE/wsl-prebuild/pty.node")
+            args+=(--wsl-runtime "$GITHUB_WORKSPACE"/wsl-runtime/t3-*-linux-x64.tar.gz)
           fi
           attempts=1
           if [[ "${{ matrix.platform }}" == "mac" ]]; then
