@@ -142,7 +142,9 @@ jobs:
         run: node scripts/update-release-package-versions.ts "${{ needs.prepare.outputs.version }}"
 
       - name: Build server bundle
-        run: node apps/server/scripts/cli.ts build --verbose
+        run: |
+          vp run --filter @t3tools/web build
+          node apps/server/scripts/cli.ts build --verbose
 
       - name: Build resource monitor
         shell: bash
