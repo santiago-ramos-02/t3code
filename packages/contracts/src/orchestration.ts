@@ -459,62 +459,26 @@ const ProjectLucideIconName = TrimmedNonEmptyString.check(
 
 const ProjectEmoji = TrimmedNonEmptyString.check(Schema.isMaxLength(32));
 
-// Grapheme-count validation belongs to the server command boundary, not snapshot decoding.
+const monogramSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 export const ProjectMonogramText = TrimmedNonEmptyString.check(
   Schema.isMaxLength(32),
   Schema.isPattern(/^[\p{L}\p{N}][\p{L}\p{N}\p{M}\u200c\u200d]*$/u),
+  Schema.makeFilter((text) => Array.from(monogramSegmenter.segment(text)).length <= 2),
 );
 
-const ProjectLucideIcon = Schema.Struct({
-  kind: Schema.Literal("lucide"),
-  name: ProjectLucideIconName,
-  color: ProjectIconColor,
-});
-const ProjectEmojiIcon = Schema.Struct({
-  kind: Schema.Literal("emoji"),
-  emoji: ProjectEmoji,
-});
-const ProjectMonogramIcon = Schema.Struct({
-  kind: Schema.Literal("monogram"),
-  text: ProjectMonogramText,
-  color: ProjectIconColor,
-});
-const ProjectIcon = Schema.Union([ProjectLucideIcon, ProjectEmojiIcon, ProjectMonogramIcon]);
-const ProjectLucideIconWire = Schema.Struct({
-  ...ProjectLucideIcon.fields,
-  monogramText: Schema.optional(ProjectMonogramText),
-  monogram: Schema.optional(ProjectMonogramText),
-});
-
-// Older peers only know lucide/emoji. Keep monograms out of their validated
-// `monogram` field too: old grapheme counters can reject otherwise valid text.
 export const ProjectIconOverride = Schema.Union([
-  ProjectLucideIconWire,
-  ProjectEmojiIcon,
-  ProjectMonogramIcon,
-]).pipe(
-  Schema.decodeTo(
-    ProjectIcon,
-    SchemaTransformation.transform({
-      decode: (icon): typeof ProjectIcon.Type => {
-        if (icon.kind !== "lucide") return icon;
-        const text = icon.monogramText ?? icon.monogram;
-        return text === undefined
-          ? { kind: "lucide", name: icon.name, color: icon.color }
-          : { kind: "monogram", text, color: icon.color };
-      },
-      encode: (icon) =>
-        icon.kind === "monogram"
-          ? {
-              kind: "lucide" as const,
-              name: "folder-code",
-              color: icon.color,
-              monogramText: icon.text,
-            }
-          : icon,
-    }),
-  ),
-);
+  Schema.Struct({
+    kind: Schema.Literal("lucide"),
+    name: ProjectLucideIconName,
+    color: ProjectIconColor,
+    // Older clients ignore this field and render the named Lucide icon instead.
+    monogram: Schema.optional(ProjectMonogramText),
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("emoji"),
+    emoji: ProjectEmoji,
+  }),
+]);
 export type ProjectIconOverride = typeof ProjectIconOverride.Type;
 
 export const OrchestrationProject = Schema.Struct({

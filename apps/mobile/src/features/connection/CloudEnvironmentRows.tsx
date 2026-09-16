@@ -219,8 +219,7 @@ function ConnectedCloudEnvironmentRow(props: {
   const serverConfig = useAtomValue(
     serverEnvironment.configValueAtom(props.environment.environmentId),
   );
-  const unsupported = props.environment.connectionState === "unsupported";
-  const enabled = props.environment.isEnabled && !unsupported;
+  const enabled = props.environment.isEnabled;
   return (
     <Pressable
       accessibilityHint="Long press to remove from this device"
@@ -228,16 +227,15 @@ function ConnectedCloudEnvironmentRow(props: {
     >
       <CloudEnvironmentRowShell
         borderTop={props.borderTop}
-        connectionError={enabled || unsupported ? props.environment.connectionError : null}
+        connectionError={enabled ? props.environment.connectionError : null}
         connectionErrorTraceId={enabled ? props.environment.connectionErrorTraceId : null}
-        connectionState={enabled || unsupported ? props.environment.connectionState : "available"}
+        connectionState={enabled ? props.environment.connectionState : "available"}
         errorExpanded={props.errorExpanded}
         label={props.environment.environmentLabel}
         machine={resolveEnvironmentMachineKind(serverConfig)}
         onValueChange={props.onSetEnabled}
         onToggleError={props.onToggleError}
-        disabled={unsupported}
-        {...(enabled || unsupported ? {} : { statusText: "Off" })}
+        {...(enabled ? {} : { statusText: "Off" })}
         value={enabled}
       />
     </Pressable>
@@ -272,7 +270,6 @@ function CloudEnvironmentRow(props: {
         }
       }}
       onToggleError={props.onToggleError}
-      disabled={presentation.connectionState === "unsupported"}
       statusText={presentation.statusText}
       value={false}
     />

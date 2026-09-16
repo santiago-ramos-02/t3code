@@ -104,11 +104,8 @@ const platformReason = Effect.fn("LocalDeviceHost.platformReason")(function* (
     return `Android SDK Platform-Tools are missing from ${sdk.root}. Install them in Android Studio's SDK Manager.`;
   if (!sdk.emulator)
     return `Android Emulator is missing from ${sdk.root}. Install it in Android Studio's SDK Manager.`;
-  if (!sdk.avdmanager) {
-    if (sdk.legacyAvdmanager)
-      return `The Android SDK command-line tools in ${sdk.root} appear to be an older, unsupported version. Install Android SDK Command-line Tools (latest) in Android Studio's SDK Manager under SDK Tools.`;
+  if (!sdk.avdmanager)
     return `Android SDK Command-line Tools (latest) are missing from ${sdk.root}. Install them in Android Studio's SDK Manager.`;
-  }
   return null;
 });
 
@@ -158,15 +155,10 @@ const androidSdk = Effect.gen(function* () {
           platform === "win32" ? "avdmanager.bat" : "avdmanager",
         ),
       );
-      const legacyAvdmanager =
-        !avdmanager &&
-        (yield* exists(
-          path.join(root, "tools", "bin", platform === "win32" ? "avdmanager.bat" : "avdmanager"),
-        ));
-      return { root, adb, emulator, avdmanager, legacyAvdmanager };
+      return { root, adb, emulator, avdmanager };
     }
   }
-  return { root: null, adb: false, emulator: false, avdmanager: false, legacyAvdmanager: false };
+  return { root: null, adb: false, emulator: false, avdmanager: false };
 });
 
 const deviceHostEnvironment = (

@@ -21,8 +21,7 @@ export function deriveAssetUrlState(input: {
   if (
     input.connectionPhase === "offline" ||
     input.connectionPhase === "reconnecting" ||
-    input.connectionPhase === "error" ||
-    input.connectionPhase === "unsupported"
+    input.connectionPhase === "error"
   ) {
     return { _tag: "Failure", reason: "disconnected" };
   }

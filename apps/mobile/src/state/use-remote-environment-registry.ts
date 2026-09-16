@@ -128,16 +128,7 @@ export function useRemoteConnections() {
         const error = Cause.squash(result.cause);
         const message =
           error instanceof Error ? error.message : "Failed to pair with the environment.";
-        if (
-          error !== null &&
-          typeof error === "object" &&
-          "reason" in error &&
-          error.reason === "unsupported"
-        ) {
-          Alert.alert("Client not supported", message);
-        } else {
-          setPendingConnectionError(message);
-        }
+        setPendingConnectionError(message);
       } else {
         appAtomRegistry.set(connectionPairingUrlAtom, "");
       }

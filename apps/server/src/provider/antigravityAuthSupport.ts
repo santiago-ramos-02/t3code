@@ -85,8 +85,6 @@ export interface AntigravityProfile {
   readonly geminiHome: string;
   readonly acpDirectory: string;
   readonly tokenPath: string;
-  /** Parent of the per-process temp directories PyInstaller unpacks into. */
-  readonly tempDirectory: string;
   readonly browserCommand: string;
 }
 
@@ -193,11 +191,6 @@ export function resolveAntigravityProfileDirectory(
   return NodePath.join(stateDir, "providers", "antigravity", directoryName);
 }
 
-/** Parent of the per-process runtime temp directories inside a profile. */
-export function resolveAntigravityRuntimeTempDirectory(profileDirectory: string): string {
-  return NodePath.join(profileDirectory, "antigravity-acp", "tmp");
-}
-
 function quoteBrowserArgument(value: string): string {
   return `'${value.replaceAll("'", `'"'"'`)}'`;
 }
@@ -206,7 +199,6 @@ function antigravityEnvironment(
   profile: AntigravityProfile,
   baseEnv: NodeJS.ProcessEnv,
   auth: AntigravityAuthConfig,
-  runtimeTempDirectory?: string,
 ) {
   const environment: NodeJS.ProcessEnv = {};
   for (const [key, value] of Object.entries(baseEnv)) {
@@ -222,10 +214,6 @@ function antigravityEnvironment(
       : auth.authMethod === "agent-platform" && auth.apiKey
         ? { GOOGLE_API_KEY: auth.apiKey }
         : {};
-  // The agent is a PyInstaller one-file bundle. It unpacks about 1 GB into
-  // the system temp directory per launch and a force kill leaves that behind.
-  // Point it at a T3-owned directory so the driver can reclaim the space.
-  const tempDirectory = runtimeTempDirectory ?? profile.tempDirectory;
   return {
     ...environment,
     ...credential,
@@ -234,9 +222,6 @@ function antigravityEnvironment(
     BROWSER: profile.browserCommand,
     PYTHONUNBUFFERED: "1",
     ELECTRON_RUN_AS_NODE: "1",
-    ...(profile.platform === "win32"
-      ? { TEMP: tempDirectory, TMP: tempDirectory }
-      : { TMPDIR: tempDirectory }),
   };
 }
 
@@ -326,13 +311,11 @@ export const prepareAntigravityProfile = Effect.fn("prepareAntigravityProfile")(
 
   const geminiHome = path.resolve(input.profileDirectory);
   const acpDirectory = path.join(geminiHome, "antigravity-acp");
-  const tempDirectory = resolveAntigravityRuntimeTempDirectory(geminiHome);
   const profile: AntigravityProfile = {
     platform,
     geminiHome,
     acpDirectory,
     tokenPath: path.join(acpDirectory, "acp_token.json"),
-    tempDirectory,
     browserCommand,
   };
   const environment = antigravityEnvironment(profile, input.baseEnv ?? process.env, auth);
@@ -375,7 +358,7 @@ export const prepareAntigravityProfile = Effect.fn("prepareAntigravityProfile")(
     ),
   );
 
-  for (const directory of [geminiHome, acpDirectory, tempDirectory]) {
+  for (const directory of [geminiHome, acpDirectory]) {
     yield* fs
       .makeDirectory(directory, { recursive: true, mode: 0o700 })
       .pipe(
@@ -417,8 +400,6 @@ export function buildAntigravityAcpSpawnInput(input: {
   readonly cwd: string;
   readonly baseEnv?: NodeJS.ProcessEnv;
   readonly auth?: AntigravityAuthConfig;
-  /** Per-process temp directory. Defaults to the profile's shared temp directory. */
-  readonly runtimeTempDirectory?: string;
 }): AcpSpawnInput {
   return {
     command: input.installation.executablePath,
@@ -429,7 +410,6 @@ export function buildAntigravityAcpSpawnInput(input: {
         input.profile,
         input.baseEnv ?? process.env,
         input.auth ?? ANTIGRAVITY_PERSONAL_AUTH,
-        input.runtimeTempDirectory,
       ),
       ANTIGRAVITY_HARNESS_PATH: input.installation.harnessPath,
     },

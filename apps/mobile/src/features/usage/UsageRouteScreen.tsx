@@ -1,5 +1,5 @@
 import { EnvironmentId, USAGE_CONTRACT_VERSION } from "@t3tools/contracts";
-import { type RouteProp, useIsFocused, useNavigation, useRoute } from "@react-navigation/native";
+import { type RouteProp, useNavigation, useRoute } from "@react-navigation/native";
 import {
   isCompatibleUsageContractVersion,
   isModelCostUnknown,
@@ -95,8 +95,7 @@ export function UsageRouteScreen() {
     window,
     selectedEnvironmentIds,
   );
-  const isFocused = useIsFocused();
-  const limits = useRefreshLimits(selectedEnvironmentIds, isFocused && tab === "limits");
+  const limits = useRefreshLimits(selectedEnvironmentIds);
 
   const days = useMemo(
     () => enumerateDays(window.sinceDay, window.untilDay),
