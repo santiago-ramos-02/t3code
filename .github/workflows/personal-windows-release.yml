@@ -50,7 +50,9 @@ jobs:
 
           if ! git merge-base --is-ancestor upstream/main HEAD; then
             git switch --detach upstream/main
-            git restore --source="$fork_sha" --staged --worktree -- .github/workflows
+            git restore --source="$fork_sha" --staged --worktree -- \
+              .github/workflows/personal-windows-release.yml \
+              .github/workflows/personal-stable-windows-release.yml
             candidate_tree="$(git write-tree)"
             git config user.name "personal-update-bot"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

@@ -78,7 +78,9 @@ jobs:
 
           fork_sha="$(git rev-parse HEAD)"
           git switch --detach "refs/tags/upstream-${upstream_tag}^{commit}"
-          git restore --source="$fork_sha" --staged --worktree -- .github/workflows
+          git restore --source="$fork_sha" --staged --worktree -- \
+            .github/workflows/personal-windows-release.yml \
+            .github/workflows/personal-stable-windows-release.yml
 
           git config user.name "personal-release-bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
