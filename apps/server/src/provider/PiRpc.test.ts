@@ -431,6 +431,31 @@ describe("Pi RPC request routing", () => {
     }),
   );
 
+  it.effect("launches resumed RPC sessions by full id without a host path", () =>
+    Effect.gen(function* () {
+      let spawnedCommand: ChildProcess.Command | undefined;
+      const sessionId = "0195d9c0-1234-7000-8000-000000000001";
+
+      yield* Effect.scoped(
+        makePiRpc({ binaryPath: "pi", cwd: "/workspace", sessionId }).pipe(
+          Effect.provideService(
+            ChildProcessSpawner.ChildProcessSpawner,
+            makeSpawner(fakeProcessHandle(), (command) => {
+              spawnedCommand = command;
+            }),
+          ),
+          Effect.provideService(HostProcessPlatform, "linux"),
+        ),
+      );
+
+      expect(spawnedCommand?._tag).toBe("StandardCommand");
+      if (spawnedCommand?._tag === "StandardCommand") {
+        expect(spawnedCommand.args).toEqual(["--mode", "rpc", "--session", sessionId]);
+        expect(spawnedCommand.options.cwd).toBe("/workspace");
+      }
+    }),
+  );
+
   it.effect("uses scoped process-tree teardown settings", () =>
     Effect.gen(function* () {
       const kills: Array<ChildProcess.KillOptions | undefined> = [];

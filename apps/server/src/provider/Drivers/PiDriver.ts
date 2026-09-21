@@ -16,6 +16,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
+import * as Path from "effect/Path";
 import * as PubSub from "effect/PubSub";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
@@ -105,6 +106,7 @@ const MAINTENANCE_CAPABILITIES = makeManualOnlyProviderMaintenanceCapabilities({
 export type PiDriverEnv =
   | ChildProcessSpawner.ChildProcessSpawner
   | FileSystem.FileSystem
+  | Path.Path
   | ServerConfig.ServerConfig;
 
 type PiModel = typeof PiModelSchema.Type;
@@ -257,6 +259,7 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
     Effect.gen(function* () {
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
       const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
       const serverConfig = yield* ServerConfig.ServerConfig;
       const hostPlatform = yield* HostProcessPlatform;
       const processEnv = mergeProviderInstanceEnvironment(environment);
@@ -509,6 +512,7 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
         binaryPath: effectiveConfig.binaryPath,
         environment: processEnv,
         attachmentsDir: serverConfig.attachmentsDir,
+        normalizeWorkspaceCwd: path.resolve,
         rpcFactory: (rpcOptions) =>
           makePiRpc(rpcOptions).pipe(
             Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
