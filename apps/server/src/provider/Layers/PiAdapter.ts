@@ -5,6 +5,7 @@ import {
   RuntimeItemId,
   RuntimeRequestId,
   TurnId,
+  TrimmedNonEmptyString,
   isProviderSendTurnSupportedImageMimeType,
   type ProviderInstanceId,
   type ProviderRuntimeEvent,
@@ -46,7 +47,7 @@ import {
   type PiRpcOptions,
   type PiThinkingLevel,
 } from "../PiRpc.ts";
-import type { ProviderAdapterShape } from "../Services/ProviderAdapter.ts";
+import type { ProviderAdapterShape, ProviderThreadSnapshot } from "../Services/ProviderAdapter.ts";
 
 const PROVIDER = ProviderDriverKind.make("pi");
 const MAX_TOOL_DETAIL_CHARS = 2_048;
@@ -74,6 +75,280 @@ const PiModelIdentitySchema = Schema.Struct({
   id: Schema.String,
   provider: Schema.String,
 });
+const PiSessionIdSchema = TrimmedNonEmptyString.check(
+  Schema.isPattern(/^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/),
+);
+const PiResumeCursorSchema = Schema.Struct({
+  version: Schema.Literal(2),
+  sessionId: PiSessionIdSchema,
+  providerInstanceId: TrimmedNonEmptyString,
+  cwd: TrimmedNonEmptyString,
+});
+
+type PiJsonValue =
+  | null
+  | boolean
+  | number
+  | string
+  | ReadonlyArray<PiJsonValue>
+  | { readonly [key: string]: PiJsonValue };
+const PiJsonValueSchema: Schema.Codec<PiJsonValue> = Schema.suspend((): Schema.Codec<PiJsonValue> =>
+  Schema.Union([
+    Schema.Null,
+    Schema.Boolean,
+    Schema.Finite,
+    Schema.String,
+    Schema.Array(PiJsonValueSchema),
+    Schema.Record(Schema.String, PiJsonValueSchema),
+  ]),
+);
+const PiJsonObjectSchema = Schema.Record(Schema.String, PiJsonValueSchema);
+const PiTextContentSchema = Schema.Struct({
+  type: Schema.Literal("text"),
+  text: Schema.String,
+  textSignature: Schema.optionalKey(Schema.String),
+});
+const PiImageContentSchema = Schema.Struct({
+  type: Schema.Literal("image"),
+  data: Schema.String,
+  mimeType: Schema.String,
+});
+const PiThinkingContentSchema = Schema.Struct({
+  type: Schema.Literal("thinking"),
+  thinking: Schema.String,
+  thinkingSignature: Schema.optionalKey(Schema.String),
+  redacted: Schema.optionalKey(Schema.Boolean),
+});
+const PiToolCallSchema = Schema.Struct({
+  type: Schema.Literal("toolCall"),
+  id: Schema.String,
+  name: Schema.String,
+  arguments: PiJsonObjectSchema,
+  thoughtSignature: Schema.optionalKey(Schema.String),
+  namespace: Schema.optionalKey(Schema.String),
+});
+const PiUserContentSchema = Schema.Union([
+  Schema.String,
+  Schema.Array(Schema.Union([PiTextContentSchema, PiImageContentSchema])),
+]);
+const PiUsageSchema = Schema.Struct({
+  input: FiniteNonNegative,
+  output: FiniteNonNegative,
+  cacheRead: FiniteNonNegative,
+  cacheWrite: FiniteNonNegative,
+  cacheWrite1h: Schema.optionalKey(FiniteNonNegative),
+  reasoning: Schema.optionalKey(FiniteNonNegative),
+  totalTokens: FiniteNonNegative,
+  cost: Schema.Struct({
+    input: Schema.Finite,
+    output: Schema.Finite,
+    cacheRead: Schema.Finite,
+    cacheWrite: Schema.Finite,
+    total: Schema.Finite,
+  }),
+});
+const PiDiagnosticSchema = Schema.Struct({
+  type: Schema.String,
+  timestamp: Schema.Finite,
+  error: Schema.optionalKey(
+    Schema.Struct({
+      name: Schema.optionalKey(Schema.String),
+      message: Schema.String,
+      stack: Schema.optionalKey(Schema.String),
+      code: Schema.optionalKey(Schema.Union([Schema.String, Schema.Finite])),
+    }),
+  ),
+  details: Schema.optionalKey(PiJsonObjectSchema),
+});
+const PiDeferredHandleSchema = Schema.Struct({
+  provider: Schema.String,
+  modelId: Schema.String,
+  api: Schema.String,
+  id: Schema.String,
+  expiresAt: Schema.optionalKey(Schema.Finite),
+  pollAfterMs: Schema.optionalKey(Schema.Finite),
+  data: Schema.optionalKey(PiJsonValueSchema),
+});
+const PiToolSchema = Schema.Struct({
+  name: Schema.String,
+  description: Schema.String,
+  parameters: PiJsonObjectSchema,
+  constrainedSampling: Schema.optionalKey(
+    Schema.Union([
+      Schema.Literal(false),
+      Schema.Struct({
+        type: Schema.Literal("json_schema"),
+        strict: Schema.Literals(["prefer", "require"]),
+      }),
+      Schema.Struct({
+        type: Schema.Literal("grammar"),
+        variants: Schema.Record(Schema.String, Schema.String),
+      }),
+    ]),
+  ),
+});
+const PiSystemMessageSchema = Schema.Struct({
+  role: Schema.Literal("system"),
+  content: Schema.Union([Schema.String, Schema.Array(PiTextContentSchema)]),
+  sections: Schema.optionalKey(Schema.Record(Schema.String, Schema.NullOr(Schema.String))),
+  toolsAdded: Schema.optionalKey(Schema.Array(PiToolSchema)),
+  toolsRemoved: Schema.optionalKey(Schema.Array(Schema.Struct({ name: Schema.String }))),
+  timestamp: Schema.Finite,
+});
+const PiHistoryMessageSchema = Schema.Union([
+  PiSystemMessageSchema,
+  Schema.Struct({
+    role: Schema.Literal("user"),
+    content: PiUserContentSchema,
+    timestamp: Schema.Finite,
+  }),
+  Schema.Struct({
+    role: Schema.Literal("assistant"),
+    content: Schema.Array(
+      Schema.Union([PiTextContentSchema, PiThinkingContentSchema, PiToolCallSchema]),
+    ),
+    api: Schema.String,
+    provider: Schema.String,
+    model: Schema.String,
+    responseModel: Schema.optionalKey(Schema.String),
+    responseId: Schema.optionalKey(Schema.String),
+    providerThinkingLevel: Schema.optionalKey(Schema.String),
+    diagnostics: Schema.optionalKey(Schema.Array(PiDiagnosticSchema)),
+    usage: PiUsageSchema,
+    stopReason: Schema.Literals([
+      "pending",
+      "stop",
+      "length",
+      "toolUse",
+      "error",
+      "aborted",
+      "deferred",
+    ]),
+    deferred: Schema.optionalKey(PiDeferredHandleSchema),
+    errorMessage: Schema.optionalKey(Schema.String),
+    rawStopReason: Schema.optionalKey(Schema.String),
+    endTurn: Schema.optionalKey(Schema.Boolean),
+    timestamp: Schema.Finite,
+  }),
+  Schema.Struct({
+    role: Schema.Literal("toolResult"),
+    toolCallId: Schema.String,
+    toolName: Schema.String,
+    content: Schema.Array(Schema.Union([PiTextContentSchema, PiImageContentSchema])),
+    details: Schema.optionalKey(Schema.Unknown),
+    usage: Schema.optionalKey(PiUsageSchema),
+    isError: Schema.Boolean,
+    timestamp: Schema.Finite,
+  }),
+  Schema.Struct({
+    role: Schema.Literal("bashExecution"),
+    command: Schema.String,
+    output: Schema.String,
+    exitCode: Schema.optionalKey(Schema.Finite),
+    cancelled: Schema.Boolean,
+    truncated: Schema.Boolean,
+    fullOutputPath: Schema.optionalKey(Schema.String),
+    timestamp: Schema.Finite,
+    excludeFromContext: Schema.optionalKey(Schema.Boolean),
+  }),
+  Schema.Struct({
+    role: Schema.Literal("custom"),
+    customType: Schema.String,
+    content: PiUserContentSchema,
+    display: Schema.Boolean,
+    details: Schema.optionalKey(Schema.Unknown),
+    timestamp: Schema.Finite,
+  }),
+  Schema.Struct({
+    role: Schema.Literal("branchSummary"),
+    summary: Schema.String,
+    fromId: Schema.NullOr(Schema.String),
+    timestamp: Schema.Finite,
+  }),
+  Schema.Struct({
+    role: Schema.Literal("compactionSummary"),
+    summary: Schema.String,
+    tokensBefore: FiniteNonNegative,
+    timestamp: Schema.Finite,
+  }),
+]);
+const PiSessionEntryBase = {
+  id: TrimmedNonEmptyString,
+  parentId: Schema.NullOr(TrimmedNonEmptyString),
+  timestamp: Schema.String,
+} as const;
+const PiSessionEntrySchema = Schema.Union([
+  Schema.Struct({
+    ...PiSessionEntryBase,
+    type: Schema.Literal("message"),
+    message: PiHistoryMessageSchema,
+  }),
+  Schema.Struct({
+    ...PiSessionEntryBase,
+    type: Schema.Literal("thinking_level_change"),
+    thinkingLevel: Schema.String,
+  }),
+  Schema.Struct({
+    ...PiSessionEntryBase,
+    type: Schema.Literal("model_change"),
+    provider: Schema.String,
+    modelId: Schema.String,
+  }),
+  Schema.Struct({
+    ...PiSessionEntryBase,
+    type: Schema.Literal("usage"),
+    kind: Schema.String,
+    provider: Schema.String,
+    model: Schema.String,
+    usage: PiUsageSchema,
+    note: Schema.optionalKey(Schema.String),
+  }),
+  Schema.Struct({
+    ...PiSessionEntryBase,
+    type: Schema.Literal("compaction"),
+    summary: Schema.String,
+    firstKeptEntryId: Schema.String,
+    tokensBefore: FiniteNonNegative,
+    details: Schema.optionalKey(Schema.Unknown),
+    usage: Schema.optionalKey(PiUsageSchema),
+    fromHook: Schema.optionalKey(Schema.Boolean),
+    systemMessage: Schema.optionalKey(PiSystemMessageSchema),
+  }),
+  Schema.Struct({
+    ...PiSessionEntryBase,
+    type: Schema.Literal("branch_summary"),
+    fromId: Schema.String,
+    summary: Schema.String,
+    details: Schema.optionalKey(Schema.Unknown),
+    usage: Schema.optionalKey(PiUsageSchema),
+    fromHook: Schema.optionalKey(Schema.Boolean),
+  }),
+  Schema.Struct({
+    ...PiSessionEntryBase,
+    type: Schema.Literal("custom"),
+    customType: Schema.String,
+    data: Schema.optionalKey(Schema.Unknown),
+  }),
+  Schema.Struct({
+    ...PiSessionEntryBase,
+    type: Schema.Literal("label"),
+    targetId: Schema.String,
+    label: Schema.optionalKey(Schema.String),
+  }),
+  Schema.Struct({
+    ...PiSessionEntryBase,
+    type: Schema.Literal("session_info"),
+    name: Schema.optionalKey(Schema.String),
+  }),
+  Schema.Struct({
+    ...PiSessionEntryBase,
+    type: Schema.Literal("custom_message"),
+    customType: Schema.String,
+    content: PiUserContentSchema,
+    details: Schema.optionalKey(Schema.Unknown),
+    display: Schema.Boolean,
+  }),
+]);
 const StateResponseSchema = Schema.Struct({
   data: Schema.Struct({
     model: Schema.optionalKey(Schema.NullOr(PiModelIdentitySchema)),
@@ -81,7 +356,7 @@ const StateResponseSchema = Schema.Struct({
     isStreaming: Schema.Boolean,
     isCompacting: Schema.Boolean,
     sessionFile: Schema.optionalKey(Schema.String),
-    sessionId: Schema.String,
+    sessionId: PiSessionIdSchema,
   }),
 });
 const AssistantMessageSchema = Schema.Struct({
@@ -244,7 +519,22 @@ const NativeEventSchema = Schema.Union([
   IgnoredAgentEndSchema,
   CompactionEventSchema,
 ]);
+const ForkResponseSchema = Schema.Struct({
+  data: Schema.Struct({
+    text: Schema.String,
+    cancelled: Schema.Boolean,
+  }),
+});
+const EntriesResponseSchema = Schema.Struct({
+  data: Schema.Struct({
+    entries: Schema.Array(PiSessionEntrySchema),
+    leafId: Schema.NullOr(Schema.String),
+  }),
+});
+const decodeResumeCursor = Schema.decodeUnknownEffect(PiResumeCursorSchema);
 const decodeStateResponse = Schema.decodeUnknownEffect(StateResponseSchema);
+const decodeForkResponse = Schema.decodeUnknownEffect(ForkResponseSchema);
+const decodeEntriesResponse = Schema.decodeUnknownEffect(EntriesResponseSchema);
 const decodeNativeEvent = Schema.decodeUnknownOption(NativeEventSchema);
 const decodeAnswer = Schema.decodeUnknownOption(
   Schema.Union([Schema.String, Schema.Array(Schema.String)]),
@@ -263,6 +553,7 @@ export interface PiAdapterOptions {
   readonly binaryPath: string;
   readonly environment?: NodeJS.ProcessEnv;
   readonly attachmentsDir: string;
+  readonly normalizeWorkspaceCwd: (cwd: string) => string;
   readonly rpcFactory: PiAdapterRpcFactory;
   readonly readFile: (path: string) => Effect.Effect<Uint8Array, PiAdapterAttachmentReadError>;
   readonly interruptSettlementTimeout?: Duration.Input;
@@ -270,6 +561,8 @@ export interface PiAdapterOptions {
 
 type Adapter = ProviderAdapterShape<ProviderAdapterError>;
 type PiUsage = typeof UsageSchema.Type;
+type PiResumeCursor = typeof PiResumeCursorSchema.Type;
+type PiSessionEntry = typeof PiSessionEntrySchema.Type;
 type NativeEvent = typeof NativeEventSchema.Type;
 type BlockingExtensionUi = typeof BlockingExtensionUiSchema.Type;
 
@@ -332,6 +625,7 @@ interface SessionContext {
   initializing: boolean;
   turnStarting: boolean;
   compacting: boolean;
+  rollbacking: boolean;
   stopped: boolean;
   explicitScopeClose: boolean;
 }
@@ -467,6 +761,221 @@ function mapRequestError(method: string, cause: unknown): ProviderAdapterRequest
     cause,
   });
 }
+
+function invalidResponse(
+  method: string,
+  detail: string,
+  _cause?: unknown,
+): ProviderAdapterRequestError {
+  return new ProviderAdapterRequestError({
+    provider: PROVIDER,
+    method,
+    detail,
+  });
+}
+
+function normalizeHistoryMessage(
+  message: typeof PiHistoryMessageSchema.Type,
+): Readonly<Record<string, unknown>> {
+  switch (message.role) {
+    case "system":
+    case "user":
+    case "assistant":
+      return { role: message.role, content: message.content };
+    case "toolResult":
+      return {
+        role: message.role,
+        toolCallId: message.toolCallId,
+        toolName: message.toolName,
+        content: message.content,
+        isError: message.isError,
+      };
+    case "bashExecution":
+      return {
+        role: message.role,
+        command: message.command,
+        output: message.output,
+        ...(message.exitCode === undefined ? {} : { exitCode: message.exitCode }),
+        cancelled: message.cancelled,
+        truncated: message.truncated,
+      };
+    case "custom":
+      return {
+        role: message.role,
+        customType: message.customType,
+        content: message.content,
+        display: message.display,
+      };
+    case "branchSummary":
+      return {
+        role: message.role,
+        summary: message.summary,
+        fromId: message.fromId,
+      };
+    case "compactionSummary":
+      return {
+        role: message.role,
+        summary: message.summary,
+        tokensBefore: message.tokensBefore,
+      };
+  }
+}
+
+function normalizeHistoryItem(entry: PiSessionEntry): Readonly<Record<string, unknown>> {
+  const base = {
+    id: entry.id,
+    parentId: entry.parentId,
+    type: entry.type,
+    timestamp: entry.timestamp,
+  } as const;
+  switch (entry.type) {
+    case "message":
+      return { ...base, ...normalizeHistoryMessage(entry.message) };
+    case "thinking_level_change":
+      return { ...base, thinkingLevel: entry.thinkingLevel };
+    case "model_change":
+      return { ...base, provider: entry.provider, modelId: entry.modelId };
+    case "usage":
+      return {
+        ...base,
+        kind: entry.kind,
+        provider: entry.provider,
+        model: entry.model,
+        usage: entry.usage,
+        ...(entry.note === undefined ? {} : { note: entry.note }),
+      };
+    case "compaction":
+      return {
+        ...base,
+        summary: entry.summary,
+        firstKeptEntryId: entry.firstKeptEntryId,
+        tokensBefore: entry.tokensBefore,
+        ...(entry.fromHook === undefined ? {} : { fromHook: entry.fromHook }),
+      };
+    case "branch_summary":
+      return {
+        ...base,
+        fromId: entry.fromId,
+        summary: entry.summary,
+        ...(entry.fromHook === undefined ? {} : { fromHook: entry.fromHook }),
+      };
+    case "custom":
+      return {
+        ...base,
+        customType: entry.customType,
+      };
+    case "label":
+      return {
+        ...base,
+        targetId: entry.targetId,
+        ...(entry.label === undefined ? {} : { label: entry.label }),
+      };
+    case "session_info":
+      return { ...base, ...(entry.name === undefined ? {} : { name: entry.name }) };
+    case "custom_message":
+      return {
+        ...base,
+        customType: entry.customType,
+        content: entry.content,
+        display: entry.display,
+      };
+  }
+}
+
+const historyFromEntriesResponse = Effect.fnUntraced(function* (
+  response: unknown,
+  threadId: ThreadId,
+): Effect.fn.Return<
+  {
+    readonly snapshot: ProviderThreadSnapshot;
+    readonly userEntryIds: ReadonlyArray<string>;
+  },
+  ProviderAdapterRequestError
+> {
+  const decoded = yield* decodeEntriesResponse(response).pipe(
+    Effect.mapError((cause) =>
+      invalidResponse("get_entries", "Pi returned malformed session entries.", cause),
+    ),
+  );
+  const { entries, leafId } = decoded.data;
+  if (entries.length === 0) {
+    if (leafId !== null) {
+      return yield* invalidResponse(
+        "get_entries",
+        "Pi returned a history leaf without session entries.",
+      );
+    }
+    return { snapshot: { threadId, turns: [] }, userEntryIds: [] };
+  }
+  if (leafId === null) {
+    return yield* invalidResponse(
+      "get_entries",
+      "Pi returned session entries without an active history leaf.",
+    );
+  }
+
+  const byId = new Map<string, PiSessionEntry>();
+  for (const entry of entries) {
+    if (byId.has(entry.id)) {
+      return yield* invalidResponse("get_entries", "Pi returned duplicate session entry IDs.");
+    }
+    byId.set(entry.id, entry);
+  }
+
+  const reversed: Array<PiSessionEntry> = [];
+  const visited = new Set<string>();
+  let nextId: string | null = leafId;
+  while (nextId !== null) {
+    if (visited.has(nextId)) {
+      return yield* invalidResponse("get_entries", "Pi returned a cyclic session entry graph.");
+    }
+    visited.add(nextId);
+    const entry = byId.get(nextId);
+    if (entry === undefined) {
+      return yield* invalidResponse(
+        "get_entries",
+        "Pi returned an active history branch with a missing parent entry.",
+      );
+    }
+    reversed.push(entry);
+    nextId = entry.parentId;
+  }
+  const activeBranch = reversed.reverse();
+  const turns: Array<{ id: TurnId; items: Array<unknown> }> = [];
+  const userEntryIds: Array<string> = [];
+  for (const entry of activeBranch) {
+    const isUserEntry = entry.type === "message" && entry.message?.role === "user";
+    if (isUserEntry) {
+      userEntryIds.push(entry.id);
+      turns.push({ id: TurnId.make(entry.id), items: [normalizeHistoryItem(entry)] });
+      continue;
+    }
+    const turn = turns.at(-1);
+    if (turn !== undefined) turn.items.push(normalizeHistoryItem(entry));
+  }
+  return {
+    snapshot: { threadId, turns },
+    userEntryIds,
+  };
+});
+
+const makeResumeCursor = Effect.fnUntraced(function* (
+  sessionId: string,
+  providerInstanceId: ProviderInstanceId,
+  cwd: string,
+  method: string,
+): Effect.fn.Return<PiResumeCursor, ProviderAdapterRequestError> {
+  return yield* decodeResumeCursor({
+    version: 2,
+    sessionId,
+    providerInstanceId,
+    cwd,
+  }).pipe(
+    Effect.mapError((cause) =>
+      invalidResponse(method, "Pi returned incomplete persisted session identity.", cause),
+    ),
+  );
+});
 
 export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
   options: PiAdapterOptions,
@@ -1029,28 +1538,59 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
 
   const startSession: Adapter["startSession"] = (input) =>
     Effect.gen(function* () {
+      if (input.cwd === undefined) {
+        return yield* new ProviderAdapterValidationError({
+          provider: PROVIDER,
+          operation: "startSession",
+          issue: "Pi requires a workspace directory.",
+        });
+      }
+      const cwd = options.normalizeWorkspaceCwd(input.cwd);
+      const requestedCursor =
+        input.resumeCursor === undefined
+          ? undefined
+          : yield* decodeResumeCursor(input.resumeCursor).pipe(
+              Effect.mapError(
+                () =>
+                  new ProviderAdapterValidationError({
+                    provider: PROVIDER,
+                    operation: "startSession",
+                    issue: "Pi requires a valid versioned resume cursor.",
+                  }),
+              ),
+            );
+      if (requestedCursor?.providerInstanceId !== undefined) {
+        if (requestedCursor.providerInstanceId !== options.instanceId) {
+          return yield* new ProviderAdapterValidationError({
+            provider: PROVIDER,
+            operation: "startSession",
+            issue: "Pi resume cursors cannot be replayed across provider instances.",
+          });
+        }
+        if (requestedCursor.cwd !== cwd) {
+          return yield* new ProviderAdapterValidationError({
+            provider: PROVIDER,
+            operation: "startSession",
+            issue: "Pi resume cursors cannot be replayed across workspaces.",
+          });
+        }
+      }
       const startup = yield* operationLock.withPermits(1)(
         Effect.gen(function* () {
-          if (input.cwd === undefined) {
-            return yield* new ProviderAdapterValidationError({
-              provider: PROVIDER,
-              operation: "startSession",
-              issue: "Pi requires a workspace directory.",
-            });
-          }
-          if (input.resumeCursor !== undefined) {
-            return yield* new ProviderAdapterValidationError({
-              provider: PROVIDER,
-              operation: "startSession",
-              issue: "Pi session resume is reserved for PI-003b.",
-            });
-          }
           const previous = sessions.get(input.threadId);
+          if (previous?.initializing || previous?.rollbacking) {
+            return yield* new ProviderAdapterValidationError({
+              provider: PROVIDER,
+              operation: "startSession",
+              issue: "Pi cannot replace a session while a session identity change is running.",
+            });
+          }
           if (previous) yield* stopContext(previous);
           const sessionScope = yield* Scope.make("sequential");
           const rpc = yield* rpcFactory({
             binaryPath: options.binaryPath,
-            cwd: input.cwd,
+            cwd,
+            ...(requestedCursor === undefined ? {} : { sessionId: requestedCursor.sessionId }),
             ...(options.environment === undefined ? {} : { environment: options.environment }),
           }).pipe(
             Effect.provideService(Scope.Scope, sessionScope),
@@ -1070,33 +1610,36 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
             Effect.onError(() => Scope.close(sessionScope, Exit.void)),
           );
           const { data: state } = yield* decodeStateResponse(stateResponse).pipe(
-            Effect.mapError(
-              (cause) =>
-                new ProviderAdapterRequestError({
-                  provider: PROVIDER,
-                  method: "get_state",
-                  detail: "Pi returned an invalid session state.",
-                  cause,
-                }),
+            Effect.mapError((cause) =>
+              invalidResponse("get_state", "Pi returned an invalid session state.", cause),
             ),
             Effect.onError(() => Scope.close(sessionScope, Exit.void)),
           );
+          if (requestedCursor !== undefined && state.sessionId !== requestedCursor.sessionId) {
+            yield* Scope.close(sessionScope, Exit.void);
+            return yield* invalidResponse(
+              "get_state",
+              "Pi resumed a different session than the requested cursor.",
+            );
+          }
+          const resumeCursor = yield* makeResumeCursor(
+            state.sessionId,
+            options.instanceId,
+            cwd,
+            "get_state",
+          ).pipe(Effect.onError(() => Scope.close(sessionScope, Exit.void)));
           const initialModel =
             state.model === null || state.model === undefined
               ? "pi/unselected"
               : `${state.model.provider}/${state.model.id}`;
           const initialThinking = Option.getOrUndefined(decodeThinkingLevel(state.thinkingLevel));
           const now = DateTime.formatIso(yield* DateTime.now);
-          const resumeCursor = {
-            sessionId: state.sessionId,
-            ...(state.sessionFile === undefined ? {} : { sessionFile: state.sessionFile }),
-          };
           const session: ProviderSession = {
             provider: PROVIDER,
             providerInstanceId: options.instanceId,
             status: "ready",
             runtimeMode: input.runtimeMode,
-            cwd: input.cwd,
+            cwd,
             model: initialModel,
             threadId: input.threadId,
             resumeCursor,
@@ -1116,20 +1659,45 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
             initializing: true,
             turnStarting: false,
             compacting: false,
+            rollbacking: false,
             stopped: false,
             explicitScopeClose: false,
           };
-          const selection = yield* prepareModelSelection(context, input.modelSelection).pipe(
-            Effect.onError(() => Scope.close(sessionScope, Exit.void)),
-          );
           sessions.set(input.threadId, context);
           yield* startEventProcessing(context);
-          return { context, selection, resumeCursor, providerThreadId: state.sessionId };
+          return { context, state, resumeCursor };
         }),
       );
 
       return yield* Effect.gen(function* () {
-        yield* runModelSelection(startup.context, startup.selection);
+        const resumedModel =
+          startup.state.model === null || startup.state.model === undefined
+            ? "pi/unselected"
+            : `${startup.state.model.provider}/${startup.state.model.id}`;
+        yield* operationLock.withPermits(1)(
+          Effect.gen(function* () {
+            if (
+              startup.context.stopped ||
+              sessions.get(startup.context.threadId) !== startup.context
+            ) {
+              return yield* new ProviderAdapterSessionNotFoundError({
+                provider: PROVIDER,
+                threadId: startup.context.threadId,
+              });
+            }
+            startup.context.model = resumedModel;
+            startup.context.thinkingLevel = Option.getOrUndefined(
+              decodeThinkingLevel(startup.state.thinkingLevel),
+            );
+            startup.context.session = {
+              ...startup.context.session,
+              model: resumedModel,
+              resumeCursor: startup.resumeCursor,
+            };
+          }),
+        );
+        const selection = yield* prepareModelSelection(startup.context, input.modelSelection);
+        yield* runModelSelection(startup.context, selection);
         return yield* operationLock.withPermits(1)(
           Effect.gen(function* () {
             if (
@@ -1141,17 +1709,24 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
                 threadId: startup.context.threadId,
               });
             }
-            yield* commitModelSelection(startup.context, startup.selection);
+            yield* commitModelSelection(startup.context, selection);
             startup.context.initializing = false;
             yield* emit({
               ...(yield* eventBase(startup.context)),
               type: "session.started",
-              payload: { resume: startup.resumeCursor },
+              payload: {
+                resume: {
+                  version: startup.resumeCursor.version,
+                  sessionId: startup.resumeCursor.sessionId,
+                  providerInstanceId: startup.resumeCursor.providerInstanceId,
+                  cwd: startup.resumeCursor.cwd,
+                },
+              },
             });
             yield* emit({
               ...(yield* eventBase(startup.context)),
               type: "thread.started",
-              payload: { providerThreadId: startup.providerThreadId },
+              payload: { providerThreadId: startup.resumeCursor.sessionId },
             });
             yield* emit({
               ...(yield* eventBase(startup.context)),
@@ -1221,7 +1796,8 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
             context.initializing ||
             context.turnStarting ||
             context.activeTurn !== undefined ||
-            context.compacting
+            context.compacting ||
+            context.rollbacking
           ) {
             return yield* new ProviderAdapterValidationError({
               provider: PROVIDER,
@@ -1230,7 +1806,9 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
                 ? "Pi session startup is still in progress."
                 : context.compacting
                   ? "Pi cannot start a turn while context compaction is running."
-                  : "Pi already has an active turn for this thread.",
+                  : context.rollbacking
+                    ? "Pi cannot start a turn while rollback is running."
+                    : "Pi already has an active turn for this thread.",
             });
           }
           if ((input.input?.trim() ?? "").length === 0 && images.length === 0) {
@@ -1433,7 +2011,8 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
           context.initializing ||
           context.turnStarting ||
           context.activeTurn !== undefined ||
-          context.compacting
+          context.compacting ||
+          context.rollbacking
         ) {
           return yield* new ProviderAdapterValidationError({
             provider: PROVIDER,
@@ -1679,21 +2258,259 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
       }),
     );
 
+  const readThread: Adapter["readThread"] = (threadId) =>
+    Effect.gen(function* () {
+      const context = yield* operationLock.withPermits(1)(
+        Effect.gen(function* () {
+          const current = yield* requireSession(threadId);
+          if (current.initializing || current.rollbacking) {
+            return yield* new ProviderAdapterValidationError({
+              provider: PROVIDER,
+              operation: "readThread",
+              issue: "Pi cannot read history while session identity is changing.",
+            });
+          }
+          return current;
+        }),
+      );
+      const response = yield* context.rpc
+        .request({ type: "get_entries" })
+        .pipe(Effect.mapError((cause) => mapRequestError("get_entries", cause)));
+      return (yield* historyFromEntriesResponse(response, threadId)).snapshot;
+    });
+
+  const closeReboundSession = Effect.fnUntraced(function* (
+    context: SessionContext,
+    reason: string,
+  ) {
+    const shouldClose = yield* operationLock.withPermits(1)(
+      Effect.gen(function* () {
+        if (context.stopped || sessions.get(context.threadId) !== context) return false;
+        context.stopped = true;
+        context.rollbacking = false;
+        context.explicitScopeClose = true;
+        sessions.delete(context.threadId);
+        yield* settlePendingRequests(context);
+        context.session = {
+          ...context.session,
+          status: "error",
+          updatedAt: DateTime.formatIso(yield* DateTime.now),
+          lastError: "Pi rollback could not verify the replacement session.",
+        };
+        yield* emit({
+          ...(yield* eventBase(context)),
+          type: "session.state.changed",
+          payload: { state: "error", reason },
+        });
+        yield* emit({
+          ...(yield* eventBase(context)),
+          type: "session.exited",
+          payload: { reason, recoverable: true, exitKind: "error" },
+        });
+        return true;
+      }),
+    );
+    if (shouldClose) yield* Scope.close(context.scope, Exit.void).pipe(Effect.ignore);
+  });
+
+  const rollbackThread: Adapter["rollbackThread"] = (threadId, numTurns) =>
+    Effect.gen(function* () {
+      if (!Number.isSafeInteger(numTurns) || numTurns <= 0) {
+        return yield* new ProviderAdapterValidationError({
+          provider: PROVIDER,
+          operation: "rollbackThread",
+          issue: "Pi rollback requires a positive whole number of turns.",
+        });
+      }
+      const admission = yield* operationLock.withPermits(1)(
+        Effect.gen(function* () {
+          const context = yield* requireSession(threadId);
+          if (
+            context.initializing ||
+            context.turnStarting ||
+            context.activeTurn !== undefined ||
+            context.compacting ||
+            context.rollbacking ||
+            context.pendingApprovals.size > 0 ||
+            context.pendingUserInputs.size > 0
+          ) {
+            return yield* new ProviderAdapterValidationError({
+              provider: PROVIDER,
+              operation: "rollbackThread",
+              issue: "Pi rollback requires an idle session without pending requests.",
+            });
+          }
+          const cursor = yield* decodeResumeCursor(context.session.resumeCursor).pipe(
+            Effect.mapError(() =>
+              invalidResponse("fork", "The active Pi session has an invalid resume cursor."),
+            ),
+          );
+          context.rollbacking = true;
+          return { context, cursor };
+        }),
+      );
+      let forkStarted = false;
+      let forkSettledWithoutReplacement = false;
+
+      return yield* Effect.gen(function* () {
+        const entriesResponse = yield* admission.context.rpc
+          .request({ type: "get_entries" })
+          .pipe(Effect.mapError((cause) => mapRequestError("get_entries", cause)));
+        const history = yield* historyFromEntriesResponse(entriesResponse, threadId);
+        if (numTurns > history.userEntryIds.length) {
+          return yield* new ProviderAdapterValidationError({
+            provider: PROVIDER,
+            operation: "rollbackThread",
+            issue: "Pi cannot roll back more turns than exist on the active branch.",
+          });
+        }
+        const entryId = history.userEntryIds.at(-numTurns);
+        if (entryId === undefined) {
+          return yield* invalidResponse("fork", "Pi could not select a rollback entry.");
+        }
+
+        forkStarted = true;
+        const forkResponse = yield* admission.context.rpc.request({ type: "fork", entryId }).pipe(
+          Effect.mapError((cause) => mapRequestError("fork", cause)),
+          Effect.onError(() => closeReboundSession(admission.context, "rollback-fork-failed")),
+        );
+        const fork = yield* decodeForkResponse(forkResponse).pipe(
+          Effect.mapError((cause) =>
+            invalidResponse("fork", "Pi returned an invalid fork response.", cause),
+          ),
+          Effect.onError(() => closeReboundSession(admission.context, "rollback-fork-invalid")),
+        );
+        if (fork.data.cancelled) {
+          forkSettledWithoutReplacement = true;
+          return yield* invalidResponse("fork", "Pi cancelled the requested rollback.");
+        }
+
+        const stateResponse = yield* admission.context.rpc.request({ type: "get_state" }).pipe(
+          Effect.mapError((cause) => mapRequestError("get_state", cause)),
+          Effect.onError(() =>
+            closeReboundSession(admission.context, "rollback-state-verification-failed"),
+          ),
+        );
+        const { data: state } = yield* decodeStateResponse(stateResponse).pipe(
+          Effect.mapError((cause) =>
+            invalidResponse("get_state", "Pi returned invalid state after rollback.", cause),
+          ),
+          Effect.onError(() =>
+            closeReboundSession(admission.context, "rollback-state-verification-failed"),
+          ),
+        );
+        const resumeCursor = yield* makeResumeCursor(
+          state.sessionId,
+          options.instanceId,
+          admission.cursor.cwd,
+          "get_state",
+        ).pipe(
+          Effect.onError(() =>
+            closeReboundSession(admission.context, "rollback-state-verification-failed"),
+          ),
+        );
+        if (resumeCursor.sessionId === admission.cursor.sessionId) {
+          yield* closeReboundSession(admission.context, "rollback-identity-mismatch");
+          return yield* invalidResponse(
+            "fork",
+            "Pi did not replace the session identity during rollback.",
+          );
+        }
+        const postEntriesResponse = yield* admission.context.rpc
+          .request({ type: "get_entries" })
+          .pipe(
+            Effect.mapError((cause) => mapRequestError("get_entries", cause)),
+            Effect.onError(() =>
+              closeReboundSession(admission.context, "rollback-history-verification-failed"),
+            ),
+          );
+        const postHistory = yield* historyFromEntriesResponse(postEntriesResponse, threadId).pipe(
+          Effect.onError(() =>
+            closeReboundSession(admission.context, "rollback-history-verification-failed"),
+          ),
+        );
+        const expectedUserEntryIds = history.userEntryIds.slice(0, -numTurns);
+        if (
+          postHistory.userEntryIds.length !== expectedUserEntryIds.length ||
+          postHistory.userEntryIds.some(
+            (candidate, index) => candidate !== expectedUserEntryIds[index],
+          )
+        ) {
+          yield* closeReboundSession(admission.context, "rollback-history-mismatch");
+          return yield* invalidResponse(
+            "get_entries",
+            "Pi returned an unexpected active branch after rollback.",
+          );
+        }
+        const model =
+          state.model === null || state.model === undefined
+            ? "pi/unselected"
+            : `${state.model.provider}/${state.model.id}`;
+        return yield* operationLock.withPermits(1)(
+          Effect.gen(function* () {
+            if (
+              admission.context.stopped ||
+              sessions.get(threadId) !== admission.context ||
+              !admission.context.rollbacking
+            ) {
+              return yield* new ProviderAdapterSessionNotFoundError({
+                provider: PROVIDER,
+                threadId,
+              });
+            }
+            admission.context.model = model;
+            admission.context.thinkingLevel = Option.getOrUndefined(
+              decodeThinkingLevel(state.thinkingLevel),
+            );
+            admission.context.rollbacking = false;
+            admission.context.session = {
+              ...admission.context.session,
+              model,
+              status: "ready",
+              resumeCursor,
+              activeTurnId: undefined,
+              updatedAt: DateTime.formatIso(yield* DateTime.now),
+              lastError: undefined,
+            };
+            return postHistory.snapshot;
+          }),
+        );
+      }).pipe(
+        Effect.onInterrupt(() =>
+          forkStarted && !forkSettledWithoutReplacement
+            ? closeReboundSession(admission.context, "rollback-interrupted")
+            : Effect.void,
+        ),
+        Effect.ensuring(
+          operationLock.withPermits(1)(
+            Effect.sync(() => {
+              if (sessions.get(threadId) === admission.context && !admission.context.stopped) {
+                admission.context.rollbacking = false;
+              }
+            }),
+          ),
+        ),
+      );
+    });
+
   const stopSession: Adapter["stopSession"] = (threadId) =>
-    operationLock.withPermits(1)(Effect.flatMap(requireSession(threadId), stopContext));
+    operationLock.withPermits(1)(
+      Effect.gen(function* () {
+        const context = yield* requireSession(threadId);
+        if (context.initializing || context.rollbacking) {
+          return yield* new ProviderAdapterValidationError({
+            provider: PROVIDER,
+            operation: "stopSession",
+            issue: "Pi cannot stop while session identity is changing.",
+          });
+        }
+        yield* stopContext(context);
+      }),
+    );
 
   const stopAll: Adapter["stopAll"] = () =>
     operationLock.withPermits(1)(
       Effect.forEach([...sessions.values()], stopContext, { concurrency: 1, discard: true }),
-    );
-
-  const unsupported = (operation: string) =>
-    Effect.fail(
-      new ProviderAdapterValidationError({
-        provider: PROVIDER,
-        operation,
-        issue: "Pi resume, history, and rollback are reserved for PI-003b.",
-      }),
     );
 
   yield* Scope.addFinalizer(
@@ -1703,7 +2520,7 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
 
   return {
     provider: PROVIDER,
-    capabilities: { sessionModelSwitch: "in-session", supportsConversationRollback: false },
+    capabilities: { sessionModelSwitch: "in-session", supportsConversationRollback: true },
     compaction: { type: "native", start: compactThread },
     startSession,
     sendTurn,
@@ -1718,8 +2535,8 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
         const context = sessions.get(threadId);
         return context !== undefined && !context.stopped;
       }),
-    readThread: () => unsupported("readThread"),
-    rollbackThread: () => unsupported("rollbackThread"),
+    readThread,
+    rollbackThread,
     stopAll,
     streamEvents: Stream.fromQueue(runtimeEvents),
   } satisfies Adapter;

@@ -56,6 +56,71 @@ function successResponse(request: PiRpcCommand, data?: unknown): PiRpcResponse {
   };
 }
 
+function containsString(value: unknown, needle: string): boolean {
+  if (typeof value === "string") return value.includes(needle);
+  if (Array.isArray(value)) return value.some((item) => containsString(item, needle));
+  if (typeof value !== "object" || value === null) return false;
+  return Object.values(value).some((item) => containsString(item, needle));
+}
+
+function containsKey(value: unknown, key: string): boolean {
+  if (Array.isArray(value)) return value.some((item) => containsKey(item, key));
+  if (typeof value !== "object" || value === null) return false;
+  return Object.entries(value).some(
+    ([candidate, nested]) => candidate === key || containsKey(nested, key),
+  );
+}
+
+function privateHistoryPayload(marker: string) {
+  return {
+    extensionSecret: marker,
+    nested: { sessionFile: `/private/${marker}.jsonl` },
+  };
+}
+
+function resumeCursor(sessionId: string, providerInstanceId = INSTANCE_ID, cwd = "/work/project") {
+  return { version: 2 as const, sessionId, providerInstanceId, cwd };
+}
+
+function historyUser(content: string, timestamp = 1) {
+  return { role: "user" as const, content, timestamp };
+}
+
+function historyUsage() {
+  return {
+    input: 10,
+    output: 5,
+    cacheRead: 0,
+    cacheWrite: 0,
+    totalTokens: 15,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+  };
+}
+
+function historyAssistant(
+  content: ReadonlyArray<
+    | { readonly type: "text"; readonly text: string }
+    | {
+        readonly type: "toolCall";
+        readonly id: string;
+        readonly name: string;
+        readonly arguments: Readonly<Record<string, never>>;
+      }
+  > = [],
+  timestamp = 2,
+) {
+  return {
+    role: "assistant" as const,
+    content,
+    api: "anthropic-messages",
+    provider: "anthropic",
+    model: "claude-sonnet-4",
+    usage: historyUsage(),
+    stopReason: "stop" as const,
+    timestamp,
+  };
+}
+
 function sessionState(index: number) {
   return {
     sessionId: `pi-session-${index}`,
@@ -157,6 +222,7 @@ function makeAdapter(
     binaryPath: "pi-test",
     environment: { PI_INSTANCE: "work" },
     attachmentsDir: "/private/attachments",
+    normalizeWorkspaceCwd: (cwd) => cwd.replace("/./", "/"),
     rpcFactory: harness.factory,
     readFile: input.readFile ?? (() => Effect.succeed(new TextEncoder().encode("image-bytes"))),
     ...(input.interruptSettlementTimeout === undefined
@@ -255,6 +321,7 @@ describe("PiAdapter session runtime", () => {
         const adapter = yield* makeAdapter(harness);
         const session = yield* startSession(adapter);
         const events = yield* takeEvents(adapter, SESSION_EVENTS);
+        const listed = yield* adapter.listSessions();
 
         expect(harness.transports).toHaveLength(1);
         expect(harness.transports[0]?.options).toMatchObject({
@@ -273,10 +340,7 @@ describe("PiAdapter session runtime", () => {
           cwd: "/work/project",
           model: "anthropic/claude-sonnet-4",
           status: "ready",
-          resumeCursor: {
-            sessionId: "pi-session-1",
-            sessionFile: "/private/pi-session-1.jsonl",
-          },
+          resumeCursor: resumeCursor("pi-session-1"),
         });
         expect(events.map((event) => event.type)).toEqual([
           "session.started",
@@ -284,6 +348,159 @@ describe("PiAdapter session runtime", () => {
           "session.state.changed",
         ]);
         expect(events.every((event) => event.providerInstanceId === INSTANCE_ID)).toBe(true);
+        expect(listed[0]?.resumeCursor).toEqual(resumeCursor("pi-session-1"));
+        expect(containsKey([session, listed, events], "sessionFile")).toBe(false);
+      }),
+    ),
+  );
+
+  it.effect("resumes by cwd-scoped session id and routes startup model hooks", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const modelAccepted = yield* Deferred.make<void>();
+        const resumedState = { ...sessionState(7), sessionId: "pi-resumed-session" };
+        const harness = makeRpcHarness({
+          onRequest: (request, transport) => {
+            const type = recordString(request, "type");
+            if (type === "get_state") return Effect.succeed(successResponse(request, resumedState));
+            if (type === "set_model") {
+              return offerNative(transport, {
+                type: "extension_ui_request",
+                id: "resume-model-confirm",
+                method: "confirm",
+                title: "Use model?",
+                message: "Allow model selection",
+              }).pipe(
+                Effect.andThen(Deferred.await(modelAccepted)),
+                Effect.as(successResponse(request)),
+              );
+            }
+            return Effect.succeed(successResponse(request));
+          },
+          onNotify: (record) =>
+            recordString(record, "type") === "extension_ui_response"
+              ? Deferred.succeed(modelAccepted, undefined).pipe(Effect.asVoid)
+              : Effect.void,
+        });
+        const adapter = yield* makeAdapter(harness);
+        const cursor = resumeCursor("pi-resumed-session");
+        const startFiber = yield* adapter
+          .startSession({
+            threadId: THREAD_ID,
+            cwd: "/work/./project",
+            runtimeMode: "full-access",
+            resumeCursor: cursor,
+            modelSelection: {
+              instanceId: INSTANCE_ID,
+              model: "openai/gpt-5.2",
+              options: [{ id: "thinkingLevel", value: "high" }],
+            },
+          })
+          .pipe(Effect.forkChild);
+        const opened = (yield* takeEvents(adapter, 1))[0];
+        yield* adapter.respondToRequest(
+          THREAD_ID,
+          ApprovalRequestId.make("resume-model-confirm"),
+          "accept",
+        );
+        const session = yield* Fiber.join(startFiber);
+        const startupEvents = yield* takeEvents(adapter, SESSION_EVENTS);
+
+        expect(opened).toMatchObject({
+          type: "request.opened",
+          requestId: "resume-model-confirm",
+        });
+        expect(harness.transports).toHaveLength(1);
+        expect(harness.transports[0]?.options).toMatchObject({
+          cwd: "/work/project",
+          sessionId: "pi-resumed-session",
+        });
+        expect(
+          harness.transports[0]?.requests.map((request) => recordString(request, "type")),
+        ).toEqual(["get_state", "set_model", "set_thinking_level"]);
+        expect(
+          harness.transports[0]?.requests.some(
+            (request) => recordString(request, "type") === "switch_session",
+          ),
+        ).toBe(false);
+        expect(session).toMatchObject({
+          threadId: THREAD_ID,
+          providerInstanceId: INSTANCE_ID,
+          cwd: "/work/project",
+          resumeCursor: cursor,
+        });
+        expect(containsKey(session, "sessionFile")).toBe(false);
+        expect(containsKey(startupEvents, "sessionFile")).toBe(false);
+      }),
+    ),
+  );
+
+  it.effect("rejects invalid, cross-instance, and cross-workspace cursors before launch", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = makeRpcHarness();
+        const adapter = yield* makeAdapter(harness);
+        for (const cursor of [
+          { sessionId: "legacy", sessionFile: "/private/legacy.jsonl" },
+          { version: 1, sessionId: "legacy", sessionFile: "/private/legacy.jsonl" },
+          { version: 2, sessionId: "missing-bindings" },
+          resumeCursor("invalid/session"),
+          resumeCursor("cross-instance", ProviderInstanceId.make("pi-other")),
+          resumeCursor("cross-workspace", INSTANCE_ID, "/work/other"),
+        ]) {
+          const failure = yield* adapter
+            .startSession({
+              threadId: THREAD_ID,
+              cwd: "/work/project",
+              runtimeMode: "full-access",
+              resumeCursor: cursor,
+            })
+            .pipe(Effect.flip);
+          expect(failure).toMatchObject({
+            _tag: "ProviderAdapterValidationError",
+            operation: "startSession",
+          });
+        }
+        expect(harness.transports).toHaveLength(0);
+      }),
+    ),
+  );
+
+  it.effect("fails closed on resumed identity mismatch and permits a clean retry", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = makeRpcHarness({
+          onRequest: (request, transport) =>
+            Effect.succeed(
+              successResponse(request, {
+                ...sessionState(harness.transports.indexOf(transport) + 1),
+                sessionId:
+                  harness.transports.indexOf(transport) === 0
+                    ? "wrong-session"
+                    : "expected-session",
+              }),
+            ),
+        });
+        const adapter = yield* makeAdapter(harness);
+        const cursor = resumeCursor("expected-session");
+        const input = {
+          threadId: THREAD_ID,
+          cwd: "/work/project",
+          runtimeMode: "full-access" as const,
+          resumeCursor: cursor,
+        };
+
+        const failure = yield* adapter.startSession(input).pipe(Effect.flip);
+        const restarted = yield* adapter.startSession(input);
+
+        expect(failure).toMatchObject({
+          _tag: "ProviderAdapterRequestError",
+          method: "get_state",
+        });
+        expect(restarted.resumeCursor).toEqual(cursor);
+        expect(harness.transports).toHaveLength(2);
+        expect(harness.transports[0]?.closeCount()).toBe(1);
+        expect(harness.transports[1]?.closeCount()).toBe(0);
       }),
     ),
   );
@@ -353,10 +570,7 @@ describe("PiAdapter session runtime", () => {
         expect(requests[1]).toMatchObject({ provider: "openai", modelId: "gpt-5.2" });
         expect(requests[2]).toMatchObject({ level: "high" });
         expect(requests[3]).toMatchObject({ message: "Hello" });
-        expect(result.resumeCursor).toEqual({
-          sessionId: "pi-session-1",
-          sessionFile: "/private/pi-session-1.jsonl",
-        });
+        expect(result.resumeCursor).toEqual(resumeCursor("pi-session-1"));
         expect(started).toMatchObject({
           type: "turn.started",
           turnId: result.turnId,
@@ -1658,6 +1872,1035 @@ describe("PiAdapter session runtime", () => {
           }),
         ),
       { discard: true },
+    ),
+  );
+
+  it.effect("reads and groups only the authoritative active entry branch", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const entries = [
+          {
+            type: "message",
+            id: "user-1",
+            parentId: null,
+            timestamp: "2026-01-01T00:00:00.000Z",
+            message: historyUser("first", 1),
+          },
+          {
+            type: "message",
+            id: "assistant-1",
+            parentId: "user-1",
+            timestamp: "2026-01-01T00:00:01.000Z",
+            message: historyAssistant(
+              [
+                { type: "text", text: "answer" },
+                { type: "toolCall", id: "call-1", name: "read", arguments: {} },
+              ],
+              2,
+            ),
+          },
+          {
+            type: "message",
+            id: "tool-1",
+            parentId: "assistant-1",
+            timestamp: "2026-01-01T00:00:02.000Z",
+            message: {
+              role: "toolResult",
+              toolCallId: "call-1",
+              toolName: "read",
+              content: [{ type: "text", text: "result" }],
+              details: privateHistoryPayload("tool-result-details"),
+              isError: false,
+              timestamp: 3,
+            },
+          },
+          {
+            type: "message",
+            id: "inactive-user",
+            parentId: "assistant-1",
+            timestamp: "2026-01-01T00:00:03.000Z",
+            message: historyUser("inactive", 4),
+          },
+          {
+            type: "message",
+            id: "inactive-assistant",
+            parentId: "inactive-user",
+            timestamp: "2026-01-01T00:00:04.000Z",
+            message: historyAssistant([], 5),
+          },
+          {
+            type: "message",
+            id: "user-2",
+            parentId: "tool-1",
+            timestamp: "2026-01-01T00:00:05.000Z",
+            message: historyUser("second", 6),
+          },
+          {
+            type: "message",
+            id: "custom-role-1",
+            parentId: "user-2",
+            timestamp: "2026-01-01T00:00:06.000Z",
+            message: {
+              role: "custom",
+              customType: "visible-extension-message",
+              content: "visible custom content",
+              display: true,
+              details: privateHistoryPayload("custom-role-details"),
+              timestamp: 7,
+            },
+          },
+          {
+            type: "compaction",
+            id: "compact-1",
+            parentId: "custom-role-1",
+            timestamp: "2026-01-01T00:00:07.000Z",
+            summary: "summary",
+            firstKeptEntryId: "user-2",
+            tokensBefore: 1200,
+            details: privateHistoryPayload("compaction-details"),
+          },
+          {
+            type: "custom",
+            id: "custom-1",
+            parentId: "compact-1",
+            timestamp: "2026-01-01T00:00:08.000Z",
+            customType: "checkpoint",
+            data: privateHistoryPayload("custom-entry-data"),
+          },
+          {
+            type: "message",
+            id: "assistant-2",
+            parentId: "custom-1",
+            timestamp: "2026-01-01T00:00:09.000Z",
+            message: historyAssistant([{ type: "text", text: "done" }], 10),
+          },
+        ];
+        const harness = makeRpcHarness({
+          onRequest: (request) =>
+            Effect.succeed(
+              recordString(request, "type") === "get_state"
+                ? successResponse(request, sessionState(1))
+                : recordString(request, "type") === "get_entries"
+                  ? successResponse(request, { entries, leafId: "assistant-2" })
+                  : successResponse(request),
+            ),
+        });
+        const adapter = yield* makeAdapter(harness);
+        yield* startSession(adapter);
+        yield* takeEvents(adapter, SESSION_EVENTS);
+
+        const snapshot = yield* adapter.readThread(THREAD_ID);
+
+        expect(snapshot.threadId).toBe(THREAD_ID);
+        expect(snapshot.turns.map((turn) => turn.id)).toEqual(["user-1", "user-2"]);
+        expect(snapshot.turns[0]?.items).toMatchObject([
+          { id: "user-1", type: "message", role: "user", content: "first" },
+          { id: "assistant-1", type: "message", role: "assistant" },
+          { id: "tool-1", type: "message", role: "toolResult", toolName: "read" },
+        ]);
+        expect(snapshot.turns[1]?.items).toMatchObject([
+          { id: "user-2", type: "message", role: "user", content: "second" },
+          {
+            id: "custom-role-1",
+            type: "message",
+            role: "custom",
+            customType: "visible-extension-message",
+            content: "visible custom content",
+            display: true,
+          },
+          { id: "compact-1", type: "compaction", summary: "summary" },
+          { id: "custom-1", type: "custom", customType: "checkpoint" },
+          { id: "assistant-2", type: "message", role: "assistant" },
+        ]);
+        expect(containsString(snapshot, "inactive")).toBe(false);
+        expect(containsString(snapshot, "tool-result-details")).toBe(false);
+        expect(containsString(snapshot, "custom-role-details")).toBe(false);
+        expect(containsString(snapshot, "compaction-details")).toBe(false);
+        expect(containsString(snapshot, "custom-entry-data")).toBe(false);
+        expect(containsKey(snapshot, "sessionFile")).toBe(false);
+      }),
+    ),
+  );
+
+  it.effect(
+    "handles empty history and rejects malformed, cyclic, or disconnected entry graphs",
+    () =>
+      Effect.forEach(
+        ["empty", "malformed", "cycle", "missing-parent"] as const,
+        (caseName) =>
+          Effect.scoped(
+            Effect.gen(function* () {
+              const data =
+                caseName === "empty"
+                  ? { entries: [], leafId: null }
+                  : caseName === "malformed"
+                    ? { entries: "invalid", leafId: null }
+                    : caseName === "cycle"
+                      ? {
+                          entries: [
+                            {
+                              type: "message",
+                              id: "cycle-a",
+                              parentId: "cycle-b",
+                              timestamp: "2026-01-01T00:00:00.000Z",
+                              message: historyUser("a"),
+                            },
+                            {
+                              type: "message",
+                              id: "cycle-b",
+                              parentId: "cycle-a",
+                              timestamp: "2026-01-01T00:00:01.000Z",
+                              message: historyAssistant(),
+                            },
+                          ],
+                          leafId: "cycle-a",
+                        }
+                      : {
+                          entries: [
+                            {
+                              type: "message",
+                              id: "orphan",
+                              parentId: "missing",
+                              timestamp: "2026-01-01T00:00:00.000Z",
+                              message: historyUser("orphan"),
+                            },
+                          ],
+                          leafId: "orphan",
+                        };
+              const harness = makeRpcHarness({
+                onRequest: (request) =>
+                  Effect.succeed(
+                    recordString(request, "type") === "get_state"
+                      ? successResponse(request, sessionState(1))
+                      : successResponse(request, data),
+                  ),
+              });
+              const adapter = yield* makeAdapter(harness);
+              yield* startSession(adapter);
+              yield* takeEvents(adapter, SESSION_EVENTS);
+              if (caseName === "empty") {
+                expect(yield* adapter.readThread(THREAD_ID)).toMatchObject({ turns: [] });
+              } else {
+                const failure = yield* adapter.readThread(THREAD_ID).pipe(Effect.flip);
+                expect(failure).toMatchObject({ _tag: "ProviderAdapterRequestError" });
+              }
+            }),
+          ),
+        { discard: true },
+      ),
+  );
+
+  it.effect("decodes every authoritative Pi 0.86.1 session entry variant", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const base = (id: string, parentId: string | null, index: number) => ({
+          id,
+          parentId,
+          timestamp: `2026-01-01T00:00:${String(index).padStart(2, "0")}.000Z`,
+        });
+        const entries = [
+          {
+            ...base("message", null, 0),
+            type: "message",
+            message: historyUser("hello"),
+          },
+          {
+            ...base("thinking", "message", 1),
+            type: "thinking_level_change",
+            thinkingLevel: "high",
+          },
+          {
+            ...base("model", "thinking", 2),
+            type: "model_change",
+            provider: "anthropic",
+            modelId: "claude-sonnet-4",
+          },
+          {
+            ...base("usage", "model", 3),
+            type: "usage",
+            kind: "cache_warm",
+            provider: "anthropic",
+            model: "claude-sonnet-4",
+            usage: historyUsage(),
+          },
+          {
+            ...base("compaction", "usage", 4),
+            type: "compaction",
+            summary: "summary",
+            firstKeptEntryId: "message",
+            tokensBefore: 500,
+            details: privateHistoryPayload("compaction-extension"),
+          },
+          {
+            ...base("branch", "compaction", 5),
+            type: "branch_summary",
+            fromId: "message",
+            summary: "branch summary",
+            details: privateHistoryPayload("branch-extension"),
+          },
+          {
+            ...base("custom", "branch", 6),
+            type: "custom",
+            customType: "extension-state",
+            data: privateHistoryPayload("custom-extension"),
+          },
+          {
+            ...base("label", "custom", 7),
+            type: "label",
+            targetId: "message",
+            label: "bookmark",
+          },
+          {
+            ...base("info", "label", 8),
+            type: "session_info",
+            name: "Named session",
+          },
+          {
+            ...base("custom-message", "info", 9),
+            type: "custom_message",
+            customType: "extension-message",
+            content: "extension content",
+            details: privateHistoryPayload("message-extension"),
+            display: true,
+          },
+        ];
+        const harness = makeRpcHarness({
+          onRequest: (request) =>
+            Effect.succeed(
+              recordString(request, "type") === "get_state"
+                ? successResponse(request, sessionState(1))
+                : successResponse(request, { entries, leafId: "custom-message" }),
+            ),
+        });
+        const adapter = yield* makeAdapter(harness);
+        yield* startSession(adapter);
+        yield* takeEvents(adapter, SESSION_EVENTS);
+
+        const snapshot = yield* adapter.readThread(THREAD_ID);
+
+        expect(snapshot.turns).toHaveLength(1);
+        expect(snapshot.turns[0]?.items.map((item) => (item as { type: string }).type)).toEqual([
+          "message",
+          "thinking_level_change",
+          "model_change",
+          "usage",
+          "compaction",
+          "branch_summary",
+          "custom",
+          "label",
+          "session_info",
+          "custom_message",
+        ]);
+        expect(snapshot.turns[0]?.items).toMatchObject([
+          { id: "message", role: "user", content: "hello" },
+          { id: "thinking", thinkingLevel: "high" },
+          { id: "model", provider: "anthropic", modelId: "claude-sonnet-4" },
+          { id: "usage", kind: "cache_warm", model: "claude-sonnet-4" },
+          {
+            id: "compaction",
+            summary: "summary",
+            firstKeptEntryId: "message",
+            tokensBefore: 500,
+          },
+          { id: "branch", fromId: "message", summary: "branch summary" },
+          { id: "custom", customType: "extension-state" },
+          { id: "label", targetId: "message", label: "bookmark" },
+          { id: "info", name: "Named session" },
+          {
+            id: "custom-message",
+            customType: "extension-message",
+            content: "extension content",
+            display: true,
+          },
+        ]);
+        expect(containsString(snapshot, "compaction-extension")).toBe(false);
+        expect(containsString(snapshot, "branch-extension")).toBe(false);
+        expect(containsString(snapshot, "custom-extension")).toBe(false);
+        expect(containsString(snapshot, "message-extension")).toBe(false);
+        expect(containsKey(snapshot, "sessionFile")).toBe(false);
+      }),
+    ),
+  );
+
+  it.effect("rejects unknown entry types and malformed known variants or messages", () =>
+    Effect.forEach(
+      [
+        {
+          type: "unknown",
+          id: "unknown",
+          parentId: null,
+          timestamp: "2026-01-01T00:00:00.000Z",
+        },
+        {
+          type: "custom",
+          id: "custom",
+          parentId: null,
+          timestamp: "2026-01-01T00:00:00.000Z",
+        },
+        {
+          type: "message",
+          id: "message",
+          parentId: null,
+          timestamp: "2026-01-01T00:00:00.000Z",
+          message: { role: "user", content: { invalid: true }, timestamp: 1 },
+        },
+        {
+          type: "message",
+          id: "assistant",
+          parentId: null,
+          timestamp: "2026-01-01T00:00:00.000Z",
+          message: { role: "assistant", content: [], timestamp: 1 },
+        },
+      ],
+      (entry) =>
+        Effect.scoped(
+          Effect.gen(function* () {
+            const harness = makeRpcHarness({
+              onRequest: (request) =>
+                Effect.succeed(
+                  recordString(request, "type") === "get_state"
+                    ? successResponse(request, sessionState(1))
+                    : successResponse(request, { entries: [entry], leafId: entry.id }),
+                ),
+            });
+            const adapter = yield* makeAdapter(harness);
+            yield* startSession(adapter);
+            yield* takeEvents(adapter, SESSION_EVENTS);
+
+            const failure = yield* adapter.readThread(THREAD_ID).pipe(Effect.flip);
+            expect(failure).toMatchObject({
+              _tag: "ProviderAdapterRequestError",
+              method: "get_entries",
+            });
+          }),
+        ),
+      { discard: true },
+    ),
+  );
+
+  it.effect(
+    "validates rollback counts and rejects removing more turns than the active branch",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const entries = [
+            {
+              type: "message",
+              id: "user-1",
+              parentId: null,
+              timestamp: "2026-01-01T00:00:00.000Z",
+              message: historyUser("one"),
+            },
+            {
+              type: "message",
+              id: "assistant-1",
+              parentId: "user-1",
+              timestamp: "2026-01-01T00:00:01.000Z",
+              message: historyAssistant(),
+            },
+          ];
+          const harness = makeRpcHarness({
+            onRequest: (request) =>
+              Effect.succeed(
+                recordString(request, "type") === "get_state"
+                  ? successResponse(request, sessionState(1))
+                  : successResponse(request, { entries, leafId: "assistant-1" }),
+              ),
+          });
+          const adapter = yield* makeAdapter(harness);
+          yield* startSession(adapter);
+          yield* takeEvents(adapter, SESSION_EVENTS);
+
+          for (const count of [0, -1, 1.5]) {
+            const failure = yield* adapter.rollbackThread(THREAD_ID, count).pipe(Effect.flip);
+            expect(failure).toMatchObject({
+              _tag: "ProviderAdapterValidationError",
+              operation: "rollbackThread",
+            });
+          }
+          const excess = yield* adapter.rollbackThread(THREAD_ID, 2).pipe(Effect.flip);
+          expect(excess).toMatchObject({
+            _tag: "ProviderAdapterValidationError",
+            operation: "rollbackThread",
+          });
+          expect(
+            harness.transports[0]?.requests.some(
+              (request) => recordString(request, "type") === "fork",
+            ),
+          ).toBe(false);
+        }),
+      ),
+  );
+
+  it.effect(
+    "forks before the selected active-branch user entry and refreshes session identity",
+    () =>
+      Effect.forEach(
+        [1, 2, 3] as const,
+        (numTurns) =>
+          Effect.scoped(
+            Effect.gen(function* () {
+              const allEntries = [
+                {
+                  type: "message",
+                  id: "user-1",
+                  parentId: null,
+                  timestamp: "2026-01-01T00:00:00.000Z",
+                  message: historyUser("one"),
+                },
+                {
+                  type: "message",
+                  id: "assistant-1",
+                  parentId: "user-1",
+                  timestamp: "2026-01-01T00:00:01.000Z",
+                  message: historyAssistant(),
+                },
+                {
+                  type: "message",
+                  id: "user-2",
+                  parentId: "assistant-1",
+                  timestamp: "2026-01-01T00:00:02.000Z",
+                  message: historyUser("two"),
+                },
+                {
+                  type: "message",
+                  id: "assistant-2",
+                  parentId: "user-2",
+                  timestamp: "2026-01-01T00:00:03.000Z",
+                  message: historyAssistant(),
+                },
+                {
+                  type: "message",
+                  id: "user-3",
+                  parentId: "assistant-2",
+                  timestamp: "2026-01-01T00:00:04.000Z",
+                  message: historyUser("three"),
+                },
+                {
+                  type: "message",
+                  id: "assistant-3",
+                  parentId: "user-3",
+                  timestamp: "2026-01-01T00:00:05.000Z",
+                  message: historyAssistant(),
+                },
+              ];
+              let forkEntryId: string | undefined;
+              let entriesRequests = 0;
+              const harness = makeRpcHarness({
+                onRequest: (request) => {
+                  const type = recordString(request, "type");
+                  if (type === "get_state") {
+                    const postFork = forkEntryId !== undefined;
+                    return Effect.succeed(
+                      successResponse(
+                        request,
+                        postFork
+                          ? {
+                              ...sessionState(9),
+                              sessionId: `forked-${numTurns}`,
+                              sessionFile: `/private/forked-${numTurns}.jsonl`,
+                            }
+                          : sessionState(1),
+                      ),
+                    );
+                  }
+                  if (type === "get_entries") {
+                    entriesRequests += 1;
+                    const retainedCount = forkEntryId === undefined ? 6 : (3 - numTurns) * 2;
+                    const retained = allEntries.slice(0, retainedCount);
+                    return Effect.succeed(
+                      successResponse(request, {
+                        entries: retained,
+                        leafId: retained.at(-1)?.id ?? null,
+                      }),
+                    );
+                  }
+                  if (type === "fork") {
+                    forkEntryId = recordString(request, "entryId");
+                    return Effect.succeed(successResponse(request, { text: "", cancelled: false }));
+                  }
+                  return Effect.succeed(successResponse(request));
+                },
+              });
+              const adapter = yield* makeAdapter(harness);
+              yield* startSession(adapter);
+              yield* takeEvents(adapter, SESSION_EVENTS);
+
+              const snapshot = yield* adapter.rollbackThread(THREAD_ID, numTurns);
+              const listed = yield* adapter.listSessions();
+
+              expect(forkEntryId).toBe(["user-3", "user-2", "user-1"][numTurns - 1]);
+              expect(entriesRequests).toBe(2);
+              expect(snapshot.turns).toHaveLength(3 - numTurns);
+              expect(snapshot.turns.map((turn) => turn.id)).toEqual(
+                ["user-1", "user-2", "user-3"].slice(0, 3 - numTurns),
+              );
+              expect(listed[0]).toMatchObject({
+                threadId: THREAD_ID,
+                providerInstanceId: INSTANCE_ID,
+                resumeCursor: resumeCursor(`forked-${numTurns}`),
+              });
+              expect(harness.transports).toHaveLength(1);
+            }),
+          ),
+        { discard: true },
+      ),
+  );
+
+  it.effect("restarts from the refreshed rollback cursor", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        let forked = false;
+        const entries = [
+          {
+            type: "message",
+            id: "user-1",
+            parentId: null,
+            timestamp: "2026-01-01T00:00:00.000Z",
+            message: historyUser("one"),
+          },
+        ];
+        const forkedState = {
+          ...sessionState(9),
+          sessionId: "forked-restart",
+          sessionFile: "/private/forked-restart.jsonl",
+        };
+        const harness = makeRpcHarness({
+          onRequest: (request, transport) => {
+            const type = recordString(request, "type");
+            if (type === "get_state") {
+              const state =
+                transport.options.sessionId === "forked-restart" || forked
+                  ? forkedState
+                  : sessionState(1);
+              return Effect.succeed(successResponse(request, state));
+            }
+            if (type === "get_entries") {
+              return Effect.succeed(
+                successResponse(
+                  request,
+                  forked ? { entries: [], leafId: null } : { entries, leafId: "user-1" },
+                ),
+              );
+            }
+            if (type === "fork") {
+              forked = true;
+              return Effect.succeed(successResponse(request, { text: "one", cancelled: false }));
+            }
+            return Effect.succeed(successResponse(request));
+          },
+        });
+        const adapter = yield* makeAdapter(harness);
+        yield* startSession(adapter);
+        yield* takeEvents(adapter, SESSION_EVENTS);
+        yield* adapter.rollbackThread(THREAD_ID, 1);
+        const rollbackSession = (yield* adapter.listSessions())[0];
+        yield* adapter.stopSession(THREAD_ID);
+
+        const restarted = yield* adapter.startSession({
+          threadId: THREAD_ID,
+          cwd: "/work/project",
+          runtimeMode: "full-access",
+          resumeCursor: rollbackSession?.resumeCursor,
+        });
+
+        expect(restarted.resumeCursor).toEqual(resumeCursor("forked-restart"));
+        expect(containsKey(restarted, "sessionFile")).toBe(false);
+        expect(harness.transports).toHaveLength(2);
+        expect(harness.transports[1]?.options).toMatchObject({
+          cwd: "/work/project",
+          sessionId: "forked-restart",
+        });
+        expect(
+          harness.transports[1]?.requests.map((request) => recordString(request, "type")),
+        ).toEqual(["get_state"]);
+      }),
+    ),
+  );
+
+  it.effect("routes fork UI and preserves the cursor when fork is cancelled", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const forkAccepted = yield* Deferred.make<void>();
+        const entries = [
+          {
+            type: "message",
+            id: "user-1",
+            parentId: null,
+            timestamp: "2026-01-01T00:00:00.000Z",
+            message: historyUser("one"),
+          },
+        ];
+        const harness = makeRpcHarness({
+          onRequest: (request, transport) => {
+            const type = recordString(request, "type");
+            if (type === "get_state")
+              return Effect.succeed(successResponse(request, sessionState(1)));
+            if (type === "get_entries") {
+              return Effect.succeed(successResponse(request, { entries, leafId: "user-1" }));
+            }
+            if (type === "fork") {
+              return offerNative(transport, {
+                type: "extension_ui_request",
+                id: "fork-confirm",
+                method: "confirm",
+                title: "Fork?",
+                message: "Allow fork",
+              }).pipe(
+                Effect.andThen(Deferred.await(forkAccepted)),
+                Effect.as(successResponse(request, { text: "", cancelled: true })),
+              );
+            }
+            return Effect.succeed(successResponse(request));
+          },
+          onNotify: (record) =>
+            recordString(record, "type") === "extension_ui_response"
+              ? Deferred.succeed(forkAccepted, undefined).pipe(Effect.asVoid)
+              : Effect.void,
+        });
+        const adapter = yield* makeAdapter(harness);
+        const original = yield* startSession(adapter);
+        yield* takeEvents(adapter, SESSION_EVENTS);
+
+        const rollbackFiber = yield* adapter
+          .rollbackThread(THREAD_ID, 1)
+          .pipe(Effect.exit, Effect.forkChild);
+        const opened = (yield* takeEvents(adapter, 1))[0];
+        const concurrent = yield* adapter.rollbackThread(THREAD_ID, 1).pipe(Effect.flip);
+        const stopFailure = yield* adapter.stopSession(THREAD_ID).pipe(Effect.flip);
+        const replacementFailure = yield* adapter
+          .startSession({
+            threadId: THREAD_ID,
+            cwd: "/work/project",
+            runtimeMode: "full-access",
+          })
+          .pipe(Effect.flip);
+        yield* adapter.respondToRequest(
+          THREAD_ID,
+          ApprovalRequestId.make("fork-confirm"),
+          "accept",
+        );
+        const outcome = yield* Fiber.join(rollbackFiber);
+        const listed = yield* adapter.listSessions();
+
+        expect(opened).toMatchObject({ type: "request.opened", requestId: "fork-confirm" });
+        expect(concurrent).toMatchObject({
+          _tag: "ProviderAdapterValidationError",
+          operation: "rollbackThread",
+        });
+        expect(stopFailure).toMatchObject({
+          _tag: "ProviderAdapterValidationError",
+          operation: "stopSession",
+        });
+        expect(replacementFailure).toMatchObject({
+          _tag: "ProviderAdapterValidationError",
+          operation: "startSession",
+        });
+        expect(Exit.isFailure(outcome)).toBe(true);
+        expect(listed[0]?.resumeCursor).toEqual(original.resumeCursor);
+        expect(yield* adapter.hasSession(THREAD_ID)).toBe(true);
+        expect(harness.transports[0]?.closeCount()).toBe(0);
+      }),
+    ),
+  );
+
+  it.effect("rejects rollback while a turn, pending UI, or compaction owns the session", () =>
+    Effect.forEach(
+      ["turn", "ui", "compaction"] as const,
+      (busyKind) =>
+        Effect.scoped(
+          Effect.gen(function* () {
+            const releaseCompaction = yield* Deferred.make<void>();
+            const harness = makeRpcHarness({
+              onRequest: (request) =>
+                recordString(request, "type") === "compact"
+                  ? Deferred.await(releaseCompaction).pipe(
+                      Effect.as(
+                        successResponse(request, {
+                          summary: "done",
+                          firstKeptEntryId: "entry",
+                          tokensBefore: 1,
+                        }),
+                      ),
+                    )
+                  : Effect.succeed(
+                      recordString(request, "type") === "get_state"
+                        ? successResponse(request, {
+                            ...sessionState(1),
+                            isStreaming: busyKind === "turn",
+                          })
+                        : successResponse(request),
+                    ),
+            });
+            const adapter = yield* makeAdapter(harness);
+            yield* startSession(adapter);
+            yield* takeEvents(adapter, SESSION_EVENTS);
+            if (busyKind === "turn") {
+              yield* adapter.sendTurn({ threadId: THREAD_ID, input: "busy" });
+              yield* takeEvents(adapter, 1);
+            } else if (busyKind === "ui") {
+              yield* offerNative(harness.transports[0]!, {
+                type: "extension_ui_request",
+                id: "pending-ui",
+                method: "input",
+                title: "Input",
+              });
+              yield* takeEvents(adapter, 1);
+            } else if (adapter.compaction?.type === "native") {
+              yield* adapter.compaction.start(THREAD_ID).pipe(Effect.forkChild);
+              yield* Effect.yieldNow;
+            }
+
+            const failure = yield* adapter.rollbackThread(THREAD_ID, 1).pipe(Effect.flip);
+            expect(failure).toMatchObject({
+              _tag: "ProviderAdapterValidationError",
+              operation: "rollbackThread",
+            });
+            yield* Deferred.succeed(releaseCompaction, undefined);
+          }),
+        ),
+      { discard: true },
+    ),
+  );
+
+  it.effect("preserves pre-fork state but terminates after post-fork verification failure", () =>
+    Effect.forEach(
+      ["pre-fork", "post-fork", "post-fork-malformed", "post-fork-mismatch"] as const,
+      (failurePoint) =>
+        Effect.scoped(
+          Effect.gen(function* () {
+            let forked = false;
+            const entries = [
+              {
+                type: "message",
+                id: "user-1",
+                parentId: null,
+                timestamp: "2026-01-01T00:00:00.000Z",
+                message: historyUser("one"),
+              },
+            ];
+            const harness = makeRpcHarness({
+              onRequest: (request) => {
+                const type = recordString(request, "type");
+                if (type === "get_state") {
+                  if (!forked) return Effect.succeed(successResponse(request, sessionState(1)));
+                  if (failurePoint === "post-fork") {
+                    return Effect.fail(
+                      new PiRpcError({
+                        reason: "remote-error",
+                        method: "get_state",
+                        detail: "verification failed",
+                      }),
+                    );
+                  }
+                  if (failurePoint === "post-fork-malformed") {
+                    return Effect.succeed(
+                      successResponse(request, {
+                        ...sessionState(2),
+                        sessionId: "invalid/session",
+                      }),
+                    );
+                  }
+                  return Effect.succeed(
+                    successResponse(
+                      request,
+                      failurePoint === "post-fork-mismatch"
+                        ? sessionState(1)
+                        : {
+                            ...sessionState(2),
+                            sessionId: "forked-session",
+                            sessionFile: "/private/forked-session.jsonl",
+                          },
+                    ),
+                  );
+                }
+                if (type === "get_entries") {
+                  return failurePoint === "pre-fork"
+                    ? Effect.fail(
+                        new PiRpcError({
+                          reason: "remote-error",
+                          method: "get_entries",
+                          detail: "history failed",
+                        }),
+                      )
+                    : Effect.succeed(successResponse(request, { entries, leafId: "user-1" }));
+                }
+                if (type === "fork") {
+                  forked = true;
+                  return Effect.succeed(successResponse(request, { text: "", cancelled: false }));
+                }
+                return Effect.succeed(successResponse(request));
+              },
+            });
+            const adapter = yield* makeAdapter(harness);
+            const original = yield* startSession(adapter);
+            yield* takeEvents(adapter, SESSION_EVENTS);
+
+            const outcome = yield* adapter.rollbackThread(THREAD_ID, 1).pipe(Effect.exit);
+            const listed = yield* adapter.listSessions();
+
+            expect(Exit.isFailure(outcome)).toBe(true);
+            if (failurePoint === "pre-fork") {
+              expect(yield* adapter.hasSession(THREAD_ID)).toBe(true);
+              expect(listed[0]?.resumeCursor).toEqual(original.resumeCursor);
+              expect(harness.transports[0]?.closeCount()).toBe(0);
+            } else {
+              expect(yield* adapter.hasSession(THREAD_ID)).toBe(false);
+              expect(listed).toEqual([]);
+              expect(harness.transports[0]?.closeCount()).toBe(1);
+            }
+          }),
+        ),
+      { discard: true },
+    ),
+  );
+
+  it.effect("preserves the session when rollback is interrupted before fork admission", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const entriesRequested = yield* Deferred.make<void>();
+        const harness = makeRpcHarness({
+          onRequest: (request) => {
+            const type = recordString(request, "type");
+            if (type === "get_state")
+              return Effect.succeed(successResponse(request, sessionState(1)));
+            if (type === "get_entries") {
+              return Deferred.succeed(entriesRequested, undefined).pipe(
+                Effect.andThen(Effect.never),
+              );
+            }
+            return Effect.succeed(successResponse(request));
+          },
+        });
+        const adapter = yield* makeAdapter(harness);
+        const original = yield* startSession(adapter);
+        yield* takeEvents(adapter, SESSION_EVENTS);
+        const rollbackFiber = yield* adapter.rollbackThread(THREAD_ID, 1).pipe(Effect.forkChild);
+        yield* Deferred.await(entriesRequested);
+
+        yield* Fiber.interrupt(rollbackFiber);
+
+        expect(yield* adapter.hasSession(THREAD_ID)).toBe(true);
+        expect((yield* adapter.listSessions())[0]?.resumeCursor).toEqual(original.resumeCursor);
+        expect(harness.transports[0]?.closeCount()).toBe(0);
+      }),
+    ),
+  );
+
+  it.effect("fails closed when the transport terminates before, during, or after fork", () =>
+    Effect.forEach(
+      ["before", "during", "after"] as const,
+      (phase) =>
+        Effect.scoped(
+          Effect.gen(function* () {
+            let forked = false;
+            const entries = [
+              {
+                type: "message",
+                id: "user-1",
+                parentId: null,
+                timestamp: "2026-01-01T00:00:00.000Z",
+                message: historyUser("one"),
+              },
+            ];
+            const terminate = (request: PiRpcCommand, transport: FakeTransport) =>
+              transportClosed(transport).pipe(
+                Effect.andThen(Effect.yieldNow),
+                Effect.andThen(
+                  Effect.fail(
+                    new PiRpcError({
+                      reason: "process-exited",
+                      method: recordString(request, "type"),
+                      detail: "process exited",
+                    }),
+                  ),
+                ),
+              );
+            const harness = makeRpcHarness({
+              onRequest: (request, transport) => {
+                const type = recordString(request, "type");
+                if (type === "get_state") {
+                  if (forked && phase === "after") return terminate(request, transport);
+                  return Effect.succeed(
+                    successResponse(
+                      request,
+                      forked
+                        ? { ...sessionState(2), sessionId: "forked-transport-session" }
+                        : sessionState(1),
+                    ),
+                  );
+                }
+                if (type === "get_entries") {
+                  return phase === "before"
+                    ? terminate(request, transport)
+                    : Effect.succeed(successResponse(request, { entries, leafId: "user-1" }));
+                }
+                if (type === "fork") {
+                  if (phase === "during") return terminate(request, transport);
+                  forked = true;
+                  return Effect.succeed(
+                    successResponse(request, { text: "one", cancelled: false }),
+                  );
+                }
+                return Effect.succeed(successResponse(request));
+              },
+            });
+            const adapter = yield* makeAdapter(harness);
+            yield* startSession(adapter);
+            yield* takeEvents(adapter, SESSION_EVENTS);
+
+            const outcome = yield* adapter.rollbackThread(THREAD_ID, 1).pipe(Effect.exit);
+            yield* Effect.yieldNow;
+
+            expect(Exit.isFailure(outcome)).toBe(true);
+            expect(yield* adapter.hasSession(THREAD_ID)).toBe(false);
+            expect(yield* adapter.listSessions()).toEqual([]);
+            expect(harness.transports[0]?.closeCount()).toBe(1);
+          }),
+        ),
+      { discard: true },
+    ),
+  );
+
+  it.effect("terminates the session when rollback is interrupted after fork admission", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const forkEntered = yield* Deferred.make<void>();
+        const entries = [
+          {
+            type: "message",
+            id: "user-1",
+            parentId: null,
+            timestamp: "2026-01-01T00:00:00.000Z",
+            message: historyUser("one"),
+          },
+        ];
+        const harness = makeRpcHarness({
+          onRequest: (request) => {
+            const type = recordString(request, "type");
+            if (type === "get_state")
+              return Effect.succeed(successResponse(request, sessionState(1)));
+            if (type === "get_entries") {
+              return Effect.succeed(successResponse(request, { entries, leafId: "user-1" }));
+            }
+            if (type === "fork") {
+              return Deferred.succeed(forkEntered, undefined).pipe(Effect.andThen(Effect.never));
+            }
+            return Effect.succeed(successResponse(request));
+          },
+        });
+        const adapter = yield* makeAdapter(harness);
+        yield* startSession(adapter);
+        yield* takeEvents(adapter, SESSION_EVENTS);
+        const rollbackFiber = yield* adapter.rollbackThread(THREAD_ID, 1).pipe(Effect.forkChild);
+        yield* Deferred.await(forkEntered);
+
+        yield* Fiber.interrupt(rollbackFiber);
+
+        expect(yield* adapter.hasSession(THREAD_ID)).toBe(false);
+        expect(yield* adapter.listSessions()).toEqual([]);
+        expect(harness.transports[0]?.closeCount()).toBe(1);
+      }),
     ),
   );
 
