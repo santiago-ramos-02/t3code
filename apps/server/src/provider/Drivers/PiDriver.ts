@@ -28,6 +28,7 @@ import * as ServerConfig from "../../config.ts";
 import { makePiTextGeneration } from "../../textGeneration/PiTextGeneration.ts";
 import { ProviderDriverError } from "../Errors.ts";
 import { makePiAdapter, PiAdapterAttachmentReadError } from "../Layers/PiAdapter.ts";
+import { materializePiMcpExtension } from "../pi-mcp/PiMcpBridgeMaterializer.ts";
 import { mergeProviderInstanceEnvironment } from "../ProviderInstanceEnvironment.ts";
 import {
   makePiRpc,
@@ -53,7 +54,7 @@ import { withInstanceIdentity } from "./instanceIdentity.ts";
 
 const DRIVER_KIND = ProviderDriverKind.make("pi");
 const MINIMUM_PI_VERSION = "0.86.1";
-const PI_RPC_ARGS = ["--no-session"] as const;
+const PI_RPC_ARGS = ["--no-session", "--no-extensions"] as const;
 const VERSION_TIMEOUT = "4 seconds";
 const PROCESS_FORCE_KILL_AFTER = "1 second";
 const decodePiSettings = Schema.decodeSync(PiSettings);
@@ -252,6 +253,17 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
       const hostPlatform = yield* HostProcessPlatform;
       const processEnv = mergeProviderInstanceEnvironment(environment);
       const effectiveConfig = { ...config, enabled } satisfies PiSettings;
+      const piMcpExtensionPath = yield* materializePiMcpExtension(serverConfig.stateDir).pipe(
+        Effect.mapError(
+          (cause) =>
+            new ProviderDriverError({
+              driver: DRIVER_KIND,
+              instanceId,
+              detail: "Pi MCP bridge materialization failed.",
+              cause,
+            }),
+        ),
+      );
       const continuationIdentity = defaultProviderContinuationIdentity({
         driverKind: DRIVER_KIND,
         instanceId,
@@ -504,6 +516,7 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
         instanceId,
         binaryPath: effectiveConfig.binaryPath,
         environment: processEnv,
+        mcpExtensionPath: piMcpExtensionPath,
         attachmentsDir: serverConfig.attachmentsDir,
         normalizeWorkspaceCwd: path.resolve,
         rpcFactory,
