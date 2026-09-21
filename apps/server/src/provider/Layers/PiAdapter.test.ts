@@ -149,6 +149,17 @@ function sessionState(index: number) {
   };
 }
 
+function defaultRpcResponse(request: PiRpcCommand, transport: FakeTransport): PiRpcResponse {
+  return recordString(request, "type") === "get_state"
+    ? successResponse(request, {
+        ...sessionState(1),
+        isStreaming: transport.requests.some(
+          (observed) => recordString(observed, "type") === "prompt",
+        ),
+      })
+    : successResponse(request);
+}
+
 function makeRpcHarness(
   input: {
     readonly onRequest?: (
@@ -1515,38 +1526,109 @@ describe("PiAdapter session runtime", () => {
     ),
   );
 
-  it.effect("waits for settlement when interrupting and emits one aborted terminal", () =>
+  it.effect("settles a pending agent_settled as aborted after the abort RPC succeeds", () =>
     Effect.scoped(
       Effect.gen(function* () {
-        const harness = makeRpcHarness();
+        const abortRequested = yield* Deferred.make<void>();
+        const abortResponse = yield* Deferred.make<PiRpcResponse, PiRpcError>();
+        const harness = makeRpcHarness({
+          onRequest: (request, transport) =>
+            recordString(request, "type") === "abort"
+              ? Deferred.succeed(abortRequested, undefined).pipe(
+                  Effect.andThen(Deferred.await(abortResponse)),
+                )
+              : Effect.succeed(defaultRpcResponse(request, transport)),
+        });
         const adapter = yield* makeAdapter(harness);
         yield* startSession(adapter);
         yield* takeEvents(adapter, SESSION_EVENTS);
         const { turnId } = yield* adapter.sendTurn({ threadId: THREAD_ID, input: "Long task" });
         yield* takeEvents(adapter, 1);
-        let interruptCompleted = false;
-        const interrupt = yield* adapter.interruptTurn(THREAD_ID, turnId).pipe(
-          Effect.tap(() => Effect.sync(() => (interruptCompleted = true))),
-          Effect.forkChild,
-        );
-        yield* Effect.yieldNow;
+        const interrupt = yield* adapter.interruptTurn(THREAD_ID, turnId).pipe(Effect.forkChild);
+        yield* Deferred.await(abortRequested);
+        const transport = harness.transports[0]!;
 
-        expect(interruptCompleted).toBe(false);
-        expect(harness.transports[0]?.requests.at(-1)).toMatchObject({ type: "abort" });
-        yield* offerNative(harness.transports[0]!, {
-          type: "agent_end",
-          messages: [],
-          willRetry: false,
+        yield* offerNative(transport, { type: "agent_settled" });
+        yield* offerNative(transport, {
+          type: "tool_execution_start",
+          toolCallId: "settlement-barrier",
+          toolName: "bash",
+          args: { command: "true" },
         });
-        yield* Effect.yieldNow;
-        expect(interruptCompleted).toBe(false);
-        yield* offerNative(harness.transports[0]!, { type: "agent_settled" });
+        expect(yield* takeEvents(adapter, 1)).toMatchObject([{ type: "item.started", turnId }]);
+        yield* Deferred.succeed(abortResponse, successResponse({ type: "abort" }));
         yield* Fiber.join(interrupt);
         const terminal = yield* takeEvents(adapter, 1);
 
         expect(terminal).toMatchObject([
           { type: "turn.aborted", turnId, payload: { reason: "aborted" } },
         ]);
+        yield* offerNative(transport, { type: "agent_settled" });
+        const nextTurn = yield* adapter.sendTurn({ threadId: THREAD_ID, input: "Next" });
+        expect(yield* takeEvents(adapter, 1)).toMatchObject([
+          { type: "turn.started", turnId: nextTurn.turnId },
+        ]);
+      }),
+    ),
+  );
+
+  it.effect("uses Pi's stop reason when agent_settled precedes a failed abort response", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const abortRequested = yield* Deferred.make<void>();
+        const abortResponse = yield* Deferred.make<PiRpcResponse, PiRpcError>();
+        const harness = makeRpcHarness({
+          onRequest: (request, transport) =>
+            recordString(request, "type") === "abort"
+              ? Deferred.succeed(abortRequested, undefined).pipe(
+                  Effect.andThen(Deferred.await(abortResponse)),
+                )
+              : Effect.succeed(defaultRpcResponse(request, transport)),
+        });
+        const adapter = yield* makeAdapter(harness);
+        yield* startSession(adapter);
+        yield* takeEvents(adapter, SESSION_EVENTS);
+        const { turnId } = yield* adapter.sendTurn({
+          threadId: THREAD_ID,
+          input: "Do not fabricate an abort",
+        });
+        yield* takeEvents(adapter, 1);
+        const interrupt = yield* adapter
+          .interruptTurn(THREAD_ID, turnId)
+          .pipe(Effect.exit, Effect.forkChild);
+        yield* Deferred.await(abortRequested);
+        const transport = harness.transports[0]!;
+
+        yield* offerNative(transport, {
+          type: "message_end",
+          message: assistantMessage({
+            usage: usage(1, 2, 0, 0, 0.1),
+            stopReason: "stop",
+          }),
+        });
+        yield* offerNative(transport, { type: "agent_settled" });
+        yield* offerNative(transport, {
+          type: "tool_execution_start",
+          toolCallId: "settlement-barrier",
+          toolName: "bash",
+          args: { command: "true" },
+        });
+        expect(yield* takeEvents(adapter, 1)).toMatchObject([{ type: "item.started", turnId }]);
+        yield* Deferred.fail(
+          abortResponse,
+          new PiRpcError({ reason: "remote-error", detail: "abort rejected", method: "abort" }),
+        );
+        expect(yield* Fiber.join(interrupt)).toMatchObject({ _tag: "Failure" });
+        const terminal = yield* takeEvents(adapter, 1);
+
+        expect(terminal).toMatchObject([
+          {
+            type: "turn.completed",
+            turnId,
+            payload: { state: "completed", stopReason: "stop" },
+          },
+        ]);
+        expect(terminal.some((event) => event.type === "turn.aborted")).toBe(false);
       }),
     ),
   );
@@ -1640,6 +1722,59 @@ describe("PiAdapter session runtime", () => {
         expect(yield* adapter.hasSession(THREAD_ID)).toBe(false);
         expect(harness.transports[0]?.closeCount()).toBe(1);
       }),
+    ),
+  );
+
+  it.effect("does not hang or double settle when stop wins a pending abort RPC race", () =>
+    Effect.forEach(
+      ["process-exit", "stop-session"] as const,
+      (race) =>
+        Effect.scoped(
+          Effect.gen(function* () {
+            const abortRequested = yield* Deferred.make<void>();
+            const harness = makeRpcHarness({
+              onRequest: (request, transport) =>
+                recordString(request, "type") === "abort"
+                  ? Deferred.succeed(abortRequested, undefined).pipe(Effect.andThen(Effect.never))
+                  : Effect.succeed(defaultRpcResponse(request, transport)),
+            });
+            const adapter = yield* makeAdapter(harness);
+            yield* startSession(adapter);
+            yield* takeEvents(adapter, SESSION_EVENTS);
+            const { turnId } = yield* adapter.sendTurn({
+              threadId: THREAD_ID,
+              input: "Race abort with shutdown",
+            });
+            yield* takeEvents(adapter, 1);
+            const interruption = yield* adapter
+              .interruptTurn(THREAD_ID, turnId)
+              .pipe(Effect.exit, Effect.forkChild);
+            yield* Deferred.await(abortRequested);
+
+            if (race === "process-exit") {
+              yield* transportClosed(harness.transports[0]!);
+            } else {
+              yield* adapter.stopSession(THREAD_ID);
+            }
+            const events = yield* takeEvents(adapter, 3);
+            const interruptOutcome = yield* Fiber.join(interruption).pipe(
+              Effect.timeoutOption("1 second"),
+            );
+            const terminals = events.filter(
+              (event) => event.type === "turn.completed" || event.type === "turn.aborted",
+            );
+
+            expect(interruptOutcome).toMatchObject({ _tag: "Some" });
+            expect(terminals).toHaveLength(1);
+            expect(terminals[0]).toMatchObject(
+              race === "process-exit"
+                ? { type: "turn.completed", turnId, payload: { state: "failed" } }
+                : { type: "turn.aborted", turnId, payload: { reason: "session stopped" } },
+            );
+            expect(yield* adapter.hasSession(THREAD_ID)).toBe(false);
+          }),
+        ),
+      { discard: true },
     ),
   );
 
