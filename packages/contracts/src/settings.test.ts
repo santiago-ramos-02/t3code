@@ -7,6 +7,7 @@ import {
   ClientSettingsPatch,
   ClaudeSettings,
   DEFAULT_SERVER_SETTINGS,
+  PiSettings,
   resolveProviderInstanceEnabled,
   ServerSettings,
   ServerSettingsPatch,
@@ -19,6 +20,7 @@ const decodeServerSettings = Schema.decodeUnknownSync(ServerSettings);
 const decodeServerSettingsPatch = Schema.decodeUnknownSync(ServerSettingsPatch);
 const encodeServerSettings = Schema.encodeSync(ServerSettings);
 const decodeClaudeSettings = Schema.decodeUnknownSync(ClaudeSettings);
+const decodePiSettings = Schema.decodeUnknownSync(PiSettings);
 
 describe("storage cleanup settings", () => {
   it("keeps cleanup disabled for existing installations", () => {
@@ -189,6 +191,56 @@ describe("custom model settings", () => {
     expect(() =>
       decodeServerSettingsPatch({ providers: { codex: { customModels: [{ name: "no slug" }] } } }),
     ).toThrow();
+  });
+});
+
+describe("PiSettings", () => {
+  it("defaults disabled with the Pi binary and no custom models", () => {
+    expect(decodePiSettings({})).toEqual({
+      enabled: false,
+      binaryPath: "pi",
+      customModels: [],
+    });
+    expect(DEFAULT_SERVER_SETTINGS.providers.pi).toEqual({
+      enabled: false,
+      binaryPath: "pi",
+      customModels: [],
+    });
+  });
+
+  it("trims stored values and accepts partial provider patches", () => {
+    expect(
+      decodePiSettings({
+        enabled: true,
+        binaryPath: "  /opt/pi/bin/pi  ",
+        customModels: ["  openai/custom-model  "],
+      }),
+    ).toEqual({
+      enabled: true,
+      binaryPath: "/opt/pi/bin/pi",
+      customModels: ["  openai/custom-model  "],
+    });
+    expect(
+      decodeServerSettingsPatch({ providers: { pi: { binaryPath: "  /custom/pi  " } } }),
+    ).toEqual({ providers: { pi: { binaryPath: "/custom/pi" } } });
+  });
+
+  it("hydrates stored Pi settings through the server schema", () => {
+    const stored = decodeServerSettings({
+      providers: {
+        pi: {
+          enabled: true,
+          binaryPath: "/usr/local/bin/pi",
+          customModels: [{ slug: "openrouter/custom", name: "Custom" }],
+        },
+      },
+    });
+
+    expect(stored.providers.pi).toEqual({
+      enabled: true,
+      binaryPath: "/usr/local/bin/pi",
+      customModels: [{ slug: "openrouter/custom", name: "Custom" }],
+    });
   });
 });
 
@@ -761,6 +813,7 @@ describe("provider enabled defaults", () => {
     expect(decoded.providers.cursor.enabled).toBe(false);
     expect(decoded.providers.grok.enabled).toBe(false);
     expect(decoded.providers.opencode.enabled).toBe(false);
+    expect(decoded.providers.pi.enabled).toBe(false);
   });
 
   it("keeps Cursor enabled when an existing user explicitly opted in", () => {
