@@ -33,6 +33,38 @@ import * as UsageService from "./UsageService.ts";
 
 const encodeUnknownJsonString = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
+function piTranscript(sessionId: string, outputTokens: number): string {
+  const usage = {
+    input: 10,
+    output: outputTokens,
+    cacheRead: 2,
+    cacheWrite: 1,
+    reasoning: 1,
+    totalTokens: 13 + outputTokens,
+    cost: { input: 0.1, output: 0.2, cacheRead: 0.01, cacheWrite: 0.02, total: 0.33 },
+  };
+  return (
+    [
+      {
+        type: "session",
+        version: 3,
+        id: sessionId,
+        timestamp: "2026-08-01T09:59:00Z",
+        cwd: "/private",
+      },
+      {
+        type: "message",
+        id: `${sessionId}-assistant`,
+        parentId: null,
+        timestamp: "2026-08-01T10:00:00Z",
+        message: { role: "assistant", provider: "openrouter", model: "meta/llama-4", usage },
+      },
+    ]
+      .map((entry) => encodeUnknownJsonString(entry))
+      .join("\n") + "\n"
+  );
+}
+
 function claudeLine(id: number, outputTokens: number, model = "claude-fable-5"): string {
   return `${JSON.stringify({
     type: "assistant",
@@ -102,6 +134,7 @@ const serviceLayers = (input: {
     Layer.provideMerge(
       Layer.succeed(HostProcessEnvironment, {
         GROK_HOME: NodePath.join(input.home, "grok"),
+        PI_CODING_AGENT_SESSION_DIR: NodePath.join(input.home, "pi-sessions"),
         ...input.environment,
       }),
     ),
@@ -112,6 +145,147 @@ function totalOutputTokens(summary: { buckets: readonly { totals: { outputTokens
 }
 
 describe("UsageService", () => {
+  it("resolves Pi roots with absolute and tilde environment/global precedence", () => {
+    const pathOps = {
+      sep: NodePath.sep,
+      isAbsolute: NodePath.isAbsolute,
+      join: NodePath.join,
+      resolve: NodePath.resolve,
+    };
+    assert.deepStrictEqual(
+      UsageService.resolvePiSessionsRoot({}, undefined, "/home/test", pathOps),
+      {
+        directory: NodePath.resolve("/home/test/.pi/agent/sessions"),
+        ignoredRelativePaths: [],
+      },
+    );
+    assert.deepStrictEqual(
+      UsageService.resolvePiSessionsRoot(
+        { PI_CODING_AGENT_DIR: "/custom/agent" },
+        "/global/sessions",
+        "/home/test",
+        pathOps,
+      ),
+      {
+        directory: NodePath.resolve("/global/sessions"),
+        ignoredRelativePaths: [],
+      },
+    );
+    assert.deepStrictEqual(
+      UsageService.resolvePiSessionsRoot(
+        {
+          PI_CODING_AGENT_DIR: "/ignored/agent",
+          PI_CODING_AGENT_SESSION_DIR: "/environment/sessions",
+        },
+        "/ignored/global-sessions",
+        "/home/test",
+        pathOps,
+      ),
+      {
+        directory: NodePath.resolve("/environment/sessions"),
+        ignoredRelativePaths: [],
+      },
+    );
+    assert.deepStrictEqual(
+      UsageService.resolvePiSessionsRoot(
+        { PI_CODING_AGENT_SESSION_DIR: "~/environment-sessions" },
+        "/ignored/global-sessions",
+        "/home/test",
+        pathOps,
+      ),
+      {
+        directory: NodePath.resolve("/home/test/environment-sessions"),
+        ignoredRelativePaths: [],
+      },
+    );
+    assert.deepStrictEqual(
+      UsageService.resolvePiSessionsRoot({}, "~/pi-sessions", "/home/test", pathOps),
+      {
+        directory: NodePath.resolve("/home/test/pi-sessions"),
+        ignoredRelativePaths: [],
+      },
+    );
+    assert.deepStrictEqual(
+      UsageService.resolvePiSessionsRoot(
+        { PI_CODING_AGENT_DIR: "~/custom-agent" },
+        undefined,
+        "/home/test",
+        pathOps,
+      ),
+      {
+        directory: NodePath.resolve("/home/test/custom-agent/sessions"),
+        ignoredRelativePaths: [],
+      },
+    );
+    assert.deepStrictEqual(
+      UsageService.resolvePiSessionsRoot(
+        { PI_CODING_AGENT_DIR: "/custom/agent" },
+        "relative-sessions",
+        "/home/test",
+        pathOps,
+      ),
+      {
+        directory: NodePath.resolve("/custom/agent/sessions"),
+        ignoredRelativePaths: ["settings.json sessionDir"],
+      },
+    );
+  });
+
+  it("never resolves relative Pi environment paths against the server cwd", () => {
+    const serverCwd = "/server-cwd-that-is-not-a-thread-cwd";
+    const pathOps = {
+      sep: NodePath.sep,
+      isAbsolute: NodePath.isAbsolute,
+      join: NodePath.join,
+      resolve: (...parts: ReadonlyArray<string>) => NodePath.resolve(serverCwd, ...parts),
+    };
+
+    assert.deepStrictEqual(
+      UsageService.resolvePiSessionsRoot(
+        {
+          PI_CODING_AGENT_SESSION_DIR: "thread-relative-sessions",
+          PI_CODING_AGENT_DIR: "/absolute/agent",
+        },
+        "/absolute/global-sessions",
+        "/home/test",
+        pathOps,
+      ),
+      {
+        directory: "/absolute/global-sessions",
+        ignoredRelativePaths: ["PI_CODING_AGENT_SESSION_DIR"],
+      },
+    );
+    assert.deepStrictEqual(
+      UsageService.resolvePiSessionsRoot(
+        {
+          PI_CODING_AGENT_SESSION_DIR: "thread-relative-sessions",
+          PI_CODING_AGENT_DIR: "/absolute/agent",
+        },
+        undefined,
+        "/home/test",
+        pathOps,
+      ),
+      {
+        directory: "/absolute/agent/sessions",
+        ignoredRelativePaths: ["PI_CODING_AGENT_SESSION_DIR"],
+      },
+    );
+    const relativeAgent = UsageService.resolvePiSessionsRoot(
+      { PI_CODING_AGENT_DIR: "thread-relative-agent" },
+      "/unusable-global-settings-because-agent-location-is-relative",
+      "/home/test",
+      pathOps,
+    );
+    assert.deepStrictEqual(relativeAgent, {
+      directory: "/home/test/.pi/agent/sessions",
+      ignoredRelativePaths: ["PI_CODING_AGENT_DIR"],
+    });
+    const diagnostic = UsageService.piSourceDiagnostic(false, relativeAgent.ignoredRelativePaths);
+    assert.include(diagnostic, "PI_CODING_AGENT_DIR");
+    assert.include(diagnostic, "each invocation cwd");
+    assert.notInclude(diagnostic, serverCwd);
+  });
+
   it.live("reads configured and disabled accounts once across shared and aliased homes", () =>
     Effect.gen(function* () {
       const { transcript, settings, home } = yield* setup;
@@ -225,6 +399,11 @@ describe("UsageService", () => {
       assert.strictEqual(
         sources.filter((source) => source.fingerprint.provider === "codex").length,
         1,
+      );
+      assert.strictEqual(
+        summary.sources.find((source) => source.fingerprint.provider === "pi")?.fingerprint
+          .resolvedHomePath,
+        NodePath.join(home, "pi-sessions"),
       );
     }).pipe(Effect.scoped),
   );
@@ -347,6 +526,285 @@ describe("UsageService", () => {
           NodePath.join(home, "grok", "sessions"),
         );
       }).pipe(Effect.scoped),
+  );
+
+  it.live("reads an absolute global Pi sessionDir from a custom agent directory", () =>
+    Effect.gen(function* () {
+      const { settings, home } = yield* setup;
+      const agentDir = NodePath.join(home, "pi-custom-agent");
+      const configuredSessions = NodePath.join(home, "pi-global-sessions");
+      yield* Effect.promise(async () => {
+        await NodeFSP.mkdir(agentDir, { recursive: true });
+        await NodeFSP.mkdir(NodePath.join(configuredSessions, "nested"), { recursive: true });
+        await NodeFSP.writeFile(
+          NodePath.join(agentDir, "settings.json"),
+          encodeUnknownJsonString({ sessionDir: configuredSessions, theme: "dark" }),
+        );
+        await NodeFSP.writeFile(
+          NodePath.join(configuredSessions, "nested", "session.jsonl"),
+          piTranscript("pi-global-setting", 23),
+        );
+      });
+
+      const service = yield* UsageService.make.pipe(
+        Effect.provide(
+          serviceLayers({
+            prefix: "usage-service-pi-global-settings-test",
+            home,
+            environment: {
+              PI_CODING_AGENT_SESSION_DIR: "",
+              PI_CODING_AGENT_DIR: agentDir,
+            },
+            settings,
+          }),
+        ),
+      );
+      const summary = yield* service.readSummary(WINDOW);
+      const piSource = summary.sources.find((source) => source.fingerprint.provider === "pi");
+
+      assert.strictEqual(piSource?.fingerprint.resolvedHomePath, configuredSessions);
+      assert.strictEqual(
+        summary.buckets
+          .filter((bucket) => bucket.provider === "pi")
+          .reduce((sum, bucket) => sum + bucket.totals.outputTokens, 0),
+        23,
+      );
+    }).pipe(Effect.scoped),
+  );
+
+  it.live("falls back for missing, malformed, non-string, and empty Pi global sessionDir", () =>
+    Effect.gen(function* () {
+      const { settings, home } = yield* setup;
+      const cases: ReadonlyArray<{
+        readonly name: string;
+        readonly settingsDocument: string | null;
+      }> = [
+        { name: "missing", settingsDocument: null },
+        { name: "malformed", settingsDocument: "{" },
+        { name: "non-string", settingsDocument: encodeUnknownJsonString({ sessionDir: 42 }) },
+        { name: "empty", settingsDocument: encodeUnknownJsonString({ sessionDir: "  " }) },
+      ];
+
+      for (const [index, testCase] of cases.entries()) {
+        const agentDir = NodePath.join(home, `pi-agent-${testCase.name}`);
+        const defaultSessions = NodePath.join(agentDir, "sessions");
+        yield* Effect.promise(async () => {
+          await NodeFSP.mkdir(defaultSessions, { recursive: true });
+          await NodeFSP.writeFile(
+            NodePath.join(defaultSessions, "session.jsonl"),
+            piTranscript(`pi-${testCase.name}`, 30 + index),
+          );
+          if (testCase.settingsDocument !== null) {
+            await NodeFSP.writeFile(
+              NodePath.join(agentDir, "settings.json"),
+              testCase.settingsDocument,
+            );
+          }
+        });
+
+        const service = yield* UsageService.make.pipe(
+          Effect.provide(
+            serviceLayers({
+              prefix: `usage-service-pi-settings-${testCase.name}`,
+              home,
+              environment: {
+                PI_CODING_AGENT_SESSION_DIR: "",
+                PI_CODING_AGENT_DIR: agentDir,
+              },
+              settings,
+            }),
+          ),
+        );
+        const summary = yield* service.readSummary(WINDOW);
+        const piSource = summary.sources.find((source) => source.fingerprint.provider === "pi");
+
+        assert.strictEqual(piSource?.fingerprint.resolvedHomePath, defaultSessions);
+        assert.notInclude(piSource?.message ?? "", "each invocation cwd");
+      }
+    }).pipe(Effect.scoped),
+  );
+
+  it.live(
+    "ignores a relative session-dir environment value and uses absolute global settings",
+    () =>
+      Effect.gen(function* () {
+        const { settings, home } = yield* setup;
+        const agentDir = NodePath.join(home, "pi-relative-session-env-agent");
+        const globalSessions = NodePath.join(home, "pi-relative-session-env-global");
+        yield* Effect.promise(async () => {
+          await NodeFSP.mkdir(agentDir, { recursive: true });
+          await NodeFSP.mkdir(globalSessions, { recursive: true });
+          await NodeFSP.writeFile(
+            NodePath.join(agentDir, "settings.json"),
+            encodeUnknownJsonString({ sessionDir: globalSessions }),
+          );
+          await NodeFSP.writeFile(
+            NodePath.join(globalSessions, "session.jsonl"),
+            piTranscript("pi-relative-session-env", 37),
+          );
+        });
+
+        const service = yield* UsageService.make.pipe(
+          Effect.provide(
+            serviceLayers({
+              prefix: "usage-service-pi-relative-session-env-test",
+              home,
+              environment: {
+                PI_CODING_AGENT_SESSION_DIR: "thread-relative-sessions",
+                PI_CODING_AGENT_DIR: agentDir,
+              },
+              settings,
+            }),
+          ),
+        );
+        const summary = yield* service.readSummary(WINDOW);
+        const piSource = summary.sources.find((source) => source.fingerprint.provider === "pi");
+
+        assert.strictEqual(piSource?.fingerprint.resolvedHomePath, globalSessions);
+        assert.include(piSource?.message ?? "", "PI_CODING_AGENT_SESSION_DIR");
+        assert.include(piSource?.message ?? "", "each invocation cwd");
+        assert.strictEqual(
+          summary.buckets.find((bucket) => bucket.provider === "pi")?.totals.outputTokens,
+          37,
+        );
+      }).pipe(Effect.scoped),
+  );
+
+  it.live("falls back honestly when Pi global sessionDir is relative", () =>
+    Effect.gen(function* () {
+      const { settings, home } = yield* setup;
+      const agentDir = NodePath.join(home, "pi-relative-agent");
+      const defaultSessions = NodePath.join(agentDir, "sessions");
+      yield* Effect.promise(async () => {
+        await NodeFSP.mkdir(defaultSessions, { recursive: true });
+        await NodeFSP.writeFile(
+          NodePath.join(agentDir, "settings.json"),
+          encodeUnknownJsonString({ sessionDir: "relative-sessions" }),
+        );
+        await NodeFSP.writeFile(
+          NodePath.join(defaultSessions, "session.jsonl"),
+          piTranscript("pi-relative-fallback", 41),
+        );
+      });
+
+      const service = yield* UsageService.make.pipe(
+        Effect.provide(
+          serviceLayers({
+            prefix: "usage-service-pi-relative-settings-test",
+            home,
+            environment: {
+              PI_CODING_AGENT_SESSION_DIR: "",
+              PI_CODING_AGENT_DIR: agentDir,
+            },
+            settings,
+          }),
+        ),
+      );
+      const summary = yield* service.readSummary(WINDOW);
+      const piSource = summary.sources.find((source) => source.fingerprint.provider === "pi");
+
+      assert.strictEqual(piSource?.fingerprint.resolvedHomePath, defaultSessions);
+      assert.include(piSource?.message ?? "", "settings.json sessionDir");
+      assert.include(piSource?.message ?? "", "each invocation cwd");
+      assert.strictEqual(
+        summary.buckets.find((bucket) => bucket.provider === "pi")?.totals.outputTokens,
+        41,
+      );
+    }).pipe(Effect.scoped),
+  );
+
+  it.live("resolves Pi environment roots without inventing provider-instance attribution", () =>
+    Effect.gen(function* () {
+      const { settings, home } = yield* setup;
+      const directSessions = NodePath.join(home, "pi-direct-sessions");
+      const directNestedDirectory = NodePath.join(directSessions, "workspace", "2026", "08");
+      const ignoredAgentHome = NodePath.join(home, "ignored");
+      const ignoredSettingsSessions = NodePath.join(home, "ignored-settings-sessions");
+      const agentHome = NodePath.join(home, "pi-agent-home");
+      yield* Effect.promise(async () => {
+        await NodeFSP.mkdir(directNestedDirectory, { recursive: true });
+        await NodeFSP.mkdir(ignoredAgentHome, { recursive: true });
+        await NodeFSP.mkdir(ignoredSettingsSessions, { recursive: true });
+        await NodeFSP.mkdir(NodePath.join(agentHome, "sessions"), { recursive: true });
+        await NodeFSP.writeFile(
+          NodePath.join(ignoredAgentHome, "settings.json"),
+          encodeUnknownJsonString({ sessionDir: ignoredSettingsSessions }),
+        );
+        await NodeFSP.writeFile(
+          NodePath.join(ignoredSettingsSessions, "ignored.jsonl"),
+          piTranscript("pi-ignored-setting", 100),
+        );
+        await NodeFSP.writeFile(
+          NodePath.join(directNestedDirectory, "direct.jsonl"),
+          piTranscript("pi-direct", 17),
+        );
+        await NodeFSP.writeFile(
+          NodePath.join(agentHome, "sessions", "agent.jsonl"),
+          piTranscript("pi-agent", 19),
+        );
+      });
+
+      const service = yield* UsageService.make.pipe(
+        Effect.provide(
+          serviceLayers({
+            prefix: "usage-service-pi-roots-test",
+            home,
+            environment: { PI_CODING_AGENT_SESSION_DIR: "" },
+            settings: {
+              ...settings,
+              providerInstances: {
+                [ProviderInstanceId.make("pi")]: {
+                  driver: ProviderDriverKind.make("pi"),
+                  environment: [
+                    {
+                      name: "PI_CODING_AGENT_SESSION_DIR",
+                      value: directSessions,
+                      sensitive: false,
+                    },
+                    {
+                      name: "PI_CODING_AGENT_DIR",
+                      value: ignoredAgentHome,
+                      sensitive: false,
+                    },
+                  ],
+                },
+                [ProviderInstanceId.make("pi-agent")]: {
+                  driver: ProviderDriverKind.make("pi"),
+                  environment: [
+                    { name: "PI_CODING_AGENT_DIR", value: agentHome, sensitive: false },
+                  ],
+                },
+              },
+            },
+          }),
+        ),
+      );
+      const summary = yield* service.readSummary(WINDOW);
+      const piBuckets = summary.buckets.filter((bucket) => bucket.provider === "pi");
+      const piSources = summary.sources.filter((source) => source.fingerprint.provider === "pi");
+
+      assert.strictEqual(
+        piBuckets.reduce((sum, bucket) => sum + bucket.totals.outputTokens, 0),
+        36,
+      );
+      assert.deepStrictEqual(
+        piSources.map((source) => source.fingerprint.resolvedHomePath).toSorted(),
+        [directSessions, NodePath.join(agentHome, "sessions")].toSorted(),
+      );
+      assert.isTrue(
+        piSources.every((source) =>
+          source.message?.includes("outside this resolved sessions root are not discoverable"),
+        ),
+      );
+      // Historical summaries intentionally stop at provider-level because shared
+      // Pi files cannot be assigned reliably to one configured instance.
+      assert.deepStrictEqual(Object.keys(piSources[0]?.fingerprint ?? {}).toSorted(), [
+        "hostId",
+        "provider",
+        "resolvedHomePath",
+        "volumeId",
+      ]);
+    }).pipe(Effect.scoped),
   );
 
   it.live("reprices unchanged transcripts when custom prices are added, edited, or removed", () =>

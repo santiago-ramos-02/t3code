@@ -17,13 +17,14 @@
 import type { UsageProviderKind } from "@t3tools/contracts";
 
 import { GUARD_LENGTH, type TranscriptParsePosition } from "./usageTranscriptReader.ts";
-import type { CodexScanState, UsageRecord } from "./usageTranscripts.ts";
+import type { CodexScanState, PiScanState, UsageRecord } from "./usageTranscripts.ts";
 
 // v2: Codex fork-copy suppression changed what a file parses to, so v1
 // entries would keep serving double-counted records forever.
-// v3: entries carry the parse position and reducer state so a grown file
+// v3: entries carry the parse position and Codex reducer state so a grown file
 // re-parses only its appended bytes instead of starting over.
-const USAGE_SCAN_CACHE_VERSION = 3 as const;
+// v4: positions also persist Pi's session and active-model reducer state.
+const USAGE_SCAN_CACHE_VERSION = 4 as const;
 
 export interface CachedFile {
   readonly size: number;
@@ -71,8 +72,10 @@ interface SerializedFile {
   readonly o: number;
   readonly gl: number;
   readonly gh: number;
-  /** Codex reducer state at `o`; `null` for stateless providers. */
+  /** Codex reducer state at `o`; `null` for other providers. */
   readonly cs: CodexScanState | null;
+  /** Pi reducer state at `o`; `null` for other providers. */
+  readonly ps: PiScanState | null;
 }
 
 interface SerializedCache {
@@ -123,6 +126,7 @@ export function encodeScanCache(cache: ScanCache): SerializedCache {
       gl: entry.position.guardLength,
       gh: entry.position.guardHash,
       cs: entry.position.codexState,
+      ps: entry.position.piState,
     };
   }
 
@@ -216,7 +220,8 @@ export function decodeScanCache(document: unknown): ScanCache {
     if (typeof raw !== "object" || raw === null) continue;
     const entry = raw as Partial<SerializedFile>;
     if (typeof entry.s !== "number" || typeof entry.m !== "number") continue;
-    if (entry.p !== "claude" && entry.p !== "codex" && entry.p !== "grok") continue;
+    if (entry.p !== "claude" && entry.p !== "codex" && entry.p !== "grok" && entry.p !== "pi")
+      continue;
     if (!isRecordArray(entry.r) || !isRecordArray(entry.t)) continue;
     // Position fields feed byte offsets and a Buffer allocation in the reader,
     // so anything outside their real ranges must reject the entry: a bogus
@@ -238,6 +243,8 @@ export function decodeScanCache(document: unknown): ScanCache {
     }
     const codexState = decodeCodexState(entry.cs);
     if (codexState === undefined) continue;
+    const piState = decodePiState(entry.ps);
+    if (piState === undefined) continue;
 
     const provider: UsageProviderKind = entry.p;
     const records = decodeRecords(entry.r, provider);
@@ -255,6 +262,7 @@ export function decodeScanCache(document: unknown): ScanCache {
         guardLength: entry.gl,
         guardHash: entry.gh,
         codexState,
+        piState,
       },
     });
   }
@@ -267,6 +275,14 @@ export function decodeScanCache(document: unknown): ScanCache {
  * value, which disqualifies the entry: resuming with a bad state would attach
  * appended usage to the wrong model or replay fork-copied history.
  */
+function decodePiState(value: unknown): PiScanState | null | undefined {
+  if (value === null) return null;
+  if (typeof value !== "object") return undefined;
+  const state = value as Partial<PiScanState>;
+  if (typeof state.model !== "string" || typeof state.sessionId !== "string") return undefined;
+  return { model: state.model, sessionId: state.sessionId };
+}
+
 function decodeCodexState(value: unknown): CodexScanState | null | undefined {
   if (value === null) return null;
   if (typeof value !== "object") return undefined;
