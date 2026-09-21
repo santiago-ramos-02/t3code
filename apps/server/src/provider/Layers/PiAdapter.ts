@@ -31,6 +31,12 @@ import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
+import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
+import {
+  PI_MCP_AUTHORIZATION_ENV,
+  PI_MCP_ENDPOINT_ENV,
+  PI_MCP_SCOPE_ENV,
+} from "../pi-mcp/PiMcpBridgeSource.ts";
 import {
   ProviderAdapterProcessError,
   ProviderAdapterRequestError,
@@ -53,6 +59,24 @@ const PROVIDER = ProviderDriverKind.make("pi");
 const MAX_TOOL_DETAIL_CHARS = 2_048;
 const DEFAULT_INTERRUPT_SETTLEMENT_TIMEOUT = "5 seconds";
 const decodeThinkingLevel = Schema.decodeUnknownOption(Schema.Literals(PI_THINKING_LEVELS));
+const encodePiMcpScope = Schema.encodeSync(
+  Schema.fromJsonString(
+    Schema.Struct({
+      version: Schema.Literal(1),
+      environmentId: Schema.String,
+      threadId: Schema.String,
+      providerSessionId: Schema.String,
+      providerInstanceId: Schema.String,
+      runtimeMode: Schema.Literals([
+        "approval-required",
+        "auto-accept-edits",
+        "auto",
+        "full-access",
+      ]),
+      capabilities: Schema.Array(Schema.String),
+    }),
+  ),
+);
 
 const JsonRecord = Schema.Record(Schema.String, Schema.Unknown);
 const FiniteNonNegative = Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0));
@@ -552,6 +576,7 @@ export interface PiAdapterOptions {
   readonly instanceId: ProviderInstanceId;
   readonly binaryPath: string;
   readonly environment?: NodeJS.ProcessEnv;
+  readonly mcpExtensionPath: string;
   readonly attachmentsDir: string;
   readonly normalizeWorkspaceCwd: (cwd: string) => string;
   readonly rpcFactory: PiAdapterRpcFactory;
@@ -1586,12 +1611,49 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
             });
           }
           if (previous) yield* stopContext(previous);
+          const mcpSession = McpProviderSession.readMcpProviderSession(input.threadId);
+          if (
+            mcpSession !== undefined &&
+            (mcpSession.threadId !== input.threadId ||
+              mcpSession.providerInstanceId !== options.instanceId)
+          ) {
+            return yield* new ProviderAdapterValidationError({
+              provider: PROVIDER,
+              operation: "startSession",
+              issue: "The thread MCP credential is not bound to this Pi session.",
+            });
+          }
           const sessionScope = yield* Scope.make("sequential");
+          const environment = {
+            ...McpProviderSession.withAgentDeviceEnvironment(
+              options.environment ?? process.env,
+              mcpSession,
+            ),
+          };
+          delete environment[PI_MCP_ENDPOINT_ENV];
+          delete environment[PI_MCP_AUTHORIZATION_ENV];
+          delete environment[PI_MCP_SCOPE_ENV];
+          if (mcpSession !== undefined) {
+            environment[PI_MCP_ENDPOINT_ENV] = mcpSession.endpoint;
+            environment[PI_MCP_AUTHORIZATION_ENV] = mcpSession.authorizationHeader;
+            environment[PI_MCP_SCOPE_ENV] = encodePiMcpScope({
+              version: 1,
+              environmentId: mcpSession.environmentId,
+              threadId: mcpSession.threadId,
+              providerSessionId: mcpSession.providerSessionId,
+              providerInstanceId: mcpSession.providerInstanceId,
+              runtimeMode: input.runtimeMode,
+              capabilities: Array.from(mcpSession.capabilities).sort(),
+            });
+          }
           const rpc = yield* rpcFactory({
             binaryPath: options.binaryPath,
             cwd,
+            ...(mcpSession === undefined
+              ? {}
+              : { args: ["--no-extensions", "--extension", options.mcpExtensionPath] }),
             ...(requestedCursor === undefined ? {} : { sessionId: requestedCursor.sessionId }),
-            ...(options.environment === undefined ? {} : { environment: options.environment }),
+            environment,
           }).pipe(
             Effect.provideService(Scope.Scope, sessionScope),
             Effect.mapError(

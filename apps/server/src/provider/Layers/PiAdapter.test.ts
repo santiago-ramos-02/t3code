@@ -1,5 +1,6 @@
 import {
   ApprovalRequestId,
+  EnvironmentId,
   ProviderInstanceId,
   ThreadId,
   type ProviderRuntimeEvent,
@@ -10,11 +11,17 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Queue from "effect/Queue";
-import * as Scope from "effect/Scope";
+import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
 
+import { clearMcpProviderSession, setMcpProviderSession } from "../../mcp/McpProviderSession.ts";
+import {
+  PI_MCP_AUTHORIZATION_ENV,
+  PI_MCP_ENDPOINT_ENV,
+  PI_MCP_SCOPE_ENV,
+} from "../pi-mcp/PiMcpBridgeSource.ts";
 import {
   PiRpcError,
   recordString,
@@ -37,6 +44,7 @@ const INSTANCE_ID = ProviderInstanceId.make("pi-work");
 const THREAD_ID = ThreadId.make("thread-pi");
 const SECOND_THREAD_ID = ThreadId.make("thread-pi-second");
 const SESSION_EVENTS = 3;
+const decodeUnknownJson = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Unknown));
 
 interface FakeTransport {
   readonly options: PiRpcOptions;
@@ -221,6 +229,7 @@ function makeAdapter(
     instanceId: INSTANCE_ID,
     binaryPath: "pi-test",
     environment: { PI_INSTANCE: "work" },
+    mcpExtensionPath: "/private/runtime/pi-mcp/t3-mcp-test.mjs",
     attachmentsDir: "/private/attachments",
     normalizeWorkspaceCwd: (cwd) => cwd.replace("/./", "/"),
     rpcFactory: harness.factory,
@@ -350,6 +359,138 @@ describe("PiAdapter session runtime", () => {
         expect(events.every((event) => event.providerInstanceId === INSTANCE_ID)).toBe(true);
         expect(listed[0]?.resumeCursor).toEqual(resumeCursor("pi-session-1"));
         expect(containsKey([session, listed, events], "sessionFile")).toBe(false);
+      }),
+    ),
+  );
+
+  it.effect("passes only the current thread MCP credential through child environment", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        setMcpProviderSession({
+          environmentId: EnvironmentId.make("environment-pi"),
+          threadId: THREAD_ID,
+          providerSessionId: "provider-session-first",
+          providerInstanceId: INSTANCE_ID,
+          endpoint: "http://127.0.0.1:3773/mcp",
+          authorizationHeader: "Bearer first-private-token",
+          capabilities: new Set(["pull-requests", "preview"]),
+          agentDeviceEnvironment: {
+            PATH: "/private/device-shim",
+            PATH_SEPARATOR: ":",
+            T3_AGENT_DEVICE_SOCKET: "/private/device.sock",
+          },
+        });
+        setMcpProviderSession({
+          environmentId: EnvironmentId.make("environment-pi"),
+          threadId: SECOND_THREAD_ID,
+          providerSessionId: "provider-session-second",
+          providerInstanceId: INSTANCE_ID,
+          endpoint: "http://127.0.0.1:4884/mcp",
+          authorizationHeader: "Bearer second-private-token",
+          capabilities: new Set(["device"]),
+        });
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => {
+            clearMcpProviderSession(THREAD_ID);
+            clearMcpProviderSession(SECOND_THREAD_ID);
+          }),
+        );
+
+        const harness = makeRpcHarness();
+        const adapter = yield* makeAdapter(harness);
+        yield* startSession(adapter, THREAD_ID);
+        yield* startSession(adapter, SECOND_THREAD_ID);
+        yield* takeEvents(adapter, SESSION_EVENTS * 2);
+
+        const first = harness.transports[0]!.options;
+        const second = harness.transports[1]!.options;
+        expect(first.args).toEqual([
+          "--no-extensions",
+          "--extension",
+          "/private/runtime/pi-mcp/t3-mcp-test.mjs",
+        ]);
+        expect(containsString(first.args, "first-private-token")).toBe(false);
+        expect(containsString(first.args, "provider-session-first")).toBe(false);
+        expect(first.environment).toMatchObject({
+          PI_INSTANCE: "work",
+          [PI_MCP_ENDPOINT_ENV]: "http://127.0.0.1:3773/mcp",
+          [PI_MCP_AUTHORIZATION_ENV]: "Bearer first-private-token",
+          T3_AGENT_DEVICE_SOCKET: "/private/device.sock",
+          PATH: "/private/device-shim",
+        });
+        expect(decodeUnknownJson(first.environment?.[PI_MCP_SCOPE_ENV] ?? "null")).toEqual({
+          version: 1,
+          environmentId: "environment-pi",
+          threadId: THREAD_ID,
+          providerSessionId: "provider-session-first",
+          providerInstanceId: INSTANCE_ID,
+          runtimeMode: "full-access",
+          capabilities: ["preview", "pull-requests"],
+        });
+        expect(second.environment).toMatchObject({
+          PI_INSTANCE: "work",
+          [PI_MCP_ENDPOINT_ENV]: "http://127.0.0.1:4884/mcp",
+          [PI_MCP_AUTHORIZATION_ENV]: "Bearer second-private-token",
+        });
+        expect(containsString(first.environment, "second-private-token")).toBe(false);
+        expect(containsString(second.environment, "first-private-token")).toBe(false);
+      }),
+    ),
+  );
+
+  it.effect("removes ambient MCP bridge credentials when no thread credential exists", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = makeRpcHarness();
+        const adapter = yield* makePiAdapter({
+          instanceId: INSTANCE_ID,
+          binaryPath: "pi-test",
+          environment: {
+            PI_INSTANCE: "work",
+            [PI_MCP_ENDPOINT_ENV]: "http://ambient.invalid/mcp",
+            [PI_MCP_AUTHORIZATION_ENV]: "Bearer ambient-private-token",
+            [PI_MCP_SCOPE_ENV]: "ambient-private-scope",
+          },
+          mcpExtensionPath: "/private/runtime/pi-mcp/t3-mcp-test.mjs",
+          attachmentsDir: "/private/attachments",
+          normalizeWorkspaceCwd: (cwd) => cwd,
+          rpcFactory: harness.factory,
+          readFile: () => Effect.succeed(new Uint8Array()),
+        });
+
+        yield* startSession(adapter);
+        yield* takeEvents(adapter, SESSION_EVENTS);
+
+        expect(harness.transports[0]?.options.environment).toEqual({ PI_INSTANCE: "work" });
+        expect(harness.transports[0]?.options.args).toBeUndefined();
+      }),
+    ),
+  );
+
+  it.effect("fails closed when a thread credential belongs to another provider instance", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        setMcpProviderSession({
+          environmentId: EnvironmentId.make("environment-pi"),
+          threadId: THREAD_ID,
+          providerSessionId: "provider-session-other",
+          providerInstanceId: ProviderInstanceId.make("pi-other"),
+          endpoint: "http://127.0.0.1:3773/mcp",
+          authorizationHeader: "Bearer other-private-token",
+          capabilities: new Set(["preview"]),
+        });
+        yield* Effect.addFinalizer(() => Effect.sync(() => clearMcpProviderSession(THREAD_ID)));
+        const harness = makeRpcHarness();
+        const adapter = yield* makeAdapter(harness);
+
+        const failure = yield* startSession(adapter).pipe(Effect.flip);
+
+        expect(failure).toMatchObject({
+          _tag: "ProviderAdapterValidationError",
+          operation: "startSession",
+          issue: "The thread MCP credential is not bound to this Pi session.",
+        });
+        expect(harness.transports).toHaveLength(0);
       }),
     ),
   );

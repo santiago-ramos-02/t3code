@@ -1,10 +1,8 @@
-import * as NodePath from "@effect/platform-node/NodePath";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
-import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as PlatformError from "effect/PlatformError";
 import * as Queue from "effect/Queue";
@@ -27,10 +25,7 @@ const PiDriverTestLayer = Layer.mergeAll(
   ServerConfig.ServerConfig.layerTest(process.cwd(), {
     prefix: "t3-pi-driver-test-",
   }).pipe(Layer.provide(NodeServices.layer)),
-  FileSystem.layerNoop({
-    readFile: () => Effect.succeed(new Uint8Array()),
-  }),
-  NodePath.layer,
+  NodeServices.layer,
 );
 
 function processHandle(input: {
@@ -480,7 +475,12 @@ describe("PiDriver explicit discovery", () => {
         expect(requests.map((request) => recordString(request, "type"))).toEqual([
           "get_available_models",
         ]);
-        expect(commandArgs(commands[0]!)).toEqual(["--mode", "rpc", "--no-session"]);
+        expect(commandArgs(commands[0]!)).toEqual([
+          "--mode",
+          "rpc",
+          "--no-session",
+          "--no-extensions",
+        ]);
         expect(snapshot.models.map((model) => model.slug)).toEqual([
           "openai/reasoning-defaults",
           "anthropic/reasoning-mapped",
