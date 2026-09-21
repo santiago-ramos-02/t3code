@@ -625,8 +625,10 @@ interface PreparedModelSelection {
 interface ActiveTurn {
   readonly turnId: TurnId;
   readonly completion: Deferred.Deferred<void>;
+  abortRequestPending: boolean;
   abortRequested: boolean;
   agentRunBegan: boolean;
+  agentSettlementPending: boolean;
   promptPending: boolean;
   settled: boolean;
   readonly usage: UsageTotals;
@@ -1315,6 +1317,11 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
     const native: NativeEvent = decoded.value;
     if (native.type === "agent_start" || native.type === "agent_end") return;
     if (native.type === "agent_settled") {
+      const turn = context.activeTurn;
+      if (turn !== undefined && !turn.settled && turn.abortRequestPending) {
+        turn.agentSettlementPending = true;
+        return;
+      }
       yield* settleTurn(context);
       return;
     }
@@ -1914,8 +1921,10 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
             const turn: ActiveTurn = {
               turnId,
               completion,
+              abortRequestPending: false,
               abortRequested: false,
               agentRunBegan: false,
+              agentSettlementPending: false,
               promptPending: true,
               settled: false,
               usage: emptyUsage(),
@@ -2199,6 +2208,7 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
             });
             return { type: "terminate" as const, context };
           }
+          turn.abortRequestPending = true;
           return { type: "abort" as const, context, turn };
         }),
       );
@@ -2207,11 +2217,35 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
         return;
       }
 
-      yield* decision.context.rpc
-        .request({ type: "abort" })
-        .pipe(Effect.mapError((cause) => mapRequestError("abort", cause)));
+      const abortOutcome = yield* Effect.race(
+        decision.context.rpc.request({ type: "abort" }).pipe(
+          Effect.exit,
+          Effect.map((exit) => ({ type: "response" as const, exit })),
+        ),
+        Deferred.await(decision.turn.completion).pipe(Effect.as({ type: "turn-settled" as const })),
+      );
+      if (abortOutcome.type === "turn-settled") {
+        yield* operationLock.withPermits(1)(
+          Effect.sync(() => {
+            decision.turn.abortRequestPending = false;
+          }),
+        );
+        return;
+      }
+
       const shouldAwait = yield* operationLock.withPermits(1)(
-        Effect.sync(() => {
+        Effect.gen(function* () {
+          decision.turn.abortRequestPending = false;
+          if (Exit.isFailure(abortOutcome.exit)) {
+            if (
+              decision.context.activeTurn === decision.turn &&
+              !decision.turn.settled &&
+              decision.turn.agentSettlementPending
+            ) {
+              yield* settleTurn(decision.context);
+            }
+            return false;
+          }
           if (
             decision.context.stopped ||
             decision.context.activeTurn !== decision.turn ||
@@ -2220,9 +2254,16 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
             return false;
           }
           decision.turn.abortRequested = true;
+          if (decision.turn.agentSettlementPending) {
+            yield* settleTurn(decision.context);
+            return false;
+          }
           return true;
         }),
       );
+      if (Exit.isFailure(abortOutcome.exit)) {
+        return yield* mapRequestError("abort", abortOutcome.exit.cause);
+      }
       if (!shouldAwait) return;
       const watchdog = yield* Deferred.await(decision.turn.completion).pipe(
         Effect.timeoutOption(
