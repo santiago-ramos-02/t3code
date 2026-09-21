@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
+import { OpenCodeIcon, PiAgentIcon } from "../Icons";
 import { PROVIDER_ORDER, PROVIDER_PRESENTATION } from "./usageProviders";
 
 describe("usage provider presentation", () => {
@@ -8,11 +9,12 @@ describe("usage provider presentation", () => {
     expect(Object.keys(PROVIDER_PRESENTATION)).toEqual(PROVIDER_ORDER);
   });
 
-  it("uses the neutral code presentation reserved for Pi before dedicated branding", () => {
+  it("uses Pi branding instead of another coding provider's mark", () => {
     expect(PROVIDER_PRESENTATION.pi).toMatchObject({
       label: "Pi",
       color: expect.stringContaining("contrast-foreground"),
+      mark: PiAgentIcon,
     });
-    expect(PROVIDER_PRESENTATION.pi.mark).toBeTypeOf("function");
+    expect(PROVIDER_PRESENTATION.pi.mark).not.toBe(OpenCodeIcon);
   });
 });

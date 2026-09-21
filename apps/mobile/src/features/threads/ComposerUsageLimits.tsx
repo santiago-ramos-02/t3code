@@ -4,8 +4,7 @@ import { Pressable, ScrollView, useWindowDimensions, View } from "react-native";
 import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
 import { AccountLimits, ResetCredits } from "../usage/UsageLimitsSection";
-
-const DRIVER_LABEL: Partial<Record<string, string>> = { codex: "Codex", claudeAgent: "Claude" };
+import { providerDriverLabel } from "../usage/usageProviders";
 
 /**
  * The /usage-limits result, docked above the composer. It is the Usage → Limits
@@ -45,7 +44,7 @@ export function ComposerUsageLimits({
           const resetCreditInput =
             account.resetCreditInput ??
             (account.instanceId ? { instanceId: account.instanceId } : undefined);
-          const driverLabel = DRIVER_LABEL[account.driver] ?? String(account.driver);
+          const driverLabel = providerDriverLabel(account.driver);
           return (
             <AccountLimits
               key={account.id}

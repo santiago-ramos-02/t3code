@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import { ProviderDriverKind } from "@t3tools/contracts";
 
+import { PiAgentIcon } from "../Icons";
 import { DRIVER_OPTION_BY_VALUE } from "./providerDriverMeta";
 import {
   deriveProviderSettingsFields,
@@ -18,6 +19,13 @@ describe("ProviderSettingsForm helpers", () => {
       "shadowHomePath",
       "launchArgs",
     ]);
+  });
+
+  it("presents Pi as a local binary provider", () => {
+    const pi = DRIVER_OPTION_BY_VALUE[ProviderDriverKind.make("pi")];
+
+    expect(pi).toMatchObject({ label: "Pi", icon: PiAgentIcon });
+    expect(deriveProviderSettingsFields(pi!).map((field) => field.key)).toEqual(["binaryPath"]);
   });
 
   it("sources labels and descriptions from schema annotations", () => {
