@@ -10,7 +10,7 @@ Install Pi on the machine that runs your projects, not on the phone or remote
 browser you use to control T3 Code:
 
 ```bash
-npm install -g @mariozechner/pi-coding-agent@latest
+npm install -g @earendil-works/pi-coding-agent@latest
 pi --version
 ```
 
