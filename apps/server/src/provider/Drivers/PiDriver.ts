@@ -14,6 +14,7 @@ import { compareSemverVersions } from "@t3tools/shared/semver";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as PubSub from "effect/PubSub";
 import * as Ref from "effect/Ref";
@@ -23,8 +24,10 @@ import * as Stream from "effect/Stream";
 import * as ChildProcess from "effect/unstable/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
 
+import * as ServerConfig from "../../config.ts";
 import type * as TextGeneration from "../../textGeneration/TextGeneration.ts";
-import { ProviderAdapterRequestError, ProviderDriverError } from "../Errors.ts";
+import { ProviderDriverError } from "../Errors.ts";
+import { makePiAdapter, PiAdapterAttachmentReadError } from "../Layers/PiAdapter.ts";
 import { mergeProviderInstanceEnvironment } from "../ProviderInstanceEnvironment.ts";
 import { makePiRpc, PI_THINKING_LEVELS, type PiThinkingLevel } from "../PiRpc.ts";
 import {
@@ -36,7 +39,6 @@ import {
   spawnAndCollect,
 } from "../providerSnapshot.ts";
 import { makeManualOnlyProviderMaintenanceCapabilities } from "../providerMaintenance.ts";
-import type { ProviderAdapterShape } from "../Services/ProviderAdapter.ts";
 import {
   defaultProviderContinuationIdentity,
   type ProviderDriver,
@@ -100,7 +102,10 @@ const MAINTENANCE_CAPABILITIES = makeManualOnlyProviderMaintenanceCapabilities({
   packageName: "@earendil-works/pi-coding-agent",
 });
 
-export type PiDriverEnv = ChildProcessSpawner.ChildProcessSpawner;
+export type PiDriverEnv =
+  | ChildProcessSpawner.ChildProcessSpawner
+  | FileSystem.FileSystem
+  | ServerConfig.ServerConfig;
 
 type PiModel = typeof PiModelSchema.Type;
 type PiCommand = typeof PiCommandSchema.Type;
@@ -211,36 +216,6 @@ function workspaceInventory(commands: ReadonlyArray<PiCommand>): {
   };
 }
 
-function placeholderAdapter(): ProviderAdapterShape<ProviderAdapterRequestError> {
-  const unavailable = (method: string) =>
-    Effect.fail(
-      new ProviderAdapterRequestError({
-        provider: DRIVER_KIND,
-        method,
-        detail: "Pi runtime chat support is not implemented yet.",
-      }),
-    );
-  return {
-    provider: DRIVER_KIND,
-    capabilities: {
-      sessionModelSwitch: "unsupported",
-      supportsConversationRollback: false,
-    },
-    startSession: () => unavailable("startSession"),
-    sendTurn: () => unavailable("sendTurn"),
-    interruptTurn: () => unavailable("interruptTurn"),
-    respondToRequest: () => unavailable("respondToRequest"),
-    respondToUserInput: () => unavailable("respondToUserInput"),
-    stopSession: () => unavailable("stopSession"),
-    listSessions: () => Effect.succeed([]),
-    hasSession: () => Effect.succeed(false),
-    readThread: () => unavailable("readThread"),
-    rollbackThread: () => unavailable("rollbackThread"),
-    stopAll: () => Effect.void,
-    streamEvents: Stream.empty,
-  };
-}
-
 function placeholderTextGeneration(): TextGeneration.TextGeneration["Service"] {
   const unavailable = (operation: string) =>
     Effect.fail(
@@ -281,6 +256,8 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
   create: ({ instanceId, displayName, accentColor, environment, enabled, config }) =>
     Effect.gen(function* () {
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+      const fileSystem = yield* FileSystem.FileSystem;
+      const serverConfig = yield* ServerConfig.ServerConfig;
       const hostPlatform = yield* HostProcessPlatform;
       const processEnv = mergeProviderInstanceEnvironment(environment);
       const effectiveConfig = { ...config, enabled } satisfies PiSettings;
@@ -527,6 +504,21 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
               ),
             );
 
+      const adapter = yield* makePiAdapter({
+        instanceId,
+        binaryPath: effectiveConfig.binaryPath,
+        environment: processEnv,
+        attachmentsDir: serverConfig.attachmentsDir,
+        rpcFactory: (rpcOptions) =>
+          makePiRpc(rpcOptions).pipe(
+            Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+          ),
+        readFile: (path) =>
+          fileSystem
+            .readFile(path)
+            .pipe(Effect.mapError((cause) => new PiAdapterAttachmentReadError({ cause }))),
+      });
+
       return {
         instanceId,
         driverKind: DRIVER_KIND,
@@ -537,7 +529,7 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
         snapshot,
         snapshotForCwd,
         refreshModels,
-        adapter: placeholderAdapter(),
+        adapter,
         textGeneration: placeholderTextGeneration(),
       } satisfies ProviderInstance;
     }),

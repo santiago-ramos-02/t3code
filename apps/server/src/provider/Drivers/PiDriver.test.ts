@@ -1,7 +1,10 @@
-import { ProviderInstanceId } from "@t3tools/contracts";
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import { ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Layer from "effect/Layer";
 import * as PlatformError from "effect/PlatformError";
 import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
@@ -10,6 +13,7 @@ import * as Stream from "effect/Stream";
 import * as ChildProcess from "effect/unstable/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
 
+import * as ServerConfig from "../../config.ts";
 import { asRecord, recordString, type PiRpcRecord } from "../PiRpc.ts";
 import { PiDriver } from "./PiDriver.ts";
 
@@ -18,6 +22,14 @@ const decoder = new TextDecoder();
 const JsonText = Schema.fromJsonString(Schema.Unknown);
 const decodeJson = Schema.decodeUnknownSync(JsonText);
 const encodeJson = Schema.encodeUnknownSync(JsonText);
+const PiDriverTestLayer = Layer.merge(
+  ServerConfig.ServerConfig.layerTest(process.cwd(), {
+    prefix: "t3-pi-driver-test-",
+  }).pipe(Layer.provide(NodeServices.layer)),
+  FileSystem.layerNoop({
+    readFile: () => Effect.succeed(new Uint8Array()),
+  }),
+);
 
 function processHandle(input: {
   readonly stdout?: Stream.Stream<Uint8Array, PlatformError.PlatformError>;
@@ -105,6 +117,7 @@ function makeInstance(
   }).pipe(
     Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
     Effect.provideService(HostProcessPlatform, "linux"),
+    Effect.provide(PiDriverTestLayer),
   );
 }
 
@@ -207,15 +220,65 @@ describe("PiDriver status", () => {
     ),
   );
 
-  it.effect("lets the sessionless placeholder stop all successfully", () =>
+  it.effect("constructs the stateful adapter without spawning until a session starts", () =>
     Effect.scoped(
       Effect.gen(function* () {
         const instance = yield* makeInstance(
           ChildProcessSpawner.make(() => Effect.die("stopAll must not spawn Pi")),
         );
 
+        expect(instance.adapter.capabilities).toEqual({
+          sessionModelSwitch: "in-session",
+          supportsConversationRollback: false,
+        });
         yield* instance.adapter.stopAll();
         expect(yield* instance.adapter.listSessions()).toEqual([]);
+      }),
+    ),
+  );
+
+  it.effect("constructs runtime sessions without the discovery-only no-session flag", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const requests: PiRpcRecord[] = [];
+        const commands: ChildProcess.Command[] = [];
+        const handle = yield* rpcHandle({
+          requests,
+          respond: (request) =>
+            successResponse(request, {
+              sessionId: "pi-runtime-session",
+              sessionFile: "/private/pi-runtime-session.jsonl",
+              model: { id: "gpt-5.2", name: "GPT 5.2", provider: "openai" },
+              thinkingLevel: "medium",
+              isStreaming: false,
+              isCompacting: false,
+            }),
+        });
+        const instance = yield* makeInstance(
+          ChildProcessSpawner.make((command) => {
+            commands.push(command);
+            return Effect.succeed(handle);
+          }),
+        );
+
+        const session = yield* instance.adapter.startSession({
+          threadId: ThreadId.make("pi-driver-runtime"),
+          cwd: "/work/runtime",
+          runtimeMode: "full-access",
+        });
+
+        expect(commandArgs(commands[0]!)).toEqual(["--mode", "rpc"]);
+        expect(commandCwd(commands[0]!)).toBe("/work/runtime");
+        expect(requests.map((request) => recordString(request, "type"))).toEqual(["get_state"]);
+        expect(session).toMatchObject({
+          providerInstanceId: "pi-test",
+          threadId: "pi-driver-runtime",
+          model: "openai/gpt-5.2",
+          resumeCursor: {
+            sessionId: "pi-runtime-session",
+            sessionFile: "/private/pi-runtime-session.jsonl",
+          },
+        });
       }),
     ),
   );
@@ -387,6 +450,18 @@ describe("PiDriver explicit discovery", () => {
             successResponse(request, {
               commands: [
                 {
+                  name: "compact",
+                  description: "Workspace duplicate must not replace the shared command",
+                  source: "prompt",
+                  sourceInfo: {
+                    path: "/workspaces/pi-project/.pi/agent/prompts/compact.md",
+                    source: "project",
+                    scope: "project",
+                    origin: "top-level",
+                    baseDir: "/workspaces/pi-project/.pi/agent/prompts",
+                  },
+                },
+                {
                   name: "review",
                   description: "Review changes",
                   source: "prompt",
@@ -427,6 +502,12 @@ describe("PiDriver explicit discovery", () => {
 
         expect(commandCwd(commands[0]!)).toBe(cwd);
         expect(requests.map((request) => recordString(request, "type"))).toEqual(["get_commands"]);
+        expect(baseBefore.slashCommands).toEqual([
+          {
+            name: "compact",
+            description: "Summarize the conversation and reduce context usage",
+          },
+        ]);
         expect(scoped.slashCommands).toEqual([
           {
             name: "compact",
