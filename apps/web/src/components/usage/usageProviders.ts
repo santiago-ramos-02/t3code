@@ -1,6 +1,6 @@
 import type { UsageProviderKind } from "@t3tools/contracts";
 
-import { ClaudeAI, GrokIcon, type Icon, OpenAI, OpenCodeIcon } from "../Icons";
+import { ClaudeAI, GrokIcon, type Icon, OpenAI, PiAgentIcon } from "../Icons";
 
 type UsageProviderPresentation = {
   readonly label: string;
@@ -32,9 +32,8 @@ export const PROVIDER_PRESENTATION = {
   },
   pi: {
     label: "Pi",
-    // Neutral code mark until dedicated Pi branding lands in PI-006.
     color: "color-mix(in oklab, var(--contrast-foreground) 52%, var(--background))",
-    mark: OpenCodeIcon,
+    mark: PiAgentIcon,
   },
 } satisfies Record<UsageProviderKind, UsageProviderPresentation>;
 

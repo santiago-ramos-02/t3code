@@ -103,6 +103,44 @@ describe("mobile model options", () => {
     ]);
   });
 
+  it("keeps dynamically discovered Pi models and provider-instance routing generic", () => {
+    const config = {
+      providers: [
+        {
+          instanceId: "pi_work",
+          driver: "pi",
+          displayName: "Pi Work",
+          enabled: true,
+          installed: true,
+          auth: { status: "unknown" },
+          models: [
+            {
+              slug: "openrouter/anthropic/claude-sonnet-4",
+              name: "Claude Sonnet 4",
+              subProvider: "OpenRouter",
+              isCustom: false,
+              capabilities: null,
+            },
+          ],
+        },
+      ],
+    } as unknown as ServerConfig;
+
+    expect(buildModelOptions(config, null)).toMatchObject([
+      {
+        key: "pi_work:openrouter/anthropic/claude-sonnet-4",
+        label: "Claude Sonnet 4",
+        subtitle: "OpenRouter",
+        providerLabel: "Pi Work",
+        providerDriver: "pi",
+        selection: {
+          instanceId: "pi_work",
+          model: "openrouter/anthropic/claude-sonnet-4",
+        },
+      },
+    ]);
+  });
+
   it("does not materialize catalog defaults for missing stored options", () => {
     const config = {
       providers: [
