@@ -1,5 +1,6 @@
 import { useAuth } from "@clerk/react";
 import { useAtomValue } from "@effect/atom-react";
+import { useNavigate } from "@tanstack/react-router";
 import type {
   AgentSessionProjectCandidate,
   EnvironmentId,
@@ -13,7 +14,12 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import { CommandId, ProviderDriverKind, ThreadId } from "@t3tools/contracts";
+import {
+  CommandId,
+  defaultInstanceIdForDriver,
+  ProviderDriverKind,
+  ThreadId,
+} from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import {
   ArrowRightIcon,
@@ -42,9 +48,11 @@ import {
 } from "../../onboarding/projectImport.logic";
 import {
   getOnboardingProviderState,
+  resolveOnboardingProviderAction,
   resolveOnboardingProviderInstallCommand,
   resolveOnboardingProviderLoginCommand,
   selectOnboardingProvidersByDriver,
+  type OnboardingProviderSetup,
 } from "../../onboarding/providerReadiness.logic";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { newProjectId, randomUUID } from "../../lib/utils";
@@ -58,7 +66,7 @@ import { serverEnvironment } from "../../state/server";
 import { terminalEnvironment } from "../../state/terminal";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { connectPairing } from "../../connection/onboarding";
-import { getProviderSummary } from "../settings/providerStatus";
+import { getProviderSummary, getProviderVersionLabel } from "../settings/providerStatus";
 import { getDriverOption } from "../settings/providerDriverMeta";
 import { TerminalViewport } from "../ThreadTerminalDrawer";
 import { CloudEnvironmentConnectRows } from "../cloud/CloudEnvironmentConnectList";
@@ -93,6 +101,15 @@ const AGENT_ONBOARDING_THREAD_ID = ThreadId.make("onboarding-agent-setup");
 const ONBOARDING_STAGES = ["Connect", "Agents", "Projects"] as const;
 const SCAN_LIMIT_MESSAGE = "Scan limit reached. Some projects or conversations may be missing.";
 
+/** Persist the gate authority before any route leaves `/welcome`. */
+export async function completeOnboardingBeforeAction(input: {
+  readonly completeOnboarding: () => Promise<void>;
+  readonly action: () => void | Promise<unknown>;
+}): Promise<void> {
+  await input.completeOnboarding();
+  await input.action();
+}
+
 export function WelcomeWizard({
   localAvailable,
   onDone,
@@ -102,6 +119,7 @@ export function WelcomeWizard({
   readonly onDone: (projectRef?: ScopedProjectRef) => void;
 }) {
   const completeOnboarding = useCompleteOnboarding();
+  const navigate = useNavigate();
   const [step, setStep] = useState<WizardStep>("connection");
   const { environments } = useEnvironments();
   const [selection, setSelection] = useState<ReadonlySet<EnvironmentId> | null>(null);
@@ -140,21 +158,20 @@ export function WelcomeWizard({
     setStep("agents");
   };
   const stageIndex = step === "agents" ? 1 : step === "import" ? 2 : 0;
-  const finish = useCallback(
-    (projectRef?: ScopedProjectRef) => {
+  const finishWith = useCallback(
+    (action: () => void | Promise<unknown>) => {
       if (finishingPromiseRef.current !== null) return finishingPromiseRef.current;
       if (completionErrorToastIdRef.current !== null) {
         toastManager.close(completionErrorToastIdRef.current);
         completionErrorToastIdRef.current = null;
       }
 
-      const completion = completeOnboarding()
+      const completion = completeOnboardingBeforeAction({ completeOnboarding, action })
         .then(() => {
           if (completionErrorToastIdRef.current !== null) {
             toastManager.close(completionErrorToastIdRef.current);
             completionErrorToastIdRef.current = null;
           }
-          onDone(projectRef);
           return true;
         })
         .catch(() => {
@@ -178,7 +195,21 @@ export function WelcomeWizard({
       finishingPromiseRef.current = completion;
       return completion;
     },
-    [completeOnboarding, onDone],
+    [completeOnboarding],
+  );
+  const finish = useCallback(
+    (projectRef?: ScopedProjectRef) => finishWith(() => onDone(projectRef)),
+    [finishWith, onDone],
+  );
+  const openProviderSettings = useCallback(
+    (environmentId: EnvironmentId, instanceId: ServerProvider["instanceId"]) =>
+      finishWith(() =>
+        navigate({
+          to: "/settings/providers",
+          search: { environmentId, instanceId },
+        }),
+      ),
+    [finishWith, navigate],
   );
 
   return (
@@ -237,7 +268,11 @@ export function WelcomeWizard({
               }}
             />
           ) : step === "agents" ? (
-            <AgentsStep environmentIds={setupIds} onContinue={() => setStep("import")} />
+            <AgentsStep
+              environmentIds={setupIds}
+              onContinue={() => setStep("import")}
+              onOpenProviderSettings={openProviderSettings}
+            />
           ) : (
             <ImportStep
               scans={scans}
@@ -606,13 +641,22 @@ function PairingForm({
 
 // ── Step 3: agents ───────────────────────────────────────────
 
-const PRIMARY_AGENT_DRIVERS = ["claudeAgent", "codex"] as const;
-type OnboardingAgentDriver = (typeof PRIMARY_AGENT_DRIVERS)[number];
+const ONBOARDING_AGENTS = [
+  { driver: "claudeAgent", setup: "terminal" },
+  { driver: "codex", setup: "terminal" },
+  { driver: "pi", setup: "settings" },
+] as const satisfies readonly {
+  readonly driver: string;
+  readonly setup: OnboardingProviderSetup;
+}[];
+type OnboardingAgent = (typeof ONBOARDING_AGENTS)[number];
+type OnboardingAgentDriver = OnboardingAgent["driver"];
+type OnboardingTerminalAgentDriver = Extract<OnboardingAgent, { setup: "terminal" }>["driver"];
 
 /** Setup values stay fixed while provider probes refresh the surrounding cards. */
 interface AgentTerminalSession {
   readonly environmentId: EnvironmentId;
-  readonly driver: OnboardingAgentDriver;
+  readonly driver: OnboardingTerminalAgentDriver;
   readonly providerInstanceId: ServerProvider["instanceId"];
   readonly cwd: string;
   readonly command: string;
@@ -620,18 +664,21 @@ interface AgentTerminalSession {
 }
 
 /**
- * Claude Code and Codex use live probe status. Install opens the built-in
- * terminal inline with the vendor's standalone installer pre-typed. The update
- * RPC can't install a binary that isn't there yet (it infers the installer from
- * the installed binary's path), and the terminal also handles the interactive
- * login that follows.
+ * Every first-class agent uses live probe status. Claude Code and Codex keep
+ * their inline install/login terminal; host-configured agents route to provider
+ * settings instead of fabricating setup commands.
  */
 function AgentsStep({
   environmentIds,
   onContinue,
+  onOpenProviderSettings,
 }: {
   readonly environmentIds: readonly EnvironmentId[];
   readonly onContinue: () => void;
+  readonly onOpenProviderSettings: (
+    environmentId: EnvironmentId,
+    instanceId: ServerProvider["instanceId"],
+  ) => Promise<boolean>;
 }) {
   const { environments } = useEnvironments();
   return (
@@ -645,6 +692,7 @@ function AgentsStep({
             <ConnectedAgentsStep
               key={environmentId}
               environmentId={environmentId}
+              onOpenProviderSettings={onOpenProviderSettings}
               machineLabel={
                 environments.find((environment) => environment.environmentId === environmentId)
                   ?.label ?? "Computer"
@@ -666,9 +714,14 @@ function AgentsStep({
 function ConnectedAgentsStep({
   environmentId,
   machineLabel,
+  onOpenProviderSettings,
 }: {
   readonly environmentId: EnvironmentId;
   readonly machineLabel: string;
+  readonly onOpenProviderSettings: (
+    environmentId: EnvironmentId,
+    instanceId: ServerProvider["instanceId"],
+  ) => Promise<boolean>;
 }) {
   const providers = useAtomValue(serverEnvironment.providersValueAtom(environmentId));
   const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders, {
@@ -685,36 +738,50 @@ function ConnectedAgentsStep({
 
   const byDriver = useMemo(() => selectOnboardingProvidersByDriver(providers), [providers]);
 
-  const primaryAgents = PRIMARY_AGENT_DRIVERS.map((driver) => ({
-    driver,
-    provider: byDriver.get(driver),
+  const agents = ONBOARDING_AGENTS.map((agent) => ({
+    ...agent,
+    provider: byDriver.get(agent.driver),
   }));
   return (
     <section>
       <h2 className="mb-2 text-sm font-medium">{machineLabel}</h2>
       <div className="space-y-1.5">
-        {primaryAgents.map(({ driver, provider }) => (
-          <AgentCard
-            key={driver}
-            driver={driver}
-            provider={provider}
-            terminalOpen={terminalSession?.driver === driver}
+        {agents.map((agent) => (
+          <OnboardingAgentCard
+            key={agent.driver}
+            driver={agent.driver}
+            setup={agent.setup}
+            provider={agent.provider}
+            terminalOpen={terminalSession?.driver === agent.driver}
             terminalAvailable={serverConfig !== null}
+            onOpenSettings={() => {
+              const driver = ProviderDriverKind.make(agent.driver);
+              void onOpenProviderSettings(
+                environmentId,
+                agent.provider?.instanceId ?? defaultInstanceIdForDriver(driver),
+              );
+            }}
             onOpenTerminal={() => {
-              if (provider === undefined || serverConfig === null) return;
+              if (
+                agent.setup !== "terminal" ||
+                agent.provider === undefined ||
+                serverConfig === null
+              ) {
+                return;
+              }
               setTerminalSession({
                 environmentId,
-                driver,
-                providerInstanceId: provider.instanceId,
+                driver: agent.driver,
+                providerInstanceId: agent.provider.instanceId,
                 cwd: serverConfig.cwd,
-                command: provider.installed
+                command: agent.provider.installed
                   ? resolveOnboardingProviderLoginCommand(
-                      provider,
+                      agent.provider,
                       serverConfig.settings,
                       serverConfig.environment.platform.os,
                     )
                   : resolveOnboardingProviderInstallCommand(
-                      driver,
+                      agent.driver,
                       serverConfig.environment.platform.os,
                     ),
                 keybindings: serverConfig.keybindings,
@@ -737,24 +804,38 @@ function ConnectedAgentsStep({
   );
 }
 
-function AgentCard({
+export function OnboardingAgentCard({
   driver,
+  setup,
   provider,
   terminalOpen,
   terminalAvailable,
   onOpenTerminal,
+  onOpenSettings,
 }: {
   readonly driver: OnboardingAgentDriver;
+  readonly setup: OnboardingProviderSetup;
   readonly provider: ServerProvider | undefined;
   readonly terminalOpen: boolean;
   readonly terminalAvailable: boolean;
   readonly onOpenTerminal: () => void;
+  readonly onOpenSettings: () => void;
 }) {
   const meta = getDriverOption(ProviderDriverKind.make(driver));
   const Icon = meta?.icon;
   const displayName = driver === "claudeAgent" ? "Claude Code" : (meta?.label ?? driver);
   const summary = getProviderSummary(provider);
   const providerState = getOnboardingProviderState(provider);
+  const action = resolveOnboardingProviderAction(setup, providerState);
+  const piDetails =
+    driver === "pi" && provider
+      ? [
+          getProviderVersionLabel(provider.version),
+          provider.models.length > 0
+            ? `${provider.models.length} ${provider.models.length === 1 ? "model" : "models"}`
+            : null,
+        ].filter((detail): detail is string => detail !== null)
+      : [];
 
   return (
     <div className="flex items-center gap-3 rounded-lg border border-border bg-background px-3 py-2.5">
@@ -766,6 +847,7 @@ function AgentCard({
         <p className="mt-0.5 text-xs leading-relaxed break-words whitespace-pre-wrap text-muted-foreground">
           {summary.headline}
           {summary.detail ? ` · ${summary.detail}` : ""}
+          {piDetails.length > 0 ? ` · ${piDetails.join(" · ")}` : ""}
         </p>
       </div>
       <div className="shrink-0">
@@ -776,11 +858,13 @@ function AgentCard({
           </span>
         ) : providerState === "checking" ? (
           <span className="text-xs text-muted-foreground">Checking...</span>
+        ) : action?.kind === "settings" ? (
+          <Button size="xs" variant="ghost" onClick={onOpenSettings}>
+            {action.label}
+          </Button>
         ) : providerState === "disabled" ? (
           <span className="text-xs text-muted-foreground">Disabled</span>
-        ) : providerState === "attention" ? (
-          <span className="text-xs text-muted-foreground">{summary.headline}</span>
-        ) : (
+        ) : action?.kind === "terminal" ? (
           <Button
             size="xs"
             variant="ghost"
@@ -788,8 +872,10 @@ function AgentCard({
             disabled={terminalOpen || !terminalAvailable}
           >
             <TerminalIcon className="size-3.5" />
-            {providerState === "signIn" ? "Sign in" : "Install"}
+            {action.label}
           </Button>
+        ) : (
+          <span className="text-xs text-muted-foreground">{summary.headline}</span>
         )}
       </div>
     </div>

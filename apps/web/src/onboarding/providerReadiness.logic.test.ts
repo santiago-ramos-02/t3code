@@ -8,6 +8,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   getOnboardingProviderState,
+  resolveOnboardingProviderAction,
   resolveOnboardingProviderInstallCommand,
   resolveOnboardingProviderLoginCommand,
   selectOnboardingProvidersByDriver,
@@ -77,8 +78,52 @@ describe("getOnboardingProviderState", () => {
     );
   });
 
+  it("reports Pi probe failures without offering managed install or sign-in", () => {
+    const pi = {
+      ...readyCodex,
+      instanceId: ProviderInstanceId.make("pi"),
+      driver: ProviderDriverKind.make("pi"),
+    };
+
+    expect(
+      getOnboardingProviderState({
+        ...pi,
+        installed: false,
+        status: "error",
+        auth: { status: "unauthenticated" },
+      }),
+    ).toBe("attention");
+    expect(getOnboardingProviderState(pi)).toBe("ready");
+  });
+
   it("waits for a provider snapshot before offering an action", () => {
     expect(getOnboardingProviderState(undefined)).toBe("checking");
+  });
+});
+
+describe("resolveOnboardingProviderAction", () => {
+  it("routes host-configured Pi setup to settings without a terminal command", () => {
+    expect(resolveOnboardingProviderAction("settings", "attention")).toEqual({
+      kind: "settings",
+      label: "Set up in Settings",
+    });
+    expect(resolveOnboardingProviderAction("settings", "disabled")).toEqual({
+      kind: "settings",
+      label: "Set up in Settings",
+    });
+    expect(resolveOnboardingProviderAction("settings", "ready")).toBeNull();
+  });
+
+  it("preserves managed terminal setup for Claude and Codex states", () => {
+    expect(resolveOnboardingProviderAction("terminal", "install")).toEqual({
+      kind: "terminal",
+      label: "Install",
+    });
+    expect(resolveOnboardingProviderAction("terminal", "signIn")).toEqual({
+      kind: "terminal",
+      label: "Sign in",
+    });
+    expect(resolveOnboardingProviderAction("terminal", "attention")).toBeNull();
   });
 });
 

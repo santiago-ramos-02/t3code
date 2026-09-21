@@ -14,9 +14,35 @@ export const PROVIDER_LABEL: Record<UsageProviderKind, string> = {
   pi: "Pi",
 };
 
+/** Shared labels for provider-instance and live-limit surfaces. */
+const PROVIDER_DRIVER_LABEL: Readonly<Record<string, string>> = {
+  antigravity: "Antigravity",
+  claudeAgent: "Claude",
+  codex: "Codex",
+  cursor: "Cursor",
+  grok: "Grok",
+  opencode: "OpenCode",
+  pi: "Pi",
+};
+
+const USAGE_PROVIDER_BY_DRIVER: Readonly<Partial<Record<string, UsageProviderKind>>> = {
+  claudeAgent: "claude",
+  codex: "codex",
+  grok: "grok",
+  pi: "pi",
+};
+
+export function providerDriverLabel(driver: string): string {
+  return PROVIDER_DRIVER_LABEL[driver] ?? driver;
+}
+
+export function usageProviderForDriver(driver: string): UsageProviderKind | null {
+  return USAGE_PROVIDER_BY_DRIVER[driver] ?? null;
+}
+
 /**
- * Claude's brand orange holds in both themes; Codex, Grok, and Pi are neutrals
- * and must flip with the theme or their bars vanish against the matching background.
+ * Claude's brand orange and Pi's mid-tone neutral hold in both themes. Codex
+ * and Grok flip so their bars remain distinct against the matching background.
  */
 export function useProviderColors(): Record<UsageProviderKind, string> {
   const { themeAppearance: scheme } = useAppearancePreferences();
@@ -24,7 +50,6 @@ export function useProviderColors(): Record<UsageProviderKind, string> {
     claude: "#d97757",
     codex: scheme === "dark" ? "#e6e6e6" : "#3c3c43",
     grok: scheme === "dark" ? "#a1a1aa" : "#52525b",
-    // Neutral terminal-adjacent series until dedicated Pi branding lands in PI-006.
-    pi: scheme === "dark" ? "#71717a" : "#71717a",
+    pi: "#71717a",
   };
 }
