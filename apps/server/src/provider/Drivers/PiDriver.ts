@@ -1,7 +1,6 @@
 import {
   PiSettings,
   ProviderDriverKind,
-  TextGenerationError,
   TrimmedNonEmptyString,
   type ModelCapabilities,
   type ServerProvider,
@@ -26,11 +25,16 @@ import * as ChildProcess from "effect/unstable/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
 
 import * as ServerConfig from "../../config.ts";
-import type * as TextGeneration from "../../textGeneration/TextGeneration.ts";
+import { makePiTextGeneration } from "../../textGeneration/PiTextGeneration.ts";
 import { ProviderDriverError } from "../Errors.ts";
 import { makePiAdapter, PiAdapterAttachmentReadError } from "../Layers/PiAdapter.ts";
 import { mergeProviderInstanceEnvironment } from "../ProviderInstanceEnvironment.ts";
-import { makePiRpc, PI_THINKING_LEVELS, type PiThinkingLevel } from "../PiRpc.ts";
+import {
+  makePiRpc,
+  PI_THINKING_LEVELS,
+  type PiRpcOptions,
+  type PiThinkingLevel,
+} from "../PiRpc.ts";
 import {
   buildServerProvider,
   COMPACT_SLASH_COMMAND,
@@ -215,22 +219,6 @@ function workspaceInventory(commands: ReadonlyArray<PiCommand>): {
             },
           ];
     }),
-  };
-}
-
-function placeholderTextGeneration(): TextGeneration.TextGeneration["Service"] {
-  const unavailable = (operation: string) =>
-    Effect.fail(
-      new TextGenerationError({
-        operation,
-        detail: "Pi text generation support is not implemented yet.",
-      }),
-    );
-  return {
-    generateCommitMessage: () => unavailable("generateCommitMessage"),
-    generatePrContent: () => unavailable("generatePrContent"),
-    generateBranchName: () => unavailable("generateBranchName"),
-    generateThreadTitle: () => unavailable("generateThreadTitle"),
   };
 }
 
@@ -507,20 +495,27 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
               ),
             );
 
+      const rpcFactory = (rpcOptions: PiRpcOptions) =>
+        makePiRpc(rpcOptions).pipe(
+          Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+          Effect.provideService(HostProcessPlatform, hostPlatform),
+        );
       const adapter = yield* makePiAdapter({
         instanceId,
         binaryPath: effectiveConfig.binaryPath,
         environment: processEnv,
         attachmentsDir: serverConfig.attachmentsDir,
         normalizeWorkspaceCwd: path.resolve,
-        rpcFactory: (rpcOptions) =>
-          makePiRpc(rpcOptions).pipe(
-            Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
-          ),
+        rpcFactory,
         readFile: (path) =>
           fileSystem
             .readFile(path)
             .pipe(Effect.mapError((cause) => new PiAdapterAttachmentReadError({ cause }))),
+      });
+      const textGeneration = yield* makePiTextGeneration({
+        binaryPath: effectiveConfig.binaryPath,
+        environment: processEnv,
+        rpcFactory,
       });
 
       return {
@@ -534,7 +529,7 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
         snapshotForCwd,
         refreshModels,
         adapter,
-        textGeneration: placeholderTextGeneration(),
+        textGeneration,
       } satisfies ProviderInstance;
     }),
 };
