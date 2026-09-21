@@ -1,3 +1,4 @@
+import * as NodePath from "@effect/platform-node/NodePath";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
@@ -22,13 +23,14 @@ const decoder = new TextDecoder();
 const JsonText = Schema.fromJsonString(Schema.Unknown);
 const decodeJson = Schema.decodeUnknownSync(JsonText);
 const encodeJson = Schema.encodeUnknownSync(JsonText);
-const PiDriverTestLayer = Layer.merge(
+const PiDriverTestLayer = Layer.mergeAll(
   ServerConfig.ServerConfig.layerTest(process.cwd(), {
     prefix: "t3-pi-driver-test-",
   }).pipe(Layer.provide(NodeServices.layer)),
   FileSystem.layerNoop({
     readFile: () => Effect.succeed(new Uint8Array()),
   }),
+  NodePath.layer,
 );
 
 function processHandle(input: {
@@ -229,7 +231,7 @@ describe("PiDriver status", () => {
 
         expect(instance.adapter.capabilities).toEqual({
           sessionModelSwitch: "in-session",
-          supportsConversationRollback: false,
+          supportsConversationRollback: true,
         });
         yield* instance.adapter.stopAll();
         expect(yield* instance.adapter.listSessions()).toEqual([]);
@@ -275,10 +277,67 @@ describe("PiDriver status", () => {
           threadId: "pi-driver-runtime",
           model: "openai/gpt-5.2",
           resumeCursor: {
+            version: 2,
             sessionId: "pi-runtime-session",
-            sessionFile: "/private/pi-runtime-session.jsonl",
+            providerInstanceId: "pi-test",
+            cwd: "/work/runtime",
           },
         });
+      }),
+    ),
+  );
+
+  it.effect("launches a validated resume cursor with --session and no host path", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const requests: PiRpcRecord[] = [];
+        const commands: ChildProcess.Command[] = [];
+        const handle = yield* rpcHandle({
+          requests,
+          respond: (request) =>
+            successResponse(request, {
+              sessionId: "pi-resumed-session",
+              sessionFile: "/private/internal-only.jsonl",
+              model: { id: "gpt-5.2", name: "GPT 5.2", provider: "openai" },
+              thinkingLevel: "medium",
+              isStreaming: false,
+              isCompacting: false,
+            }),
+        });
+        const instance = yield* makeInstance(
+          ChildProcessSpawner.make((command) => {
+            commands.push(command);
+            return Effect.succeed(handle);
+          }),
+        );
+
+        const session = yield* instance.adapter.startSession({
+          threadId: ThreadId.make("pi-driver-resume"),
+          cwd: "/work/runtime",
+          runtimeMode: "full-access",
+          resumeCursor: {
+            version: 2,
+            sessionId: "pi-resumed-session",
+            providerInstanceId: ProviderInstanceId.make("pi-test"),
+            cwd: "/work/runtime",
+          },
+        });
+
+        expect(commandArgs(commands[0]!)).toEqual([
+          "--mode",
+          "rpc",
+          "--session",
+          "pi-resumed-session",
+        ]);
+        expect(commandCwd(commands[0]!)).toBe("/work/runtime");
+        expect(requests.map((request) => recordString(request, "type"))).toEqual(["get_state"]);
+        expect(session.resumeCursor).toEqual({
+          version: 2,
+          sessionId: "pi-resumed-session",
+          providerInstanceId: "pi-test",
+          cwd: "/work/runtime",
+        });
+        expect(session.resumeCursor).not.toHaveProperty("sessionFile");
       }),
     ),
   );

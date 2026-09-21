@@ -2484,6 +2484,56 @@ routing.layer("ProviderServiceLive routing", (it) => {
     }),
   );
 
+  it.effect("persists and reuses Pi's refreshed path-free cursor after rollback", () => {
+    const piDriver = ProviderDriverKind.make("pi");
+    const piInstanceId = ProviderInstanceId.make("pi");
+    const pi = makeFakeCodexAdapter(piDriver, true);
+    const registry = makeStaticInstanceRegistry([[piInstanceId, pi.adapter]]);
+    const layer = makeCustomProviderServiceLayer(registry);
+    const cwd = fixtureCwd("pi-rollback-roundtrip");
+    const refreshedCursor = {
+      version: 2,
+      sessionId: "pi-forked-session",
+      providerInstanceId: piInstanceId,
+      cwd,
+    };
+    pi.rollbackThread.mockImplementation((threadId) =>
+      Effect.sync(() => {
+        pi.updateSession(threadId, (session) => ({
+          ...session,
+          resumeCursor: refreshedCursor,
+        }));
+        return { threadId, turns: [] };
+      }),
+    );
+
+    return Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
+      const directory = yield* ProviderSessionDirectory.ProviderSessionDirectory;
+      const threadId = asThreadId("thread-pi-rollback-roundtrip");
+      yield* provider.startSession(threadId, {
+        provider: piDriver,
+        providerInstanceId: piInstanceId,
+        threadId,
+        cwd,
+        runtimeMode: "full-access",
+      });
+
+      yield* provider.rollbackConversation({ threadId, numTurns: 1 });
+      const persisted = yield* directory.getBinding(threadId);
+      assert(Option.isSome(persisted));
+      assert.deepEqual(persisted.value.resumeCursor, refreshedCursor);
+
+      yield* provider.stopSession({ threadId });
+      pi.startSession.mockClear();
+      yield* provider.sendTurn({ threadId, input: "resume after rollback", attachments: [] });
+
+      assert.equal(pi.startSession.mock.calls.length, 1);
+      assert.deepEqual(pi.startSession.mock.calls[0]?.[0].resumeCursor, refreshedCursor);
+      assert.equal("sessionFile" in refreshedCursor, false);
+    }).pipe(Effect.provide(layer));
+  });
+
   it.effect("preserves background turn boundaries when stopping before rollback recovery", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService.ProviderService;

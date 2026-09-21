@@ -179,6 +179,8 @@ export interface PiRpcOptions {
   readonly binaryPath: string;
   readonly cwd: string;
   readonly args?: ReadonlyArray<string>;
+  /** Full Pi session id resolved by Pi inside the cwd-scoped session directory. */
+  readonly sessionId?: string;
   readonly environment?: NodeJS.ProcessEnv;
   readonly requestTimeout?: Duration.Input;
   readonly maxRecordBytes?: number;
@@ -259,7 +261,12 @@ export const makePiRpc = Effect.fn("PiRpc.make")(function* (
 
   const spawnCommand = yield* resolveSpawnCommand(
     options.binaryPath,
-    ["--mode", "rpc", ...(options.args ?? [])],
+    [
+      "--mode",
+      "rpc",
+      ...(options.args ?? []),
+      ...(options.sessionId === undefined ? [] : ["--session", options.sessionId]),
+    ],
     options.environment ? { env: options.environment } : {},
   );
   const child = yield* spawner
