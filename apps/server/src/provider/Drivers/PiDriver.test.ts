@@ -69,6 +69,7 @@ function jsonLine(record: PiRpcRecord): Uint8Array {
 function rpcHandle(input: {
   readonly respond: (request: PiRpcRecord) => PiRpcRecord;
   readonly requests: PiRpcRecord[];
+  readonly events?: (request: PiRpcRecord) => ReadonlyArray<PiRpcRecord>;
   readonly onKill?: () => void;
 }) {
   return Effect.gen(function* () {
@@ -77,7 +78,12 @@ function rpcHandle(input: {
       const parsed = asRecord(decodeJson(decoder.decode(chunk).replace(/\n$/, "")));
       if (parsed === undefined) return Effect.die("Expected an outbound RPC object");
       input.requests.push(parsed);
-      return Queue.offer(stdout, jsonLine(input.respond(parsed))).pipe(Effect.asVoid);
+      return Effect.gen(function* () {
+        yield* Queue.offer(stdout, jsonLine(input.respond(parsed)));
+        yield* Effect.forEach(input.events?.(parsed) ?? [], (event) =>
+          Queue.offer(stdout, jsonLine(event)),
+        );
+      }).pipe(Effect.asVoid);
     });
     return processHandle({
       stdin,
@@ -338,6 +344,77 @@ describe("PiDriver status", () => {
           cwd: "/work/runtime",
         });
         expect(session.resumeCursor).not.toHaveProperty("sessionFile");
+      }),
+    ),
+  );
+
+  it.effect("wires isolated Pi text generation to the configured instance", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const requests: PiRpcRecord[] = [];
+        const commands: ChildProcess.Command[] = [];
+        let killCount = 0;
+        const handle = yield* rpcHandle({
+          requests,
+          onKill: () => {
+            killCount += 1;
+          },
+          respond: (request) => successResponse(request, null),
+          events: (request) =>
+            recordString(request, "type") === "prompt"
+              ? [
+                  {
+                    type: "message_end",
+                    message: {
+                      role: "assistant",
+                      content: [{ type: "text", text: '{"branch":"pi-text-generation"}' }],
+                      stopReason: "stop",
+                    },
+                  },
+                  { type: "agent_settled" },
+                ]
+              : [],
+        });
+        const instance = yield* makeInstance(
+          ChildProcessSpawner.make((command) => {
+            commands.push(command);
+            return Effect.succeed(handle);
+          }),
+          { binaryPath: "pi-custom" },
+        );
+
+        const result = yield* instance.textGeneration.generateBranchName({
+          cwd: "/work/text-generation",
+          message: "Add isolated Pi text generation",
+          modelSelection: {
+            instanceId: ProviderInstanceId.make("pi-test"),
+            model: "openai/gpt-5.2",
+            options: [{ id: "thinkingLevel", value: "high" }],
+          },
+        });
+
+        expect(result).toEqual({ branch: "pi-text-generation" });
+        expect(commandArgs(commands[0]!)).toEqual([
+          "--mode",
+          "rpc",
+          "--no-session",
+          "--no-tools",
+          "--no-extensions",
+          "--no-skills",
+          "--no-prompt-templates",
+          "--no-context-files",
+          "--no-approve",
+          "--provider",
+          "openai",
+          "--model",
+          "gpt-5.2",
+          "--thinking",
+          "high",
+        ]);
+        expect(commandCwd(commands[0]!)).toBe("/work/text-generation");
+        expect(requests.map((request) => recordString(request, "type"))).toEqual(["prompt"]);
+        expect(requests[0]).not.toHaveProperty("cwd");
+        expect(killCount).toBe(1);
       }),
     ),
   );
