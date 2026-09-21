@@ -2904,88 +2904,92 @@ describe("PiAdapter session runtime", () => {
     ),
   );
 
-  it.effect("accumulates finalized tool-loop usage without duplicate exposure", () =>
-    Effect.scoped(
-      Effect.gen(function* () {
-        const harness = makeRpcHarness();
-        const adapter = yield* makeAdapter(harness);
-        yield* startSession(adapter, THREAD_ID, {
-          instanceId: INSTANCE_ID,
-          model: "openrouter/meta/large-model",
-        });
-        yield* takeEvents(adapter, SESSION_EVENTS);
-        const { turnId } = yield* adapter.sendTurn({ threadId: THREAD_ID, input: "Usage" });
-        const started = (yield* takeEvents(adapter, 1))[0];
-        const transport = harness.transports[0]!;
-        yield* offerNative(transport, {
-          type: "message_update",
-          usage: usage(100, 8, 20, 5, 0.1),
-          assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "a" },
-        });
-        yield* takeEvents(adapter, 1);
-        const firstResponse = assistantMessage({
-          provider: "openrouter",
-          model: "meta/large-model",
-          usage: usage(100, 10, 20, 5, 0.2, 3),
-        });
-        yield* offerNative(transport, { type: "message_end", message: firstResponse });
-        yield* offerNative(transport, {
-          type: "turn_end",
-          message: firstResponse,
-          toolResults: [],
-        });
-        const secondResponse = assistantMessage({
-          provider: "openrouter",
-          model: "meta/large-model",
-          usage: usage(30, 4, 2, 3, 0.3, 2),
-        });
-        yield* offerNative(transport, { type: "message_end", message: secondResponse });
-        yield* offerNative(transport, {
-          type: "turn_end",
-          message: secondResponse,
-          toolResults: [],
-        });
-        yield* offerNative(transport, { type: "agent_settled" });
-        const terminal = (yield* takeEvents(adapter, 1))[0];
+  it.effect(
+    "keeps live Pi usage instance-attributed with full model and authoritative totals",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const harness = makeRpcHarness();
+          const adapter = yield* makeAdapter(harness);
+          yield* startSession(adapter, THREAD_ID, {
+            instanceId: INSTANCE_ID,
+            model: "openrouter/meta/large-model",
+          });
+          yield* takeEvents(adapter, SESSION_EVENTS);
+          const { turnId } = yield* adapter.sendTurn({ threadId: THREAD_ID, input: "Usage" });
+          const started = (yield* takeEvents(adapter, 1))[0];
+          const transport = harness.transports[0]!;
+          yield* offerNative(transport, {
+            type: "message_update",
+            usage: usage(100, 8, 20, 5, 0.1),
+            assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "a" },
+          });
+          yield* takeEvents(adapter, 1);
+          const firstResponse = assistantMessage({
+            provider: "openrouter",
+            model: "meta/large-model",
+            usage: usage(100, 10, 20, 5, 0.2, 3),
+          });
+          yield* offerNative(transport, { type: "message_end", message: firstResponse });
+          yield* offerNative(transport, {
+            type: "turn_end",
+            message: firstResponse,
+            toolResults: [],
+          });
+          const secondResponse = assistantMessage({
+            provider: "openrouter",
+            model: "meta/large-model",
+            usage: usage(30, 4, 2, 3, 0.3, 2),
+          });
+          yield* offerNative(transport, { type: "message_end", message: secondResponse });
+          yield* offerNative(transport, {
+            type: "turn_end",
+            message: secondResponse,
+            toolResults: [],
+          });
+          yield* offerNative(transport, { type: "agent_settled" });
+          const terminal = (yield* takeEvents(adapter, 1))[0];
 
-        expect(started).toMatchObject({
-          type: "turn.started",
-          providerInstanceId: INSTANCE_ID,
-          turnId,
-          payload: { model: "openrouter/meta/large-model" },
-        });
-        expect(terminal).toMatchObject({
-          type: "turn.completed",
-          providerInstanceId: INSTANCE_ID,
-          turnId,
-          payload: {
-            totalCostUsd: 0.5,
-            tokenUsage: {
-              usageScope: "main_agent",
-              usageStatus: "complete",
-              inputTokens: 160,
-              outputTokens: 14,
-              reasoningTokens: 5,
-              cachedInputTokens: 22,
-              cacheCreationTokens: 8,
-              hasSubagents: false,
-            },
-            modelUsage: {
-              "openrouter/meta/large-model": {
+          // Live adapter usage remains tied to the exact provider instance. The
+          // historical transcript pipeline is intentionally provider-level only.
+          expect(started).toMatchObject({
+            type: "turn.started",
+            providerInstanceId: INSTANCE_ID,
+            turnId,
+            payload: { model: "openrouter/meta/large-model" },
+          });
+          expect(terminal).toMatchObject({
+            type: "turn.completed",
+            providerInstanceId: INSTANCE_ID,
+            turnId,
+            payload: {
+              totalCostUsd: 0.5,
+              tokenUsage: {
+                usageScope: "main_agent",
+                usageStatus: "complete",
                 inputTokens: 160,
                 outputTokens: 14,
                 reasoningTokens: 5,
                 cachedInputTokens: 22,
                 cacheCreationTokens: 8,
-                totalCostUsd: 0.5,
+                hasSubagents: false,
+              },
+              modelUsage: {
+                "openrouter/meta/large-model": {
+                  inputTokens: 160,
+                  outputTokens: 14,
+                  reasoningTokens: 5,
+                  cachedInputTokens: 22,
+                  cacheCreationTokens: 8,
+                  totalCostUsd: 0.5,
+                },
               },
             },
-          },
-        });
-        expect(terminal).toMatchObject({
-          payload: { tokenUsage: { outputTokens: 14, reasoningTokens: 5 } },
-        });
-      }),
-    ),
+          });
+          expect(terminal).toMatchObject({
+            payload: { tokenUsage: { outputTokens: 14, reasoningTokens: 5 } },
+          });
+        }),
+      ),
   );
 });

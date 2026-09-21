@@ -7,6 +7,8 @@
  * @module usageTranscripts
  */
 import type { UsageProviderKind, UsageTokenTotals } from "@t3tools/contracts";
+import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 
 export interface UsageRecord {
   readonly provider: UsageProviderKind;
@@ -70,6 +72,16 @@ export function totalTokens(totals: UsageTokenTotals): number {
 export function mightCarryUsage(line: string, provider: UsageProviderKind): boolean {
   if (provider === "claude") return line.includes('"usage"');
   if (provider === "grok") return line.includes('"turn_completed"');
+  if (provider === "pi") {
+    return (
+      line.includes('"type":"session"') ||
+      line.includes('"type":"model_change"') ||
+      line.includes('"type":"message"') ||
+      line.includes('"type":"usage"') ||
+      line.includes('"type":"compaction"') ||
+      line.includes('"type":"branch_summary"')
+    );
+  }
   return line.includes('"token_count"');
 }
 
@@ -307,6 +319,205 @@ export function parseCodexLine(line: string, state: CodexScanState): UsageRecord
     // Events surviving the fork-copy suppression above are unique to this
     // rollout, so they need no global dedup.
     dedupeKey: null,
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Pi                                                                         */
+/* -------------------------------------------------------------------------- */
+
+const PiTokenCount = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
+const PiCostValue = Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0));
+const PiUsageSchema = Schema.Struct({
+  input: PiTokenCount,
+  output: PiTokenCount,
+  cacheRead: PiTokenCount,
+  cacheWrite: PiTokenCount,
+  reasoning: Schema.optionalKey(PiTokenCount),
+  totalTokens: PiTokenCount,
+  cost: Schema.Struct({
+    input: PiCostValue,
+    output: PiCostValue,
+    cacheRead: PiCostValue,
+    cacheWrite: PiCostValue,
+    total: PiCostValue,
+  }),
+});
+const PiEntryBase = {
+  id: Schema.String,
+  parentId: Schema.NullOr(Schema.String),
+  timestamp: Schema.String,
+} as const;
+const PiTranscriptLineSchema = Schema.Union([
+  Schema.Struct({
+    type: Schema.Literal("session"),
+    id: Schema.String,
+    timestamp: Schema.String,
+  }),
+  Schema.Struct({
+    ...PiEntryBase,
+    type: Schema.Literal("model_change"),
+    provider: Schema.String,
+    modelId: Schema.String,
+  }),
+  Schema.Struct({
+    ...PiEntryBase,
+    type: Schema.Literal("message"),
+    message: Schema.Struct({
+      role: Schema.Literal("assistant"),
+      provider: Schema.String,
+      model: Schema.String,
+      usage: PiUsageSchema,
+    }),
+  }),
+  Schema.Struct({
+    ...PiEntryBase,
+    type: Schema.Literal("usage"),
+    kind: Schema.String,
+    provider: Schema.String,
+    model: Schema.String,
+    usage: PiUsageSchema,
+  }),
+  Schema.Struct({
+    ...PiEntryBase,
+    type: Schema.Literal("compaction"),
+    usage: Schema.optionalKey(PiUsageSchema),
+  }),
+  Schema.Struct({
+    ...PiEntryBase,
+    type: Schema.Literal("branch_summary"),
+    usage: Schema.optionalKey(PiUsageSchema),
+  }),
+]);
+const decodePiTranscriptLine = Schema.decodeUnknownOption(
+  Schema.fromJsonString(PiTranscriptLineSchema),
+);
+
+export interface PiScanState {
+  sessionId: string;
+  /** Full provider/model slug from the latest active model-bearing entry. */
+  model: string;
+}
+
+export function initialPiScanState(): PiScanState {
+  return { sessionId: "", model: "" };
+}
+
+const PI_UNKNOWN_MODEL = "unknown/unknown";
+
+function piModelSlug(provider: string, model: string): string | null {
+  const cleanProvider = provider.trim();
+  const cleanModel = model.trim();
+  return cleanProvider.length > 0 && cleanModel.length > 0
+    ? `${cleanProvider}/${cleanModel}`
+    : null;
+}
+
+function piTotals(usage: typeof PiUsageSchema.Type): UsageTokenTotals | null {
+  if (
+    (usage.reasoning !== undefined && usage.reasoning > usage.output) ||
+    usage.totalTokens !== usage.input + usage.output + usage.cacheRead + usage.cacheWrite
+  ) {
+    return null;
+  }
+  return {
+    uncachedInputTokens: usage.input,
+    cachedInputTokens: usage.cacheRead,
+    cacheCreationTokens: usage.cacheWrite,
+    outputTokens: usage.output,
+    // Pi only supplies this when the provider reports an authoritative split.
+    reasoningTokens: usage.reasoning ?? 0,
+  };
+}
+
+function piDedupeKey(input: {
+  readonly entryType: string;
+  readonly entryId: string;
+  readonly timestamp: string;
+  readonly model: string;
+  readonly usage: typeof PiUsageSchema.Type;
+}): string {
+  const parts = [
+    input.entryType,
+    input.entryId,
+    input.timestamp,
+    input.model,
+    input.usage.input,
+    input.usage.output,
+    input.usage.cacheRead,
+    input.usage.cacheWrite,
+    input.usage.reasoning ?? "",
+    input.usage.totalTokens,
+    input.usage.cost.input,
+    input.usage.cost.output,
+    input.usage.cost.cacheRead,
+    input.usage.cost.cacheWrite,
+    input.usage.cost.total,
+  ];
+  return `pi:${parts.map((part) => `${String(part).length}:${String(part)}`).join(":")}`;
+}
+
+/**
+ * Reduces one Pi JSONL entry into at most one authoritative model call.
+ *
+ * Forked sessions copy entries byte-for-byte but use a new header. The dedupe
+ * key therefore excludes session identity and instead binds the stable entry id
+ * to immutable call identity. No prompt, tool, path, parent-session, or
+ * extension-owned field is decoded into the returned record.
+ */
+export function parsePiLine(line: string, state: PiScanState): UsageRecord | null {
+  const decoded = decodePiTranscriptLine(line);
+  if (Option.isNone(decoded)) return null;
+  const entry = decoded.value;
+
+  if (entry.type === "session") {
+    if (entry.id.trim().length > 0) state.sessionId = entry.id;
+    return null;
+  }
+  if (entry.type === "model_change") {
+    const model = piModelSlug(entry.provider, entry.modelId);
+    if (model !== null) state.model = model;
+    return null;
+  }
+
+  const timestampMs = parseTimestampMs(entry.timestamp);
+  if (timestampMs === null) return null;
+
+  let model: string;
+  let usage: typeof PiUsageSchema.Type | undefined;
+  if (entry.type === "message") {
+    const assistantModel = piModelSlug(entry.message.provider, entry.message.model);
+    if (assistantModel === null) return null;
+    model = assistantModel;
+    state.model = assistantModel;
+    usage = entry.message.usage;
+  } else if (entry.type === "usage") {
+    const usageModel = piModelSlug(entry.provider, entry.model);
+    if (usageModel === null) return null;
+    model = usageModel;
+    usage = entry.usage;
+  } else {
+    model = state.model || PI_UNKNOWN_MODEL;
+    usage = entry.usage;
+  }
+  if (usage === undefined) return null;
+
+  const totals = piTotals(usage);
+  if (totals === null || totalTokens(totals) === 0) return null;
+  return {
+    provider: "pi",
+    timestampMs,
+    model,
+    sessionId: state.sessionId,
+    totals,
+    reportedCostUsd: usage.cost.total,
+    dedupeKey: piDedupeKey({
+      entryType: entry.type,
+      entryId: entry.id,
+      timestamp: entry.timestamp,
+      model,
+      usage,
+    }),
   };
 }
 
