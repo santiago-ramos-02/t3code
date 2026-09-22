@@ -1,5 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import { ProviderInstanceId, ThreadId, type ServerProvider } from "@t3tools/contracts";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -132,6 +132,62 @@ function commandCwd(command: ChildProcess.Command): string | undefined {
   return command._tag === "StandardCommand" ? command.options.cwd : undefined;
 }
 
+const STARTUP_INITIAL_MESSAGE = "Pi version has not been checked yet.";
+
+function isVersionCommand(command: ChildProcess.Command): boolean {
+  return commandArgs(command).includes("--version");
+}
+
+type StartupSnapshotSource = {
+  readonly getSnapshot: Effect.Effect<ServerProvider, never, never>;
+  readonly streamChanges: Stream.Stream<ServerProvider, never, never>;
+};
+
+function awaitStartupSnapshot(
+  instance: { readonly snapshot: StartupSnapshotSource },
+  predicate: (snapshot: ServerProvider) => boolean,
+  failureMessage: string,
+): Effect.Effect<ServerProvider, never, never> {
+  return Stream.concat(
+    Stream.fromEffect(instance.snapshot.getSnapshot),
+    instance.snapshot.streamChanges,
+  ).pipe(
+    Stream.filter(predicate),
+    Stream.runHead,
+    Effect.flatMap((head) =>
+      head._tag === "Some" ? Effect.succeed(head.value) : Effect.die(new Error(failureMessage)),
+    ),
+  );
+}
+
+function awaitStartupVersionCheck(instance: {
+  readonly snapshot: StartupSnapshotSource;
+}): Effect.Effect<void, never, never> {
+  return Effect.asVoid(
+    awaitStartupSnapshot(
+      instance,
+      (snapshot) => snapshot.message !== STARTUP_INITIAL_MESSAGE,
+      "Pi startup version check did not settle",
+    ),
+  );
+}
+
+function awaitStartupReady(
+  instance: {
+    readonly snapshot: StartupSnapshotSource;
+  },
+  options: { readonly expectedVersion: string; readonly expectedModelSlug: string },
+): Effect.Effect<ServerProvider, never, never> {
+  return awaitStartupSnapshot(
+    instance,
+    (snapshot) =>
+      snapshot.status === "ready" &&
+      snapshot.version === options.expectedVersion &&
+      snapshot.models.some((model) => model.slug === options.expectedModelSlug),
+    "Pi startup discovery did not reach ready",
+  );
+}
+
 describe("PiDriver status", () => {
   it.effect("keeps disabled instances side-effect free", () =>
     Effect.scoped(
@@ -169,6 +225,8 @@ describe("PiDriver status", () => {
           );
         });
         const instance = yield* makeInstance(spawner);
+        yield* awaitStartupVersionCheck(instance);
+        commands.length = 0;
 
         const snapshot = yield* instance.snapshot.refresh;
 
@@ -186,11 +244,21 @@ describe("PiDriver status", () => {
   it.effect("parses healthy versions and applies the minimum version", () =>
     Effect.scoped(
       Effect.gen(function* () {
-        const outputs = ["pi version 0.86.1\n", "pi v0.86.0\n"];
-        const spawner = ChildProcessSpawner.make(() =>
-          Effect.succeed(versionHandle(outputs.shift() ?? "")),
+        const outputs = ["pi version 0.86.1\n", "pi version 0.86.1\n", "pi v0.86.0\n"];
+        const spawner = ChildProcessSpawner.make((command) =>
+          isVersionCommand(command)
+            ? Effect.succeed(versionHandle(outputs.shift() ?? ""))
+            : Effect.fail(
+                PlatformError.systemError({
+                  _tag: "NotFound",
+                  module: "ChildProcess",
+                  method: "spawn",
+                  description: "startup model discovery is out of scope for this version test",
+                }),
+              ),
         );
         const instance = yield* makeInstance(spawner);
+        yield* awaitStartupVersionCheck(instance);
 
         const healthy = yield* instance.snapshot.refresh;
         const outdated = yield* instance.snapshot.refresh;
@@ -205,13 +273,31 @@ describe("PiDriver status", () => {
   it.effect("reports malformed and non-zero version results without RPC", () =>
     Effect.scoped(
       Effect.gen(function* () {
-        const handles = [versionHandle("Pi unknown\n"), versionHandle("", 7)];
+        const handles = [
+          versionHandle("Pi unknown\n"),
+          versionHandle("Pi unknown\n"),
+          versionHandle("", 7),
+        ];
         const commands: ChildProcess.Command[] = [];
         const spawner = ChildProcessSpawner.make((command) => {
           commands.push(command);
+          if (!isVersionCommand(command)) {
+            return Effect.fail(
+              PlatformError.systemError({
+                _tag: "NotFound",
+                module: "ChildProcess",
+                method: "spawn",
+                description: "startup model discovery is out of scope for this version test",
+              }),
+            );
+          }
           return Effect.succeed(handles.shift()!);
         });
         const instance = yield* makeInstance(spawner);
+        yield* awaitStartupVersionCheck(instance);
+        commands.length = 0;
+        handles.length = 0;
+        handles.push(versionHandle("Pi unknown\n"), versionHandle("", 7));
 
         const malformed = yield* instance.snapshot.refresh;
         const failed = yield* instance.snapshot.refresh;
@@ -260,9 +346,14 @@ describe("PiDriver status", () => {
         const instance = yield* makeInstance(
           ChildProcessSpawner.make((command) => {
             commands.push(command);
-            return Effect.succeed(handle);
+            return isVersionCommand(command)
+              ? Effect.succeed(versionHandle("pi 0.86.1"))
+              : Effect.succeed(handle);
           }),
         );
+        yield* awaitStartupVersionCheck(instance);
+        commands.length = 0;
+        requests.length = 0;
 
         const session = yield* instance.adapter.startSession({
           threadId: ThreadId.make("pi-driver-runtime"),
@@ -308,9 +399,14 @@ describe("PiDriver status", () => {
         const instance = yield* makeInstance(
           ChildProcessSpawner.make((command) => {
             commands.push(command);
-            return Effect.succeed(handle);
+            return isVersionCommand(command)
+              ? Effect.succeed(versionHandle("pi 0.86.1"))
+              : Effect.succeed(handle);
           }),
         );
+        yield* awaitStartupVersionCheck(instance);
+        commands.length = 0;
+        requests.length = 0;
 
         const session = yield* instance.adapter.startSession({
           threadId: ThreadId.make("pi-driver-resume"),
@@ -373,10 +469,16 @@ describe("PiDriver status", () => {
         const instance = yield* makeInstance(
           ChildProcessSpawner.make((command) => {
             commands.push(command);
-            return Effect.succeed(handle);
+            return isVersionCommand(command)
+              ? Effect.succeed(versionHandle("pi 0.86.1"))
+              : Effect.succeed(handle);
           }),
           { binaryPath: "pi-custom" },
         );
+        yield* awaitStartupVersionCheck(instance);
+        commands.length = 0;
+        requests.length = 0;
+        killCount = 0;
 
         const result = yield* instance.textGeneration.generateBranchName({
           cwd: "/work/text-generation",
@@ -463,11 +565,17 @@ describe("PiDriver explicit discovery", () => {
         const commands: ChildProcess.Command[] = [];
         const spawner = ChildProcessSpawner.make((command) => {
           commands.push(command);
-          return Effect.succeed(handle);
+          return isVersionCommand(command)
+            ? Effect.succeed(versionHandle("pi 0.86.1"))
+            : Effect.succeed(handle);
         });
         const instance = yield* makeInstance(spawner, {
           customModels: ["custom/provider-model"],
         });
+        yield* awaitStartupVersionCheck(instance);
+        commands.length = 0;
+        requests.length = 0;
+        killCount = 0;
 
         yield* instance.refreshModels!();
         const snapshot = yield* instance.snapshot.getSnapshot;
@@ -520,8 +628,11 @@ describe("PiDriver explicit discovery", () => {
         let rpcRun = 0;
         let killCount = 0;
         const requests: PiRpcRecord[] = [];
-        const spawner = ChildProcessSpawner.make(() =>
-          Effect.gen(function* () {
+        const spawner = ChildProcessSpawner.make((command) => {
+          if (isVersionCommand(command)) {
+            return Effect.succeed(versionHandle("pi 0.86.1"));
+          }
+          return Effect.gen(function* () {
             rpcRun += 1;
             return yield* rpcHandle({
               requests,
@@ -533,7 +644,7 @@ describe("PiDriver explicit discovery", () => {
                 if (method === "get_available_models") {
                   return successResponse(
                     request,
-                    rpcRun === 1
+                    rpcRun <= 2
                       ? {
                           models: [
                             {
@@ -551,9 +662,12 @@ describe("PiDriver explicit discovery", () => {
                 return successResponse(request, { levels: ["off"] });
               },
             });
-          }),
-        );
+          });
+        });
         const instance = yield* makeInstance(spawner);
+        yield* awaitStartupVersionCheck(instance);
+        requests.length = 0;
+        killCount = 0;
 
         yield* instance.refreshModels!();
         const before = yield* instance.snapshot.getSnapshot;
@@ -626,11 +740,17 @@ describe("PiDriver explicit discovery", () => {
         const commands: ChildProcess.Command[] = [];
         const spawner = ChildProcessSpawner.make((command) => {
           commands.push(command);
-          return Effect.succeed(handle);
+          return isVersionCommand(command)
+            ? Effect.succeed(versionHandle("pi 0.86.1"))
+            : Effect.succeed(handle);
         });
         const instance = yield* makeInstance(spawner, {
           customModels: ["custom/model"],
         });
+        yield* awaitStartupVersionCheck(instance);
+        commands.length = 0;
+        requests.length = 0;
+        killCount = 0;
         const baseBefore = yield* instance.snapshot.getSnapshot;
 
         const scoped = yield* instance.snapshotForCwd!(cwd);
@@ -678,8 +798,14 @@ describe("PiDriver explicit discovery", () => {
           respond: (request) => successResponse(request, { commands: [{ private: "payload" }] }),
         });
         const instance = yield* makeInstance(
-          ChildProcessSpawner.make(() => Effect.succeed(handle)),
+          ChildProcessSpawner.make((command) =>
+            isVersionCommand(command)
+              ? Effect.succeed(versionHandle("pi 0.86.1"))
+              : Effect.succeed(handle),
+          ),
         );
+        yield* awaitStartupVersionCheck(instance);
+        killCount = 0;
 
         const error = yield* instance.snapshotForCwd!("/workspaces/private").pipe(Effect.flip);
 
@@ -689,6 +815,184 @@ describe("PiDriver explicit discovery", () => {
         });
         expect(error.message).not.toContain("payload");
         expect(killCount).toBe(1);
+      }),
+    ),
+  );
+});
+
+describe("PiDriver startup discovery", () => {
+  it.effect("reaches ready with version and models without blocking creation", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const requests: PiRpcRecord[] = [];
+        const commands: ChildProcess.Command[] = [];
+        const handle = yield* rpcHandle({
+          requests,
+          respond: (request) =>
+            successResponse(request, {
+              models: [
+                {
+                  id: "startup-model",
+                  name: "Startup Model",
+                  provider: "test",
+                  reasoning: false,
+                  input: ["text"],
+                },
+              ],
+            }),
+        });
+        const spawner = ChildProcessSpawner.make((command) => {
+          commands.push(command);
+          return isVersionCommand(command)
+            ? Effect.succeed(versionHandle("pi 0.86.1"))
+            : Effect.succeed(handle);
+        });
+        const instance = yield* makeInstance(spawner, { enabled: true });
+        const snapshot = yield* awaitStartupReady(instance, {
+          expectedVersion: "0.86.1",
+          expectedModelSlug: "test/startup-model",
+        });
+
+        expect(snapshot.status).toBe("ready");
+        expect(snapshot.version).toBe("0.86.1");
+        expect(snapshot.models.map((model) => model.slug)).toContain("test/startup-model");
+        expect(commands.some(isVersionCommand)).toBe(true);
+        expect(requests.map((request) => recordString(request, "type"))).toContain(
+          "get_available_models",
+        );
+      }),
+    ),
+  );
+
+  it.effect("spawns nothing on startup when disabled", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        let spawnCount = 0;
+        const spawner = ChildProcessSpawner.make(() => {
+          spawnCount += 1;
+          return Effect.succeed(versionHandle("pi 0.86.1"));
+        });
+        const instance = yield* makeInstance(spawner, { enabled: false });
+        const snapshot = yield* awaitStartupSnapshot(
+          instance,
+          (candidate) => candidate.status === "disabled",
+          "Pi disabled startup did not settle",
+        );
+        expect(snapshot.status).toBe("disabled");
+        expect(spawnCount).toBe(0);
+      }),
+    ),
+  );
+
+  it.effect("publishes a warning when startup model discovery fails", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const requests: PiRpcRecord[] = [];
+        const handle = yield* rpcHandle({
+          requests,
+          respond: (request) => successResponse(request, { models: "invalid" }),
+        });
+        const spawner = ChildProcessSpawner.make((command) =>
+          isVersionCommand(command)
+            ? Effect.succeed(versionHandle("pi 0.86.1"))
+            : Effect.succeed(handle),
+        );
+        const instance = yield* makeInstance(spawner, {
+          enabled: true,
+          customModels: ["custom/keep"],
+        });
+        const snapshot = yield* awaitStartupSnapshot(
+          instance,
+          (candidate) =>
+            candidate.status === "warning" &&
+            candidate.version === "0.86.1" &&
+            (candidate.message ?? "").includes("Pi model discovery failed."),
+          "Pi startup discovery failure did not publish a warning",
+        );
+
+        expect(snapshot).toMatchObject({
+          installed: true,
+          status: "warning",
+          version: "0.86.1",
+        });
+        expect(snapshot.message).toContain("Pi model discovery failed.");
+        expect(snapshot.models.map((model) => model.slug)).toContain("custom/keep");
+        expect(requests.map((request) => recordString(request, "type"))).toContain(
+          "get_available_models",
+        );
+      }),
+    ),
+  );
+
+  it.effect("keeps ready when startup discovery finds zero models", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const requests: PiRpcRecord[] = [];
+        const handle = yield* rpcHandle({
+          requests,
+          respond: (request) => successResponse(request, { models: [] }),
+        });
+        const spawner = ChildProcessSpawner.make((command) =>
+          isVersionCommand(command)
+            ? Effect.succeed(versionHandle("pi 0.86.1"))
+            : Effect.succeed(handle),
+        );
+        const instance = yield* makeInstance(spawner, { enabled: true });
+        const snapshot = yield* awaitStartupSnapshot(
+          instance,
+          (candidate) =>
+            candidate.status === "ready" &&
+            candidate.version === "0.86.1" &&
+            candidate.message !== STARTUP_INITIAL_MESSAGE &&
+            requests.some((request) => recordString(request, "type") === "get_available_models"),
+          "Pi startup zero-model discovery did not settle",
+        );
+
+        expect(snapshot.status).toBe("ready");
+        expect(snapshot.version).toBe("0.86.1");
+        expect(snapshot.models).toEqual([]);
+        expect(snapshot.message ?? "").not.toContain("Pi model discovery failed.");
+      }),
+    ),
+  );
+
+  it.effect("preserves discovered models across concurrent refresh and discovery", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const requests: PiRpcRecord[] = [];
+        const handle = yield* rpcHandle({
+          requests,
+          respond: (request) =>
+            successResponse(request, {
+              models: [
+                {
+                  id: "concurrent-model",
+                  name: "Concurrent Model",
+                  provider: "test",
+                  reasoning: false,
+                  input: ["text"],
+                },
+              ],
+            }),
+        });
+        const spawner = ChildProcessSpawner.make((command) =>
+          isVersionCommand(command)
+            ? Effect.succeed(versionHandle("pi 0.86.1"))
+            : Effect.succeed(handle),
+        );
+        const instance = yield* makeInstance(spawner, { enabled: true });
+        yield* awaitStartupReady(instance, {
+          expectedVersion: "0.86.1",
+          expectedModelSlug: "test/concurrent-model",
+        });
+
+        yield* Effect.all([instance.snapshot.refresh, instance.refreshModels!()], {
+          concurrency: "unbounded",
+        });
+        const snapshot = yield* instance.snapshot.getSnapshot;
+
+        expect(snapshot.version).toBe("0.86.1");
+        expect(snapshot.models.map((model) => model.slug)).toContain("test/concurrent-model");
       }),
     ),
   );

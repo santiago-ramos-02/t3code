@@ -22,6 +22,137 @@ export const PROVIDER_STATUS_STYLES = {
 export type ProviderStatusKey = keyof typeof PROVIDER_STATUS_STYLES;
 
 /**
+ * Maximum characters kept from a server-supplied provider message before it
+ * is shown under a provider name. Probe output can be a multi-paragraph CLI
+ * dump; the card shows a bounded prefix so an error stays actionable
+ * instead of pushing the settings list around.
+ */
+export const PROVIDER_SUMMARY_DETAIL_LIMIT = 280;
+
+/**
+ * Bound free-form server detail for inline display. Returns `null` when
+ * there is nothing meaningful to show, so callers can hide the detail slot.
+ */
+export function truncateProviderDetail(detail: string | null | undefined): string | null {
+  if (detail === null || detail === undefined) return null;
+  const trimmed = detail.trim();
+  if (trimmed.length === 0) return null;
+  if (trimmed.length <= PROVIDER_SUMMARY_DETAIL_LIMIT) return trimmed;
+  return `${trimmed.slice(0, PROVIDER_SUMMARY_DETAIL_LIMIT - 1).trimEnd()}…`;
+}
+
+/** Label a discovered model count the way the settings UI phrases counts. */
+export function formatProviderModelCount(modelCount: number): string {
+  return modelCount === 1 ? "1 model" : `${modelCount} models`;
+}
+
+/**
+ * Concise `version · model count` meta for a ready provider, e.g.
+ * `v0.86.1 · 1 model`. Returns `null` when the provider is not ready or
+ * neither the version nor a discovered model count is known. Non-ready
+ * states keep their own actionable copy; the version chip in the card
+ * header already covers them.
+ */
+export function getProviderReadyMeta(provider: ServerProvider | undefined): string | null {
+  if (!provider || provider.status !== "ready") return null;
+  const parts: string[] = [];
+  const version = getProviderVersionLabel(provider.version);
+  if (version) parts.push(version);
+  if (provider.models.length > 0) parts.push(formatProviderModelCount(provider.models.length));
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
+/**
+ * Exact message PiDriver publishes for an enabled instance before its
+ * scope-owned startup probe runs. That snapshot is pending, not failed.
+ */
+export const PI_PRE_PROBE_MESSAGE = "Pi version has not been checked yet.";
+
+/**
+ * Resolve what a provider instance card shows for its status line.
+ *
+ * The toggle reads the persisted instance config while the snapshot arrives
+ * asynchronously, so the two can disagree: an enabled config with a stale
+ * `disabled` snapshot (or no snapshot yet) is a provider whose probe has
+ * not run since it was enabled, not a disabled provider. Those cases read
+ * as Checking, never as stale Disabled. A disabled config always reads as
+ * Disabled immediately, regardless of any cached snapshot.
+ *
+ * Zero discovered models on an otherwise ready, installed Pi provider reads
+ * as attention-worthy rather than Available: model discovery ran and found
+ * nothing. Other drivers keep their server summary so existing rows do not
+ * change meaning. Unauthenticated providers keep their sign-in copy even
+ * when their model list is empty, since signing in is the more actionable
+ * step.
+ */
+export function resolveProviderCardDisplay(input: {
+  readonly enabled: boolean;
+  readonly provider: ServerProvider | undefined;
+  readonly isChecking: boolean;
+  readonly driver?: string | undefined;
+}): {
+  readonly statusKey: ProviderStatusKey;
+  readonly headline: string;
+  readonly detail: string | null;
+} {
+  if (!input.enabled) {
+    return { statusKey: "disabled", headline: "Disabled", detail: null };
+  }
+  if (input.isChecking || !input.provider) {
+    return {
+      statusKey: "warning",
+      headline: "Checking provider status",
+      detail: input.provider
+        ? "Refreshing installation, version, and model details."
+        : "Waiting for the server to report installation and authentication details.",
+    };
+  }
+  const provider = input.provider;
+  if (!provider.enabled || provider.status === "disabled") {
+    return {
+      statusKey: "warning",
+      headline: "Checking provider status",
+      detail: "Waiting for refreshed status after enabling.",
+    };
+  }
+  if (
+    String(input.driver ?? provider?.driver ?? "") === "pi" &&
+    provider.status === "error" &&
+    provider.message === PI_PRE_PROBE_MESSAGE
+  ) {
+    return {
+      statusKey: "warning",
+      headline: "Checking provider status",
+      detail: "Waiting for the initial provider check to complete.",
+    };
+  }
+  const summary = getProviderSummary(provider);
+  if (provider.status === "warning" || provider.status === "error") {
+    return {
+      statusKey: provider.status,
+      headline: summary.headline,
+      detail: truncateProviderDetail(summary.detail),
+    };
+  }
+  if (
+    String(input.driver ?? provider?.driver ?? "") === "pi" &&
+    provider.installed &&
+    provider.status === "ready" &&
+    provider.auth.status !== "unauthenticated" &&
+    provider.models.length === 0
+  ) {
+    return {
+      statusKey: "warning",
+      headline: "No models found",
+      detail:
+        truncateProviderDetail(provider.message) ??
+        "The provider is ready but no models were discovered.",
+    };
+  }
+  return { statusKey: provider.status, headline: summary.headline, detail: summary.detail };
+}
+
+/**
  * Derive the headline + detail copy shown under a provider's name in the
  * settings page. Prefers `provider.message` for server-supplied detail and
  * falls back to generic phrasing when the server has not yet reported any
