@@ -619,9 +619,11 @@ export function ProviderInstanceCard({
     );
   // Inline retry for a check that is running or left the provider needing
   // attention. Scoped to this instance so one slow probe never blocks the
-  // rest of the list; hidden in read-only views via `onRefresh`.
+  // rest of the list; hidden in read-only views via `onRefresh`. Unavailable
+  // shadows have no live instance to refresh, so they never offer the button.
+  const isUnavailable = liveProvider?.availability === "unavailable";
   const statusCheckRow =
-    enabled && onRefresh !== undefined && (isChecking || needsAttention) ? (
+    enabled && !isUnavailable && onRefresh !== undefined && (isChecking || needsAttention) ? (
       <SettingsRow
         title="Status check"
         description={

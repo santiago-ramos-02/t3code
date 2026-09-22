@@ -73,6 +73,20 @@ describe("getProviderSummary", () => {
     });
   });
 
+  it("treats an unavailable shadow as Unavailable even though its snapshot is disabled", () => {
+    expect(
+      getProviderSummary({
+        ...provider,
+        enabled: false,
+        installed: false,
+        status: "disabled",
+        availability: "unavailable",
+        unavailableReason: "Pi MCP bridge failed to start.",
+        message: "Pi MCP bridge failed to start.",
+      }),
+    ).toEqual({ headline: "Unavailable", detail: "Pi MCP bridge failed to start." });
+  });
+
   it("treats a disabled provider status as disabled even before its enabled flag updates", () => {
     expect(getProviderSummary({ ...provider, status: "disabled" }).headline).toBe("Disabled");
   });
@@ -161,6 +175,80 @@ describe("resolveProviderCardDisplay", () => {
     });
     expect(display.headline).not.toBe("Checking provider status");
     expect(display.statusKey).toBe("error");
+  });
+
+  it("reads an enabled config with an unavailable shadow as Unavailable with the server reason", () => {
+    const display = resolveProviderCardDisplay({
+      enabled: true,
+      provider: {
+        ...provider,
+        enabled: false,
+        installed: false,
+        status: "disabled",
+        availability: "unavailable",
+        unavailableReason: "Pi MCP bridge failed to start.",
+        message: "Pi MCP bridge failed to start.",
+      },
+      isChecking: false,
+    });
+    expect(display.statusKey).toBe("error");
+    expect(display.headline).toBe("Unavailable");
+    expect(display.detail).toBe("Pi MCP bridge failed to start.");
+  });
+
+  it("keeps an unavailable shadow as Unavailable while a refresh is in flight", () => {
+    const display = resolveProviderCardDisplay({
+      enabled: true,
+      provider: {
+        ...provider,
+        enabled: false,
+        installed: false,
+        status: "disabled",
+        availability: "unavailable",
+        unavailableReason: "Pi MCP bridge failed to start.",
+        message: "Pi MCP bridge failed to start.",
+      },
+      isChecking: true,
+    });
+    expect(display.statusKey).toBe("error");
+    expect(display.headline).toBe("Unavailable");
+    expect(display.detail).toBe("Pi MCP bridge failed to start.");
+  });
+
+  it("bounds a long unavailable reason to the display limit", () => {
+    const display = resolveProviderCardDisplay({
+      enabled: true,
+      provider: {
+        ...provider,
+        enabled: false,
+        installed: false,
+        status: "disabled",
+        availability: "unavailable",
+        unavailableReason: `probe failed ${"x".repeat(PROVIDER_SUMMARY_DETAIL_LIMIT + 100)}`,
+        message: `probe failed ${"x".repeat(PROVIDER_SUMMARY_DETAIL_LIMIT + 100)}`,
+      },
+      isChecking: false,
+    });
+    expect(display.headline).toBe("Unavailable");
+    expect(display.statusKey).toBe("error");
+    expect(display.detail?.length).toBeLessThanOrEqual(PROVIDER_SUMMARY_DETAIL_LIMIT);
+  });
+
+  it("reads a disabled config as Disabled even for an unavailable shadow", () => {
+    expect(
+      resolveProviderCardDisplay({
+        enabled: false,
+        provider: {
+          ...provider,
+          enabled: false,
+          status: "disabled",
+          availability: "unavailable",
+          unavailableReason: "Pi MCP bridge failed to start.",
+          message: "Pi MCP bridge failed to start.",
+        },
+        isChecking: false,
+      }),
+    ).toEqual({ statusKey: "disabled", headline: "Disabled", detail: null });
   });
 
   it("reads a disabled config as Disabled immediately, even with a healthy snapshot", () => {

@@ -75,8 +75,11 @@ export const PI_PRE_PROBE_MESSAGE = "Pi version has not been checked yet.";
  * asynchronously, so the two can disagree: an enabled config with a stale
  * `disabled` snapshot (or no snapshot yet) is a provider whose probe has
  * not run since it was enabled, not a disabled provider. Those cases read
- * as Checking, never as stale Disabled. A disabled config always reads as
- * Disabled immediately, regardless of any cached snapshot.
+ * as Checking, never as stale Disabled. An enabled config with an
+ * `unavailable` snapshot is a failed instance, not a pending check, so it
+ * reads as Unavailable with the bounded server reason even while a refresh
+ * is in flight. A disabled config reads as Disabled immediately, regardless
+ * of any cached snapshot.
  *
  * Zero discovered models on an otherwise ready, installed Pi provider reads
  * as attention-worthy rather than Available: model discovery ran and found
@@ -97,6 +100,14 @@ export function resolveProviderCardDisplay(input: {
 } {
   if (!input.enabled) {
     return { statusKey: "disabled", headline: "Disabled", detail: null };
+  }
+  if (input.provider?.availability === "unavailable") {
+    const summary = getProviderSummary(input.provider);
+    return {
+      statusKey: "error",
+      headline: summary.headline,
+      detail: truncateProviderDetail(summary.detail),
+    };
   }
   if (input.isChecking || !input.provider) {
     return {
@@ -165,6 +176,13 @@ export function getProviderSummary(provider: ServerProvider | undefined) {
     return {
       headline: "Checking provider status",
       detail: "Waiting for the server to report installation and authentication details.",
+    };
+  }
+  if (provider.availability === "unavailable") {
+    return {
+      headline: "Unavailable",
+      detail:
+        provider.message ?? provider.unavailableReason ?? "The provider failed its startup checks.",
     };
   }
   if (!provider.enabled || provider.status === "disabled") {
