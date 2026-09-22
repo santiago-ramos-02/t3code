@@ -3,6 +3,7 @@ import * as NodeCrypto from "node:crypto";
 import * as NodeFS from "node:fs";
 import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
+import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import * as Effect from "effect/Effect";
 
 import { PI_MCP_EXTENSION_SOURCE } from "./PiMcpBridgeSource.ts";
@@ -38,7 +39,11 @@ async function assertPathIdentity(path: string, expected: NodeFS.Stats): Promise
   }
 }
 
-async function ensureDirectory(path: string, mode?: number): Promise<NodeFSP.FileHandle> {
+async function ensureDirectory(
+  path: string,
+  supportsPosixPermissions: boolean,
+  mode?: number,
+): Promise<NodeFSP.FileHandle> {
   try {
     await NodeFSP.mkdir(path, { mode });
   } catch (cause) {
@@ -59,9 +64,9 @@ async function ensureDirectory(path: string, mode?: number): Promise<NodeFSP.Fil
       throw new Error("Pi MCP bridge directory identity changed before it was secured.");
     }
     assertOwnedByCurrentUser(info, "Pi MCP bridge directory");
-    if (mode !== undefined) await handle.chmod(mode);
+    if (mode !== undefined && supportsPosixPermissions) await handle.chmod(mode);
     const secured = await handle.stat();
-    if (mode !== undefined && (secured.mode & 0o777) !== mode) {
+    if (mode !== undefined && supportsPosixPermissions && (secured.mode & 0o777) !== mode) {
       throw new Error("Pi MCP bridge directory permissions are not private.");
     }
     await assertPathIdentity(path, secured);
@@ -72,7 +77,10 @@ async function ensureDirectory(path: string, mode?: number): Promise<NodeFSP.Fil
   }
 }
 
-async function validatePublishedExtension(path: string): Promise<NodeFS.Stats> {
+async function validatePublishedExtension(
+  path: string,
+  supportsPosixPermissions: boolean,
+): Promise<NodeFS.Stats> {
   const pathInfo = await NodeFSP.lstat(path);
   if (pathInfo.isSymbolicLink() || !pathInfo.isFile()) {
     throw new Error("Pi MCP bridge target is not a real regular file.");
@@ -87,7 +95,7 @@ async function validatePublishedExtension(path: string): Promise<NodeFS.Stats> {
       throw new Error("Pi MCP bridge target identity changed before validation.");
     }
     assertOwnedByCurrentUser(info, "Pi MCP bridge target");
-    if ((info.mode & 0o777) !== FILE_MODE) {
+    if (supportsPosixPermissions && (info.mode & 0o777) !== FILE_MODE) {
       throw new Error("Pi MCP bridge target permissions are not private.");
     }
     const contents = await handle.readFile({ encoding: "utf8" });
@@ -112,23 +120,27 @@ async function unlinkIfIdentityMatches(path: string, expected: NodeFS.Stats): Pr
   }
 }
 
-async function materialize(stateDir: string): Promise<string> {
+async function materialize(stateDir: string, supportsPosixPermissions: boolean): Promise<string> {
   const root = NodePath.resolve(stateDir);
   await NodeFSP.mkdir(root, { recursive: true, mode: DIRECTORY_MODE });
-  const rootHandle = await ensureDirectory(root);
+  const rootHandle = await ensureDirectory(root, supportsPosixPermissions);
   const runtimeDirectory = NodePath.join(root, "runtime");
   let runtimeHandle: NodeFSP.FileHandle | undefined;
   let bridgeDirectoryHandle: NodeFSP.FileHandle | undefined;
 
   try {
-    runtimeHandle = await ensureDirectory(runtimeDirectory);
+    runtimeHandle = await ensureDirectory(runtimeDirectory, supportsPosixPermissions);
     const bridgeDirectory = NodePath.join(runtimeDirectory, "pi-mcp");
-    bridgeDirectoryHandle = await ensureDirectory(bridgeDirectory, DIRECTORY_MODE);
+    bridgeDirectoryHandle = await ensureDirectory(
+      bridgeDirectory,
+      supportsPosixPermissions,
+      DIRECTORY_MODE,
+    );
     const bridgeDirectoryInfo = await bridgeDirectoryHandle.stat();
     const extensionPath = NodePath.join(bridgeDirectory, `t3-mcp-${digest}.mjs`);
 
     try {
-      await validatePublishedExtension(extensionPath);
+      await validatePublishedExtension(extensionPath, supportsPosixPermissions);
       return extensionPath;
     } catch (cause) {
       if (!hasCode(cause, "ENOENT")) throw cause;
@@ -155,7 +167,7 @@ async function materialize(stateDir: string): Promise<string> {
       assertOwnedByCurrentUser(temporaryInfo, "Pi MCP bridge temporary target");
       await temporaryHandle.writeFile(PI_MCP_EXTENSION_SOURCE, { encoding: "utf8" });
       await temporaryHandle.sync();
-      await temporaryHandle.chmod(FILE_MODE);
+      if (supportsPosixPermissions) await temporaryHandle.chmod(FILE_MODE);
       temporaryInfo = await temporaryHandle.stat();
       await assertPathIdentity(temporaryPath, temporaryInfo);
       await assertPathIdentity(bridgeDirectory, bridgeDirectoryInfo);
@@ -168,7 +180,10 @@ async function materialize(stateDir: string): Promise<string> {
         if (!hasCode(cause, "EEXIST")) throw cause;
       }
 
-      const publishedInfo = await validatePublishedExtension(extensionPath);
+      const publishedInfo = await validatePublishedExtension(
+        extensionPath,
+        supportsPosixPermissions,
+      );
       await assertPathIdentity(bridgeDirectory, bridgeDirectoryInfo);
       if (publishedByThisCall && !sameIdentity(publishedInfo, temporaryInfo)) {
         throw new Error("Pi MCP bridge publication lost its file identity.");
@@ -191,5 +206,6 @@ async function materialize(stateDir: string): Promise<string> {
 }
 
 export const materializePiMcpExtension = Effect.fn("PiMcpBridge.materialize")((stateDir: string) =>
-  Effect.tryPromise(() => materialize(stateDir)),
+  // This writes to the local filesystem even when a provider's process platform is simulated.
+  Effect.tryPromise(() => materialize(stateDir, HostProcessPlatform.defaultValue() !== "win32")),
 );

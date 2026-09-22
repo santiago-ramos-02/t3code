@@ -531,8 +531,10 @@ it.layer(NodeServices.layer)("Pi MCP bridge materialization", (it) => {
         expect(path.isAbsolute(first)).toBe(true);
         expect(path.basename(first)).toBe(`t3-mcp-${PI_MCP_EXTENSION_DIGEST}.mjs`);
         expect(yield* fileSystem.readFileString(first)).toBe(PI_MCP_EXTENSION_SOURCE);
-        expect(fileInfo.mode & 0o777).toBe(0o600);
-        expect(directoryInfo.mode & 0o777).toBe(0o700);
+        if (HostProcessPlatform.defaultValue() !== "win32") {
+          expect(fileInfo.mode & 0o777).toBe(0o600);
+          expect(directoryInfo.mode & 0o777).toBe(0o700);
+        }
       }),
     ),
   );

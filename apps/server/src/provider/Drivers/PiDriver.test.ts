@@ -4,6 +4,7 @@ import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Path from "effect/Path";
 import * as PlatformError from "effect/PlatformError";
 import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
@@ -329,6 +330,8 @@ describe("PiDriver status", () => {
   it.effect("constructs runtime sessions without the discovery-only no-session flag", () =>
     Effect.scoped(
       Effect.gen(function* () {
+        const path = yield* Path.Path;
+        const cwd = path.resolve("/work/runtime");
         const requests: PiRpcRecord[] = [];
         const commands: ChildProcess.Command[] = [];
         const handle = yield* rpcHandle({
@@ -357,12 +360,12 @@ describe("PiDriver status", () => {
 
         const session = yield* instance.adapter.startSession({
           threadId: ThreadId.make("pi-driver-runtime"),
-          cwd: "/work/runtime",
+          cwd,
           runtimeMode: "full-access",
         });
 
         expect(commandArgs(commands[0]!)).toEqual(["--mode", "rpc"]);
-        expect(commandCwd(commands[0]!)).toBe("/work/runtime");
+        expect(commandCwd(commands[0]!)).toBe(cwd);
         expect(requests.map((request) => recordString(request, "type"))).toEqual(["get_state"]);
         expect(session).toMatchObject({
           providerInstanceId: "pi-test",
@@ -372,16 +375,18 @@ describe("PiDriver status", () => {
             version: 2,
             sessionId: "pi-runtime-session",
             providerInstanceId: "pi-test",
-            cwd: "/work/runtime",
+            cwd,
           },
         });
       }),
-    ),
+    ).pipe(Effect.provide(NodeServices.layer)),
   );
 
   it.effect("launches a validated resume cursor with --session and no host path", () =>
     Effect.scoped(
       Effect.gen(function* () {
+        const path = yield* Path.Path;
+        const cwd = path.resolve("/work/runtime");
         const requests: PiRpcRecord[] = [];
         const commands: ChildProcess.Command[] = [];
         const handle = yield* rpcHandle({
@@ -410,13 +415,13 @@ describe("PiDriver status", () => {
 
         const session = yield* instance.adapter.startSession({
           threadId: ThreadId.make("pi-driver-resume"),
-          cwd: "/work/runtime",
+          cwd,
           runtimeMode: "full-access",
           resumeCursor: {
             version: 2,
             sessionId: "pi-resumed-session",
             providerInstanceId: ProviderInstanceId.make("pi-test"),
-            cwd: "/work/runtime",
+            cwd,
           },
         });
 
@@ -426,17 +431,17 @@ describe("PiDriver status", () => {
           "--session",
           "pi-resumed-session",
         ]);
-        expect(commandCwd(commands[0]!)).toBe("/work/runtime");
+        expect(commandCwd(commands[0]!)).toBe(cwd);
         expect(requests.map((request) => recordString(request, "type"))).toEqual(["get_state"]);
         expect(session.resumeCursor).toEqual({
           version: 2,
           sessionId: "pi-resumed-session",
           providerInstanceId: "pi-test",
-          cwd: "/work/runtime",
+          cwd,
         });
         expect(session.resumeCursor).not.toHaveProperty("sessionFile");
       }),
-    ),
+    ).pipe(Effect.provide(NodeServices.layer)),
   );
 
   it.effect("wires isolated Pi text generation to the configured instance", () =>
