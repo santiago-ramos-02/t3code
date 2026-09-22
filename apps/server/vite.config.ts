@@ -25,6 +25,27 @@ const cliBuildChannel = /^[^-+]+-(?:nightly|preview)\./.test(packageJson.version
   ? "nightly"
   : "latest";
 
+// Desktop native dev (`apps/desktop/scripts/dev-electron.mjs`) rebuilds this
+// bundle in watch mode while holding a directory watcher on `dist` (it
+// restarts Electron when `bin.mjs` changes). A watch-mode clean would remove
+// `dist` out from under that watcher, so the watcher child sets this flag
+// and the config disables `pack.clean` only for that flagged process.
+// Ordinary builds keep cleaning enabled.
+export const SERVER_BUNDLE_WATCH_ENV_VAR = "T3CODE_SERVER_BUNDLE_WATCH";
+export const SERVER_BUNDLE_WATCH_ENV_VALUE = "1";
+
+export function isServerBundleWatcherBuild(
+  env: Record<string, string | undefined> = process.env,
+): boolean {
+  return env[SERVER_BUNDLE_WATCH_ENV_VAR] === SERVER_BUNDLE_WATCH_ENV_VALUE;
+}
+
+export function resolveServerPackClean(
+  env: Record<string, string | undefined> = process.env,
+): boolean {
+  return !isServerBundleWatcherBuild(env);
+}
+
 // `build:exe` wraps the same bundle in a Node single-executable. tsdown's exe
 // step refuses multi-chunk output and counts the sourcemap as a chunk, and the
 // executable needs a host Node that supports `--build-sea` (25.7+), so this is
@@ -80,7 +101,7 @@ export default mergeConfig(
       entry: packExecutable ? ["src/bin.ts"] : ["src/bin.ts", "src/claude-history-worker.ts"],
       outDir: packExecutable ? "dist-exe" : "dist",
       sourcemap: !packExecutable,
-      clean: true,
+      clean: resolveServerPackClean(),
       ...(packExecutable
         ? {
             exe: {
