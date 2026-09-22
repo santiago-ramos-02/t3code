@@ -582,6 +582,24 @@ export function EnvironmentProviderSettings({
     reportFailure: false,
   });
   const [isRefreshingProviders, setIsRefreshingProviders] = useState(false);
+  // Instances with an explicit scoped status refresh in flight, keyed by
+  // environment+instance so a stale completion for a previous environment
+  // can never mark the new card Checking. Local pending state only: the
+  // toggle persists settings and never probes, since the server
+  // re-discovers version and models on enable.
+  const [refreshingKeys, setRefreshingKeys] = useState<ReadonlySet<string>>(() => new Set());
+  // Synchronous re-entry guard: a state updater runs after dispatch, so it
+  // cannot dedupe a double invocation before the first dispatch lands.
+  const refreshingKeysRef = useRef<Set<string>>(new Set());
+  const mountedRef = useRef(true);
+  const activeEnvironmentRef = useRef(environmentId);
+  useEffect(() => {
+    mountedRef.current = true;
+    activeEnvironmentRef.current = environmentId;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, [environmentId]);
   const [isAddInstanceDialogOpen, setIsAddInstanceDialogOpen] = useState(false);
   const [selectedInstanceId, setSelectedInstanceId] = useState<ProviderInstanceId | null>(
     targetInstanceId ?? null,
@@ -647,6 +665,53 @@ export function EnvironmentProviderSettings({
       }
     })();
   }, [environmentId, refreshServerProviders]);
+
+  /**
+   * Explicit scoped status refresh for one instance, with model discovery.
+   * Tracks local pending state only; failures surface a bounded toast
+   * because the card retry would otherwise fail silently. Interruptions
+   * stay silent so navigation never reports an error.
+   */
+  const refreshInstance = useCallback(
+    (instanceId: ProviderInstanceId) => {
+      const key = `${environmentId}:${instanceId}`;
+      if (refreshingKeysRef.current.has(key)) return;
+      refreshingKeysRef.current.add(key);
+      setRefreshingKeys((previous) => (previous.has(key) ? previous : new Set(previous).add(key)));
+      void (async () => {
+        const result = await refreshServerProviders({
+          environmentId,
+          input: { instanceId, refreshModels: true },
+        });
+        refreshingKeysRef.current.delete(key);
+        // Suppress late publication after unmount or environment change:
+        // the old environment must not clear new state, toast, or mark a
+        // new card Checking.
+        if (!mountedRef.current || activeEnvironmentRef.current !== environmentId) return;
+        setRefreshingKeys((previous) => {
+          if (!previous.has(key)) return previous;
+          const next = new Set(previous);
+          next.delete(key);
+          return next;
+        });
+        if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+          console.warn("Failed to refresh provider instance", {
+            operation: "refresh-provider-instance",
+            environmentId,
+            ...safeErrorLogAttributes(squashAtomCommandFailure(result)),
+          });
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Could not refresh provider status",
+              description: "The provider status check could not be completed.",
+            }),
+          );
+        }
+      })();
+    },
+    [environmentId, refreshServerProviders],
+  );
 
   const runProviderUpdate = useCallback(
     async (candidate: ProviderSettingsUpdateCandidate) => {
@@ -942,6 +1007,10 @@ export function EnvironmentProviderSettings({
               : undefined,
           );
         }}
+        isChecking={refreshingKeys.has(`${environmentId}:${row.instanceId}`)}
+        onRefresh={
+          mode === "editor" && !readOnly ? () => refreshInstance(row.instanceId) : undefined
+        }
         onDelete={
           mode === "editor" && !row.isDefault
             ? () => deleteProviderInstance(row.instanceId)

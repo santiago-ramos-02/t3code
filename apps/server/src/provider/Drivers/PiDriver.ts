@@ -13,6 +13,7 @@ import { compareSemverVersions } from "@t3tools/shared/semver";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
@@ -423,56 +424,90 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
         ),
       );
 
+      // Unlocked version check plus publication. Callers must hold
+      // `discoverySemaphore` so a concurrent model discovery cannot be
+      // overwritten by a stale `current.models` read.
+      const checkAndPublishVersion = checkVersion().pipe(Effect.flatMap(publish));
+
+      // Unlocked model discovery plus publication. Callers must hold
+      // `discoverySemaphore` for the same reason as above.
+      const discoverAndPublishModels = !effectiveConfig.enabled
+        ? Effect.fail(
+            discoveryError({
+              instanceId,
+              detail: "Cannot discover Pi models while the instance is disabled.",
+            }),
+          )
+        : Effect.scoped(
+            Effect.gen(function* () {
+              const rpc = yield* makePiRpc({
+                binaryPath: effectiveConfig.binaryPath,
+                cwd: process.cwd(),
+                args: PI_RPC_ARGS,
+                environment: processEnv,
+              });
+              const modelsResponse = yield* rpc.request({ type: "get_available_models" });
+              const { data: modelsData } = yield* decodeModelsResponse(modelsResponse);
+              const discoveredModels = modelsData.models.map(toServerProviderModel);
+              const models = providerModelsFromSettings(
+                discoveredModels,
+                effectiveConfig.customModels,
+                {},
+              );
+              const current = yield* Ref.get(snapshotRef);
+              yield* publish({ ...current, models });
+            }),
+          ).pipe(
+            Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+            Effect.provideService(HostProcessPlatform, hostPlatform),
+            Effect.mapError((cause) =>
+              discoveryError({
+                instanceId,
+                detail: "Pi model discovery failed.",
+                cause,
+              }),
+            ),
+          );
+
       const snapshot = {
         resolveMaintenance: () => Effect.succeed(MAINTENANCE_CAPABILITIES),
         getSnapshot: Ref.get(snapshotRef),
-        refresh: checkVersion().pipe(Effect.flatMap(publish), Effect.orDie),
+        refresh: discoverySemaphore.withPermits(1)(checkAndPublishVersion).pipe(Effect.orDie),
         applyUsageLimits: () => Effect.void,
         get streamChanges() {
           return Stream.fromPubSub(changes);
         },
       } satisfies ProviderInstance["snapshot"];
 
-      const refreshModels = () =>
-        discoverySemaphore.withPermits(1)(
-          !effectiveConfig.enabled
-            ? Effect.fail(
-                discoveryError({
-                  instanceId,
-                  detail: "Cannot discover Pi models while the instance is disabled.",
-                }),
-              )
-            : Effect.scoped(
-                Effect.gen(function* () {
-                  const rpc = yield* makePiRpc({
-                    binaryPath: effectiveConfig.binaryPath,
-                    cwd: process.cwd(),
-                    args: PI_RPC_ARGS,
-                    environment: processEnv,
-                  });
-                  const modelsResponse = yield* rpc.request({ type: "get_available_models" });
-                  const { data: modelsData } = yield* decodeModelsResponse(modelsResponse);
-                  const discoveredModels = modelsData.models.map(toServerProviderModel);
-                  const models = providerModelsFromSettings(
-                    discoveredModels,
-                    effectiveConfig.customModels,
-                    {},
-                  );
-                  const current = yield* Ref.get(snapshotRef);
-                  yield* publish({ ...current, models });
-                }),
-              ).pipe(
-                Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
-                Effect.provideService(HostProcessPlatform, hostPlatform),
-                Effect.mapError((cause) =>
-                  discoveryError({
-                    instanceId,
-                    detail: "Pi model discovery failed.",
-                    cause,
-                  }),
-                ),
-              ),
-        );
+      const refreshModels = () => discoverySemaphore.withPermits(1)(discoverAndPublishModels);
+
+      // Startup holds the discovery semaphore once for the whole version
+      // check plus model discovery so a concurrent refresh cannot publish a
+      // stale model list in between. Inner effects are used directly to
+      // avoid re-acquiring the semaphore (which would deadlock).
+      const startupDiscovery = discoverySemaphore
+        .withPermits(1)(
+          Effect.gen(function* () {
+            const next = yield* checkAndPublishVersion;
+            if (next.status !== "ready") return;
+            const discoveryExit = yield* Effect.exit(discoverAndPublishModels);
+            if (Exit.isFailure(discoveryExit)) {
+              const current = yield* Ref.get(snapshotRef);
+              const warning = yield* makeSnapshot({
+                installed: current.installed,
+                version: current.version,
+                status: "warning",
+                message: "Pi model discovery failed.",
+                models: current.models,
+              });
+              yield* publish(warning);
+            }
+          }),
+        )
+        .pipe(Effect.ignoreCause());
+      if (effectiveConfig.enabled) {
+        yield* Effect.forkScoped(startupDiscovery);
+      }
 
       const snapshotForCwd = (cwd: string) =>
         !effectiveConfig.enabled
