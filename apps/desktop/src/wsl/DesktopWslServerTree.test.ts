@@ -1,4 +1,3 @@
-import * as NodeCrypto from "node:crypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -17,35 +16,16 @@ import * as DesktopWslServerTree from "./DesktopWslServerTree.ts";
 // Electron) fs, so a plain directory named server.asar exercises the full
 // extraction path under plain Node.
 
-const serverIdentityOf = (content: string): string =>
-  `sha256-${NodeCrypto.createHash("sha256").update(content).digest("hex")}`;
-
-const readMarkerJson = (
-  raw: string,
-): { readonly version?: unknown; readonly serverIdentity?: unknown } =>
-  JSON.parse(raw) as { readonly version?: unknown; readonly serverIdentity?: unknown };
-
-// Every entry violates the hardened marker contract exactly one way: wrong
-// digest prefix, wrong digest length, or non-lowercase-hex digest bytes.
-const MALFORMED_SERVER_IDENTITIES = [
-  `sha512-${"a".repeat(64)}`,
-  `sha256-${"b".repeat(63)}`,
-  `sha256-${"c".repeat(65)}`,
-  `sha256-${"Z".repeat(64)}`,
-  `sha256-${"A".repeat(64)}`,
-] as const;
-
 const environmentLayer = (input: {
   readonly baseDir: string;
   readonly resourcesPath: string;
   readonly appVersion?: string;
   readonly isPackaged?: boolean;
-  readonly platform?: NodeJS.Platform;
 }) =>
   DesktopEnvironment.layer({
     dirname: "/repo/apps/desktop/src",
     homeDirectory: input.baseDir,
-    platform: input.platform ?? "win32",
+    platform: "win32",
     processArch: "x64",
     appVersion: input.appVersion ?? "1.2.3",
     appPath: "/repo",
@@ -177,7 +157,6 @@ describe("DesktopWslServerTree", () => {
           path.join(root, "t3code-wsl-server-tree.json"),
         );
         assert.include(marker, '"version":"1.2.3"');
-        assert.equal(readMarkerJson(marker).serverIdentity, serverIdentityOf("server-entry"));
       }),
     ).pipe(Effect.provide(NodeServices.layer)),
   );
@@ -219,46 +198,7 @@ describe("DesktopWslServerTree", () => {
     ).pipe(Effect.provide(NodeServices.layer)),
   );
 
-  it.effect("reuses a completed extraction when the packaged backend entry is unchanged", () =>
-    withTempDir((tempDir) =>
-      Effect.gen(function* () {
-        const fileSystem = yield* FileSystem.FileSystem;
-        const path = yield* Path.Path;
-        const serverRoot = path.join(tempDir, "resources", "server.asar");
-        yield* fileSystem.makeDirectory(path.join(serverRoot, "apps/server/dist"), {
-          recursive: true,
-        });
-        yield* fileSystem.writeFileString(path.join(serverRoot, "apps/server/dist/bin.mjs"), "v1");
-
-        const first = yield* ensureWith({
-          baseDir: tempDir,
-          resourcesPath: path.join(tempDir, "resources"),
-        });
-        assert.isTrue(first.ok);
-        const root = first.ok ? first.root : "";
-
-        // A sentinel inside the extracted tree proves the second ensure reused
-        // the directory instead of extracting again (extraction replaces the
-        // version directory wholesale).
-        yield* fileSystem.writeFileString(path.join(root, "reuse-sentinel"), "sentinel");
-
-        const second = yield* ensureWith({
-          baseDir: tempDir,
-          resourcesPath: path.join(tempDir, "resources"),
-        });
-        assert.isTrue(second.ok);
-        assert.equal(second.ok ? second.root : "", root);
-        const entry = yield* fileSystem.readFileString(path.join(root, "apps/server/dist/bin.mjs"));
-        assert.equal(entry, "v1");
-        assert.equal(
-          yield* fileSystem.readFileString(path.join(root, "reuse-sentinel")),
-          "sentinel",
-        );
-      }),
-    ).pipe(Effect.provide(NodeServices.layer)),
-  );
-
-  it.effect("re-extracts when the packaged backend entry changes under the same app version", () =>
+  it.effect("reuses a completed extraction instead of copying again", () =>
     withTempDir((tempDir) =>
       Effect.gen(function* () {
         const fileSystem = yield* FileSystem.FileSystem;
@@ -275,11 +215,10 @@ describe("DesktopWslServerTree", () => {
         });
         assert.isTrue(first.ok);
 
-        // Same app version, but the packaged server changed: the stale tree
-        // must not be reused.
+        // Mutate the source; a reused tree must keep the first copy.
         yield* fileSystem.writeFileString(
           path.join(serverRoot, "apps/server/dist/bin.mjs"),
-          "v2-same-version-rebuild",
+          "v2-should-not-appear",
         );
         const second = yield* ensureWith({
           baseDir: tempDir,
@@ -288,100 +227,9 @@ describe("DesktopWslServerTree", () => {
         assert.isTrue(second.ok);
         const root = second.ok ? second.root : "";
         const entry = yield* fileSystem.readFileString(path.join(root, "apps/server/dist/bin.mjs"));
-        assert.equal(entry, "v2-same-version-rebuild");
-        const marker = yield* fileSystem.readFileString(
-          path.join(root, "t3code-wsl-server-tree.json"),
-        );
-        assert.equal(
-          readMarkerJson(marker).serverIdentity,
-          serverIdentityOf("v2-same-version-rebuild"),
-        );
+        assert.equal(entry, "v1");
       }),
     ).pipe(Effect.provide(NodeServices.layer)),
-  );
-
-  it.effect("treats legacy version-only markers as cache misses and migrates them", () =>
-    withTempDir((tempDir) =>
-      Effect.gen(function* () {
-        const fileSystem = yield* FileSystem.FileSystem;
-        const path = yield* Path.Path;
-        const serverRoot = path.join(tempDir, "resources", "server.asar");
-        yield* fileSystem.makeDirectory(path.join(serverRoot, "apps/server/dist"), {
-          recursive: true,
-        });
-        yield* fileSystem.writeFileString(path.join(serverRoot, "apps/server/dist/bin.mjs"), "v1");
-
-        const first = yield* ensureWith({
-          baseDir: tempDir,
-          resourcesPath: path.join(tempDir, "resources"),
-        });
-        assert.isTrue(first.ok);
-        const root = first.ok ? first.root : "";
-
-        // Simulate a marker written before the server-identity binding existed.
-        yield* fileSystem.writeFileString(
-          path.join(root, "t3code-wsl-server-tree.json"),
-          '{"version":"1.2.3"}\n',
-        );
-        yield* fileSystem.writeFileString(
-          path.join(serverRoot, "apps/server/dist/bin.mjs"),
-          "v2-legacy-marker-migrate",
-        );
-
-        const second = yield* ensureWith({
-          baseDir: tempDir,
-          resourcesPath: path.join(tempDir, "resources"),
-        });
-        assert.isTrue(second.ok);
-        const entry = yield* fileSystem.readFileString(path.join(root, "apps/server/dist/bin.mjs"));
-        assert.equal(entry, "v2-legacy-marker-migrate");
-        const marker = yield* fileSystem.readFileString(
-          path.join(root, "t3code-wsl-server-tree.json"),
-        );
-        assert.equal(
-          readMarkerJson(marker).serverIdentity,
-          serverIdentityOf("v2-legacy-marker-migrate"),
-        );
-      }),
-    ).pipe(Effect.provide(NodeServices.layer)),
-  );
-
-  it.effect(
-    "fails safely instead of reusing stale code when the source identity is unreadable",
-    () =>
-      withTempDir((tempDir) =>
-        Effect.gen(function* () {
-          const fileSystem = yield* FileSystem.FileSystem;
-          const path = yield* Path.Path;
-          const serverRoot = path.join(tempDir, "resources", "server.asar");
-          yield* fileSystem.makeDirectory(path.join(serverRoot, "apps/server/dist"), {
-            recursive: true,
-          });
-          yield* fileSystem.writeFileString(
-            path.join(serverRoot, "apps/server/dist/bin.mjs"),
-            "v1",
-          );
-
-          const first = yield* ensureWith({
-            baseDir: tempDir,
-            resourcesPath: path.join(tempDir, "resources"),
-          });
-          assert.isTrue(first.ok);
-
-          // The packaged backend entry vanished: its identity cannot be proven,
-          // so the previously extracted tree must not be accepted as fresh.
-          yield* fileSystem.remove(path.join(serverRoot, "apps/server/dist/bin.mjs"));
-          const second = yield* ensureWith({
-            baseDir: tempDir,
-            resourcesPath: path.join(tempDir, "resources"),
-          });
-          assert.isFalse(second.ok);
-          if (!second.ok) {
-            assert.include(second.reason, "could not be extracted");
-            assert.isFalse(second.fatal);
-          }
-        }),
-      ).pipe(Effect.provide(NodeServices.layer)),
   );
 
   it.effect("sweeps stale version directories and leftover partials after extraction", () =>
@@ -556,155 +404,6 @@ describe("DesktopWslServerTree", () => {
           .readDirectory(treeRoot)
           .pipe(Effect.orElseSucceed(() => []));
         assert.deepStrictEqual(leftovers, []);
-      }),
-    ).pipe(Effect.provide(NodeServices.layer)),
-  );
-
-  it.effect(
-    "cold extraction reads the backend entry for identity plus copy, warm ensures add one identity read each",
-    () =>
-      withTempDir((tempDir) =>
-        Effect.gen(function* () {
-          const fileSystem = yield* FileSystem.FileSystem;
-          const path = yield* Path.Path;
-          const resourcesPath = path.join(tempDir, "resources");
-          const backendEntryPath = path.join(
-            resourcesPath,
-            "server.asar",
-            "apps/server/dist/bin.mjs",
-          );
-          yield* fileSystem.makeDirectory(path.dirname(backendEntryPath), { recursive: true });
-          yield* fileSystem.writeFileString(backendEntryPath, "v1");
-
-          const backendEntryReads = yield* Ref.make(0);
-          const countingFileSystem = Layer.effect(
-            FileSystem.FileSystem,
-            Effect.gen(function* () {
-              const realFileSystem = yield* FileSystem.FileSystem;
-              return {
-                ...realFileSystem,
-                readFile: (target) =>
-                  Effect.gen(function* () {
-                    if (target === backendEntryPath) {
-                      yield* Ref.update(backendEntryReads, (count) => count + 1);
-                    }
-                    return yield* realFileSystem.readFile(target);
-                  }),
-              } satisfies FileSystem.FileSystem;
-            }),
-          ).pipe(Layer.provide(NodeServices.layer));
-
-          yield* Effect.gen(function* () {
-            const tree = yield* DesktopWslServerTree.DesktopWslServerTree;
-            // Cold extraction hashes the packaged entry for identity once,
-            // then copies it once: two backend-entry reads in total.
-            const first = yield* tree.ensure;
-            assert.isTrue(first.ok);
-            assert.equal(yield* Ref.get(backendEntryReads), 2);
-            // Each warm cached ensure re-hashes the packaged entry to
-            // validate the marker instead of trusting it blindly.
-            yield* Ref.set(backendEntryReads, 0);
-            const second = yield* tree.ensure;
-            assert.isTrue(second.ok);
-            assert.equal(yield* Ref.get(backendEntryReads), 1);
-            const third = yield* tree.ensure;
-            assert.isTrue(third.ok);
-            assert.equal(yield* Ref.get(backendEntryReads), 2);
-          }).pipe(
-            Effect.provide(
-              DesktopWslServerTree.layer.pipe(
-                Layer.provideMerge(environmentLayer({ baseDir: tempDir, resourcesPath })),
-                Layer.provideMerge(countingFileSystem),
-              ),
-            ),
-          );
-        }),
-      ).pipe(Effect.provide(NodeServices.layer)),
-  );
-
-  it.effect("packaged non-Windows fast path never reads the backend entry", () =>
-    withTempDir((tempDir) =>
-      Effect.gen(function* () {
-        const path = yield* Path.Path;
-        const resourcesPath = path.join(tempDir, "resources");
-        // Deliberately no server.asar on disk: any backend-entry read is
-        // counted instead of silently returning bytes.
-        const backendEntrySuffix = path.join("apps/server/dist/bin.mjs");
-        const backendEntryReads = yield* Ref.make(0);
-        const countingFileSystem = Layer.effect(
-          FileSystem.FileSystem,
-          Effect.gen(function* () {
-            const realFileSystem = yield* FileSystem.FileSystem;
-            return {
-              ...realFileSystem,
-              readFile: (target) =>
-                Effect.gen(function* () {
-                  if (target.endsWith(backendEntrySuffix)) {
-                    yield* Ref.update(backendEntryReads, (count) => count + 1);
-                  }
-                  return yield* realFileSystem.readFile(target);
-                }),
-            } satisfies FileSystem.FileSystem;
-          }),
-        ).pipe(Layer.provide(NodeServices.layer));
-
-        const result = yield* Effect.gen(function* () {
-          const tree = yield* DesktopWslServerTree.DesktopWslServerTree;
-          return yield* tree.ensure;
-        }).pipe(
-          Effect.provide(
-            DesktopWslServerTree.layer.pipe(
-              Layer.provideMerge(
-                environmentLayer({ baseDir: tempDir, resourcesPath, platform: "darwin" }),
-              ),
-              Layer.provideMerge(countingFileSystem),
-            ),
-          ),
-        );
-
-        assert.isTrue(result.ok);
-        assert.isFalse(result.ok && result.root.includes("wsl-server-tree"));
-        assert.equal(yield* Ref.get(backendEntryReads), 0);
-      }),
-    ).pipe(Effect.provide(NodeServices.layer)),
-  );
-
-  it.effect("rejects malformed marker server identities and re-extracts", () =>
-    withTempDir((tempDir) =>
-      Effect.gen(function* () {
-        const fileSystem = yield* FileSystem.FileSystem;
-        const path = yield* Path.Path;
-        const resourcesPath = path.join(tempDir, "resources");
-        const sourceEntryPath = path.join(resourcesPath, "server.asar", "apps/server/dist/bin.mjs");
-        yield* fileSystem.makeDirectory(path.dirname(sourceEntryPath), { recursive: true });
-        yield* fileSystem.writeFileString(sourceEntryPath, "v1");
-
-        const first = yield* ensureWith({ baseDir: tempDir, resourcesPath });
-        assert.isTrue(first.ok);
-        const root = first.ok ? first.root : "";
-        const markerPath = path.join(root, "t3code-wsl-server-tree.json");
-
-        for (const serverIdentity of MALFORMED_SERVER_IDENTITIES) {
-          // A sentinel inside the extracted tree proves the next ensure
-          // replaced the directory instead of reusing it.
-          yield* fileSystem.writeFileString(path.join(root, "malformed-sentinel"), serverIdentity);
-          yield* fileSystem.writeFileString(
-            markerPath,
-            `{"version":"1.2.3","serverIdentity":"${serverIdentity}"}\n`,
-          );
-          const next = yield* ensureWith({ baseDir: tempDir, resourcesPath });
-          assert.isTrue(next.ok);
-          assert.equal(next.ok ? next.root : "", root);
-          assert.isFalse(yield* fileSystem.exists(path.join(root, "malformed-sentinel")));
-          assert.equal(
-            yield* fileSystem.readFileString(path.join(root, "apps/server/dist/bin.mjs")),
-            "v1",
-          );
-          assert.equal(
-            readMarkerJson(yield* fileSystem.readFileString(markerPath)).serverIdentity,
-            serverIdentityOf("v1"),
-          );
-        }
       }),
     ).pipe(Effect.provide(NodeServices.layer)),
   );

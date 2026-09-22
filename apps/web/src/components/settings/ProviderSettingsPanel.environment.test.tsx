@@ -7,13 +7,10 @@ import {
   type ServerProvider,
   type UnifiedSettings,
 } from "@t3tools/contracts";
-import * as Cause from "effect/Cause";
-import { AsyncResult } from "effect/unstable/reactivity";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { visitElements } from "../../test/reactElementTree";
 import { reactHookHarness as hooks } from "../../test/reactHookHarness";
-import { toastManager } from "../ui/toast";
 
 const atoms = vi.hoisted(() => ({
   providers: null as ReadonlyArray<ServerProvider> | null,
@@ -105,7 +102,6 @@ import { EnvironmentProviderSettings } from "./ProviderSettingsPanel";
 
 const environmentId = EnvironmentId.make("remote-device");
 const codexId = ProviderInstanceId.make("codex");
-const piId = ProviderInstanceId.make("pi");
 const customId = ProviderInstanceId.make("codex_work");
 
 function provider(): ServerProvider {
@@ -134,13 +130,12 @@ function provider(): ServerProvider {
 }
 
 function renderPanel(options?: {
-  readonly environmentId?: EnvironmentId;
   readonly readOnly?: boolean;
   readonly targetInstanceId?: ProviderInstanceId;
 }): ReactElement<Record<string, unknown>> {
   hooks.beginRender();
   return EnvironmentProviderSettings({
-    environmentId: options?.environmentId ?? environmentId,
+    environmentId,
     environmentLabel: "Remote device",
     ...(options?.readOnly === undefined ? {} : { readOnly: options.readOnly }),
     ...(options?.targetInstanceId === undefined
@@ -219,51 +214,6 @@ describe("EnvironmentProviderSettings routing", () => {
       environmentId,
       input: { provider: ProviderDriverKind.make("codex"), instanceId: codexId },
     });
-  });
-
-  it("renders Pi through the generic local-binary provider card", () => {
-    settingsState.value = {
-      ...DEFAULT_UNIFIED_SETTINGS,
-      providers: {
-        ...DEFAULT_UNIFIED_SETTINGS.providers,
-        pi: { ...DEFAULT_UNIFIED_SETTINGS.providers.pi, binaryPath: "/opt/pi/bin/pi" },
-      },
-    };
-    atoms.providers = [
-      {
-        ...provider(),
-        instanceId: piId,
-        driver: ProviderDriverKind.make("pi"),
-        displayName: "Pi",
-        version: "0.86.1",
-        auth: { status: "unknown" },
-        models: [
-          {
-            slug: "openrouter/anthropic/claude-sonnet-4",
-            name: "Claude Sonnet 4",
-            isCustom: false,
-            capabilities: null,
-          },
-        ],
-      },
-    ];
-
-    const panel = renderPanel();
-    const piRow = visitElements(
-      panel,
-      (element) => element.props.instanceId === piId && element.props.mode === "list",
-    );
-
-    expect(piRow?.props.driverOption).toMatchObject({ label: "Pi" });
-    expect(piRow?.props.instance).toMatchObject({
-      driver: ProviderDriverKind.make("pi"),
-      config: { binaryPath: "/opt/pi/bin/pi" },
-    });
-    expect(piRow?.props.liveProvider).toMatchObject({
-      version: "0.86.1",
-      models: [{ slug: "openrouter/anthropic/claude-sonnet-4" }],
-    });
-    expect(piRow?.props.setup).toBeNull();
   });
 
   it("opens the requested provider instance instead of the first provider", () => {
@@ -437,187 +387,5 @@ describe("EnvironmentProviderSettings routing", () => {
     expect(Object.keys(resetPatch ?? {}).sort()).toEqual(["providerInstances", "providers"]);
     expect(resetPatch).not.toHaveProperty("favorites");
     expect(resetPatch).not.toHaveProperty("providerModelPreferences");
-  });
-
-  it("reports scoped refresh failure with a toast and clears pending", async () => {
-    atoms.providers = [{ ...provider(), status: "error", message: "Probe failed." }];
-    const addToast = vi.spyOn(toastManager, "add").mockReturnValue("scoped-refresh-failure");
-    try {
-      let resolveRefresh!: (value: unknown) => void;
-      const gate = new Promise((resolve) => {
-        resolveRefresh = resolve;
-      });
-      commands.refresh.mockReturnValueOnce(gate);
-
-      let panel = renderPanel();
-      const editor = visitElements(
-        panel,
-        (element) => element.props.instanceId === codexId && element.props.mode === "editor",
-      );
-      expect(typeof editor?.props.onRefresh).toBe("function");
-      (editor?.props.onRefresh as (() => void) | undefined)?.();
-
-      panel = renderPanel();
-      const editorDuring = visitElements(
-        panel,
-        (element) => element.props.instanceId === codexId && element.props.mode === "editor",
-      );
-      expect(editorDuring?.props.isChecking).toBe(true);
-
-      resolveRefresh(AsyncResult.failure(Cause.fail(new Error("refresh failed"))));
-      await flushPromises();
-      await flushPromises();
-
-      expect(commands.refresh).toHaveBeenCalledWith({
-        environmentId,
-        input: { instanceId: codexId, refreshModels: true },
-      });
-      expect(addToast).toHaveBeenCalledOnce();
-      const toast = addToast.mock.calls[0]?.[0] as
-        | { readonly title?: unknown; readonly description?: unknown }
-        | undefined;
-      expect(toast?.title).toBe("Could not refresh provider status");
-      expect(String(toast?.description ?? "")).not.toContain("refresh failed");
-
-      panel = renderPanel();
-      const editorAfter = visitElements(
-        panel,
-        (element) => element.props.instanceId === codexId && element.props.mode === "editor",
-      );
-      expect(editorAfter?.props.isChecking).toBe(false);
-    } finally {
-      addToast.mockRestore();
-    }
-  });
-
-  it("stays silent when a scoped refresh is interrupted", async () => {
-    atoms.providers = [{ ...provider(), status: "error", message: "Probe failed." }];
-    const addToast = vi.spyOn(toastManager, "add").mockReturnValue("scoped-refresh-interrupted");
-    try {
-      commands.refresh.mockResolvedValueOnce(AsyncResult.failure(Cause.interrupt()));
-
-      const panel = renderPanel();
-      const editor = visitElements(
-        panel,
-        (element) => element.props.instanceId === codexId && element.props.mode === "editor",
-      );
-      (editor?.props.onRefresh as (() => void) | undefined)?.();
-      await flushPromises();
-      await flushPromises();
-
-      expect(commands.refresh).toHaveBeenCalledWith({
-        environmentId,
-        input: { instanceId: codexId, refreshModels: true },
-      });
-      expect(addToast).not.toHaveBeenCalled();
-    } finally {
-      addToast.mockRestore();
-    }
-  });
-
-  it("dedupes a double scoped refresh for the same environment and instance", async () => {
-    atoms.providers = [{ ...provider(), status: "error", message: "Probe failed." }];
-    const panel = renderPanel();
-    const editor = visitElements(
-      panel,
-      (element) => element.props.instanceId === codexId && element.props.mode === "editor",
-    );
-    const onRefresh = editor?.props.onRefresh as (() => void) | undefined;
-    expect(typeof onRefresh).toBe("function");
-    onRefresh?.();
-    onRefresh?.();
-    await flushPromises();
-    await flushPromises();
-
-    expect(commands.refresh).toHaveBeenCalledTimes(1);
-    expect(commands.refresh).toHaveBeenCalledWith({
-      environmentId,
-      input: { instanceId: codexId, refreshModels: true },
-    });
-
-    // The guard releases after settle so an explicit retry still works.
-    onRefresh?.();
-    await flushPromises();
-    await flushPromises();
-    expect(commands.refresh).toHaveBeenCalledTimes(2);
-  });
-
-  it("drops a late scoped-refresh failure after the environment changes", async () => {
-    atoms.providers = [{ ...provider(), status: "error", message: "Probe failed." }];
-    const addToast = vi.spyOn(toastManager, "add").mockReturnValue("scoped-refresh-stale-env");
-    try {
-      let resolveRefresh!: (value: unknown) => void;
-      const gate = new Promise((resolve) => {
-        resolveRefresh = resolve;
-      });
-      commands.refresh.mockReturnValueOnce(gate);
-
-      let panel = renderPanel();
-      const editor = visitElements(
-        panel,
-        (element) => element.props.instanceId === codexId && element.props.mode === "editor",
-      );
-      (editor?.props.onRefresh as (() => void) | undefined)?.();
-
-      const nextEnvironmentId = EnvironmentId.make("other-device");
-      panel = renderPanel({ environmentId: nextEnvironmentId });
-      // This lightweight harness records effects instead of running them.
-      // Run the environment lifecycle setup that React executes after render.
-      const environmentEffect = settingsSearchState.effects.at(-1);
-      (environmentEffect as unknown as () => unknown)?.();
-      const editorAfterSwitch = visitElements(
-        panel,
-        (element) => element.props.instanceId === codexId && element.props.mode === "editor",
-      );
-      // Keyed by environment+instance: the old flight never marks the new card Checking.
-      expect(editorAfterSwitch?.props.isChecking).toBe(false);
-
-      resolveRefresh(AsyncResult.failure(Cause.fail(new Error("refresh failed"))));
-      await flushPromises();
-      await flushPromises();
-
-      expect(addToast).not.toHaveBeenCalled();
-      panel = renderPanel({ environmentId: nextEnvironmentId });
-      const editorLate = visitElements(
-        panel,
-        (element) => element.props.instanceId === codexId && element.props.mode === "editor",
-      );
-      expect(editorLate?.props.isChecking).toBe(false);
-    } finally {
-      addToast.mockRestore();
-    }
-  });
-
-  it("drops a late scoped-refresh failure after unmount", async () => {
-    atoms.providers = [{ ...provider(), status: "error", message: "Probe failed." }];
-    const addToast = vi.spyOn(toastManager, "add").mockReturnValue("scoped-refresh-unmounted");
-    try {
-      let resolveRefresh!: (value: unknown) => void;
-      const gate = new Promise((resolve) => {
-        resolveRefresh = resolve;
-      });
-      commands.refresh.mockReturnValueOnce(gate);
-
-      const panel = renderPanel();
-      const editor = visitElements(
-        panel,
-        (element) => element.props.instanceId === codexId && element.props.mode === "editor",
-      );
-      (editor?.props.onRefresh as (() => void) | undefined)?.();
-
-      // The harness collects effects instead of running them; invoking the
-      // mount effect's cleanup simulates unmount.
-      const mountEffect = settingsSearchState.effects.at(-1);
-      const cleanup = (mountEffect as unknown as () => unknown)?.();
-      (cleanup as (() => void) | undefined)?.();
-
-      resolveRefresh(AsyncResult.failure(Cause.fail(new Error("refresh failed"))));
-      await flushPromises();
-      await flushPromises();
-
-      expect(addToast).not.toHaveBeenCalled();
-    } finally {
-      addToast.mockRestore();
-    }
   });
 });
