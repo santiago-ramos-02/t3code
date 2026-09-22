@@ -35,7 +35,7 @@ jobs:
           token: ${{ secrets.PERSONAL_RELEASE_TOKEN }}
 
       - id: sync
-        name: Prepare upstream-based candidate
+        name: Prepare merge-based candidate
         shell: bash
         run: |
           set -euo pipefail
@@ -43,32 +43,7 @@ jobs:
           git remote add upstream https://github.com/pingdotgg/t3code.git
           git fetch upstream main --no-tags
 
-          fork_sha="$(git rev-parse HEAD)"
-          upstream_sha="$(git rev-parse upstream/main)"
-          should_build=false
-          needs_push=false
-
-          if ! git merge-base --is-ancestor upstream/main HEAD; then
-            git switch --detach upstream/main
-            git restore --source="$fork_sha" --staged --worktree -- \
-              .github/workflows/personal-windows-release.yml \
-              .github/workflows/personal-stable-windows-release.yml
-            candidate_tree="$(git write-tree)"
-            git config user.name "personal-update-bot"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            candidate_commit="$(printf 'chore(fork): sync upstream code\n' | git commit-tree "$candidate_tree" -p "$fork_sha" -p "$upstream_sha")"
-            git switch --detach "$candidate_commit"
-            should_build=true
-            needs_push=true
-          elif [[ "${GITHUB_EVENT_NAME}" == "push" || "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
-            should_build=true
-          fi
-
-          echo "build_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-          echo "fork_sha=$fork_sha" >> "$GITHUB_OUTPUT"
-          echo "needs_push=$needs_push" >> "$GITHUB_OUTPUT"
-          echo "should_build=$should_build" >> "$GITHUB_OUTPUT"
-          echo "upstream_sha=$upstream_sha" >> "$GITHUB_OUTPUT"
+          .github/scripts/prepare-personal-fork-sync.sh upstream/main "$GITHUB_EVENT_NAME"
 
       - name: Setup Vite+
         if: steps.sync.outputs.needs_push == 'true'
@@ -78,7 +53,7 @@ jobs:
           cache: true
           run-install: true
 
-      - name: Validate upstream-based candidate
+      - name: Validate merge-based candidate
         if: steps.sync.outputs.needs_push == 'true'
         run: |
           vp test run \
