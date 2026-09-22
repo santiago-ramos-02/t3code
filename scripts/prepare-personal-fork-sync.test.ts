@@ -10,6 +10,10 @@ const scriptPath = NodePath.resolve(
   import.meta.dirname,
   "../.github/scripts/prepare-personal-fork-sync.sh",
 );
+const workflowPath = NodePath.resolve(
+  import.meta.dirname,
+  "../.github/workflows/personal-windows-release.yml",
+);
 
 function git(repo: string, args: ReadonlyArray<string>, env?: NodeJS.ProcessEnv): string {
   return NodeChildProcess.execFileSync("git", args, {
@@ -101,6 +105,14 @@ function runSync(
 }
 
 describe("prepare-personal-fork-sync", () => {
+  it("invokes the script through Bash so checkout file mode does not matter", async () => {
+    const workflow = await NodeFSP.readFile(workflowPath, "utf8");
+
+    expect(workflow).toContain(
+      'bash .github/scripts/prepare-personal-fork-sync.sh upstream/main "$GITHUB_EVENT_NAME"',
+    );
+  });
+
   it("keeps fork-only files when syncing upstream changes", async () => {
     const repo = await initRepo();
     try {

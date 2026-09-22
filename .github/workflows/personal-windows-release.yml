@@ -43,7 +43,7 @@ jobs:
           git remote add upstream https://github.com/pingdotgg/t3code.git
           git fetch upstream main --no-tags
 
-          .github/scripts/prepare-personal-fork-sync.sh upstream/main "$GITHUB_EVENT_NAME"
+          bash .github/scripts/prepare-personal-fork-sync.sh upstream/main "$GITHUB_EVENT_NAME"
 
       - name: Setup Vite+
         if: steps.sync.outputs.needs_push == 'true'
