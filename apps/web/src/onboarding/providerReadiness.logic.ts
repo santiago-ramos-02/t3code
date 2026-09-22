@@ -33,48 +33,13 @@ function quoteProviderBinary(
   return fallback;
 }
 
-export type OnboardingProviderState =
-  | "checking"
-  | "disabled"
-  | "install"
-  | "attention"
-  | "signIn"
-  | "ready";
-
-export type OnboardingProviderSetup = "terminal" | "settings";
-
-export type OnboardingProviderAction =
-  | { readonly kind: "terminal"; readonly label: "Install" | "Sign in" }
-  | { readonly kind: "settings"; readonly label: "Set up in Settings" }
-  | null;
-
-export function getOnboardingProviderState(
-  provider: ServerProvider | undefined,
-): OnboardingProviderState {
+export function getOnboardingProviderState(provider: ServerProvider | undefined) {
   if (provider === undefined) return "checking";
   if (!provider.enabled || provider.status === "disabled") return "disabled";
-  // Pi uses the installation and credentials already configured on the
-  // environment. T3 should report its probe result, never offer managed setup.
-  if (provider.driver === "pi") return provider.status === "ready" ? "ready" : "attention";
   if (!provider.installed) return "install";
   if (provider.auth.status === "unauthenticated") return "signIn";
   if (provider.status === "ready") return "ready";
   return "attention";
-}
-
-/** Keep managed terminal actions separate from providers configured on their host. */
-export function resolveOnboardingProviderAction(
-  setup: OnboardingProviderSetup,
-  state: OnboardingProviderState,
-): OnboardingProviderAction {
-  if (setup === "settings") {
-    return state === "ready" || state === "checking"
-      ? null
-      : { kind: "settings", label: "Set up in Settings" };
-  }
-  if (state === "install") return { kind: "terminal", label: "Install" };
-  if (state === "signIn") return { kind: "terminal", label: "Sign in" };
-  return null;
 }
 
 const PROVIDER_STATE_PRIORITY = {

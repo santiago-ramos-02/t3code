@@ -22,14 +22,11 @@ import type { UsageProviderKind } from "@t3tools/contracts";
 
 import {
   initialCodexScanState,
-  initialPiScanState,
   mightCarryUsage,
   parseClaudeLine,
   parseCodexLine,
   parseGrokLine,
-  parsePiLine,
   type CodexScanState,
-  type PiScanState,
   type UsageRecord,
 } from "./usageTranscripts.ts";
 
@@ -57,10 +54,8 @@ export interface TranscriptParsePosition {
   readonly guardLength: number;
   /** FNV-1a hash of that window. */
   readonly guardHash: number;
-  /** Codex reducer state as of `resumeOffset`; `null` for other providers. */
+  /** Codex reducer state as of `resumeOffset`; `null` for stateless providers. */
   readonly codexState: CodexScanState | null;
-  /** Pi reducer state as of `resumeOffset`; `null` for other providers. */
-  readonly piState: PiScanState | null;
 }
 
 export interface TranscriptParseResult {
@@ -209,28 +204,20 @@ export async function readTranscriptRecords(
 
   try {
     let codexState = initialCodexScanState();
-    let piState = initialPiScanState();
     let resumed = false;
     let start = 0;
     if (
       resumeFrom !== undefined &&
       resumeFrom.resumeOffset > 0 &&
       (provider !== "codex" || resumeFrom.codexState !== null) &&
-      (provider !== "pi" || resumeFrom.piState !== null) &&
       (await guardMatches(handle, resumeFrom))
     ) {
       if (resumeFrom.codexState !== null) codexState = { ...resumeFrom.codexState };
-      if (resumeFrom.piState !== null) piState = { ...resumeFrom.piState };
       start = resumeFrom.resumeOffset;
       resumed = true;
     }
 
-    const parseLine = (
-      line: string,
-      codex: CodexScanState,
-      pi: PiScanState,
-      out: UsageRecord[],
-    ): void => {
+    const parseLine = (line: string, state: CodexScanState, out: UsageRecord[]): void => {
       if (provider === "codex") {
         if (
           !mightCarryUsage(line, provider) &&
@@ -239,16 +226,11 @@ export async function readTranscriptRecords(
         ) {
           return;
         }
-        const record = parseCodexLine(line, codex);
+        const record = parseCodexLine(line, state);
         if (record !== null) out.push(record);
         return;
       }
       if (!mightCarryUsage(line, provider)) return;
-      if (provider === "pi") {
-        const record = parsePiLine(line, pi);
-        if (record !== null) out.push(record);
-        return;
-      }
       if (provider === "grok") {
         for (const grokRecord of parseGrokLine(line)) out.push(grokRecord);
         return;
@@ -288,12 +270,7 @@ export async function readTranscriptRecords(
       for (;;) {
         const newlineIndex = buffer.indexOf(NEWLINE, lineStart);
         if (newlineIndex === -1) break;
-        parseLine(
-          toLineString(buffer.subarray(lineStart, newlineIndex)),
-          codexState,
-          piState,
-          records,
-        );
+        parseLine(toLineString(buffer.subarray(lineStart, newlineIndex)), codexState, records);
         lineStart = newlineIndex + 1;
       }
       resumeOffset += lineStart;
@@ -306,9 +283,7 @@ export async function readTranscriptRecords(
     const tailRecords: UsageRecord[] = [];
     if (pendingChunks.length > 0) {
       const pending = pendingChunks.length === 1 ? pendingChunks[0]! : Buffer.concat(pendingChunks);
-      if (pending.length > 0) {
-        parseLine(toLineString(pending), { ...codexState }, { ...piState }, tailRecords);
-      }
+      if (pending.length > 0) parseLine(toLineString(pending), { ...codexState }, tailRecords);
     }
 
     const guardLength = Math.min(GUARD_LENGTH, resumeOffset);
@@ -327,7 +302,6 @@ export async function readTranscriptRecords(
         guardLength,
         guardHash,
         codexState: provider === "codex" ? codexState : null,
-        piState: provider === "pi" ? piState : null,
       },
       resumed,
     };

@@ -102,7 +102,6 @@ import { EnvironmentProviderSettings } from "./ProviderSettingsPanel";
 
 const environmentId = EnvironmentId.make("remote-device");
 const codexId = ProviderInstanceId.make("codex");
-const piId = ProviderInstanceId.make("pi");
 const customId = ProviderInstanceId.make("codex_work");
 
 function provider(): ServerProvider {
@@ -215,51 +214,6 @@ describe("EnvironmentProviderSettings routing", () => {
       environmentId,
       input: { provider: ProviderDriverKind.make("codex"), instanceId: codexId },
     });
-  });
-
-  it("renders Pi through the generic local-binary provider card", () => {
-    settingsState.value = {
-      ...DEFAULT_UNIFIED_SETTINGS,
-      providers: {
-        ...DEFAULT_UNIFIED_SETTINGS.providers,
-        pi: { ...DEFAULT_UNIFIED_SETTINGS.providers.pi, binaryPath: "/opt/pi/bin/pi" },
-      },
-    };
-    atoms.providers = [
-      {
-        ...provider(),
-        instanceId: piId,
-        driver: ProviderDriverKind.make("pi"),
-        displayName: "Pi",
-        version: "0.86.1",
-        auth: { status: "unknown" },
-        models: [
-          {
-            slug: "openrouter/anthropic/claude-sonnet-4",
-            name: "Claude Sonnet 4",
-            isCustom: false,
-            capabilities: null,
-          },
-        ],
-      },
-    ];
-
-    const panel = renderPanel();
-    const piRow = visitElements(
-      panel,
-      (element) => element.props.instanceId === piId && element.props.mode === "list",
-    );
-
-    expect(piRow?.props.driverOption).toMatchObject({ label: "Pi" });
-    expect(piRow?.props.instance).toMatchObject({
-      driver: ProviderDriverKind.make("pi"),
-      config: { binaryPath: "/opt/pi/bin/pi" },
-    });
-    expect(piRow?.props.liveProvider).toMatchObject({
-      version: "0.86.1",
-      models: [{ slug: "openrouter/anthropic/claude-sonnet-4" }],
-    });
-    expect(piRow?.props.setup).toBeNull();
   });
 
   it("opens the requested provider instance instead of the first provider", () => {

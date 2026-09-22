@@ -87,21 +87,6 @@ describe("UsageAggregator", () => {
     expect(result.buckets[0]?.totals.outputTokens).toBe(50);
   });
 
-  it("globally drops Pi entries copied into a forked session", () => {
-    const copied = record({
-      provider: "pi",
-      model: "openrouter/meta/llama-4",
-      sessionId: "pi-parent",
-      dedupeKey: "pi:stable-entry-and-call",
-    });
-    const result = aggregate([copied, { ...copied, sessionId: "pi-fork" }]);
-
-    expect(result.duplicatesDropped).toBe(1);
-    expect(result.buckets).toMatchObject([
-      { provider: "pi", model: "openrouter/meta/llama-4", records: 1, sessions: 1 },
-    ]);
-  });
-
   it("still sums records that carry no dedupe key", () => {
     const result = aggregate([record(), record()]);
 
@@ -211,10 +196,9 @@ describe("UsageAggregator", () => {
     const result = aggregate([
       record(),
       record({ provider: "codex", model: "gpt-5.6-sol" }),
-      record({ provider: "pi", model: "openrouter/meta/llama-4" }),
       record({ model: "claude-opus-5" }),
     ]);
 
-    expect(result.buckets).toHaveLength(4);
+    expect(result.buckets).toHaveLength(3);
   });
 });
