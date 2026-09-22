@@ -4828,6 +4828,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         ) : null}
       </div>
     ) : null;
+  const { active: panelAnimationsActive, durationMs: panelAnimationDurationMs } =
+    usePanelAnimationSettings();
   const composerMainSurfaceRef = useComposerRestingTransition(
     composerControlsInStrip,
     isComposerResting,
