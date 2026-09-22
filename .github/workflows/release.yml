@@ -455,6 +455,9 @@ jobs:
       - name: Build JS bundle
         run: vp run build:desktop
 
+      - name: Smoke test server bundle
+        run: node scripts/smoke-server-bundle.ts --bundle apps/server/dist/bin.mjs
+
       # Two paths under apps/ so the artifact root is apps/; consumers download
       # into `apps` to restore both at their original locations.
       - name: Upload JS bundle
