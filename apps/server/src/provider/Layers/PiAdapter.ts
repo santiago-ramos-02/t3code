@@ -2115,7 +2115,6 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
           if (
             context.initializing ||
             context.turnStarting ||
-            context.activeTurn !== undefined ||
             context.compacting ||
             context.rollbacking
           ) {
@@ -2138,11 +2137,44 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
               issue: "Turn requires non-empty text or image attachments.",
             });
           }
+          const activeTurn = context.activeTurn;
+          if (activeTurn !== undefined) {
+            if (
+              activeTurn.promptPending ||
+              activeTurn.abortRequestPending ||
+              activeTurn.abortRequested ||
+              context.pendingApprovals.size > 0 ||
+              context.pendingUserInputs.size > 0
+            ) {
+              return yield* new ProviderAdapterValidationError({
+                provider: PROVIDER,
+                operation: "sendTurn",
+                issue: "Pi already has an active turn for this thread.",
+              });
+            }
+            return { type: "steer" as const, context, turn: activeTurn };
+          }
           const selection = yield* prepareModelSelection(context, input.modelSelection);
           context.turnStarting = true;
-          return { context, selection };
+          return { type: "start" as const, context, selection };
         }),
       );
+
+      if (admission.type === "steer") {
+        yield* admission.context.rpc
+          .request({
+            type: "prompt",
+            message: input.input ?? "",
+            streamingBehavior: "steer",
+            ...(images.length === 0 ? {} : { images }),
+          })
+          .pipe(Effect.mapError((cause) => mapRequestError("prompt", cause)));
+        return {
+          threadId: input.threadId,
+          turnId: admission.turn.turnId,
+          resumeCursor: admission.context.session.resumeCursor,
+        };
+      }
 
       const { context, turn } = yield* Effect.gen(function* () {
         const configuration = yield* runModelSelection(admission.context, admission.selection).pipe(

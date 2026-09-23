@@ -1039,6 +1039,46 @@ describe("PiAdapter session runtime", () => {
     ),
   );
 
+  it.effect("steers a running Pi turn without starting a second T3 turn", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = makeRpcHarness();
+        const adapter = yield* makeAdapter(harness);
+        yield* startSession(adapter);
+        yield* takeEvents(adapter, SESSION_EVENTS);
+
+        const first = yield* adapter.sendTurn({ threadId: THREAD_ID, input: "First message" });
+        yield* takeEvents(adapter, 1);
+        const transport = harness.transports[0]!;
+        yield* offerNative(transport, { type: "agent_start" });
+        yield* offerNative(transport, {
+          type: "tool_execution_start",
+          toolCallId: "running-tool",
+          toolName: "bash",
+          args: { command: "true" },
+        });
+        yield* takeEvents(adapter, 1);
+
+        const followUp = yield* adapter.sendTurn({
+          threadId: THREAD_ID,
+          input: "Change direction",
+        });
+        expect(followUp.turnId).toBe(first.turnId);
+        expect(
+          transport.requests.filter((request) => recordString(request, "type") === "prompt"),
+        ).toMatchObject([
+          { message: "First message" },
+          { message: "Change direction", streamingBehavior: "steer" },
+        ]);
+
+        yield* offerNative(transport, { type: "agent_settled" });
+        expect(yield* takeEvents(adapter, 1)).toMatchObject([
+          { type: "turn.completed", turnId: first.turnId, payload: { state: "completed" } },
+        ]);
+      }),
+    ),
+  );
+
   it.effect("fails and closes extension-only turns when state reconciliation fails", () =>
     Effect.forEach(
       ["request-failure", "malformed-state"] as const,
