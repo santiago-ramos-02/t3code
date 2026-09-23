@@ -134,6 +134,7 @@ const serviceLayers = (input: {
     Layer.provideMerge(
       Layer.succeed(HostProcessEnvironment, {
         GROK_HOME: NodePath.join(input.home, "grok"),
+        PI_CODING_AGENT_DIR: NodePath.join(input.home, "pi-agent"),
         PI_CODING_AGENT_SESSION_DIR: NodePath.join(input.home, "pi-sessions"),
         ...input.environment,
       }),
@@ -251,7 +252,7 @@ describe("UsageService", () => {
         pathOps,
       ),
       {
-        directory: "/absolute/global-sessions",
+        directory: NodePath.resolve("/absolute/global-sessions"),
         ignoredRelativePaths: ["PI_CODING_AGENT_SESSION_DIR"],
       },
     );
@@ -266,7 +267,7 @@ describe("UsageService", () => {
         pathOps,
       ),
       {
-        directory: "/absolute/agent/sessions",
+        directory: NodePath.resolve("/absolute/agent/sessions"),
         ignoredRelativePaths: ["PI_CODING_AGENT_SESSION_DIR"],
       },
     );
@@ -277,7 +278,7 @@ describe("UsageService", () => {
       pathOps,
     );
     assert.deepStrictEqual(relativeAgent, {
-      directory: "/home/test/.pi/agent/sessions",
+      directory: NodePath.resolve("/home/test/.pi/agent/sessions"),
       ignoredRelativePaths: ["PI_CODING_AGENT_DIR"],
     });
     const diagnostic = UsageService.piSourceDiagnostic(false, relativeAgent.ignoredRelativePaths);
@@ -568,6 +569,58 @@ describe("UsageService", () => {
           .filter((bucket) => bucket.provider === "pi")
           .reduce((sum, bucket) => sum + bucket.totals.outputTokens, 0),
         23,
+      );
+    }).pipe(Effect.scoped),
+  );
+
+  it.live("includes Gentle child Pi sessions alongside ordinary Pi history", () =>
+    Effect.gen(function* () {
+      const { settings, home } = yield* setup;
+      const agentDir = NodePath.join(home, "pi-agent");
+      const sessionsDir = NodePath.join(agentDir, "sessions");
+      const gentleSessionsDir = NodePath.join(agentDir, "gentle-agents", "sessions");
+      yield* Effect.promise(async () => {
+        await NodeFSP.mkdir(sessionsDir, { recursive: true });
+        await NodeFSP.mkdir(gentleSessionsDir, { recursive: true });
+        await NodeFSP.writeFile(
+          NodePath.join(sessionsDir, "parent.jsonl"),
+          piTranscript("parent", 11),
+        );
+        await NodeFSP.writeFile(
+          NodePath.join(gentleSessionsDir, "child.jsonl"),
+          piTranscript("gentle-child", 17),
+        );
+      });
+
+      const service = yield* UsageService.make.pipe(
+        Effect.provide(
+          serviceLayers({
+            prefix: "usage-service-gentle-sessions-test",
+            home,
+            environment: {
+              PI_CODING_AGENT_DIR: agentDir,
+              PI_CODING_AGENT_SESSION_DIR: "",
+            },
+            settings,
+          }),
+        ),
+      );
+      const summary = yield* service.readSummary(WINDOW);
+      const piSources = summary.sources.filter((source) => source.fingerprint.provider === "pi");
+
+      assert.deepStrictEqual(
+        piSources.map((source) => source.fingerprint.resolvedHomePath).toSorted(),
+        [sessionsDir, gentleSessionsDir].toSorted(),
+      );
+      assert.strictEqual(
+        summary.buckets
+          .filter((bucket) => bucket.provider === "pi")
+          .reduce((sum, bucket) => sum + bucket.totals.outputTokens, 0),
+        28,
+      );
+      assert.strictEqual(
+        piSources.reduce((sum, source) => sum + source.distinctSessions, 0),
+        2,
       );
     }).pipe(Effect.scoped),
   );

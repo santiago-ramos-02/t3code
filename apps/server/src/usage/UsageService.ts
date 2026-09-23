@@ -392,6 +392,7 @@ export const make = Effect.gen(function* () {
         const environment = mergeProviderInstanceEnvironment(instance.environment, hostEnvironment);
         const provider = driver === "claudeAgent" ? "claude" : driver;
         let directory: string;
+        let gentleSessionsDirectory: string | undefined;
         let piPathLimitations: PiRelativePathLimitation[] = [];
         if (driver === "codex") {
           const decoded = decodeCodexSettings(instance.config ?? {});
@@ -433,55 +434,73 @@ export const make = Effect.gen(function* () {
           const resolved = resolvePiSessionsRoot(environment, globalSessionDir, homeDir, path);
           directory = resolved.directory;
           piPathLimitations = [...resolved.ignoredRelativePaths];
+          // Gentle runs child Pi sessions outside Pi's normal sessions root.
+          gentleSessionsDirectory = path.resolve(agentDir.directory, "gentle-agents", "sessions");
         }
-        const sourceKey = provider + "\0" + directory;
-        const previous = sourceCache.get(sourceKey);
-        // Keep canonical paths and source fingerprints stable after root cleanup,
-        // including aliases and clients merging pre-cleanup environment summaries.
-        const dir = yield* fileSystem
-          .realPath(directory)
-          .pipe(Effect.orElseSucceed(() => previous?.dir ?? directory));
-        const currentVolumeId = yield* Effect.promise(() => readDirectoryVolumeId(dir));
-        const hasRetainedHistory = fileCache
-          .entries()
-          .some(
-            ([filePath, entry]) =>
-              entry.provider === provider &&
-              entry.mtimeMs >= retentionCutoffMs &&
-              entry.records.length + entry.tailRecords.length > 0 &&
-              isWithinDirectory(filePath, dir),
-          );
-        // A recreated directory still reports the retained history under its old identity.
-        const volumeId =
-          previous?.dir === dir && (hasRetainedHistory || !currentVolumeId)
-            ? previous.volumeId || currentVolumeId
-            : currentVolumeId;
-        if (previous?.dir !== dir || previous.volumeId !== volumeId) {
-          sourceCache.set(sourceKey, { dir, volumeId });
-          cacheDirty = true;
+        const transcriptDirectories = [directory];
+        if (
+          gentleSessionsDirectory !== undefined &&
+          !isWithinDirectory(gentleSessionsDirectory, directory)
+        ) {
+          const gentleExists = yield* fileSystem
+            .exists(gentleSessionsDirectory)
+            .pipe(Effect.orElseSucceed(() => false));
+          const cachedGentleHistory = fileCache
+            .keys()
+            .some((filePath) => isWithinDirectory(filePath, gentleSessionsDirectory));
+          if (gentleExists || cachedGentleHistory)
+            transcriptDirectories.push(gentleSessionsDirectory);
         }
-        const key = `${provider}\0${dir}`;
-        if (seen.has(key)) {
-          if (piPathLimitations.length > 0) {
-            const existing = dirs.find(
-              (candidate) => candidate.provider === provider && candidate.dir === dir,
+        for (const transcriptDirectory of transcriptDirectories) {
+          const sourceKey = provider + "\0" + transcriptDirectory;
+          const previous = sourceCache.get(sourceKey);
+          // Keep canonical paths and source fingerprints stable after root cleanup,
+          // including aliases and clients merging pre-cleanup environment summaries.
+          const dir = yield* fileSystem
+            .realPath(transcriptDirectory)
+            .pipe(Effect.orElseSucceed(() => previous?.dir ?? transcriptDirectory));
+          const currentVolumeId = yield* Effect.promise(() => readDirectoryVolumeId(dir));
+          const hasRetainedHistory = fileCache
+            .entries()
+            .some(
+              ([filePath, entry]) =>
+                entry.provider === provider &&
+                entry.mtimeMs >= retentionCutoffMs &&
+                entry.records.length + entry.tailRecords.length > 0 &&
+                isWithinDirectory(filePath, dir),
             );
-            if (existing !== undefined) {
-              existing.piPathLimitations = [
-                ...new Set([...(existing.piPathLimitations ?? []), ...piPathLimitations]),
-              ];
-            }
+          // A recreated directory still reports the retained history under its old identity.
+          const volumeId =
+            previous?.dir === dir && (hasRetainedHistory || !currentVolumeId)
+              ? previous.volumeId || currentVolumeId
+              : currentVolumeId;
+          if (previous?.dir !== dir || previous.volumeId !== volumeId) {
+            sourceCache.set(sourceKey, { dir, volumeId });
+            cacheDirty = true;
           }
-          continue;
+          const key = `${provider}\0${dir}`;
+          if (seen.has(key)) {
+            if (piPathLimitations.length > 0) {
+              const existing = dirs.find(
+                (candidate) => candidate.provider === provider && candidate.dir === dir,
+              );
+              if (existing !== undefined) {
+                existing.piPathLimitations = [
+                  ...new Set([...(existing.piPathLimitations ?? []), ...piPathLimitations]),
+                ];
+              }
+            }
+            continue;
+          }
+          seen.add(key);
+          dirs.push({
+            provider,
+            dir,
+            volumeId,
+            ...(provider === "grok" ? { fileName: "updates.jsonl" } : {}),
+            ...(piPathLimitations.length > 0 ? { piPathLimitations } : {}),
+          });
         }
-        seen.add(key);
-        dirs.push({
-          provider,
-          dir,
-          volumeId,
-          ...(provider === "grok" ? { fileName: "updates.jsonl" } : {}),
-          ...(piPathLimitations.length > 0 ? { piPathLimitations } : {}),
-        });
       }
     }
     return dirs;
