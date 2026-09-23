@@ -46,6 +46,7 @@ import {
   type WorktreeSetupSnapshot,
 } from "@t3tools/contracts";
 import { type EnvironmentConnectionPresentation } from "@t3tools/client-runtime/connection";
+import { providerSessionStartupLabel } from "@t3tools/client-runtime/state/provider-instance-display";
 import {
   wasBootstrapThreadDeleted,
   wasBootstrapThreadNotCreated,
@@ -3253,20 +3254,27 @@ export default function ChatView(props: ChatViewProps) {
     activeServerThread.id === routeThreadRef.threadId &&
     activeServerThread.latestTurn === null &&
     recordedWorktreeSetup?.phase === "running";
+  const isPreparingWorktree = isLocallyPreparingWorktree || awaitingBootstrapTurn;
+  const startupLabel = isPreparingWorktree
+    ? null
+    : providerSessionStartupLabel(activeThread?.session ?? null);
   const isWorking =
     phase === "running" ||
     isSendBusy ||
     isConnecting ||
     isRevertingCheckpoint ||
     isCompacting ||
-    awaitingBootstrapTurn;
-  const isPreparingWorktree = isLocallyPreparingWorktree || awaitingBootstrapTurn;
-  const activeWorkStartedAt = deriveActiveWorkStartedAt(
-    activeLatestTurn,
-    activeThread?.session ?? null,
-    localDispatchStartedAt,
-    latestUserMessageAt,
-  );
+    awaitingBootstrapTurn ||
+    startupLabel !== null;
+  const activeWorkStartedAt =
+    startupLabel !== null
+      ? (activeThread?.session?.updatedAt ?? null)
+      : deriveActiveWorkStartedAt(
+          activeLatestTurn,
+          activeThread?.session ?? null,
+          localDispatchStartedAt,
+          latestUserMessageAt,
+        );
   useEffect(() => {
     attachmentPreviewHandoffByMessageIdRef.current = attachmentPreviewHandoffByMessageId;
   }, [attachmentPreviewHandoffByMessageId]);
@@ -9932,6 +9940,7 @@ export default function ChatView(props: ChatViewProps) {
                     }
                   : {})}
                 isWorking={!paintOnlyDisplayedTimeline && isWorking}
+                startupLabel={paintOnlyDisplayedTimeline ? null : startupLabel}
                 isPreparingWorktree={!paintOnlyDisplayedTimeline && isPreparingWorktree}
                 isCompacting={!paintOnlyDisplayedTimeline && isCompacting}
                 activeTurnStartedAt={paintOnlyDisplayedTimeline ? null : activeWorkStartedAt}

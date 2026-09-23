@@ -44,6 +44,46 @@ import {
 } from "../../session-logic";
 import { isImageAttachment, type ChatMessage, type TurnDiffSummary } from "../../types";
 
+describe("provider startup row", () => {
+  const timelineEntries = [
+    {
+      id: "pi-user-message",
+      kind: "message" as const,
+      createdAt: "2026-09-23T15:00:00.000Z",
+      message: {
+        id: MessageId.make("pi-user-message"),
+        role: "user" as const,
+        text: "Hello",
+        turnId: null,
+        createdAt: "2026-09-23T15:00:00.000Z",
+        updatedAt: "2026-09-23T15:00:00.000Z",
+        streaming: false,
+      },
+    },
+  ];
+  const base = {
+    timelineEntries,
+    activeTurnStartedAt: "2026-09-23T15:00:00.000Z",
+    turnDiffSummaries: [],
+    supportsConversationRollback: false,
+  };
+
+  it("shows one loading row after the send, then hands off to normal activity", () => {
+    const starting = deriveMessagesTimelineRows({
+      ...base,
+      isWorking: true,
+      isStartingProvider: true,
+    });
+    expect(starting.map((row) => row.kind)).toEqual(["message", "working"]);
+
+    const running = deriveMessagesTimelineRows({ ...base, isWorking: true });
+    expect(running.map((row) => row.kind)).toEqual(["message", "working", "thinking"]);
+
+    const failed = deriveMessagesTimelineRows({ ...base, isWorking: false });
+    expect(failed.map((row) => row.kind)).toEqual(["message"]);
+  });
+});
+
 describe("streaming row projection", () => {
   function fixture(text = "") {
     const turnId = TurnId.make("live-turn");

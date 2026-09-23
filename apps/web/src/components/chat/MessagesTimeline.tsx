@@ -302,6 +302,7 @@ interface TimelineRowSharedState {
 
 interface TimelineRowActivityState {
   isWorking: boolean;
+  startupLabel: string | null;
   isPreparingWorktree: boolean;
   isCompacting: boolean;
   isRevertingCheckpoint: boolean;
@@ -401,6 +402,7 @@ interface MessagesTimelineProps {
   agentPanelModel?: AgentPanelModel;
   onOpenAgents?: () => void;
   isWorking: boolean;
+  startupLabel?: string | null;
   isPreparingWorktree?: boolean;
   isCompacting?: boolean;
   activeTurnStartedAt: string | null;
@@ -474,6 +476,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   citationHistoryLoading = false,
   onCiteAssistantText,
   isWorking,
+  startupLabel = null,
   worktreeSetup = null,
   onCancelWorktreeSetup,
   onWorktreeSetupWorkLocally,
@@ -774,6 +777,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         expandedTurnIds: paintedExpandedTurnIds,
         expandedWorkGroupIds: paintedExpandedWorkGroupIds,
         isWorking,
+        isStartingProvider: startupLabel !== null,
         activeTurnStartedAt,
         turnDiffSummaries,
         supportsConversationRollback,
@@ -797,6 +801,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     paintedExpandedTurnIds,
     paintedExpandedWorkGroupIds,
     isWorking,
+    startupLabel,
     activeTurnStartedAt,
     turnDiffSummaries,
     supportsConversationRollback,
@@ -1206,6 +1211,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const activityState = useMemo<TimelineRowActivityState>(
     () => ({
       isWorking,
+      startupLabel,
       isPreparingWorktree,
       isCompacting,
       isRevertingCheckpoint,
@@ -1220,6 +1226,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       isCompacting,
       isRevertingCheckpoint,
       isWorking,
+      startupLabel,
       isPreparingWorktree,
       // Deliberately the fields `deriveUnsettledTurnId` reads, not the object:
       // its identity changes on every thread-shell patch.
@@ -2499,15 +2506,17 @@ function ProposedPlanTimelineRow({
 }
 
 function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "working" }> }) {
-  const { isCompacting, isPreparingWorktree, backgroundWorktreeSetup } =
+  const { isCompacting, isPreparingWorktree, startupLabel, backgroundWorktreeSetup } =
     use(TimelineRowActivityCtx);
   // One span for every label so the setup-to-working handoff swaps text in
   // place instead of remounting the row.
-  const shimmer = isPreparingWorktree || isCompacting;
+  const shimmer = isPreparingWorktree || isCompacting || startupLabel !== null;
   const label = isPreparingWorktree ? (
     "Setting up worktree…"
   ) : isCompacting ? (
     <CompactingLabel />
+  ) : startupLabel !== null ? (
+    startupLabel
   ) : row.createdAt ? (
     <>
       Working for <WorkingTimer createdAt={row.createdAt} />
@@ -2521,10 +2530,16 @@ function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "workin
         <span
           ref={shimmer ? observeVisibleAnimation : undefined}
           className="relative shrink-0 overflow-hidden whitespace-nowrap"
+          role={startupLabel !== null ? "status" : undefined}
         >
           {label}
           {shimmer ? <ActivityShimmerOverlay>{label}</ActivityShimmerOverlay> : null}
         </span>
+        {startupLabel !== null && row.createdAt ? (
+          <span className="text-muted-foreground/70" aria-hidden="true">
+            <WorkingTimer createdAt={row.createdAt} />
+          </span>
+        ) : null}
         {backgroundWorktreeSetup ? (
           <BackgroundWorktreeSetupChip snapshot={backgroundWorktreeSetup} />
         ) : null}
