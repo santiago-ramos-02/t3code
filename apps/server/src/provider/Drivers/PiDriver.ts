@@ -609,12 +609,16 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
         environment: processEnv,
         rpcFactory,
       });
-      const piGentle = makePiGentleSettings({
+      const piGentleSettings = makePiGentleSettings({
         environment: processEnv,
         fileSystem,
         path,
         spawner,
       });
+      const piGentle = {
+        ...piGentleSettings,
+        initializeSdd: adapter.initializeGentleSdd,
+      };
 
       return {
         instanceId,

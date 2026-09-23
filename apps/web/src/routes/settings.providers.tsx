@@ -25,6 +25,7 @@ function SettingsProvidersRoute() {
     <ProviderSettingsPanel
       environmentId={environment.environmentId}
       {...(target.instanceId ? { instanceId: target.instanceId } : {})}
+      {...(target.projectCwd ? { projectCwd: target.projectCwd } : {})}
       scoped
     />
   );
@@ -37,6 +38,9 @@ export const Route = createFileRoute("/settings/providers")({
       : {}),
     ...(typeof raw.instanceId === "string" && raw.instanceId.trim()
       ? { instanceId: ProviderInstanceId.make(raw.instanceId) }
+      : {}),
+    ...(typeof raw.projectCwd === "string" && raw.projectCwd.trim()
+      ? { projectCwd: raw.projectCwd }
       : {}),
   }),
   component: SettingsProvidersRoute,

@@ -2540,6 +2540,46 @@ const makeWsRpcLayer = (
             }),
             { "rpc.aggregate": "provider" },
           ),
+        [WS_METHODS.providerPiGentleInitialize]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.providerPiGentleInitialize,
+            Effect.gen(function* () {
+              const instance = yield* providerInstances.getInstance(input.instanceId);
+              const gentle = instance?.piGentle;
+              if (!gentle || !instance.enabled) {
+                return yield* new ProviderSetupError({
+                  instanceId: input.instanceId,
+                  operation: "pi-gentle-initialize",
+                  detail: "This Pi instance is unavailable.",
+                });
+              }
+              yield* gentle.initializeSdd(input.threadId).pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new ProviderSetupError({
+                      instanceId: input.instanceId,
+                      operation: "pi-gentle-initialize",
+                      detail:
+                        cause instanceof Error ? cause.message : "Could not set up Gentle SDD.",
+                    }),
+                ),
+              );
+              return yield* gentle.readComposer(input.cwd).pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new ProviderSetupError({
+                      instanceId: input.instanceId,
+                      operation: "pi-gentle-initialize",
+                      detail:
+                        cause instanceof Error
+                          ? cause.message
+                          : "Could not read Gentle SDD status.",
+                    }),
+                ),
+              );
+            }),
+            { "rpc.aggregate": "provider" },
+          ),
         [WS_METHODS.providerConsumeResetCredit]: (input) =>
           observeRpcEffect(
             WS_METHODS.providerConsumeResetCredit,

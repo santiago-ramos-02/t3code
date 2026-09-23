@@ -15,6 +15,7 @@ import {
 } from "./providerSetup.ts";
 import {
   PiGentleActionInput,
+  PiGentleInitializeInput,
   PiGentleComposerReadInput,
   PiGentleComposerState,
   PiGentleReadInput,
@@ -319,6 +320,7 @@ export const WS_METHODS = {
   providerPiGentleRead: "provider.piGentle.read",
   providerPiGentleComposerRead: "provider.piGentle.composerRead",
   providerPiGentleAction: "provider.piGentle.action",
+  providerPiGentleInitialize: "provider.piGentle.initialize",
 
   // VCS methods
   vcsPull: "vcs.pull",
@@ -518,6 +520,12 @@ const WsProviderPiGentleComposerReadRpc = Rpc.make(WS_METHODS.providerPiGentleCo
 const WsProviderPiGentleActionRpc = Rpc.make(WS_METHODS.providerPiGentleAction, {
   payload: PiGentleActionInput,
   success: PiGentleState,
+  error: Schema.Union([ProviderSetupError, EnvironmentAuthorizationError]),
+});
+
+const WsProviderPiGentleInitializeRpc = Rpc.make(WS_METHODS.providerPiGentleInitialize, {
+  payload: PiGentleInitializeInput,
+  success: PiGentleComposerState,
   error: Schema.Union([ProviderSetupError, EnvironmentAuthorizationError]),
 });
 
@@ -1427,6 +1435,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsProviderPiGentleReadRpc,
   WsProviderPiGentleComposerReadRpc,
   WsProviderPiGentleActionRpc,
+  WsProviderPiGentleInitializeRpc,
   WsProviderConsumeResetCreditRpc,
   WsProviderAuthStartRpc,
   WsProviderAuthCompleteRpc,

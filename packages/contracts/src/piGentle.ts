@@ -1,5 +1,5 @@
 import * as Schema from "effect/Schema";
-import { TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
 
 export const PiGentleRoutingEntry = Schema.Struct({
@@ -74,6 +74,12 @@ export type PiGentleComposerState = typeof PiGentleComposerState.Type;
 
 export const PiGentleComposerReadInput = Schema.Struct({
   instanceId: ProviderInstanceId,
+  cwd: TrimmedNonEmptyString,
+});
+
+export const PiGentleInitializeInput = Schema.Struct({
+  instanceId: ProviderInstanceId,
+  threadId: ThreadId,
   cwd: TrimmedNonEmptyString,
 });
 

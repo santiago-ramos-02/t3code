@@ -99,6 +99,10 @@
       "types": "./src/piGentleComposer.ts",
       "default": "./src/piGentleComposer.ts"
     },
+    "./gentleRose": {
+      "types": "./src/gentleRose.ts",
+      "default": "./src/gentleRose.ts"
+    },
     "./voice-input": {
       "types": "./src/voice-input/index.ts",
       "default": "./src/voice-input/index.ts"

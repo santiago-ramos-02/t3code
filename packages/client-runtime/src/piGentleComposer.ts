@@ -2,7 +2,6 @@ import type { PiGentleComposerState } from "@t3tools/contracts";
 
 export interface GentleComposerAction {
   readonly label: string;
-  readonly prompt: string | null;
   readonly kind: "setup" | "start" | "continue" | "blocked" | "select-change";
   readonly reason?: string;
 }
@@ -31,7 +30,6 @@ const PHASE_DEPENDENCIES = {
 const blocked = (reason?: string): GentleComposerAction => ({
   kind: "blocked",
   label: "Review SDD status",
-  prompt: null,
   ...(reason ? { reason } : {}),
 });
 
@@ -43,18 +41,17 @@ export function gentleComposerAction(
   if (status === null) return null;
   if (state.projectInitNeeded) {
     return canInitialize
-      ? { kind: "setup", label: "Set up SDD", prompt: "/gentle-sdd-init" }
+      ? { kind: "setup", label: "Set up SDD" }
       : blocked("This Gentle AI installation does not provide the SDD setup command.");
   }
   const next = status.nextRecommended;
   if (next === "sdd-new" || next === "archived") {
-    return { kind: "start", label: "New SDD change", prompt: null };
+    return { kind: "start", label: "Ready for a new SDD change" };
   }
   if (next === "select-change") {
     return {
       kind: "select-change",
-      label: "Choose SDD change",
-      prompt: "Use Gentle SDD to continue. Help me select an existing change.",
+      label: "Choose an SDD change",
     };
   }
   if (next === "resolve-blockers") return blocked(status.blockedReasons[0]);
@@ -76,7 +73,6 @@ export function gentleComposerAction(
   }
   return {
     kind: "continue",
-    label: `Continue ${PHASE_LABELS[next]}`,
-    prompt: `Continue Gentle SDD change ${JSON.stringify(status.changeName)} with its next permitted phase.`,
+    label: `Next: ${PHASE_LABELS[next]}`,
   };
 }

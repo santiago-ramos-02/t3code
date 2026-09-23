@@ -907,6 +907,69 @@ describe("PiAdapter session runtime", () => {
     ),
   );
 
+  it.effect("runs Gentle setup as an extension command without a T3 user turn", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = makeRpcHarness({
+          onRequest: (request) =>
+            Effect.succeed(
+              recordString(request, "type") === "get_state"
+                ? successResponse(request, sessionState(1))
+                : recordString(request, "type") === "get_commands"
+                  ? successResponse(request, {
+                      commands: [{ name: "gentle-sdd-init", source: "extension" }],
+                    })
+                  : successResponse(request),
+            ),
+        });
+        const adapter = yield* makeAdapter(harness);
+        yield* startSession(adapter);
+        yield* takeEvents(adapter, SESSION_EVENTS);
+
+        yield* adapter.initializeGentleSdd(THREAD_ID);
+        expect(harness.transports[0]?.requests).toMatchObject([
+          { type: "get_state" },
+          { type: "get_commands" },
+          { type: "prompt", message: "/gentle-sdd-init" },
+        ]);
+
+        const turn = yield* adapter.sendTurn({ threadId: THREAD_ID, input: "Now work" });
+        expect(yield* takeEvents(adapter, 2)).toMatchObject([
+          { type: "turn.started", turnId: turn.turnId },
+          { type: "turn.completed", turnId: turn.turnId },
+        ]);
+      }),
+    ),
+  );
+
+  it.effect("rejects Gentle setup when this Pi session did not register the extension", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = makeRpcHarness({
+          onRequest: (request) =>
+            Effect.succeed(
+              recordString(request, "type") === "get_state"
+                ? successResponse(request, sessionState(1))
+                : recordString(request, "type") === "get_commands"
+                  ? successResponse(request, { commands: [] })
+                  : successResponse(request),
+            ),
+        });
+        const adapter = yield* makeAdapter(harness);
+        yield* startSession(adapter);
+        yield* takeEvents(adapter, SESSION_EVENTS);
+
+        const result = yield* Effect.exit(adapter.initializeGentleSdd(THREAD_ID));
+        expect(Exit.isFailure(result)).toBe(true);
+        expect(
+          harness.transports[0]?.requests.some(
+            (request) => recordString(request, "type") === "prompt",
+          ),
+        ).toBe(false);
+      }),
+    ),
+  );
+
   it.effect("routes blocking extension UI while prompt acceptance is pending", () =>
     Effect.scoped(
       Effect.gen(function* () {

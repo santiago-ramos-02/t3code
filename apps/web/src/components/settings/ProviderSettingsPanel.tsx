@@ -267,6 +267,7 @@ function EnvironmentUnavailablePlaceholder({
 interface ProviderSettingsTarget {
   readonly environmentId?: EnvironmentId;
   readonly instanceId?: ProviderInstanceId;
+  readonly projectCwd?: string;
   readonly scoped?: boolean;
 }
 
@@ -274,7 +275,7 @@ export function ProviderSettingsPanel(target: ProviderSettingsTarget) {
   return (
     <SettingsPageContainer width="wide" className="@container/providers gap-8">
       <ProviderSettingsPanelContent
-        key={`${target.environmentId ?? ""}:${target.instanceId ?? ""}`}
+        key={`${target.environmentId ?? ""}:${target.instanceId ?? ""}:${target.projectCwd ?? ""}`}
         {...target}
       />
     </SettingsPageContainer>
@@ -412,6 +413,7 @@ function ProviderSettingsPanelContent(target: ProviderSettingsTarget) {
           key={selectedEnvironment.environmentId}
           environment={selectedEnvironment}
           deviceTabs={deviceTabs}
+          projectCwd={target.projectCwd}
           targetInstanceId={
             target.environmentId === undefined ||
             selectedEnvironment.environmentId === target.environmentId
@@ -428,10 +430,12 @@ function SelectedEnvironmentProviderSettings({
   environment,
   deviceTabs,
   targetInstanceId,
+  projectCwd,
 }: {
   readonly environment: EnvironmentPresentation;
   readonly deviceTabs?: ReactNode;
   readonly targetInstanceId?: ProviderInstanceId | undefined;
+  readonly projectCwd?: string | undefined;
 }) {
   const isPrimary = environment.entry.target._tag === "PrimaryConnectionTarget";
   if (isPrimary) {
@@ -444,6 +448,7 @@ function SelectedEnvironmentProviderSettings({
           operateAccess="granted"
           deviceTabs={deviceTabs}
           targetInstanceId={targetInstanceId}
+          projectCwd={projectCwd}
         />
       );
     }
@@ -452,6 +457,7 @@ function SelectedEnvironmentProviderSettings({
         environment={environment}
         deviceTabs={deviceTabs}
         targetInstanceId={targetInstanceId}
+        projectCwd={projectCwd}
       />
     );
   }
@@ -460,6 +466,7 @@ function SelectedEnvironmentProviderSettings({
       environment={environment}
       deviceTabs={deviceTabs}
       targetInstanceId={targetInstanceId}
+      projectCwd={projectCwd}
     />
   );
 }
@@ -468,10 +475,12 @@ function PrimarySessionGatedProviderSettings({
   environment,
   deviceTabs,
   targetInstanceId,
+  projectCwd,
 }: {
   readonly environment: EnvironmentPresentation;
   readonly deviceTabs?: ReactNode;
   readonly targetInstanceId?: ProviderInstanceId | undefined;
+  readonly projectCwd?: string | undefined;
 }) {
   const primarySessionState = usePrimarySessionState();
   const operateAccess = resolvePrimaryOperateAccess({
@@ -487,6 +496,7 @@ function PrimarySessionGatedProviderSettings({
       operateAccess={operateAccess}
       deviceTabs={deviceTabs}
       targetInstanceId={targetInstanceId}
+      projectCwd={projectCwd}
     />
   );
 }
@@ -495,10 +505,12 @@ function RemoteSessionGatedProviderSettings({
   environment,
   deviceTabs,
   targetInstanceId,
+  projectCwd,
 }: {
   readonly environment: EnvironmentPresentation;
   readonly deviceTabs?: ReactNode;
   readonly targetInstanceId?: ProviderInstanceId | undefined;
+  readonly projectCwd?: string | undefined;
 }) {
   const sessionState = useEnvironmentSessionState(environment.environmentId);
   const operateAccess = resolveRemoteOperateAccess({
@@ -512,6 +524,7 @@ function RemoteSessionGatedProviderSettings({
       operateAccess={operateAccess}
       deviceTabs={deviceTabs}
       targetInstanceId={targetInstanceId}
+      projectCwd={projectCwd}
     />
   );
 }
@@ -521,11 +534,13 @@ function AccessGatedProviderSettings({
   operateAccess,
   deviceTabs,
   targetInstanceId,
+  projectCwd,
 }: {
   readonly environment: EnvironmentPresentation;
   readonly operateAccess: ProviderOperateAccess;
   readonly deviceTabs?: ReactNode;
   readonly targetInstanceId?: ProviderInstanceId | undefined;
+  readonly projectCwd?: string | undefined;
 }) {
   const access = classifyProviderEnvironmentAccess({
     connectionPhase: environment.connection.phase,
@@ -548,6 +563,7 @@ function AccessGatedProviderSettings({
       readOnly={access.kind === "read-only"}
       deviceTabs={deviceTabs}
       targetInstanceId={targetInstanceId}
+      projectCwd={projectCwd}
     />
   );
 }
@@ -558,11 +574,13 @@ export function EnvironmentProviderSettings({
   readOnly = false,
   deviceTabs,
   targetInstanceId,
+  projectCwd,
 }: {
   readonly environmentId: EnvironmentId;
   readonly environmentLabel: string;
   readonly deviceTabs?: ReactNode;
   readonly targetInstanceId?: ProviderInstanceId | undefined;
+  readonly projectCwd?: string | undefined;
   /**
    * Grey out and freeze every write control when this session's credential
    * lacks `orchestration:operate` on the environment. Selecting providers
@@ -1006,6 +1024,7 @@ export function EnvironmentProviderSettings({
               <PiGentleSettingsSection
                 environmentId={environmentId}
                 instanceId={row.instanceId}
+                initialProjectCwd={projectCwd}
                 projects={projectGroups.flatMap((group) =>
                   group.memberProjects
                     .filter((project) => project.environmentId === environmentId)

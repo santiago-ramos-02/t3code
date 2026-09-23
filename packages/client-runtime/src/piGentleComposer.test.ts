@@ -37,24 +37,21 @@ describe("Gentle composer action", () => {
       }),
     ).toEqual({
       kind: "start",
-      label: "New SDD change",
-      prompt: null,
+      label: "Ready for a new SDD change",
     });
   });
 
   it("uses the native next phase without inferring a route from task progress", () => {
     expect(gentleComposerAction(state("verify"))).toEqual({
       kind: "continue",
-      label: "Continue verification",
-      prompt: 'Continue Gentle SDD change "checkout-flow" with its next permitted phase.',
+      label: "Next: verification",
     });
   });
 
   it("does not present a phase when Gentle needs a change choice or reports blockers", () => {
     expect(gentleComposerAction(state("select-change"))).toEqual({
       kind: "select-change",
-      label: "Choose SDD change",
-      prompt: "Use Gentle SDD to continue. Help me select an existing change.",
+      label: "Choose an SDD change",
     });
     expect(gentleComposerAction(state("resolve-blockers"))?.kind).toBe("blocked");
     expect(
@@ -69,7 +66,6 @@ describe("Gentle composer action", () => {
     expect(gentleComposerAction({ ...state("sdd-new"), projectInitNeeded: true })).toEqual({
       kind: "setup",
       label: "Set up SDD",
-      prompt: "/gentle-sdd-init",
     });
     expect(
       gentleComposerAction({ ...state("sdd-new"), projectInitNeeded: true }, false)?.kind,

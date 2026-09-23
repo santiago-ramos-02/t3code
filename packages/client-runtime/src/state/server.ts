@@ -1071,6 +1071,10 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:provider:pi-gentle-composer-read",
       tag: WS_METHODS.providerPiGentleComposerRead,
     }),
+    initializePiGentleSdd: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:provider:pi-gentle-initialize",
+      tag: WS_METHODS.providerPiGentleInitialize,
+    }),
     updatePiGentle: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:provider:pi-gentle-action",
       tag: WS_METHODS.providerPiGentleAction,

@@ -1443,7 +1443,6 @@ export interface ChatComposerProps {
   // Callbacks
   onCompactContext: () => void;
   onSend: (e?: { preventDefault: () => void }, intent?: ComposerSubmissionIntent) => void;
-  onRunGentleAction: (prompt: string) => void;
   onInterrupt: () => void;
   onImplementPlanInNewThread: () => void;
   onRespondToApproval: (
@@ -1467,7 +1466,7 @@ export interface ChatComposerProps {
     model: string,
     options?: { focusComposer?: boolean },
   ) => void;
-  onOpenProviderSetup: (instanceId: ProviderInstanceId) => void;
+  onOpenProviderSetup: (instanceId: ProviderInstanceId, projectCwd?: string) => void;
   getModelDisabledReason: (instanceId: ProviderInstanceId, model: string) => string | null;
   toggleInteractionMode: () => void;
   handleRuntimeModeChange: (mode: RuntimeMode) => void;
@@ -1560,7 +1559,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     onPageScrollRelease,
     onCompactContext,
     onSend,
-    onRunGentleAction,
     onInterrupt,
     onImplementPlanInNewThread,
     onRespondToApproval,
@@ -6408,13 +6406,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           key={`${routeKind}:${activeThreadId ?? draftId ?? "new"}:${activeThread?.latestTurn?.turnId ?? ""}:${activeThread?.latestTurn?.completedAt ?? ""}:${selectedInstanceId}:${gitCwd}`}
           environmentId={environmentId}
           instanceId={selectedInstanceId}
+          threadId={activeThread?.session ? (activeThreadId ?? null) : null}
           cwd={gitCwd}
-          onRun={onRunGentleAction}
+          onOpenPreferences={() => onOpenProviderSetup(selectedInstanceId, gitCwd)}
           canInitialize={selectedProviderSlashCommands.some(
             (command) => command.name === "gentle-sdd-init",
-          )}
-          canRunDoctor={selectedProviderSlashCommands.some(
-            (command) => command.name === "gentle:doctor",
           )}
         />
       ) : null}

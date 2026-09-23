@@ -3,32 +3,25 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import type { EnvironmentId, PiGentleComposerState, ProviderInstanceId } from "@t3tools/contracts";
+import type {
+  EnvironmentId,
+  PiGentleComposerState,
+  ProviderInstanceId,
+  ThreadId,
+} from "@t3tools/contracts";
 import {
-  AlertCircleIcon,
   ChevronDownIcon,
-  CircleHelpIcon,
   ClipboardListIcon,
-  PlusIcon,
   RefreshCwIcon,
   Settings2Icon,
-  StethoscopeIcon,
   WrenchIcon,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
-import { Button } from "../ui/button";
-import {
-  Dialog,
-  DialogFooter,
-  DialogHeader,
-  DialogPanel,
-  DialogPopup,
-  DialogTitle,
-} from "../ui/dialog";
-import { Input } from "../ui/input";
+import { GentleRoseIcon } from "../GentleRoseIcon";
+import { Dialog, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from "../ui/dialog";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { ComposerControl, ComposerControlIcon } from "./ComposerControl";
 import { useComposerMenuProps } from "./composerEventScope";
@@ -36,19 +29,23 @@ import { useComposerMenuProps } from "./composerEventScope";
 export function GentleComposerActions({
   environmentId,
   instanceId,
+  threadId,
   cwd,
-  onRun,
+  onOpenPreferences,
   canInitialize,
-  canRunDoctor,
 }: {
   readonly environmentId: EnvironmentId;
   readonly instanceId: ProviderInstanceId;
+  readonly threadId: ThreadId | null;
   readonly cwd: string;
-  readonly onRun: (prompt: string) => void;
+  readonly onOpenPreferences: () => void;
   readonly canInitialize: boolean;
-  readonly canRunDoctor: boolean;
 }) {
   const read = useAtomCommand(serverEnvironment.readPiGentleComposer, {
+    reportFailure: false,
+    reportDefect: false,
+  });
+  const initialize = useAtomCommand(serverEnvironment.initializePiGentleSdd, {
     reportFailure: false,
     reportDefect: false,
   });
@@ -56,14 +53,14 @@ export function GentleComposerActions({
   const [loaded, setLoaded] = useState<PiGentleComposerState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [statusOpen, setStatusOpen] = useState(false);
-  const [newChangeOpen, setNewChangeOpen] = useState(false);
-  const [goal, setGoal] = useState("");
+  const [initializing, setInitializing] = useState(false);
   const floatingLayer = useComposerMenuProps();
+  const requestKey = `${environmentId}:${instanceId}:${cwd}:${refresh}`;
 
   useEffect(() => {
-    let current = true;
+    let current: string | null = requestKey;
     void read({ environmentId, input: { instanceId, cwd } }).then((result) => {
-      if (!current) return;
+      if (current !== requestKey) return;
       if (result._tag === "Success") {
         setLoaded(result.value);
         setError(null);
@@ -74,109 +71,74 @@ export function GentleComposerActions({
       }
     });
     return () => {
-      current = false;
+      current = null;
     };
-  }, [cwd, environmentId, instanceId, read, refresh]);
+  }, [cwd, environmentId, instanceId, read, requestKey]);
 
   if (loaded?.available !== true && error === null) return null;
   const status = loaded?.sddStatus ?? null;
-  const action = loaded ? gentleComposerAction(loaded, canInitialize) : null;
-  const showPrimary = action !== null;
-  const ActionIcon =
-    action?.kind === "setup"
-      ? WrenchIcon
-      : action?.kind === "start"
-        ? PlusIcon
-        : action?.kind === "continue"
-          ? ClipboardListIcon
-          : action?.kind === "select-change"
-            ? CircleHelpIcon
-            : AlertCircleIcon;
+  const guidance = loaded ? gentleComposerAction(loaded, canInitialize) : null;
+  const canSetUp = loaded?.projectInitNeeded && canInitialize && threadId !== null;
+
+  const setUp = async () => {
+    if (threadId === null || initializing) return;
+    setInitializing(true);
+    const result = await initialize({ environmentId, input: { instanceId, threadId, cwd } });
+    setInitializing(false);
+    if (result._tag === "Success") {
+      setLoaded(result.value);
+      setError(result.value.projectInitNeeded ? "SDD setup was not completed." : null);
+      if (result.value.projectInitNeeded) setStatusOpen(true);
+    } else if (!isAtomCommandInterrupted(result)) {
+      const failure = squashAtomCommandFailure(result);
+      setError(failure instanceof Error ? failure.message : "Could not set up Gentle SDD.");
+      setStatusOpen(true);
+    }
+  };
 
   return (
     <div
       className="mb-1 flex items-center justify-end gap-1 px-2"
       data-chat-composer-collapsed-controls="true"
     >
-      {showPrimary ? (
-        <ComposerControl
-          size="xs"
-          onClick={() => {
-            if (action.kind === "start") setNewChangeOpen(true);
-            else if (action.prompt === null) setStatusOpen(true);
-            else onRun(action.prompt);
-          }}
-        >
-          <ComposerControlIcon icon={ActionIcon} size="xs" />
-          {action.label}
+      {canSetUp ? (
+        <ComposerControl size="xs" disabled={initializing} onClick={() => void setUp()}>
+          <ComposerControlIcon icon={WrenchIcon} size="xs" />
+          {initializing ? "Setting up SDD…" : "Set up SDD"}
         </ComposerControl>
       ) : null}
       <Menu>
         <MenuTrigger render={<ComposerControl size="xs" aria-label="Gentle AI actions" />}>
+          <GentleRoseIcon className="size-5 text-foreground/90" data-composer-control-icon />
           Gentle AI <ChevronDownIcon className="size-3 opacity-60" aria-hidden />
         </MenuTrigger>
         <MenuPopup align="end" side="top" {...floatingLayer}>
           <MenuItem onClick={() => setStatusOpen(true)}>
             <ClipboardListIcon aria-hidden /> View SDD status
           </MenuItem>
-          <MenuItem onClick={() => onRun("/gentle:sdd-preflight --edit")}>
-            <Settings2Icon aria-hidden />{" "}
-            {loaded?.projectInitNeeded ? "Choose SDD preferences" : "Change SDD preferences"}
+          <MenuItem onClick={onOpenPreferences}>
+            <Settings2Icon aria-hidden /> SDD preferences
           </MenuItem>
-          {canRunDoctor && (status === null || error !== null) ? (
-            <MenuItem onClick={() => onRun("/gentle:doctor")}>
-              <StethoscopeIcon aria-hidden /> Run Gentle doctor
-            </MenuItem>
-          ) : null}
           <MenuItem onClick={() => setRefresh((value) => value + 1)}>
             <RefreshCwIcon aria-hidden /> Refresh status
           </MenuItem>
         </MenuPopup>
       </Menu>
-      <Dialog open={newChangeOpen} onOpenChange={setNewChangeOpen}>
-        <DialogPopup {...floatingLayer} className="max-w-md">
-          <form
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (!goal.trim()) return;
-              onRun(`Use Gentle SDD to ${goal.trim()}`);
-              setNewChangeOpen(false);
-            }}
-          >
-            <DialogHeader>
-              <DialogTitle>New SDD change</DialogTitle>
-            </DialogHeader>
-            <DialogPanel>
-              <Input
-                autoFocus
-                aria-label="Change goal"
-                placeholder="What do you want to build?"
-                value={goal}
-                onChange={(event) => setGoal(event.target.value)}
-              />
-            </DialogPanel>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setNewChangeOpen(false)}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={!goal.trim()}>
-                Start change
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogPopup>
-      </Dialog>
       <Dialog open={statusOpen} onOpenChange={setStatusOpen}>
         <DialogPopup {...floatingLayer} className="max-w-md">
           <DialogHeader>
             <DialogTitle>Gentle SDD status</DialogTitle>
           </DialogHeader>
           <DialogPanel>
+            {error ? <p className="text-sm text-destructive">{error}</p> : null}
             {status ? (
               <div className="space-y-2 text-sm">
                 <p>Change: {status.changeName ?? "No active change"}</p>
-                <p>Next step: {action?.label ?? status.nextRecommended}</p>
-                {action?.reason ? <p>{action.reason}</p> : null}
+                <p>Next step: {guidance?.label ?? status.nextRecommended}</p>
+                {loaded?.projectInitNeeded && threadId === null ? (
+                  <p>Send a message to start this Pi thread, then use Set up SDD.</p>
+                ) : null}
+                {guidance?.reason ? <p>{guidance.reason}</p> : null}
                 {status.taskProgress.total > 0 ? (
                   <p>
                     Tasks: {status.taskProgress.completed} of {status.taskProgress.total} complete
@@ -195,11 +157,11 @@ export function GentleComposerActions({
                   </div>
                 ) : null}
               </div>
-            ) : (
+            ) : error === null ? (
               <p className="text-sm text-muted-foreground">
-                {error ?? "SDD status is unavailable from this Gentle AI installation."}
+                SDD status is unavailable from this Gentle AI installation.
               </p>
-            )}
+            ) : null}
           </DialogPanel>
         </DialogPopup>
       </Dialog>

@@ -81,6 +81,11 @@ const encodePiMcpScope = Schema.encodeSync(
 );
 
 const JsonRecord = Schema.Record(Schema.String, Schema.Unknown);
+const PiCommandsResponse = Schema.Struct({
+  data: Schema.Struct({
+    commands: Schema.Array(Schema.Struct({ name: Schema.String, source: Schema.String })),
+  }),
+});
 const FiniteNonNegative = Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0));
 const UsageSchema = Schema.Struct({
   input: FiniteNonNegative,
@@ -560,6 +565,7 @@ const EntriesResponseSchema = Schema.Struct({
   }),
 });
 const decodeResumeCursor = Schema.decodeUnknownEffect(PiResumeCursorSchema);
+const decodeCommandsResponse = Schema.decodeUnknownEffect(PiCommandsResponse);
 const decodeStateResponse = Schema.decodeUnknownEffect(StateResponseSchema);
 const decodeForkResponse = Schema.decodeUnknownEffect(ForkResponseSchema);
 const decodeEntriesResponse = Schema.decodeUnknownEffect(EntriesResponseSchema);
@@ -631,7 +637,9 @@ export interface PiAdapterOptions {
   readonly interruptSettlementTimeout?: Duration.Input;
 }
 
-type Adapter = ProviderAdapterShape<ProviderAdapterError>;
+type Adapter = ProviderAdapterShape<ProviderAdapterError> & {
+  readonly initializeGentleSdd: (threadId: ThreadId) => Effect.Effect<void, ProviderAdapterError>;
+};
 type PiUsage = typeof UsageSchema.Type;
 type PiResumeCursor = typeof PiResumeCursorSchema.Type;
 type PiSessionEntry = typeof PiSessionEntrySchema.Type;
@@ -1856,7 +1864,7 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
       const startup = yield* operationLock.withPermits(1)(
         Effect.gen(function* () {
           const previous = sessions.get(input.threadId);
-          if (previous?.initializing || previous?.rollbacking) {
+          if (previous?.initializing || previous?.turnStarting || previous?.rollbacking) {
             return yield* new ProviderAdapterValidationError({
               provider: PROVIDER,
               operation: "startSession",
@@ -2317,6 +2325,69 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
         turnId: turn.turnId,
         resumeCursor: context.session.resumeCursor,
       };
+    });
+
+  const initializeGentleSdd: Adapter["initializeGentleSdd"] = (threadId) =>
+    Effect.gen(function* () {
+      const context = yield* operationLock.withPermits(1)(
+        Effect.gen(function* () {
+          const context = yield* requireSession(threadId);
+          if (
+            context.initializing ||
+            context.turnStarting ||
+            context.activeTurn !== undefined ||
+            context.compacting ||
+            context.rollbacking ||
+            context.pendingApprovals.size > 0 ||
+            context.pendingUserInputs.size > 0
+          ) {
+            return yield* new ProviderAdapterValidationError({
+              provider: PROVIDER,
+              operation: "initializeGentleSdd",
+              issue: "Finish the current Pi activity before setting up SDD.",
+            });
+          }
+          context.turnStarting = true;
+          return context;
+        }),
+      );
+      yield* Effect.gen(function* () {
+        const available = yield* context.rpc.request({ type: "get_commands" }).pipe(
+          Effect.mapError((cause) => mapRequestError("get_commands", cause)),
+          Effect.flatMap((response) =>
+            decodeCommandsResponse(response).pipe(
+              Effect.mapError((cause) =>
+                invalidResponse("get_commands", "Pi returned an invalid command list.", cause),
+              ),
+            ),
+          ),
+        );
+        if (
+          !available.data.commands.some(
+            (command) => command.name === "gentle-sdd-init" && command.source === "extension",
+          )
+        ) {
+          return yield* new ProviderAdapterValidationError({
+            provider: PROVIDER,
+            operation: "initializeGentleSdd",
+            issue: "This Pi session does not provide Gentle AI's SDD setup command.",
+          });
+        }
+        // Pi dispatches registered extension commands immediately through RPC prompt.
+        // This bypasses T3's sendTurn path and does not create a user chat message.
+        yield* context.rpc.request({ type: "prompt", message: "/gentle-sdd-init" }).pipe(
+          Effect.mapError((cause) => mapRequestError("prompt", cause)),
+          Effect.asVoid,
+        );
+      }).pipe(
+        Effect.ensuring(
+          operationLock.withPermits(1)(
+            Effect.sync(() => {
+              context.turnStarting = false;
+            }),
+          ),
+        ),
+      );
     });
 
   const compactThread = Effect.fn("PiAdapter.compactThread")(function* (
@@ -2875,6 +2946,7 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
     compaction: { type: "native", start: compactThread },
     startSession,
     sendTurn,
+    initializeGentleSdd,
     interruptTurn,
     respondToRequest,
     respondToUserInput,

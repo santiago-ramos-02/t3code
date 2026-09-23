@@ -52,14 +52,13 @@ projects without a pin use Gentle AI's global model routing.
 
 For SDD, choose the project's execution mode, artifact store, delivery strategy,
 and review budget, then save. These choices are reused as suggestions. In a Pi
-thread for that project, use the action above the composer. It offers project
-setup before the first change, then follows Gentle AI's current SDD status and
-prerequisites. Setup, continuation, and preference actions run directly in the
-Pi thread without replacing a draft. A new change asks for a goal. When a phase
-is blocked, open **SDD status** for the reason. The
-**Gentle AI** menu also offers SDD preferences and status refresh. Gentle's
-doctor command appears there when status is unavailable. Gentle AI confirms
-saved SDD choices at the start of each Pi session.
+thread for that project, **Set up SDD** runs Gentle's installed setup command
+directly in the Pi session when the project needs it. **Gentle AI > View SDD
+status** shows the next phase and any prerequisites. To begin or continue a
+change, describe the work in the normal composer. In web or desktop, **Gentle AI
+
+> SDD preferences** opens the current project's provider settings. Gentle AI
+> confirms saved SDD choices at the start of each Pi session.
 
 ## T3 Code tools
 

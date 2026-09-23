@@ -15,6 +15,7 @@ import { useEffect, useState } from "react";
 
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { GentleRoseIcon } from "../GentleRoseIcon";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
@@ -71,14 +72,18 @@ export function PiGentleSettingsSection({
   environmentId,
   instanceId,
   projects,
+  initialProjectCwd,
   readOnly,
 }: {
   readonly environmentId: EnvironmentId;
   readonly instanceId: ProviderInstanceId;
   readonly projects: ReadonlyArray<ProjectOption>;
+  readonly initialProjectCwd?: string | undefined;
   readonly readOnly: boolean;
 }) {
-  const [selectedCwdChoice, setSelectedCwdChoice] = useState<string | null>(null);
+  const [selectedCwdChoice, setSelectedCwdChoice] = useState<string | null>(
+    initialProjectCwd ?? null,
+  );
   const selectedCwd = projects.some((project) => project.workspaceRoot === selectedCwdChoice)
     ? selectedCwdChoice
     : (projects[0]?.workspaceRoot ?? null);
@@ -170,7 +175,10 @@ export function PiGentleSettingsSection({
       ));
 
   return (
-    <SettingsSection title="Gentle AI">
+    <SettingsSection
+      title="Gentle AI"
+      icon={<GentleRoseIcon className="size-[18px] text-foreground/90" />}
+    >
       {state === null ? (
         <div className="flex items-center gap-2 px-3 py-3 text-sm sm:px-4">
           {error ? (
@@ -571,8 +579,8 @@ export function PiGentleSettingsSection({
               </div>
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-xs text-muted-foreground">
-                  In a Pi thread, run <code>/gentle:sdd-preflight</code> or{" "}
-                  <code>/gentle-sdd-init</code> to begin.
+                  In a Pi thread, use Set up SDD if this project needs it. Gentle confirms these
+                  choices in the session.
                 </p>
                 <Button
                   size="xs"
