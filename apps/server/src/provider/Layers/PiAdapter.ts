@@ -48,6 +48,7 @@ import {
 import {
   parsePiModelSlug,
   PiRpcError,
+  PI_STARTUP_REQUEST_TIMEOUT,
   PI_THINKING_LEVELS,
   type PiRpcClient,
   type PiRpcEvent,
@@ -1921,10 +1922,12 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
             ),
             Effect.onError(() => Scope.close(sessionScope, Exit.void)),
           );
-          const stateResponse = yield* rpc.request({ type: "get_state" }).pipe(
-            Effect.mapError((cause) => mapRequestError("get_state", cause)),
-            Effect.onError(() => Scope.close(sessionScope, Exit.void)),
-          );
+          const stateResponse = yield* rpc
+            .request({ type: "get_state" }, { timeout: PI_STARTUP_REQUEST_TIMEOUT })
+            .pipe(
+              Effect.mapError((cause) => mapRequestError("get_state", cause)),
+              Effect.onError(() => Scope.close(sessionScope, Exit.void)),
+            );
           const { data: state } = yield* decodeStateResponse(stateResponse).pipe(
             Effect.mapError((cause) =>
               invalidResponse("get_state", "Pi returned an invalid session state.", cause),

@@ -33,6 +33,7 @@ import { materializePiMcpExtension } from "../pi-mcp/PiMcpBridgeMaterializer.ts"
 import { mergeProviderInstanceEnvironment } from "../ProviderInstanceEnvironment.ts";
 import {
   makePiRpc,
+  PI_STARTUP_REQUEST_TIMEOUT,
   PI_THINKING_LEVELS,
   type PiRpcOptions,
   type PiThinkingLevel,
@@ -460,7 +461,10 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
                 args: PI_RPC_ARGS,
                 environment: processEnv,
               });
-              const modelsResponse = yield* rpc.request({ type: "get_available_models" });
+              const modelsResponse = yield* rpc.request(
+                { type: "get_available_models" },
+                { timeout: PI_STARTUP_REQUEST_TIMEOUT },
+              );
               const { data: modelsData } = yield* decodeModelsResponse(modelsResponse);
               const discoveredModels = modelsData.models.map(toServerProviderModel);
               const models = providerModelsFromSettings(
@@ -534,7 +538,10 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
                   args: PI_RPC_ARGS,
                   environment: processEnv,
                 });
-                const response = yield* rpc.request({ type: "get_commands" });
+                const response = yield* rpc.request(
+                  { type: "get_commands" },
+                  { timeout: PI_STARTUP_REQUEST_TIMEOUT },
+                );
                 const { data } = yield* decodeCommandsResponse(response);
                 const inventory = workspaceInventory(data.commands);
                 const base = yield* snapshot.getSnapshot;

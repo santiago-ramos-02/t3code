@@ -13,6 +13,8 @@ import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 
 const DEFAULT_REQUEST_TIMEOUT = Duration.seconds(30);
+// Pi loads installed packages and workspace extensions before answering the first RPC request.
+export const PI_STARTUP_REQUEST_TIMEOUT = Duration.seconds(90);
 const DEFAULT_MAX_RECORD_BYTES = 1024 * 1024;
 const DEFAULT_MAX_REMOTE_ERROR_CHARS = 2_048;
 const DEFAULT_MAX_MALFORMED_RECORD_EVENTS = 32;

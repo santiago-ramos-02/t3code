@@ -18,6 +18,7 @@ import {
   asRecord,
   makePiRpc,
   parsePiModelSlug,
+  PI_STARTUP_REQUEST_TIMEOUT,
   recordString,
   type PiRpcOptions,
   type PiRpcRecord,
@@ -377,6 +378,38 @@ describe("Pi RPC request routing", () => {
 
           expect(error.reason).toBe("request-timeout");
           expect(yield* client.pendingRequestCount).toBe(0);
+        }),
+      );
+    }).pipe(Effect.provide(TestClock.layer())),
+  );
+
+  it.effect("allows Pi startup to finish after the ordinary request deadline", () =>
+    Effect.gen(function* () {
+      yield* Effect.scoped(
+        Effect.gen(function* () {
+          const requestWritten = yield* Deferred.make<void>();
+          const stdout = yield* Queue.unbounded<Uint8Array>();
+          const client = yield* makeTestClient(
+            fakeProcessHandle({
+              stdout: Stream.fromQueue(stdout),
+              onWrite: (request) =>
+                Effect.gen(function* () {
+                  yield* Effect.sleep("35 seconds");
+                  yield* Queue.offer(stdout, jsonLine(responseFor(request)));
+                }).pipe(
+                  Effect.forkChild,
+                  Effect.andThen(Deferred.succeed(requestWritten, undefined)),
+                  Effect.asVoid,
+                ),
+            }),
+          );
+
+          const requestFiber = yield* client
+            .request({ type: "get_state" }, { timeout: PI_STARTUP_REQUEST_TIMEOUT })
+            .pipe(Effect.forkChild);
+          yield* Deferred.await(requestWritten);
+          yield* TestClock.adjust("35 seconds");
+          expect((yield* Fiber.join(requestFiber)).command).toBe("get_state");
         }),
       );
     }).pipe(Effect.provide(TestClock.layer())),
