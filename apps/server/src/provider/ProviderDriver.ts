@@ -26,6 +26,7 @@ import type {
   ProviderDriverKind,
   ProviderInstanceEnvironment,
   ProviderInstanceId,
+  PiGentleComposerState,
   PiGentleState,
   ServerProvider,
 } from "@t3tools/contracts";
@@ -76,6 +77,12 @@ export interface ProviderInstance {
     readonly read: (
       cwd?: string,
     ) => Effect.Effect<PiGentleState, import("./PiGentleSettings.ts").PiGentleSettingsError>;
+    readonly readComposer: (
+      cwd: string,
+    ) => Effect.Effect<
+      PiGentleComposerState,
+      import("./PiGentleSettings.ts").PiGentleSettingsError
+    >;
     readonly action: (
       action: import("./PiGentleSettings.ts").PiGentleAction,
     ) => Effect.Effect<PiGentleState, import("./PiGentleSettings.ts").PiGentleSettingsError>;

@@ -52,8 +52,12 @@ projects without a pin use Gentle AI's global model routing.
 
 For SDD, choose the project's execution mode, artifact store, delivery strategy,
 and review budget, then save. These choices are reused as suggestions. In a Pi
-thread for that project, run `/gentle:sdd-preflight` to confirm them for the
-session or `/gentle-sdd-init` to start SDD.
+thread for that project, use the action above the composer to start or continue
+SDD. T3 Code reads Gentle AI's current SDD status and prepares an editable
+message for the next step. Review it and send it when ready. The **Gentle AI**
+menu also shows status, prepares the SDD choices command, and offers Gentle's
+doctor command. Gentle AI confirms saved SDD choices at the start of each Pi
+session.
 
 ## T3 Code tools
 

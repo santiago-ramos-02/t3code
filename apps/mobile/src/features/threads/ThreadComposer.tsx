@@ -1,6 +1,14 @@
 import type { ComposerTextPaste } from "../../native/T3ComposerEditor.types";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
+import { gentleComposerAction } from "@t3tools/client-runtime/piGentleComposer";
+import { resolveProviderSlashCommandsForCwd } from "@t3tools/client-runtime/providerSkills";
+import {
+  isAtomCommandInterrupted,
+  squashAtomCommandFailure,
+} from "@t3tools/client-runtime/state/runtime";
 import { useAtomValue } from "@effect/atom-react";
+import type { PiGentleComposerState } from "@t3tools/contracts";
+import type { MenuAction } from "@react-native-menu/menu";
 import { clampFileAttachmentUploadBytes } from "@t3tools/client-runtime/state/attachments";
 import { pastedTextDisposition, replaceTextSelection } from "@t3tools/client-runtime/text-paste";
 import {
@@ -58,10 +66,13 @@ import {
 } from "../../state/use-composer-drafts";
 import type { ComposerDocumentAttachment } from "../../lib/composerContext";
 import { useProject } from "../../state/entities";
+import { serverEnvironment } from "../../state/server";
+import { useAtomCommand } from "../../state/use-atom-command";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 
 import { AppText as Text } from "../../components/AppText";
 import { ComposerAttachmentButton } from "../../components/ComposerAttachmentButton";
+import { ControlPillMenu } from "../../components/ControlPill";
 import {
   ComposerAttachmentStrip,
   ComposerAttachmentThumbnail,
@@ -153,6 +164,7 @@ export interface ThreadComposerProps {
   readonly onUpdateRuntimeMode: (runtimeMode: RuntimeMode) => void;
   readonly onUpdateInteractionMode: (interactionMode: ProviderInteractionMode) => void;
   readonly onExpandedChange?: (expanded: boolean) => void;
+  readonly onGentleControlsVisibilityChange?: (visible: boolean) => void;
   /** Fires on editor focus/blur; hosts use it to vet stale keyboard state. */
   readonly onEditorFocusChange?: (focused: boolean) => void;
 }
@@ -330,6 +342,109 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       ) ?? null
     );
   }, [props.serverConfig, props.selectedThread.modelSelection.instanceId]);
+  const gentleAvailable =
+    selectedProviderStatus?.driver === "pi" &&
+    props.projectCwd !== null &&
+    resolveProviderSlashCommandsForCwd(selectedProviderStatus, props.projectCwd).some(
+      (command) => command.name === "gentle:sdd-preflight",
+    );
+  const gentleKey = `${props.environmentId}:${props.selectedThread.id}:${props.selectedThread.latestTurn?.turnId ?? ""}:${currentModelSelection.instanceId}:${props.projectCwd ?? ""}`;
+  const readGentle = useAtomCommand(serverEnvironment.readPiGentleComposer, {
+    reportFailure: false,
+    reportDefect: false,
+  });
+  const [gentleLoaded, setGentleLoaded] = useState<{
+    key: string;
+    value: PiGentleComposerState;
+  } | null>(null);
+  const [gentleError, setGentleError] = useState<{ key: string; message: string } | null>(null);
+  const [gentleRefresh, setGentleRefresh] = useState(0);
+  const gentleIdle =
+    props.connectionState === "connected" &&
+    props.queueCount === 0 &&
+    !props.selectedThread.hasPendingApprovals &&
+    !props.selectedThread.hasPendingUserInput &&
+    props.selectedThread.session?.status !== "running" &&
+    props.selectedThread.session?.status !== "starting";
+  useEffect(() => {
+    if (!gentleAvailable || !gentleIdle || props.projectCwd === null) return;
+    let current = true;
+    void readGentle({
+      environmentId: props.environmentId,
+      input: { instanceId: currentModelSelection.instanceId, cwd: props.projectCwd },
+    }).then((result) => {
+      if (!current) return;
+      if (result._tag === "Success") {
+        setGentleLoaded({ key: gentleKey, value: result.value });
+        setGentleError(null);
+      } else if (!isAtomCommandInterrupted(result)) {
+        const failure = squashAtomCommandFailure(result);
+        setGentleLoaded(null);
+        setGentleError({
+          key: gentleKey,
+          message: failure instanceof Error ? failure.message : "Could not read Gentle AI status.",
+        });
+      }
+    });
+    return () => {
+      current = false;
+    };
+  }, [
+    currentModelSelection.instanceId,
+    gentleAvailable,
+    gentleIdle,
+    gentleKey,
+    gentleRefresh,
+    props.environmentId,
+    props.projectCwd,
+    readGentle,
+  ]);
+  const gentleStatus = gentleLoaded?.key === gentleKey ? gentleLoaded.value.sddStatus : null;
+  const gentleAction = gentleStatus ? gentleComposerAction(gentleStatus) : null;
+  const showGentleControls =
+    gentleAvailable &&
+    gentleIdle &&
+    ((gentleLoaded?.key === gentleKey && gentleLoaded.value.available) ||
+      gentleError?.key === gentleKey);
+  const showGentleStatus = () => {
+    const details = gentleStatus
+      ? [
+          `Change: ${gentleStatus.changeName ?? "No active change"}`,
+          `Next step: ${gentleAction?.label ?? gentleStatus.nextRecommended}`,
+          ...(gentleStatus.taskProgress.total > 0
+            ? [
+                `Tasks: ${gentleStatus.taskProgress.completed} of ${gentleStatus.taskProgress.total} complete`,
+              ]
+            : []),
+          ...(gentleStatus.nextRecommended === "sdd-new" ||
+          gentleStatus.nextRecommended === "archived"
+            ? []
+            : gentleStatus.blockedReasons),
+        ].join("\n")
+      : gentleError?.key === gentleKey
+        ? gentleError.message
+        : "SDD status is unavailable from this Gentle AI installation.";
+    Alert.alert("Gentle SDD status", details);
+  };
+  const prepareGentleDraft = (draft: string) => {
+    if (hasContent) return;
+    props.onChangeDraftMessage(draft);
+    requestAnimationFrame(() => inputRef.current?.focus());
+  };
+  const gentleMenuActions: MenuAction[] = [
+    { id: "status", title: "View SDD status" },
+    {
+      id: "choices",
+      title: "Edit SDD choices",
+      attributes: hasContent ? { disabled: true } : undefined,
+    },
+    {
+      id: "doctor",
+      title: "Run Gentle doctor",
+      attributes: hasContent ? { disabled: true } : undefined,
+    },
+    { id: "refresh", title: "Refresh status" },
+  ];
   const composerOwnerKey = scopedThreadKey(props.environmentId, props.selectedThread.id);
   const openDraftDocument = (attachment: ComposerDocumentAttachment) => {
     Keyboard.dismiss();
@@ -404,6 +519,12 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   const isVoiceInputPresented = voicePresentation.statusLabel !== null;
   // An open draft stays visible; only a collapsed composer becomes a voice strip.
   const isExpanded = isFocused || settingsSheetPresentation.keepsComposerExpanded;
+  const gentleControlsVisible = isExpanded && showGentleControls && !voiceInput.isBusy;
+  const { onGentleControlsVisibilityChange } = props;
+  useEffect(() => {
+    onGentleControlsVisibilityChange?.(gentleControlsVisible);
+    return () => onGentleControlsVisibilityChange?.(false);
+  }, [gentleControlsVisible, onGentleControlsVisibilityChange]);
   const showsCompactDictation = isVoiceInputPresented && !isExpanded;
   const isToolbarVisible = isExpanded || isVoiceInputPresented;
   const attachmentBlockReason = composerAttachmentUploadBlockReason({
@@ -672,6 +793,34 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
           <Pressable accessibilityRole="button" className="px-3 py-2" onPress={openSettings}>
             <Text className="text-xs text-foreground">Model unavailable. Open model settings.</Text>
           </Pressable>
+        ) : null}
+
+        {gentleControlsVisible ? (
+          <View className="flex-row items-center justify-end gap-1 px-2 pb-1">
+            {gentleAction && (gentleAction.draft === null || !hasContent) ? (
+              <ComposerInlineControl
+                label={gentleAction.label}
+                maxWidth={220}
+                showChevron={false}
+                onPress={() => {
+                  if (gentleAction.draft === null) showGentleStatus();
+                  else prepareGentleDraft(gentleAction.draft);
+                }}
+              />
+            ) : null}
+            <ControlPillMenu
+              actions={gentleMenuActions}
+              onPressAction={({ nativeEvent }) => {
+                if (nativeEvent.event === "status") showGentleStatus();
+                if (nativeEvent.event === "choices")
+                  prepareGentleDraft("/gentle:sdd-preflight --edit");
+                if (nativeEvent.event === "doctor") prepareGentleDraft("/gentle:doctor");
+                if (nativeEvent.event === "refresh") setGentleRefresh((value) => value + 1);
+              }}
+            >
+              <ComposerInlineControl label="Gentle AI" maxWidth={105} />
+            </ControlPillMenu>
+          </View>
         ) : null}
 
         <ComposerSurface

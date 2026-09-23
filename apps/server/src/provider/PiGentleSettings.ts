@@ -1,10 +1,13 @@
 import * as NodeCrypto from "node:crypto";
 import * as NodeOS from "node:os";
+import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import {
   PiGentleActionInput,
   PiGentleRouting,
   PiGentleRoutingEntry,
   PiGentleSddPreferences,
+  PiGentleSddStatus,
+  type PiGentleComposerState,
   type PiGentleState,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -64,6 +67,13 @@ const decodePackageSettings = Schema.decodeUnknownEffect(PiPackageSettings);
 const decodePin = Schema.decodeUnknownEffect(ProfilePin);
 const decodeSdd = Schema.decodeUnknownEffect(StoredSdd);
 const decodePreferences = Schema.decodeUnknownEffect(PiGentleSddPreferences);
+const decodeNativeSddStatus = Schema.decodeUnknownEffect(
+  Schema.Struct({
+    schemaName: Schema.Literal("gentle-ai.sdd-status"),
+    schemaVersion: Schema.Literal(2),
+    ...PiGentleSddStatus.fields,
+  }),
+);
 
 export class PiGentleSettingsError extends Schema.TaggedError<PiGentleSettingsError>()(
   "PiGentleSettingsError",
@@ -254,6 +264,44 @@ export function makePiGentleSettings(input: {
       );
     });
 
+  const readSddStatus = (cwd: string) =>
+    Effect.gen(function* () {
+      if (
+        environment.GENTLE_PI_GENTLE_AI_DEV_BINARY !== undefined ||
+        (yield* fileSystem.exists(path.join(configHome, "dev-binary.json")))
+      ) {
+        return null;
+      }
+      const platform = yield* HostProcessPlatform;
+      const packageHome = path.join(agentHome, "npm", "node_modules", "gentle-pi");
+      const manifest = yield* decodeManifest(
+        yield* readJson(path.join(packageHome, "package.json")),
+      );
+      const binary = path.join(
+        packageHome,
+        ".gentle-ai",
+        `v${manifest.version}`,
+        platform === "win32" ? "gentle-ai.exe" : "gentle-ai",
+      );
+      if (!(yield* fileSystem.exists(binary))) return null;
+      const output = yield* spawner
+        .string(
+          ChildProcess.make(binary, ["sdd-status", "--cwd", cwd, "--json"], {
+            cwd,
+            stdin: "ignore",
+            stderr: "ignore",
+          }),
+        )
+        .pipe(Effect.timeout("5 seconds"));
+      const status = yield* decodeNativeSddStatus(yield* decodeJson(output));
+      return {
+        changeName: status.changeName,
+        nextRecommended: status.nextRecommended,
+        blockedReasons: status.blockedReasons,
+        taskProgress: status.taskProgress,
+      } satisfies PiGentleSddStatus;
+    }).pipe(Effect.orElseSucceed(() => null));
+
   const read = (cwd?: string) =>
     Effect.gen(function* () {
       if (!(yield* installed))
@@ -288,6 +336,18 @@ export function makePiGentleSettings(input: {
             }
           : null,
       } satisfies PiGentleState;
+    }).pipe(Effect.mapError(toGentleError));
+
+  const readComposer = (cwd: string) =>
+    Effect.gen(function* () {
+      if (!(yield* installed))
+        return { available: false, sddStatus: null } satisfies PiGentleComposerState;
+      if (!path.isAbsolute(cwd))
+        return yield* new PiGentleSettingsError({ detail: "Choose an absolute project folder." });
+      return {
+        available: true,
+        sddStatus: yield* readSddStatus(cwd),
+      } satisfies PiGentleComposerState;
     }).pipe(Effect.mapError(toGentleError));
 
   const action = (command: PiGentleAction) =>
@@ -346,5 +406,5 @@ export function makePiGentleSettings(input: {
       return yield* read(command.cwd);
     }).pipe(Effect.mapError(toGentleError));
 
-  return { read, action };
+  return { read, readComposer, action };
 }

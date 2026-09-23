@@ -435,7 +435,10 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
           entry.message.text.trim().toLowerCase() !== "/compact"),
     ) ||
     (Boolean(props.loadEarlier) && props.selectedThread.latestUserMessageAt !== null);
-  const composerChrome = composerExpanded ? COMPOSER_EXPANDED_CHROME : COMPOSER_COLLAPSED_CHROME;
+  const [gentleControlsVisible, setGentleControlsVisible] = useState(false);
+  const composerChrome = composerExpanded
+    ? COMPOSER_EXPANDED_CHROME + (gentleControlsVisible ? 48 : 0)
+    : COMPOSER_COLLAPSED_CHROME;
   const composerOverlapHeight = composerChrome + composerBottomInset;
   // While a user-input request is pending, the questionnaire owns the
   // composer slot outright: expanded it is the full card, collapsed it is a
@@ -1108,6 +1111,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                   onUpdateRuntimeMode={props.onUpdateThreadRuntimeMode}
                   onUpdateInteractionMode={props.onUpdateThreadInteractionMode}
                   onExpandedChange={setComposerExpanded}
+                  onGentleControlsVisibilityChange={setGentleControlsVisible}
                   onEditorFocusChange={handleComposerFocusChange}
                 />
               </View>

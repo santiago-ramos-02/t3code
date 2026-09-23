@@ -13,7 +13,13 @@ import {
   ProviderSetupError,
   ProviderSetupInput,
 } from "./providerSetup.ts";
-import { PiGentleActionInput, PiGentleReadInput, PiGentleState } from "./piGentle.ts";
+import {
+  PiGentleActionInput,
+  PiGentleComposerReadInput,
+  PiGentleComposerState,
+  PiGentleReadInput,
+  PiGentleState,
+} from "./piGentle.ts";
 
 import { ExternalLauncherError, LaunchEditorInput } from "./editor.ts";
 import {
@@ -311,6 +317,7 @@ export const WS_METHODS = {
   providerInstallSubscribe: "provider.install.subscribe",
   providerInstallRemove: "provider.install.remove",
   providerPiGentleRead: "provider.piGentle.read",
+  providerPiGentleComposerRead: "provider.piGentle.composerRead",
   providerPiGentleAction: "provider.piGentle.action",
 
   // VCS methods
@@ -499,6 +506,12 @@ const WsServerUpdateProviderRpc = Rpc.make(WS_METHODS.serverUpdateProvider, {
 const WsProviderPiGentleReadRpc = Rpc.make(WS_METHODS.providerPiGentleRead, {
   payload: PiGentleReadInput,
   success: PiGentleState,
+  error: Schema.Union([ProviderSetupError, EnvironmentAuthorizationError]),
+});
+
+const WsProviderPiGentleComposerReadRpc = Rpc.make(WS_METHODS.providerPiGentleComposerRead, {
+  payload: PiGentleComposerReadInput,
+  success: PiGentleComposerState,
   error: Schema.Union([ProviderSetupError, EnvironmentAuthorizationError]),
 });
 
@@ -1412,6 +1425,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerRefreshProvidersRpc,
   WsServerUpdateProviderRpc,
   WsProviderPiGentleReadRpc,
+  WsProviderPiGentleComposerReadRpc,
   WsProviderPiGentleActionRpc,
   WsProviderConsumeResetCreditRpc,
   WsProviderAuthStartRpc,

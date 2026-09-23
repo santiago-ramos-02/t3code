@@ -2484,6 +2484,33 @@ const makeWsRpcLayer = (
             }),
             { "rpc.aggregate": "provider" },
           ),
+        [WS_METHODS.providerPiGentleComposerRead]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.providerPiGentleComposerRead,
+            Effect.gen(function* () {
+              const instance = yield* providerInstances.getInstance(input.instanceId);
+              const gentle = instance?.piGentle;
+              if (!gentle) {
+                return yield* new ProviderSetupError({
+                  instanceId: input.instanceId,
+                  operation: "pi-gentle-composer-read",
+                  detail: "This provider is not a Pi instance.",
+                });
+              }
+              return yield* gentle.readComposer(input.cwd).pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new ProviderSetupError({
+                      instanceId: input.instanceId,
+                      operation: "pi-gentle-composer-read",
+                      detail:
+                        cause instanceof Error ? cause.message : "Could not read Gentle AI status.",
+                    }),
+                ),
+              );
+            }),
+            { "rpc.aggregate": "provider" },
+          ),
         [WS_METHODS.providerPiGentleAction]: (input) =>
           observeRpcEffect(
             WS_METHODS.providerPiGentleAction,

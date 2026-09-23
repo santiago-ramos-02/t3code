@@ -248,6 +248,7 @@ import { resolveModelPickerSelectedModel } from "./ModelPickerContent";
 import { type ComposerCommandItem, ComposerCommandMenu } from "./ComposerCommandMenu";
 import { ComposerPendingApprovalActions } from "./ComposerPendingApprovalActions";
 import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
+import { GentleComposerActions } from "./GentleComposerActions";
 import { ComposerImageThumbnail } from "./ComposerImageThumbnail";
 import { ComposerPrimaryActions } from "./ComposerPrimaryActions";
 import { ComposerPendingApprovalPanel } from "./ComposerPendingApprovalPanel";
@@ -6393,6 +6394,26 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           />
         ) : null}
       </ComposerBanner.Dock>
+      {phase !== "running" &&
+      phase !== "connecting" &&
+      !isSendBusy &&
+      !isComposerApprovalState &&
+      pendingUserInputs.length === 0 &&
+      selectedProvider === "pi" &&
+      gitCwd !== null &&
+      selectedProviderSlashCommands.some((command) => command.name === "gentle:sdd-preflight") ? (
+        <GentleComposerActions
+          key={`${routeKind}:${activeThreadId ?? draftId ?? "new"}:${selectedInstanceId}:${gitCwd}`}
+          environmentId={environmentId}
+          instanceId={selectedInstanceId}
+          cwd={gitCwd}
+          allowDraftAction={!composerSendState.hasSendableContent}
+          onDraft={(draft) => {
+            if (composerSendState.hasSendableContent) return;
+            applyPromptReplacement(0, promptRef.current.length, draft);
+          }}
+        />
+      ) : null}
       <div className="relative">
         <ComposerSurface.Main
           ref={composerMainSurfaceRef}

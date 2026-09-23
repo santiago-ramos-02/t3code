@@ -56,6 +56,10 @@ it.layer(NodeServices.layer)("Pi Gentle settings", (it) => {
           profiles: [],
           project: { pinned: null },
         });
+        expect(yield* gentle.readComposer(cwd)).toMatchObject({
+          available: true,
+          sddStatus: null,
+        });
 
         const created = yield* gentle.action({ type: "create", name: "review-fast", cwd });
         expect(created.project).toMatchObject({ pinned: null, pinAvailable: true });

@@ -19,6 +19,42 @@ export const PiGentleSddPreferences = Schema.Struct({
 });
 export type PiGentleSddPreferences = typeof PiGentleSddPreferences.Type;
 
+export const PiGentleSddStatus = Schema.Struct({
+  changeName: Schema.NullOr(Schema.String),
+  nextRecommended: Schema.Literals([
+    "apply",
+    "verify",
+    "remediate",
+    "archive",
+    "archived",
+    "resolve-blockers",
+    "sdd-new",
+    "select-change",
+    "propose",
+    "spec",
+    "design",
+    "tasks",
+  ]),
+  blockedReasons: Schema.Array(Schema.String),
+  taskProgress: Schema.Struct({
+    total: Schema.Int,
+    completed: Schema.Int,
+    pending: Schema.Int,
+  }),
+});
+export type PiGentleSddStatus = typeof PiGentleSddStatus.Type;
+
+export const PiGentleComposerState = Schema.Struct({
+  available: Schema.Boolean,
+  sddStatus: Schema.NullOr(PiGentleSddStatus),
+});
+export type PiGentleComposerState = typeof PiGentleComposerState.Type;
+
+export const PiGentleComposerReadInput = Schema.Struct({
+  instanceId: ProviderInstanceId,
+  cwd: TrimmedNonEmptyString,
+});
+
 export const PiGentleState = Schema.Struct({
   available: Schema.Boolean,
   profiles: Schema.Array(Schema.Struct({ name: Schema.String, routing: PiGentleRouting })),
