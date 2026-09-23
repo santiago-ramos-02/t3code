@@ -296,8 +296,14 @@ export function makePiGentleSettings(input: {
       const status = yield* decodeNativeSddStatus(yield* decodeJson(output));
       return {
         changeName: status.changeName,
+        artifactStore: status.artifactStore,
         nextRecommended: status.nextRecommended,
         blockedReasons: status.blockedReasons,
+        dependencies: status.dependencies,
+        actionContext: status.actionContext,
+        ...(status.remediationState === undefined
+          ? {}
+          : { remediationState: status.remediationState }),
         taskProgress: status.taskProgress,
       } satisfies PiGentleSddStatus;
     }).pipe(Effect.orElseSucceed(() => null));
@@ -341,12 +347,21 @@ export function makePiGentleSettings(input: {
   const readComposer = (cwd: string) =>
     Effect.gen(function* () {
       if (!(yield* installed))
-        return { available: false, sddStatus: null } satisfies PiGentleComposerState;
+        return {
+          available: false,
+          sddStatus: null,
+          projectInitNeeded: false,
+        } satisfies PiGentleComposerState;
       if (!path.isAbsolute(cwd))
         return yield* new PiGentleSettingsError({ detail: "Choose an absolute project folder." });
+      const sddStatus = yield* readSddStatus(cwd);
       return {
         available: true,
-        sddStatus: yield* readSddStatus(cwd),
+        sddStatus,
+        projectInitNeeded:
+          sddStatus !== null &&
+          (sddStatus.artifactStore === "openspec" || sddStatus.artifactStore === "hybrid") &&
+          !(yield* fileSystem.exists(path.join(cwd, "openspec", "config.yaml"))),
       } satisfies PiGentleComposerState;
     }).pipe(Effect.mapError(toGentleError));
 

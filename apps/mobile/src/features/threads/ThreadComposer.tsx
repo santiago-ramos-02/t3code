@@ -40,7 +40,16 @@ import {
   useState,
   type RefObject,
 } from "react";
-import { Alert, Keyboard, Platform, Pressable, View, type ViewStyle } from "react-native";
+import {
+  Alert,
+  Keyboard,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  View,
+  type ViewStyle,
+} from "react-native";
 import { FilePreviewModal, type FilePreviewSource } from "../../components/FilePreviewModal";
 import {
   composerAttachmentUploadBlockReason,
@@ -70,7 +79,7 @@ import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 
-import { AppText as Text } from "../../components/AppText";
+import { AppText as Text, AppTextInput as TextInput } from "../../components/AppText";
 import { ComposerAttachmentButton } from "../../components/ComposerAttachmentButton";
 import { ControlPillMenu } from "../../components/ControlPill";
 import {
@@ -157,7 +166,7 @@ export interface ThreadComposerProps {
   readonly onNativePasteText: (paste: ComposerTextPaste) => Promise<void>;
   readonly onRemoveDraftImage: (imageId: string) => void;
   readonly onStopThread: () => void;
-  readonly onSendMessage: () => Promise<MessageId | null>;
+  readonly onSendMessage: (directGentlePrompt?: string) => Promise<MessageId | null>;
   /** `/usage-limits` resolves locally; the host decides where the report shows. Null clears it. */
   readonly onShowUsageLimits: (report: UsageLimitsReport | null) => void;
   readonly onUpdateModelSelection: (modelSelection: ModelSelection) => void;
@@ -342,12 +351,13 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       ) ?? null
     );
   }, [props.serverConfig, props.selectedThread.modelSelection.instanceId]);
-  const gentleAvailable =
-    selectedProviderStatus?.driver === "pi" &&
-    props.projectCwd !== null &&
-    resolveProviderSlashCommandsForCwd(selectedProviderStatus, props.projectCwd).some(
-      (command) => command.name === "gentle:sdd-preflight",
-    );
+  const gentleCommands =
+    selectedProviderStatus?.driver === "pi" && props.projectCwd !== null
+      ? resolveProviderSlashCommandsForCwd(selectedProviderStatus, props.projectCwd)
+      : [];
+  const gentleAvailable = gentleCommands.some((command) => command.name === "gentle:sdd-preflight");
+  const canInitializeGentle = gentleCommands.some((command) => command.name === "gentle-sdd-init");
+  const canRunGentleDoctor = gentleCommands.some((command) => command.name === "gentle:doctor");
   const gentleKey = `${props.environmentId}:${props.selectedThread.id}:${props.selectedThread.latestTurn?.turnId ?? ""}:${currentModelSelection.instanceId}:${props.projectCwd ?? ""}`;
   const readGentle = useAtomCommand(serverEnvironment.readPiGentleComposer, {
     reportFailure: false,
@@ -359,6 +369,8 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   } | null>(null);
   const [gentleError, setGentleError] = useState<{ key: string; message: string } | null>(null);
   const [gentleRefresh, setGentleRefresh] = useState(0);
+  const [newChangeOpen, setNewChangeOpen] = useState(false);
+  const [newChangeGoal, setNewChangeGoal] = useState("");
   const gentleIdle =
     props.connectionState === "connected" &&
     props.queueCount === 0 &&
@@ -400,7 +412,10 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     readGentle,
   ]);
   const gentleStatus = gentleLoaded?.key === gentleKey ? gentleLoaded.value.sddStatus : null;
-  const gentleAction = gentleStatus ? gentleComposerAction(gentleStatus) : null;
+  const gentleAction =
+    gentleLoaded?.key === gentleKey
+      ? gentleComposerAction(gentleLoaded.value, canInitializeGentle)
+      : null;
   const showGentleControls =
     gentleAvailable &&
     gentleIdle &&
@@ -411,6 +426,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       ? [
           `Change: ${gentleStatus.changeName ?? "No active change"}`,
           `Next step: ${gentleAction?.label ?? gentleStatus.nextRecommended}`,
+          ...(gentleAction?.reason ? [gentleAction.reason] : []),
           ...(gentleStatus.taskProgress.total > 0
             ? [
                 `Tasks: ${gentleStatus.taskProgress.completed} of ${gentleStatus.taskProgress.total} complete`,
@@ -426,24 +442,26 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
         : "SDD status is unavailable from this Gentle AI installation.";
     Alert.alert("Gentle SDD status", details);
   };
-  const prepareGentleDraft = (draft: string) => {
-    if (hasContent) return;
-    props.onChangeDraftMessage(draft);
-    requestAnimationFrame(() => inputRef.current?.focus());
-  };
   const gentleMenuActions: MenuAction[] = [
-    { id: "status", title: "View SDD status" },
+    { id: "status", title: "View SDD status", image: "doc.text" },
     {
       id: "choices",
-      title: "Edit SDD choices",
-      attributes: hasContent ? { disabled: true } : undefined,
+      title:
+        gentleLoaded?.key === gentleKey && gentleLoaded.value.projectInitNeeded
+          ? "Choose SDD preferences"
+          : "Change SDD preferences",
+      image: "slider.horizontal.3",
     },
-    {
-      id: "doctor",
-      title: "Run Gentle doctor",
-      attributes: hasContent ? { disabled: true } : undefined,
-    },
-    { id: "refresh", title: "Refresh status" },
+    ...(canRunGentleDoctor && (gentleStatus === null || gentleError?.key === gentleKey)
+      ? [
+          {
+            id: "doctor",
+            title: "Run Gentle doctor",
+            image: "stethoscope",
+          },
+        ]
+      : []),
+    { id: "refresh", title: "Refresh status", image: "arrow.clockwise" },
   ];
   const composerOwnerKey = scopedThreadKey(props.environmentId, props.selectedThread.id);
   const openDraftDocument = (attachment: ComposerDocumentAttachment) => {
@@ -593,51 +611,56 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     }
     onEditorFocusChange?.(false);
   }, [onEditorFocusChange, onExpandedChange, settingsSheetPresentation.keepsComposerExpanded]);
-  const handleSend = useCallback(async () => {
-    if (voiceInput.blocksSubmission || pendingPastedTextAttachmentCountRef.current > 0) return;
-    // Typed out in full rather than picked from the menu. Attachments mean the
-    // user is sending a prompt, so those go through as usual.
-    if (
-      usageLimitsOffered &&
-      isUsageLimitsCommand(props.draftMessage) &&
-      props.draftAttachments.length === 0
-    ) {
-      if (openUsageLimits()) onChangeDraftMessage("");
-      return;
-    }
-    const threadKey = scopedThreadKey(props.environmentId, props.selectedThread.id);
-    if (inFlightThreadIdsRef.current.has(threadKey)) return;
-    inFlightThreadIdsRef.current.add(threadKey);
-    try {
-      const messageId = await onSendMessage();
-      if (messageId === null) {
+  const handleSend = useCallback(
+    async (directGentlePrompt?: string) => {
+      if (voiceInput.blocksSubmission || pendingPastedTextAttachmentCountRef.current > 0) return;
+      // Typed out in full rather than picked from the menu. Attachments mean the
+      // user is sending a prompt, so those go through as usual.
+      if (
+        !directGentlePrompt &&
+        usageLimitsOffered &&
+        isUsageLimitsCommand(props.draftMessage) &&
+        props.draftAttachments.length === 0
+      ) {
+        if (openUsageLimits()) onChangeDraftMessage("");
         return;
       }
-      // Sending a prompt starts agent work: arm the lock-screen card while the
-      // app is foregrounded and the activity token can be registered. Armed
-      // after the send so its preference read and native Activity start don't
-      // contend with the queued-message feedback on the tap frame.
-      armAgentAwarenessLiveActivityForLocalWork({
-        environmentId: props.environmentId,
-        threadTitle: props.selectedThread.title,
-        projectTitle: props.environmentLabel ?? "T3 Code",
-      });
-    } finally {
-      inFlightThreadIdsRef.current.delete(threadKey);
-    }
-  }, [
-    props.draftMessage,
-    props.draftAttachments.length,
-    onChangeDraftMessage,
-    openUsageLimits,
-    usageLimitsOffered,
-    onSendMessage,
-    props.environmentId,
-    props.environmentLabel,
-    props.selectedThread.id,
-    props.selectedThread.title,
-    voiceInput.blocksSubmission,
-  ]);
+      const threadKey = scopedThreadKey(props.environmentId, props.selectedThread.id);
+      if (inFlightThreadIdsRef.current.has(threadKey)) return;
+      inFlightThreadIdsRef.current.add(threadKey);
+      try {
+        const messageId = await onSendMessage(directGentlePrompt);
+        if (messageId === null) {
+          return;
+        }
+        // Sending a prompt starts agent work: arm the lock-screen card while the
+        // app is foregrounded and the activity token can be registered. Armed
+        // after the send so its preference read and native Activity start don't
+        // contend with the queued-message feedback on the tap frame.
+        armAgentAwarenessLiveActivityForLocalWork({
+          environmentId: props.environmentId,
+          threadTitle: props.selectedThread.title,
+          projectTitle: props.environmentLabel ?? "T3 Code",
+        });
+        return messageId;
+      } finally {
+        inFlightThreadIdsRef.current.delete(threadKey);
+      }
+    },
+    [
+      props.draftMessage,
+      props.draftAttachments.length,
+      onChangeDraftMessage,
+      openUsageLimits,
+      usageLimitsOffered,
+      onSendMessage,
+      props.environmentId,
+      props.environmentLabel,
+      props.selectedThread.id,
+      props.selectedThread.title,
+      voiceInput.blocksSubmission,
+    ],
+  );
 
   // ── Model menu ───────────────────────────────────────────
   const modelOptions = useMemo(
@@ -797,14 +820,26 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
 
         {gentleControlsVisible ? (
           <View className="flex-row items-center justify-end gap-1 px-2 pb-1">
-            {gentleAction && (gentleAction.draft === null || !hasContent) ? (
+            {gentleAction ? (
               <ComposerInlineControl
+                icon={
+                  gentleAction.kind === "setup"
+                    ? "hammer"
+                    : gentleAction.kind === "start"
+                      ? "plus"
+                      : gentleAction.kind === "continue"
+                        ? "doc.text"
+                        : gentleAction.kind === "select-change"
+                          ? "magnifyingglass"
+                          : "exclamationmark.circle"
+                }
                 label={gentleAction.label}
                 maxWidth={220}
                 showChevron={false}
                 onPress={() => {
-                  if (gentleAction.draft === null) showGentleStatus();
-                  else prepareGentleDraft(gentleAction.draft);
+                  if (gentleAction.kind === "start") setNewChangeOpen(true);
+                  else if (gentleAction.prompt === null) showGentleStatus();
+                  else void handleSend(gentleAction.prompt);
                 }}
               />
             ) : null}
@@ -813,8 +848,8 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
               onPressAction={({ nativeEvent }) => {
                 if (nativeEvent.event === "status") showGentleStatus();
                 if (nativeEvent.event === "choices")
-                  prepareGentleDraft("/gentle:sdd-preflight --edit");
-                if (nativeEvent.event === "doctor") prepareGentleDraft("/gentle:doctor");
+                  void handleSend("/gentle:sdd-preflight --edit");
+                if (nativeEvent.event === "doctor") void handleSend("/gentle:doctor");
                 if (nativeEvent.event === "refresh") setGentleRefresh((value) => value + 1);
               }}
             >
@@ -1152,6 +1187,56 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
         </ComposerSurface>
       </Animated.View>
 
+      <Modal
+        visible={newChangeOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setNewChangeOpen(false)}
+      >
+        <KeyboardAvoidingView
+          className="flex-1 items-center justify-center bg-backdrop px-6"
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+        >
+          <View className="w-full max-w-md gap-4 rounded-3xl bg-screen p-6">
+            <Text accessibilityRole="header" className="text-xl font-t3-semibold">
+              New SDD change
+            </Text>
+            <TextInput
+              autoFocus
+              accessibilityLabel="Change goal"
+              className="min-h-12 rounded-xl bg-subtle px-3 text-base text-foreground"
+              placeholder="What do you want to build?"
+              value={newChangeGoal}
+              onChangeText={setNewChangeGoal}
+              returnKeyType="done"
+            />
+            <View className="flex-row justify-end gap-4">
+              <Pressable
+                accessibilityRole="button"
+                className="min-h-11 justify-center"
+                onPress={() => setNewChangeOpen(false)}
+              >
+                <Text>Cancel</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityState={{ disabled: !newChangeGoal.trim() }}
+                className="min-h-11 justify-center"
+                disabled={!newChangeGoal.trim()}
+                onPress={() => {
+                  void handleSend(`Use Gentle SDD to ${newChangeGoal.trim()}`).then((messageId) => {
+                    if (messageId === undefined || messageId === null) return;
+                    setNewChangeGoal("");
+                    setNewChangeOpen(false);
+                  });
+                }}
+              >
+                <Text className="font-t3-semibold">Start change</Text>
+              </Pressable>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
       <VideoPreviewModal source={previewVideo} onRequestClose={closePreview} />
       <FilePreviewModal source={previewFile} onRequestClose={closePreview} />
     </Animated.View>

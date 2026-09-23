@@ -1443,6 +1443,7 @@ export interface ChatComposerProps {
   // Callbacks
   onCompactContext: () => void;
   onSend: (e?: { preventDefault: () => void }, intent?: ComposerSubmissionIntent) => void;
+  onRunGentleAction: (prompt: string) => void;
   onInterrupt: () => void;
   onImplementPlanInNewThread: () => void;
   onRespondToApproval: (
@@ -1559,6 +1560,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     onPageScrollRelease,
     onCompactContext,
     onSend,
+    onRunGentleAction,
     onInterrupt,
     onImplementPlanInNewThread,
     onRespondToApproval,
@@ -6403,15 +6405,17 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       gitCwd !== null &&
       selectedProviderSlashCommands.some((command) => command.name === "gentle:sdd-preflight") ? (
         <GentleComposerActions
-          key={`${routeKind}:${activeThreadId ?? draftId ?? "new"}:${selectedInstanceId}:${gitCwd}`}
+          key={`${routeKind}:${activeThreadId ?? draftId ?? "new"}:${activeThread?.latestTurn?.turnId ?? ""}:${activeThread?.latestTurn?.completedAt ?? ""}:${selectedInstanceId}:${gitCwd}`}
           environmentId={environmentId}
           instanceId={selectedInstanceId}
           cwd={gitCwd}
-          allowDraftAction={!composerSendState.hasSendableContent}
-          onDraft={(draft) => {
-            if (composerSendState.hasSendableContent) return;
-            applyPromptReplacement(0, promptRef.current.length, draft);
-          }}
+          onRun={onRunGentleAction}
+          canInitialize={selectedProviderSlashCommands.some(
+            (command) => command.name === "gentle-sdd-init",
+          )}
+          canRunDoctor={selectedProviderSlashCommands.some(
+            (command) => command.name === "gentle:doctor",
+          )}
         />
       ) : null}
       <div className="relative">

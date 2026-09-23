@@ -7299,6 +7299,7 @@ export default function ChatView(props: ChatViewProps) {
     },
     /** A queued message being sent now instead of the live composer draft. */
     queuedMessage?: QueuedComposerMessage,
+    directGentlePrompt?: string,
   ) => {
     e?.preventDefault();
     // Typed out in full rather than picked from the menu. Attachments or contexts
@@ -7306,6 +7307,7 @@ export default function ChatView(props: ChatViewProps) {
     if (
       usageLimitsOffered &&
       usageLimitsKey !== null &&
+      !directGentlePrompt &&
       !directAnnotation &&
       !queuedMessage &&
       !composerHasNonPromptContent &&
@@ -7383,7 +7385,8 @@ export default function ChatView(props: ChatViewProps) {
       notifyDirectAnnotationAttached();
       return;
     }
-    const multipleModelSelections = queuedMessage ? null : sendCtx.multipleModelSelections;
+    const multipleModelSelections =
+      queuedMessage || directGentlePrompt ? null : sendCtx.multipleModelSelections;
     if (
       multipleModelSelections !== null &&
       serverConfig?.environment.capabilities.requiredWorktreeBootstrap !== true
@@ -7414,7 +7417,9 @@ export default function ChatView(props: ChatViewProps) {
       terminalContexts: composerTerminalContexts,
       previewAnnotations: sendContextPreviewAnnotations,
       reviewComments: composerReviewComments,
-    } = queuedMessage ?? sendCtx;
+    } = directGentlePrompt
+      ? { images: [], files: [], terminalContexts: [], previewAnnotations: [], reviewComments: [] }
+      : (queuedMessage ?? sendCtx);
     const {
       selectedProvider: ctxSelectedProvider,
       selectedModel: ctxSelectedModel,
@@ -7458,13 +7463,15 @@ export default function ChatView(props: ChatViewProps) {
         : sendContextPreviewAnnotations;
     // A direct "send annotation" writes the draft and sends in the same tick; the reference
     // must be in the text now, not after the next render.
-    const promptForSend = queuedMessage
-      ? queuedMessage.prompt
-      : directAnnotation
-        ? ensureInlineContextReferences(promptRef.current, [
-            previewAnnotationContextReference(directAnnotation.annotation),
-          ])
-        : promptRef.current;
+    const promptForSend =
+      directGentlePrompt ??
+      (queuedMessage
+        ? queuedMessage.prompt
+        : directAnnotation
+          ? ensureInlineContextReferences(promptRef.current, [
+              previewAnnotationContextReference(directAnnotation.annotation),
+            ])
+          : promptRef.current);
     const {
       trimmedPrompt: trimmed,
       sendableTerminalContexts: sendableComposerTerminalContexts,
@@ -7536,6 +7543,7 @@ export default function ChatView(props: ChatViewProps) {
     }
     if (
       !directAnnotation &&
+      !directGentlePrompt &&
       !queuedMessage &&
       sendInteractionModeEnabled &&
       showPlanFollowUpPrompt &&
@@ -7601,6 +7609,7 @@ export default function ChatView(props: ChatViewProps) {
     // Providers without the legacy toggle receive their native commands unchanged.
     const standaloneSlashCommand =
       sendInteractionModeEnabled &&
+      !directGentlePrompt &&
       composerImages.length === 0 &&
       composerFiles.length === 0 &&
       sendableComposerTerminalContexts.length === 0 &&
@@ -8281,7 +8290,7 @@ export default function ChatView(props: ChatViewProps) {
         }),
       );
     }
-    if (!queuedMessage) {
+    if (!queuedMessage && !directGentlePrompt) {
       promptRef.current = "";
       clearComposerDraftContent(composerDraftTarget);
       composerRef.current?.resetCursorState();
@@ -8537,6 +8546,10 @@ export default function ChatView(props: ChatViewProps) {
             images: queuedMessage.images.map(cloneComposerImageForRetry),
           });
         }
+      } else if (directGentlePrompt) {
+        setOptimisticUserMessages((existing) =>
+          existing.filter((message) => message.id !== messageIdForSend),
+        );
       } else if (
         backgroundDraftOpened
           ? !composerDraftHasUserContent(
@@ -10169,6 +10182,9 @@ export default function ChatView(props: ChatViewProps) {
                             onPageScrollRelease={onComposerPageScrollRelease}
                             onCompactContext={onCompactContext}
                             onSend={onSend}
+                            onRunGentleAction={(prompt) => {
+                              void onSend(undefined, "foreground", undefined, undefined, prompt);
+                            }}
                             onInterrupt={onInterrupt}
                             onImplementPlanInNewThread={onImplementPlanInNewThread}
                             onRespondToApproval={onRespondToApproval}

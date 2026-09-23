@@ -59,6 +59,7 @@ it.layer(NodeServices.layer)("Pi Gentle settings", (it) => {
         expect(yield* gentle.readComposer(cwd)).toMatchObject({
           available: true,
           sddStatus: null,
+          projectInitNeeded: false,
         });
 
         const created = yield* gentle.action({ type: "create", name: "review-fast", cwd });

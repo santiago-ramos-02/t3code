@@ -21,6 +21,7 @@ export type PiGentleSddPreferences = typeof PiGentleSddPreferences.Type;
 
 export const PiGentleSddStatus = Schema.Struct({
   changeName: Schema.NullOr(Schema.String),
+  artifactStore: Schema.Literals(["openspec", "engram", "hybrid", "none"]),
   nextRecommended: Schema.Literals([
     "apply",
     "verify",
@@ -36,6 +37,26 @@ export const PiGentleSddStatus = Schema.Struct({
     "tasks",
   ]),
   blockedReasons: Schema.Array(Schema.String),
+  dependencies: Schema.Struct({
+    proposal: Schema.Literals(["blocked", "ready", "all_done"]),
+    specs: Schema.Literals(["blocked", "ready", "all_done"]),
+    design: Schema.Literals(["blocked", "ready", "all_done"]),
+    tasks: Schema.Literals(["blocked", "ready", "all_done"]),
+    apply: Schema.Literals(["blocked", "ready", "all_done"]),
+    verify: Schema.Literals(["blocked", "ready", "all_done"]),
+    archive: Schema.Literals(["blocked", "ready", "all_done"]),
+  }),
+  actionContext: Schema.Struct({
+    mode: Schema.Literals(["repo-local", "workspace-planning"]),
+    allowedEditRoots: Schema.Array(Schema.String),
+  }),
+  remediationState: Schema.optionalKey(
+    Schema.Struct({
+      required: Schema.Boolean,
+      complete: Schema.Boolean,
+      failedEvidenceRevision: Schema.String,
+    }),
+  ),
   taskProgress: Schema.Struct({
     total: Schema.Int,
     completed: Schema.Int,
@@ -47,6 +68,7 @@ export type PiGentleSddStatus = typeof PiGentleSddStatus.Type;
 export const PiGentleComposerState = Schema.Struct({
   available: Schema.Boolean,
   sddStatus: Schema.NullOr(PiGentleSddStatus),
+  projectInitNeeded: Schema.Boolean,
 });
 export type PiGentleComposerState = typeof PiGentleComposerState.Type;
 
