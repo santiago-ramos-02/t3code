@@ -1,5 +1,6 @@
 import { worktreeSetupAgentStarted } from "@t3tools/client-runtime/worktree-setup";
 export { worktreeSetupAgentStarted } from "@t3tools/client-runtime/worktree-setup";
+import { finalAssistantMessageIds } from "@t3tools/client-runtime/state/final-assistant-messages";
 import * as Equal from "effect/Equal";
 import { shallow } from "zustand/vanilla/shallow";
 import { renderCodexDirectivesForCopy } from "@t3tools/client-runtime/codex-markdown-directives";
@@ -971,10 +972,12 @@ export function deriveMessagesTimelineRows(input: {
       : {},
   });
   const nextRows: MessagesTimelineRow[] = [];
-  const durationStartByMessageId = computeMessageDurationStart(
-    input.timelineEntries.flatMap((entry) => (entry.kind === "message" ? [entry.message] : [])),
+  const messages = input.timelineEntries.flatMap((entry) =>
+    entry.kind === "message" ? [entry.message] : [],
   );
+  const durationStartByMessageId = computeMessageDurationStart(messages);
   const terminalAssistantMessageIds = deriveTerminalAssistantMessageIds(input.timelineEntries);
+  const finalMessageIds = finalAssistantMessageIds(messages);
   const unsettledTurnId = deriveUnsettledTurnId(
     input.latestTurn ?? null,
     input.runningTurnId ?? null,
@@ -1368,7 +1371,7 @@ export function deriveMessagesTimelineRows(input: {
     // settles so commentary doesn't flash timestamps mid-work.
     const showAssistantMeta =
       timelineEntry.message.role === "assistant" &&
-      terminalAssistantMessageIds.has(timelineEntry.message.id) &&
+      finalMessageIds.has(timelineEntry.message.id) &&
       !assistantResponseStillInProgress;
 
     nextRows.push({

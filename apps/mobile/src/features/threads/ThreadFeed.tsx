@@ -30,6 +30,7 @@ import {
   type CodexArtifactTemplate,
 } from "@t3tools/client-runtime/codex-artifact-templates";
 import { resolveAssetUrl } from "@t3tools/client-runtime/state/assets";
+import { finalAssistantMessageIds } from "@t3tools/client-runtime/state/final-assistant-messages";
 import { formatAttachmentSize } from "@t3tools/client-runtime/state/attachments";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import {
@@ -2496,13 +2497,9 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     [presentedFeed, props.anchorMessageId, anchorTopInset],
   );
   const terminalAssistantMessageIds = useMemo(() => {
-    const terminalIdsByTurn = new Map<TurnId, string>();
-    for (const entry of props.feed) {
-      if (entry.type === "message" && entry.message.role === "assistant" && entry.message.turnId) {
-        terminalIdsByTurn.set(entry.message.turnId, entry.message.id);
-      }
-    }
-    return new Set(terminalIdsByTurn.values());
+    return finalAssistantMessageIds(
+      props.feed.flatMap((entry) => (entry.type === "message" ? [entry.message] : [])),
+    );
   }, [props.feed]);
   useEffect(() => {
     const previous = previousLatestTurnRef.current;

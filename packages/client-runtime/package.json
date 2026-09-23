@@ -167,6 +167,10 @@
       "types": "./src/state/providerInstanceDisplay.ts",
       "default": "./src/state/providerInstanceDisplay.ts"
     },
+    "./state/final-assistant-messages": {
+      "types": "./src/state/finalAssistantMessages.ts",
+      "default": "./src/state/finalAssistantMessages.ts"
+    },
     "./state/pull-requests": {
       "types": "./src/state/pullRequests.ts",
       "default": "./src/state/pullRequests.ts"

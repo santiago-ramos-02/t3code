@@ -2697,6 +2697,49 @@ describe("deriveMessagesTimelineRows", () => {
     expect(rows.some((row) => row.kind === "thinking")).toBe(false);
   });
 
+  it("keeps the follow-up reply final when Pi continues without another prompt", () => {
+    const rows = deriveMessagesTimelineRows({
+      timelineEntries: [
+        {
+          id: "prompt",
+          kind: "message",
+          createdAt: "2026-01-01T00:00:00Z",
+          message: {
+            id: "prompt" as never,
+            role: "user",
+            text: "Investigate the model",
+            turnId: null,
+            createdAt: "2026-01-01T00:00:00Z",
+            updatedAt: "2026-01-01T00:00:00Z",
+            streaming: false,
+          },
+        },
+        reasoningEntry("first-thought", "2026-01-01T00:00:01Z", "first-turn"),
+        toolEntry("first-tool", "2026-01-01T00:00:02Z", "first-turn"),
+        answerEntry("first-reply", "2026-01-01T00:00:03Z", "first-turn"),
+        reasoningEntry("follow-up-thought", "2026-01-01T00:03:01Z", "follow-up-turn"),
+        answerEntry("follow-up-reply", "2026-01-01T00:03:02Z", "follow-up-turn"),
+      ],
+      isWorking: false,
+      activeTurnStartedAt: null,
+      turnDiffSummaries: [],
+      supportsConversationRollback: false,
+    });
+
+    expect(rows.find((row) => row.id === "first-reply")).toMatchObject({
+      kind: "message",
+      showAssistantMeta: false,
+      showAssistantCopyButton: false,
+    });
+    expect(rows.find((row) => row.id === "follow-up-reply")).toMatchObject({
+      kind: "message",
+      showAssistantMeta: true,
+      showAssistantCopyButton: true,
+    });
+    expect(rows.some((row) => row.id === "turn-fold:first-turn")).toBe(true);
+    expect(rows.some((row) => row.id === "activity-group:follow-up-thought")).toBe(true);
+  });
+
   it("keeps an actually running tool in the shared activity row", () => {
     const rows = deriveMessagesTimelineRows({
       timelineEntries: [
