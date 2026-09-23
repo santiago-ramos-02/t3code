@@ -610,6 +610,8 @@ const taskAgentLinkageFields = {
   outputFile: Schema.optional(TrimmedNonEmptyStringSchema),
   /** Codex agent hierarchy path, e.g. "/root/marlow". */
   agentPath: Schema.optional(TrimmedNonEmptyStringSchema),
+  /** Identifies subagent activity emitted by Gentle AI in Pi. */
+  taskSource: Schema.optional(Schema.Literal("gentle-pi")),
   /**
    * Set on provider-synthesized child-agent events (Codex) whose activity
    * belongs in the Agents surface, never the parent timeline.
@@ -646,6 +648,14 @@ const TaskProgressPayload = Schema.Struct({
   usage: Schema.optional(Schema.Unknown),
   typedUsage: Schema.optional(RuntimeTaskUsage),
   lastToolName: Schema.optional(TrimmedNonEmptyStringSchema),
+  recentThread: Schema.optional(
+    Schema.Array(
+      Schema.Union([
+        Schema.Struct({ kind: Schema.Literals(["text", "thinking", "note"]), text: Schema.String }),
+        Schema.Struct({ kind: Schema.Literal("tool"), name: Schema.String, output: Schema.String }),
+      ]),
+    ),
+  ),
   /** Present on synthesized member/child progress rows that carry state. */
   status: Schema.optional(RuntimeTaskStatus),
   error: Schema.optional(TrimmedNonEmptyStringSchema),

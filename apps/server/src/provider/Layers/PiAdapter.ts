@@ -4,6 +4,7 @@ import {
   ProviderDriverKind,
   RuntimeItemId,
   RuntimeRequestId,
+  RuntimeTaskId,
   TurnId,
   TrimmedNonEmptyString,
   isProviderSendTurnSupportedImageMimeType,
@@ -495,8 +496,10 @@ const NonBlockingExtensionUiSchema = Schema.Union([
   }),
   Schema.Struct({
     type: Schema.Literal("extension_ui_request"),
-    id: Schema.String,
+    id: Schema.optionalKey(Schema.String),
     method: Schema.Literal("setWidget"),
+    widgetKey: Schema.optionalKey(Schema.String),
+    widgetLines: Schema.optionalKey(Schema.Array(Schema.String)),
   }),
   Schema.Struct({
     type: Schema.Literal("extension_ui_request"),
@@ -560,6 +563,49 @@ const decodeStateResponse = Schema.decodeUnknownEffect(StateResponseSchema);
 const decodeForkResponse = Schema.decodeUnknownEffect(ForkResponseSchema);
 const decodeEntriesResponse = Schema.decodeUnknownEffect(EntriesResponseSchema);
 const decodeNativeEvent = Schema.decodeUnknownOption(NativeEventSchema);
+const GentleActivitySchema = Schema.Struct({
+  schema: Schema.Literal("gentle-agents.activity/v1"),
+  tasks: Schema.Array(
+    Schema.Struct({
+      summary: Schema.Struct({
+        id: TrimmedNonEmptyString,
+        agent: Schema.String,
+        label: Schema.String,
+        prompt: Schema.String,
+        status: Schema.Literals([
+          "queued",
+          "running",
+          "waiting",
+          "completed",
+          "failed",
+          "cancelled",
+          "timed_out",
+        ]),
+        lastStep: Schema.String,
+        error: Schema.NullOr(Schema.String),
+      }),
+      thread: Schema.Struct({
+        version: FiniteNonNegative,
+        items: Schema.Array(
+          Schema.Union([
+            Schema.Struct({
+              kind: Schema.Literals(["text", "thinking", "note"]),
+              text: Schema.String,
+            }),
+            Schema.Struct({
+              kind: Schema.Literal("tool"),
+              name: Schema.String,
+              output: Schema.String,
+            }),
+          ]),
+        ),
+      }),
+    }),
+  ),
+});
+const decodeGentleActivity = Schema.decodeUnknownOption(
+  Schema.fromJsonString(GentleActivitySchema),
+);
 const decodeAnswer = Schema.decodeUnknownOption(
   Schema.Union([Schema.String, Schema.Array(Schema.String)]),
 );
@@ -645,6 +691,10 @@ interface SessionContext {
   readonly rpc: PiRpcClient;
   readonly pendingApprovals: Map<ApprovalRequestId, PendingApproval>;
   readonly pendingUserInputs: Map<ApprovalRequestId, PendingUserInput>;
+  readonly gentleTasks: Map<
+    string,
+    { status: string; progress: string; lastToolName: string; threadVersion: number }
+  >;
   session: ProviderSession;
   model: string;
   thinkingLevel: PiThinkingLevel | undefined;
@@ -1127,6 +1177,52 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
     yield* Deferred.succeed(turn.completion, undefined).pipe(Effect.ignore);
   });
 
+  const startTrackedTurn = Effect.fnUntraced(function* (
+    context: SessionContext,
+    input: {
+      readonly model: string;
+      readonly thinkingLevel: PiThinkingLevel | undefined;
+      readonly promptPending: boolean;
+    },
+  ) {
+    turnSequence += 1;
+    const turnId = TurnId.make(`pi:${options.instanceId}:${context.threadId}:${turnSequence}`);
+    const turn: ActiveTurn = {
+      turnId,
+      completion: yield* Deferred.make<void>(),
+      abortRequestPending: false,
+      abortRequested: false,
+      agentRunBegan: !input.promptPending,
+      agentSettlementPending: false,
+      promptPending: input.promptPending,
+      settled: false,
+      usage: emptyUsage(),
+      usageByModel: new Map(),
+      stopReason: undefined,
+      errorMessage: undefined,
+      model: input.model,
+      thinkingLevel: input.thinkingLevel,
+    };
+    context.activeTurn = turn;
+    context.session = {
+      ...context.session,
+      status: "running",
+      activeTurnId: turnId,
+      model: input.model,
+      updatedAt: DateTime.formatIso(yield* DateTime.now),
+    };
+    yield* emit({
+      ...(yield* eventBase(context)),
+      type: "turn.started",
+      turnId,
+      payload: {
+        model: input.model,
+        ...(input.thinkingLevel === undefined ? {} : { effort: input.thinkingLevel }),
+      },
+    });
+    return turn;
+  });
+
   const handleTransportClosed = Effect.fnUntraced(function* (
     context: SessionContext,
     error: PiRpcError,
@@ -1315,7 +1411,19 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
     const decoded = decodeNativeEvent(event);
     if (Option.isNone(decoded)) return;
     const native: NativeEvent = decoded.value;
-    if (native.type === "agent_start" || native.type === "agent_end") return;
+    if (native.type === "agent_start") {
+      // Extensions can wake an idle Pi session without a T3 prompt, for example
+      // when gentle-pi delivers a completed background subagent to its parent.
+      if (context.activeTurn === undefined && !context.stopped) {
+        yield* startTrackedTurn(context, {
+          model: context.model,
+          thinkingLevel: context.thinkingLevel,
+          promptPending: false,
+        });
+      }
+      return;
+    }
+    if (native.type === "agent_end") return;
     if (native.type === "agent_settled") {
       const turn = context.activeTurn;
       if (turn !== undefined && !turn.settled && turn.abortRequestPending) {
@@ -1346,6 +1454,143 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
       return;
     }
     if (native.type === "extension_ui_request") {
+      if (native.method === "setWidget" && native.widgetKey === "gentle-agents") {
+        const line = native.widgetLines?.length === 1 ? native.widgetLines[0] : undefined;
+        if (line !== undefined && line.length <= 256 * 1024) {
+          const activity = decodeGentleActivity(line);
+          if (Option.isSome(activity)) {
+            for (const task of activity.value.tasks) {
+              const summary = task.summary;
+              const taskId = RuntimeTaskId.make(summary.id);
+              const title = nonEmpty(summary.label, summary.agent || "Pi subagent");
+              const lastItem = task.thread.items.at(-1);
+              const output = lastItem?.kind === "tool" ? lastItem.output : lastItem?.text;
+              const resultItem = task.thread.items.findLast((item) => item.kind === "text");
+              const result = resultItem?.kind === "text" ? resultItem.text : undefined;
+              const lastToolName = lastItem?.kind === "tool" ? lastItem.name : "";
+              const recentThread = task.thread.items.slice(-40).map((item) =>
+                item.kind === "tool"
+                  ? {
+                      kind: "tool" as const,
+                      name: item.name.slice(0, 120),
+                      output: item.output.slice(0, 2048),
+                    }
+                  : { kind: item.kind, text: item.text.slice(0, 2048) },
+              );
+              let threadChars = recentThread.reduce(
+                (sum, item) =>
+                  sum +
+                  (item.kind === "tool" ? item.name.length + item.output.length : item.text.length),
+                0,
+              );
+              while (threadChars > 24 * 1024 && recentThread.length > 1) {
+                const oldest = recentThread.shift()!;
+                threadChars -=
+                  oldest.kind === "tool"
+                    ? oldest.name.length + oldest.output.length
+                    : oldest.text.length;
+              }
+              const progress = nonEmpty(
+                lastItem?.kind === "text" && output?.trim() ? output : summary.lastStep || output,
+                title,
+              );
+              const taskIdentity = {
+                taskId,
+                taskType: "subagent",
+                taskSource: "gentle-pi" as const,
+                title,
+                role: nonEmpty(summary.agent, "Pi subagent"),
+              };
+              const previous = context.gentleTasks.get(summary.id);
+              if (previous === undefined) {
+                yield* emit({
+                  ...(yield* eventBase(context)),
+                  type: "task.started",
+                  payload: {
+                    ...taskIdentity,
+                    description: title,
+                  },
+                });
+              }
+              if (
+                previous?.status === summary.status &&
+                previous.progress === progress &&
+                previous.lastToolName === lastToolName &&
+                previous.threadVersion === task.thread.version
+              )
+                continue;
+              const terminal = ["completed", "failed", "cancelled", "timed_out"].includes(
+                summary.status,
+              );
+              if (recentThread.length > 0) {
+                yield* emit({
+                  ...(yield* eventBase(context)),
+                  type: "task.progress",
+                  payload: {
+                    ...taskIdentity,
+                    description: title,
+                    summary: progress,
+                    recentThread,
+                    ...(lastToolName ? { lastToolName: nonEmpty(lastToolName, "Pi tool") } : {}),
+                    ...(terminal
+                      ? {}
+                      : {
+                          status:
+                            summary.status === "queued"
+                              ? ("pending" as const)
+                              : summary.status === "running"
+                                ? ("running" as const)
+                                : ("waiting" as const),
+                        }),
+                  },
+                });
+              }
+              if (terminal) {
+                yield* emit({
+                  ...(yield* eventBase(context)),
+                  type: "task.completed",
+                  payload: {
+                    ...taskIdentity,
+                    status:
+                      summary.status === "completed"
+                        ? "completed"
+                        : summary.status === "cancelled"
+                          ? "stopped"
+                          : "failed",
+                    ...(summary.error || result
+                      ? { summary: nonEmpty(summary.error || result, progress) }
+                      : {}),
+                  },
+                });
+              } else if (recentThread.length === 0) {
+                yield* emit({
+                  ...(yield* eventBase(context)),
+                  type: "task.progress",
+                  payload: {
+                    ...taskIdentity,
+                    description: title,
+                    summary: progress,
+                    status:
+                      summary.status === "queued"
+                        ? "pending"
+                        : summary.status === "running"
+                          ? "running"
+                          : "waiting",
+                    ...(lastToolName ? { lastToolName: nonEmpty(lastToolName, "Pi tool") } : {}),
+                  },
+                });
+              }
+              context.gentleTasks.set(summary.id, {
+                status: summary.status,
+                progress,
+                lastToolName,
+                threadVersion: task.thread.version,
+              });
+            }
+          }
+        }
+        return;
+      }
       if (
         native.method === "notify" ||
         native.method === "setStatus" ||
@@ -1637,6 +1882,8 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
               mcpSession,
             ),
           };
+          // gentle-pi publishes subagent activity and interactive questions only for RPC hosts.
+          environment.GENTLE_SHELL_INTERACTIVE_HOST = "1";
           delete environment[PI_MCP_ENDPOINT_ENV];
           delete environment[PI_MCP_AUTHORIZATION_ENV];
           delete environment[PI_MCP_SCOPE_ENV];
@@ -1658,7 +1905,7 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
             cwd,
             ...(mcpSession === undefined
               ? {}
-              : { args: ["--no-extensions", "--extension", options.mcpExtensionPath] }),
+              : { args: ["--extension", options.mcpExtensionPath] }),
             ...(requestedCursor === undefined ? {} : { sessionId: requestedCursor.sessionId }),
             environment,
           }).pipe(
@@ -1721,6 +1968,7 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
             rpc,
             pendingApprovals: new Map(),
             pendingUserInputs: new Map(),
+            gentleTasks: new Map(),
             session,
             model: initialModel,
             thinkingLevel: initialThinking,
@@ -1911,47 +2159,19 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
                 threadId: input.threadId,
               });
             }
+            if (context.activeTurn !== undefined) {
+              return yield* new ProviderAdapterValidationError({
+                provider: PROVIDER,
+                operation: "sendTurn",
+                issue: "Pi started another turn while the prompt was preparing.",
+              });
+            }
             yield* commitModelSelection(context, admission.selection);
             context.turnStarting = false;
-            turnSequence += 1;
-            const turnId = TurnId.make(
-              `pi:${options.instanceId}:${input.threadId}:${turnSequence}`,
-            );
-            const completion = yield* Deferred.make<void>();
-            const turn: ActiveTurn = {
-              turnId,
-              completion,
-              abortRequestPending: false,
-              abortRequested: false,
-              agentRunBegan: false,
-              agentSettlementPending: false,
-              promptPending: true,
-              settled: false,
-              usage: emptyUsage(),
-              usageByModel: new Map(),
-              stopReason: undefined,
-              errorMessage: undefined,
+            const turn = yield* startTrackedTurn(context, {
               model: admission.selection.model,
               thinkingLevel: admission.selection.thinkingLevel,
-            };
-            context.activeTurn = turn;
-            context.session = {
-              ...context.session,
-              status: "running",
-              activeTurnId: turnId,
-              model: admission.selection.model,
-              updatedAt: DateTime.formatIso(yield* DateTime.now),
-            };
-            yield* emit({
-              ...(yield* eventBase(context)),
-              type: "turn.started",
-              turnId,
-              payload: {
-                model: admission.selection.model,
-                ...(admission.selection.thinkingLevel === undefined
-                  ? {}
-                  : { effort: admission.selection.thinkingLevel }),
-              },
+              promptPending: true,
             });
             return { context, turn };
           }),

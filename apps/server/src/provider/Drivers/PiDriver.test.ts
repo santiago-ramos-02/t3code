@@ -588,12 +588,8 @@ describe("PiDriver explicit discovery", () => {
         expect(requests.map((request) => recordString(request, "type"))).toEqual([
           "get_available_models",
         ]);
-        expect(commandArgs(commands[0]!)).toEqual([
-          "--mode",
-          "rpc",
-          "--no-session",
-          "--no-extensions",
-        ]);
+        expect(commandArgs(commands[0]!)).toEqual(["--mode", "rpc", "--no-session"]);
+        expect(commandCwd(commands[0]!)).toMatch(/pi-discovery$/);
         expect(snapshot.models.map((model) => model.slug)).toEqual([
           "openai/reasoning-defaults",
           "anthropic/reasoning-mapped",

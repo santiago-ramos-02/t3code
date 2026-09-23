@@ -415,15 +415,12 @@ describe("PiAdapter session runtime", () => {
 
         const first = harness.transports[0]!.options;
         const second = harness.transports[1]!.options;
-        expect(first.args).toEqual([
-          "--no-extensions",
-          "--extension",
-          "/private/runtime/pi-mcp/t3-mcp-test.mjs",
-        ]);
+        expect(first.args).toEqual(["--extension", "/private/runtime/pi-mcp/t3-mcp-test.mjs"]);
         expect(containsString(first.args, "first-private-token")).toBe(false);
         expect(containsString(first.args, "provider-session-first")).toBe(false);
         expect(first.environment).toMatchObject({
           PI_INSTANCE: "work",
+          GENTLE_SHELL_INTERACTIVE_HOST: "1",
           [PI_MCP_ENDPOINT_ENV]: "http://127.0.0.1:3773/mcp",
           [PI_MCP_AUTHORIZATION_ENV]: "Bearer first-private-token",
           T3_AGENT_DEVICE_SOCKET: "/private/device.sock",
@@ -472,7 +469,10 @@ describe("PiAdapter session runtime", () => {
         yield* startSession(adapter);
         yield* takeEvents(adapter, SESSION_EVENTS);
 
-        expect(harness.transports[0]?.options.environment).toEqual({ PI_INSTANCE: "work" });
+        expect(harness.transports[0]?.options.environment).toEqual({
+          PI_INSTANCE: "work",
+          GENTLE_SHELL_INTERACTIVE_HOST: "1",
+        });
         expect(harness.transports[0]?.options.args).toBeUndefined();
       }),
     ),
@@ -1139,6 +1139,38 @@ describe("PiAdapter session runtime", () => {
     ),
   );
 
+  it.effect("tracks an extension-triggered Pi run without a T3 prompt", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = makeRpcHarness();
+        const adapter = yield* makeAdapter(harness);
+        yield* startSession(adapter);
+        yield* takeEvents(adapter, SESSION_EVENTS);
+        const transport = harness.transports[0]!;
+        yield* offerNative(transport, { type: "agent_start" });
+        yield* offerNative(transport, { type: "agent_start" });
+        const started = yield* takeEvents(adapter, 1);
+        expect(started).toMatchObject([{ type: "turn.started" }]);
+        const childTurnId = started[0]!.turnId;
+
+        yield* offerNative(transport, {
+          type: "message_update",
+          usage: usage(4, 5, 0, 0, 0.1),
+          assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "Child finished" },
+        });
+        yield* offerNative(transport, {
+          type: "message_end",
+          message: assistantMessage({ usage: usage(4, 5, 0, 0, 0.1) }),
+        });
+        yield* offerNative(transport, { type: "agent_settled" });
+        expect(yield* takeEvents(adapter, 2)).toMatchObject([
+          { type: "content.delta", turnId: childTurnId, payload: { delta: "Child finished" } },
+          { type: "turn.completed", turnId: childTurnId, payload: { state: "completed" } },
+        ]);
+      }),
+    ),
+  );
+
   it.effect("normalizes text and reasoning deltas", () =>
     Effect.scoped(
       Effect.gen(function* () {
@@ -1414,6 +1446,107 @@ describe("PiAdapter session runtime", () => {
 
         expect(only.map((event) => event.type)).toEqual(["turn.started"]);
         expect(transport.notifications).toEqual([]);
+      }),
+    ),
+  );
+
+  it.effect("publishes gentle-pi subagents outside the active Pi turn", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = makeRpcHarness();
+        const adapter = yield* makeAdapter(harness);
+        yield* startSession(adapter);
+        yield* takeEvents(adapter, SESSION_EVENTS);
+        const transport = harness.transports[0]!;
+        const widget = (
+          status: string,
+          lastStep: string,
+          text: string,
+          options: { readonly id?: string; readonly error?: string } = {},
+        ) => ({
+          type: "extension_ui_request",
+          method: "setWidget",
+          widgetKey: "gentle-agents",
+          widgetLines: [
+            JSON.stringify({
+              schema: "gentle-agents.activity/v1",
+              tasks: [
+                {
+                  summary: {
+                    id: options.id ?? "t_child",
+                    agent: "explore",
+                    label: "Map auth",
+                    prompt: "Map the auth module",
+                    status,
+                    lastStep,
+                    error: options.error ?? null,
+                  },
+                  thread: { version: 1, items: [{ kind: "text", text }] },
+                },
+              ],
+            }),
+          ],
+        });
+
+        yield* offerNative(transport, widget("queued", "Queued", ""));
+        expect((yield* takeEvents(adapter, 2)).map((event) => event.type)).toEqual([
+          "task.started",
+          "task.progress",
+        ]);
+        yield* offerNative(transport, widget("running", "Reading auth.ts", "Reading auth.ts"));
+        expect(yield* takeEvents(adapter, 1)).toMatchObject([
+          {
+            type: "task.progress",
+            payload: { taskId: "t_child", status: "running", summary: "Reading auth.ts" },
+          },
+        ]);
+        yield* offerNative(transport, widget("waiting", "Waiting for parent", ""));
+        expect(yield* takeEvents(adapter, 1)).toMatchObject([
+          {
+            type: "task.progress",
+            payload: { taskId: "t_child", status: "waiting" },
+          },
+        ]);
+        yield* offerNative(transport, widget("completed", "Done", "Auth uses cookies"));
+        expect(yield* takeEvents(adapter, 2)).toMatchObject([
+          {
+            type: "task.progress",
+            payload: {
+              taskId: "t_child",
+              recentThread: [{ kind: "text", text: "Auth uses cookies" }],
+            },
+          },
+          {
+            type: "task.completed",
+            payload: { taskId: "t_child", status: "completed", summary: "Auth uses cookies" },
+          },
+        ]);
+        yield* offerNative(
+          transport,
+          widget("failed", "Failed", "", { id: "t_failed", error: "Subagent exited" }),
+        );
+        expect(yield* takeEvents(adapter, 3)).toMatchObject([
+          {
+            type: "task.started",
+            payload: { taskId: "t_failed", taskType: "subagent", taskSource: "gentle-pi" },
+          },
+          { type: "task.progress", payload: { taskId: "t_failed" } },
+          {
+            type: "task.completed",
+            payload: { taskId: "t_failed", status: "failed", summary: "Subagent exited" },
+          },
+        ]);
+        yield* offerNative(transport, widget("completed", "Done", "Auth uses cookies"));
+        yield* offerNative(transport, {
+          type: "extension_ui_request",
+          method: "setWidget",
+          widgetKey: "gentle-agents",
+          widgetLines: ["not-json"],
+        });
+        yield* adapter.sendTurn({ threadId: THREAD_ID, input: "next" });
+        expect((yield* takeEvents(adapter, 1)).map((event) => event.type)).toEqual([
+          "turn.started",
+        ]);
       }),
     ),
   );
@@ -1902,9 +2035,10 @@ describe("PiAdapter session runtime", () => {
           (request) => recordString(request, "type") === "prompt",
         );
 
-        expect(paths).toEqual([
-          "/private/attachments/thread-pi-00000000-0000-4000-8000-000000000001.png",
-        ]);
+        expect(paths).toHaveLength(1);
+        expect(paths[0]?.replaceAll("\\", "/")).toMatch(
+          /\/private\/attachments\/thread-pi-00000000-0000-4000-8000-000000000001\.png$/,
+        );
         expect(prompt).toMatchObject({
           type: "prompt",
           message: "Inspect",

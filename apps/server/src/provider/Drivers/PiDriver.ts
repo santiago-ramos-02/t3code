@@ -55,7 +55,7 @@ import { withInstanceIdentity } from "./instanceIdentity.ts";
 
 const DRIVER_KIND = ProviderDriverKind.make("pi");
 const MINIMUM_PI_VERSION = "0.86.1";
-const PI_RPC_ARGS = ["--no-session", "--no-extensions"] as const;
+const PI_RPC_ARGS = ["--no-session"] as const;
 const VERSION_TIMEOUT = "4 seconds";
 const PROCESS_FORCE_KILL_AFTER = "1 second";
 const decodePiSettings = Schema.decodeSync(PiSettings);
@@ -254,6 +254,20 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
       const hostPlatform = yield* HostProcessPlatform;
       const processEnv = mergeProviderInstanceEnvironment(environment);
       const effectiveConfig = { ...config, enabled } satisfies PiSettings;
+      // Global model discovery loads user extensions, some of which initialize
+      // project-local files. Keep that probe out of the server's source checkout.
+      const discoveryCwd = path.join(serverConfig.stateDir, "pi-discovery");
+      yield* fileSystem.makeDirectory(discoveryCwd, { recursive: true }).pipe(
+        Effect.mapError(
+          (cause) =>
+            new ProviderDriverError({
+              driver: DRIVER_KIND,
+              instanceId,
+              detail: "Pi discovery directory creation failed.",
+              cause,
+            }),
+        ),
+      );
       const piMcpExtensionPath = yield* materializePiMcpExtension(serverConfig.stateDir).pipe(
         Effect.mapError(
           (cause) =>
@@ -347,7 +361,7 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
             return yield* spawnAndCollect(
               effectiveConfig.binaryPath,
               ChildProcess.make(resolved.command, resolved.args, {
-                cwd: process.cwd(),
+                cwd: discoveryCwd,
                 detached: hostPlatform !== "win32",
                 env: processEnv,
                 extendEnv: false,
@@ -442,7 +456,7 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
             Effect.gen(function* () {
               const rpc = yield* makePiRpc({
                 binaryPath: effectiveConfig.binaryPath,
-                cwd: process.cwd(),
+                cwd: discoveryCwd,
                 args: PI_RPC_ARGS,
                 environment: processEnv,
               });

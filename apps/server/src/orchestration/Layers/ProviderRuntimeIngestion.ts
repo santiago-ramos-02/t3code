@@ -438,6 +438,7 @@ function taskLinkageActivityFields(payload: Record<string, unknown>): Record<str
   };
   for (const key of [
     "taskType",
+    "taskSource",
     "agentId",
     "title",
     "role",
@@ -724,6 +725,9 @@ export function runtimeEventToActivities(
                   ...(event.payload.lastToolName
                     ? { lastToolName: event.payload.lastToolName }
                     : {}),
+                  ...(event.payload.recentThread === undefined
+                    ? {}
+                    : { recentThread: event.payload.recentThread }),
                   ...(event.payload.status ? { status: event.payload.status } : {}),
                   ...(event.payload.error ? { error: event.payload.error } : {}),
                   ...(event.payload.usage !== undefined ? { usage: event.payload.usage } : {}),

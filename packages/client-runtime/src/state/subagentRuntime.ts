@@ -17,7 +17,9 @@
  * folding (completion can create an agent; a late start only fills
  * metadata).
  */
-import type { OrchestrationThreadActivity } from "@t3tools/contracts";
+import type { OrchestrationThreadActivity, TaskProgressPayload } from "@t3tools/contracts";
+
+export type SubagentTranscriptItem = NonNullable<TaskProgressPayload["recentThread"]>[number];
 
 export type RuntimeSubagentStatus =
   | "pending"
@@ -59,6 +61,7 @@ export interface SubagentRunHandles {
 export interface RuntimeSubagent {
   readonly id: string;
   readonly kind: "subagent" | "subagent_batch" | "workflow" | "workflow_agent";
+  readonly taskSource: "gentle-pi" | null;
   readonly title: string;
   readonly role: string | null;
   readonly model: string | null;
@@ -80,6 +83,7 @@ export interface RuntimeSubagent {
   readonly phases: ReadonlyArray<SubagentWorkflowPhase>;
   readonly runHandles: SubagentRunHandles | null;
   readonly recentActivity: ReadonlyArray<SubagentActivityEntry>;
+  readonly transcript: ReadonlyArray<SubagentTranscriptItem> | null;
   /** First retained observation, used as the roster's stable display order. */
   readonly firstSeenAt: string;
   readonly startedAt: string | null;
@@ -140,6 +144,23 @@ function appendActivity(
 
 function asString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function asTranscript(value: unknown): ReadonlyArray<SubagentTranscriptItem> | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const items: SubagentTranscriptItem[] = [];
+  for (const raw of value.slice(-40)) {
+    if (typeof raw !== "object" || raw === null) continue;
+    if (raw.kind === "tool" && typeof raw.name === "string" && typeof raw.output === "string") {
+      items.push({ kind: "tool", name: raw.name.slice(0, 120), output: raw.output.slice(0, 2048) });
+    } else if (
+      (raw.kind === "text" || raw.kind === "thinking" || raw.kind === "note") &&
+      typeof raw.text === "string"
+    ) {
+      items.push({ kind: raw.kind, text: raw.text.slice(0, 2048) });
+    }
+  }
+  return items;
 }
 
 function asCount(value: unknown): number | undefined {
@@ -228,6 +249,7 @@ function mergeUsageMax(
 interface MutableAgent {
   id: string;
   kind: RuntimeSubagent["kind"];
+  taskSource: RuntimeSubagent["taskSource"];
   title: string;
   role: string | null;
   model: string | null;
@@ -249,6 +271,7 @@ interface MutableAgent {
   phases: ReadonlyArray<SubagentWorkflowPhase>;
   runHandles: SubagentRunHandles | null;
   recentActivity: ReadonlyArray<SubagentActivityEntry>;
+  transcript: ReadonlyArray<SubagentTranscriptItem> | null;
   firstSeenAt: string;
   startedAt: string | null;
   completedAt: string | null;
@@ -285,6 +308,7 @@ function getOrCreate(
   const created: MutableAgent = {
     id,
     kind: kindFromPayload(payload, id),
+    taskSource: payload.taskSource === "gentle-pi" ? "gentle-pi" : null,
     title: asString(payload.title) ?? asString(payload.detail) ?? id,
     role: asString(payload.role) ?? null,
     model: asString(payload.model) ?? null,
@@ -306,6 +330,7 @@ function getOrCreate(
     phases: [],
     runHandles: null,
     recentActivity: [],
+    transcript: null,
     firstSeenAt: at,
     startedAt: null,
     completedAt: null,
@@ -317,6 +342,7 @@ function getOrCreate(
 
 /** Metadata fill from any payload: never downgrades known values to null. */
 function fillMetadata(agent: MutableAgent, payload: Record<string, unknown>): void {
+  if (payload.taskSource === "gentle-pi") agent.taskSource = "gentle-pi";
   if (payload.taskType === "subagent_batch") agent.kind = "subagent_batch";
   const title = asString(payload.title);
   if (title) agent.title = title;
@@ -524,6 +550,8 @@ export function foldSubagentActivities(
           applyStatus(agent, "running", at);
         }
         const summary = asString(payload.summary);
+        const transcript = asTranscript(payload.recentThread);
+        if (transcript) agent.transcript = transcript;
         if (summary) {
           agent.progress = bounded(summary);
           agent.recentActivity = appendActivity(agent.recentActivity, at, summary);

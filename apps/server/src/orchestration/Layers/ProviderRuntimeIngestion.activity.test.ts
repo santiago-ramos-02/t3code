@@ -16,6 +16,33 @@ const base = {
 };
 
 describe("runtimeEventToActivities task progress", () => {
+  it("persists the bounded Pi child transcript with latest progress", () => {
+    const recentThread = [
+      { kind: "tool", name: "read", output: "auth.ts" },
+      { kind: "text", text: "Found cookies" },
+    ] as const;
+    const event = {
+      ...base,
+      provider: ProviderDriverKind.make("pi"),
+      type: "task.progress",
+      eventId: EventId.make("evt-pi-thread"),
+      payload: {
+        taskId: RuntimeTaskId.make("pi-child"),
+        description: "Map auth",
+        taskType: "subagent",
+        taskSource: "gentle-pi",
+        recentThread,
+      },
+    } satisfies ProviderRuntimeEvent;
+    const activities = runtimeEventToActivities(event);
+    expect(activities).toHaveLength(1);
+    expect(activities[0]?.payload).toMatchObject({
+      agentKind: "agent",
+      taskSource: "gentle-pi",
+      recentThread,
+    });
+  });
+
   it("persists usage independently from replaceable activity", () => {
     const taskId = RuntimeTaskId.make("agent-1");
     const usageOnly = {

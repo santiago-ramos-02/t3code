@@ -62,6 +62,58 @@ function fold(rows: ReadonlyArray<OrchestrationThreadActivity>) {
 }
 
 describe("foldSubagentActivities", () => {
+  it("keeps a Pi child transcript through completion and sparse usage updates", () => {
+    const transcript = [
+      { kind: "thinking", text: "Checking the auth flow" },
+      { kind: "tool", name: "read", output: "auth.ts" },
+      { kind: "text", text: "Cookies carry the session" },
+    ];
+    const agents = fold([
+      activity("task.started", {
+        taskId: "pi-child",
+        taskType: "subagent",
+        taskSource: "gentle-pi",
+        title: "Map auth",
+      }),
+      activity("task.progress", {
+        taskId: "pi-child",
+        recentThread: transcript,
+        status: "running",
+      }),
+      activity("task.progress", {
+        taskId: "pi-child",
+        typedUsage: { totalTokens: 99 },
+        usageSnapshot: true,
+      }),
+      activity("task.completed", { taskId: "pi-child", status: "completed", summary: "Done" }),
+    ]);
+    expect(agents[0]).toMatchObject({
+      transcript,
+      taskSource: "gentle-pi",
+      status: "completed",
+      usage: { totalTokens: 99 },
+    });
+  });
+
+  it("recovers a Gentle child from progress when its start aged out", () => {
+    const agents = fold([
+      activity("task.progress", {
+        taskId: "pi-child",
+        taskType: "subagent",
+        taskSource: "gentle-pi",
+        title: "Map auth",
+        status: "running",
+        recentThread: [{ kind: "text", text: "Reading the auth flow" }],
+      }),
+    ]);
+    expect(agents[0]).toMatchObject({
+      title: "Map auth",
+      taskSource: "gentle-pi",
+      status: "running",
+      transcript: [{ kind: "text", text: "Reading the auth flow" }],
+    });
+  });
+
   it("shows the batch status limit after its parent turn ends without claiming a result", () => {
     const running = activity("task.progress", {
       taskId: "batch-1",
