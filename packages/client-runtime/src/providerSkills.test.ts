@@ -6,10 +6,66 @@ import {
   formatProviderSkillDisplayName,
   getProviderSlashCommandsForSlashMenu,
   getProviderSkillsForSlashMenu,
+  resolveProviderForCwd,
+  resolveProviderModelsForCwd,
   resolveProviderSkillsForCwd,
   resolveProviderSlashCommandsForCwd,
   resolveProviderSkillSourceKind,
 } from "./providerSkills.ts";
+
+it("uses project models only in the matching workspace", () => {
+  const globalModel = {
+    slug: "openai/global",
+    name: "Global",
+    isCustom: false,
+    capabilities: null,
+  } as const;
+  const projectModel = {
+    slug: "local/project",
+    name: "Project",
+    isCustom: false,
+    capabilities: null,
+  } as const;
+  const scoped = {
+    ...provider,
+    models: [globalModel],
+    workspaceSnapshots: [{ ...provider.workspaceSnapshots[0]!, models: [projectModel] }],
+  } satisfies ServerProvider;
+
+  expect(resolveProviderModelsForCwd(scoped, "/workspace/project-a")).toEqual([projectModel]);
+  expect(resolveProviderModelsForCwd(scoped, "/workspace/project-b")).toEqual([globalModel]);
+  expect(resolveProviderForCwd(scoped, "/workspace/project-a").models).toEqual([projectModel]);
+});
+
+it("marks Pi ready when only a project extension has available models", () => {
+  const scoped = {
+    ...provider,
+    driver: ProviderDriverKind.make("pi"),
+    status: "warning",
+    auth: { status: "unknown" },
+    models: [],
+    workspaceSnapshots: [
+      {
+        ...provider.workspaceSnapshots[0]!,
+        models: [
+          {
+            slug: "local/project",
+            name: "Project",
+            subProvider: "local",
+            isCustom: false,
+            capabilities: null,
+          },
+        ],
+      },
+    ],
+  } satisfies ServerProvider;
+
+  expect(resolveProviderForCwd(scoped, "/workspace/project-a")).toMatchObject({
+    status: "ready",
+    auth: { status: "unknown" },
+  });
+  expect(resolveProviderForCwd(scoped, "/workspace/project-b").status).toBe("warning");
+});
 
 const provider = {
   instanceId: ProviderInstanceId.make("codex"),

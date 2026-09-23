@@ -974,6 +974,7 @@ import {
   getProviderSlashCommandsForSlashMenu,
   getProviderSkillsForSlashMenu,
   resolveProviderSkillsForCwd,
+  resolveProviderForCwd,
   resolveProviderSlashCommandsForCwd,
 } from "@t3tools/client-runtime/providerSkills";
 import { searchProviderSkills } from "../../providerSkillSearch";
@@ -1856,12 +1857,19 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   // Instance-aware projection of the wire provider list. One entry per
   // configured instance (default built-in + any custom `providerInstances.*`),
   // sorted default-first per driver kind for a stable picker order.
+  const scopedProviderStatuses = useMemo(
+    () => providerStatuses.map((provider) => resolveProviderForCwd(provider, gitCwd)),
+    [gitCwd, providerStatuses],
+  );
   const providerInstanceEntries = useMemo<ReadonlyArray<ProviderInstanceEntry>>(
     () =>
       sortProviderInstanceEntries(
-        applyProviderInstanceSettings(deriveProviderInstanceEntries(providerStatuses), settings),
+        applyProviderInstanceSettings(
+          deriveProviderInstanceEntries(scopedProviderStatuses),
+          settings,
+        ),
       ),
-    [providerStatuses, settings],
+    [scopedProviderStatuses, settings],
   );
   const selectedProviderByThreadId = composerDraft.activeProvider ?? null;
   const {
@@ -1918,7 +1926,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
 
   const { modelOptions: composerModelOptions, selectedModel } = useEffectiveComposerModelState({
     threadRef: composerDraftTarget,
-    providers: providerStatuses,
+    providers: scopedProviderStatuses,
     selectedProvider,
     selectedInstanceId,
     threadModelSelection: activeThreadModelSelection,
@@ -2002,6 +2010,36 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       }
     }, retryLater);
   }, [environmentId, gitCwd, prompt, refreshProviders, selectedProviderEntry]);
+  const requestedPiWorkspaceModels = useRef(new Set<string>());
+  useEffect(() => {
+    if (!gitCwd) return;
+    for (const provider of providerStatuses) {
+      if (
+        provider.driver !== "pi" ||
+        !provider.enabled ||
+        !provider.installed ||
+        provider.instanceId === selectedProviderEntry?.instanceId ||
+        provider.workspaceSnapshots?.some((snapshot) => snapshot.cwd === gitCwd)
+      ) {
+        continue;
+      }
+      const key = `${environmentId}:${provider.instanceId}:${gitCwd}`;
+      if (requestedPiWorkspaceModels.current.has(key)) continue;
+      requestedPiWorkspaceModels.current.add(key);
+      void refreshProviders({
+        environmentId,
+        input: { instanceId: provider.instanceId, cwd: gitCwd },
+      }).then((result) => {
+        if (result._tag === "Failure") requestedPiWorkspaceModels.current.delete(key);
+      });
+    }
+  }, [
+    environmentId,
+    gitCwd,
+    providerStatuses,
+    refreshProviders,
+    selectedProviderEntry?.instanceId,
+  ]);
   const selectedProviderModels = useMemo<ReadonlyArray<ServerProvider["models"][number]>>(
     () => selectedProviderEntry?.models ?? [],
     [selectedProviderEntry],

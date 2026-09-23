@@ -120,6 +120,7 @@ export const ServerProviderWorkspaceSnapshot = Schema.Struct({
   checkedAt: IsoDateTime,
   slashCommands: Schema.Array(ServerProviderSlashCommand),
   skills: Schema.Array(ServerProviderSkill),
+  models: Schema.optional(Schema.Array(ServerProviderModel)),
 });
 export type ServerProviderWorkspaceSnapshot = typeof ServerProviderWorkspaceSnapshot.Type;
 

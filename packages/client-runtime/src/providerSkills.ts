@@ -124,3 +124,34 @@ export function resolveProviderSlashCommandsForCwd(
 ): ServerProvider["slashCommands"] {
   return resolveProviderWorkspaceSnapshot(provider, cwd)?.slashCommands ?? provider.slashCommands;
 }
+
+export function resolveProviderModelsForCwd(
+  provider: ServerProvider,
+  cwd: string | null | undefined,
+): ServerProvider["models"] {
+  return resolveProviderWorkspaceSnapshot(provider, cwd)?.models ?? provider.models;
+}
+
+export function resolveProviderForCwd(
+  provider: ServerProvider,
+  cwd: string | null | undefined,
+): ServerProvider {
+  const models = resolveProviderWorkspaceSnapshot(provider, cwd)?.models;
+  if (!models) return provider;
+  if (provider.driver !== "pi" || !provider.installed || provider.status === "error") {
+    return { ...provider, models };
+  }
+  const upstreamCount = new Set(
+    models.flatMap((model) => (!model.isCustom && model.subProvider ? [model.subProvider] : [])),
+  ).size;
+  return {
+    ...provider,
+    models,
+    status: upstreamCount > 0 ? "ready" : "warning",
+    auth: { status: "unknown" },
+    message:
+      upstreamCount > 0
+        ? `${upstreamCount} model provider${upstreamCount === 1 ? "" : "s"} available through Pi in this project.`
+        : "Pi found no available models in this project. Connect a model provider in Pi, then refresh status.",
+  };
+}

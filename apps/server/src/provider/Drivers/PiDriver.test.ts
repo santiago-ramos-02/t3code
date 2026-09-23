@@ -596,6 +596,8 @@ describe("PiDriver explicit discovery", () => {
           "example/fast-test",
           "custom/provider-model",
         ]);
+        expect(snapshot.auth.status).toBe("unknown");
+        expect(snapshot.message).toBe("3 model providers available through Pi.");
         expect(snapshot.models[0]?.capabilities?.optionDescriptors?.[0]).toMatchObject({
           id: "thinkingLevel",
           currentValue: "medium",
@@ -698,45 +700,57 @@ describe("PiDriver explicit discovery", () => {
             killCount += 1;
           },
           respond: (request) =>
-            successResponse(request, {
-              commands: [
-                {
-                  name: "compact",
-                  description: "Workspace duplicate must not replace the shared command",
-                  source: "prompt",
-                  sourceInfo: {
-                    path: "/workspaces/pi-project/.pi/agent/prompts/compact.md",
-                    source: "project",
-                    scope: "project",
-                    origin: "top-level",
-                    baseDir: "/workspaces/pi-project/.pi/agent/prompts",
-                  },
-                },
-                {
-                  name: "review",
-                  description: "Review changes",
-                  source: "prompt",
-                  sourceInfo: {
-                    path: "/workspaces/pi-project/.pi/agent/prompts/review.md",
-                    source: "project",
-                    scope: "project",
-                    origin: "top-level",
-                    baseDir: "/workspaces/pi-project/.pi/agent/prompts",
-                  },
-                },
-                {
-                  name: "skill:deploy",
-                  description: "Deploy the app",
-                  source: "skill",
-                  sourceInfo: {
-                    path: "/home/dev/.pi/agent/skills/deploy/SKILL.md",
-                    source: "user",
-                    scope: "user",
-                    origin: "top-level",
-                  },
-                },
-              ],
-            }),
+            recordString(request, "type") === "get_available_models"
+              ? successResponse(request, {
+                  models: [
+                    {
+                      id: "project-model",
+                      name: "Project Model",
+                      provider: "project-provider",
+                      reasoning: false,
+                      input: ["text"],
+                    },
+                  ],
+                })
+              : successResponse(request, {
+                  commands: [
+                    {
+                      name: "compact",
+                      description: "Workspace duplicate must not replace the shared command",
+                      source: "prompt",
+                      sourceInfo: {
+                        path: "/workspaces/pi-project/.pi/agent/prompts/compact.md",
+                        source: "project",
+                        scope: "project",
+                        origin: "top-level",
+                        baseDir: "/workspaces/pi-project/.pi/agent/prompts",
+                      },
+                    },
+                    {
+                      name: "review",
+                      description: "Review changes",
+                      source: "prompt",
+                      sourceInfo: {
+                        path: "/workspaces/pi-project/.pi/agent/prompts/review.md",
+                        source: "project",
+                        scope: "project",
+                        origin: "top-level",
+                        baseDir: "/workspaces/pi-project/.pi/agent/prompts",
+                      },
+                    },
+                    {
+                      name: "skill:deploy",
+                      description: "Deploy the app",
+                      source: "skill",
+                      sourceInfo: {
+                        path: "/home/dev/.pi/agent/skills/deploy/SKILL.md",
+                        source: "user",
+                        scope: "user",
+                        origin: "top-level",
+                      },
+                    },
+                  ],
+                }),
         });
         const commands: ChildProcess.Command[] = [];
         const spawner = ChildProcessSpawner.make((command) => {
@@ -758,7 +772,10 @@ describe("PiDriver explicit discovery", () => {
         const baseAfter = yield* instance.snapshot.getSnapshot;
 
         expect(commandCwd(commands[0]!)).toBe(cwd);
-        expect(requests.map((request) => recordString(request, "type"))).toEqual(["get_commands"]);
+        expect(requests.map((request) => recordString(request, "type"))).toEqual([
+          "get_commands",
+          "get_available_models",
+        ]);
         expect(baseBefore.slashCommands).toEqual([
           {
             name: "compact",
@@ -781,6 +798,9 @@ describe("PiDriver explicit discovery", () => {
             enabled: true,
           },
         ]);
+        expect(scoped.models.map((model) => model.slug)).toContain(
+          "project-provider/project-model",
+        );
         expect(baseAfter).toEqual(baseBefore);
         expect(killCount).toBe(1);
       }),
@@ -855,6 +875,8 @@ describe("PiDriver startup discovery", () => {
         });
 
         expect(snapshot.status).toBe("ready");
+        expect(snapshot.auth.status).toBe("unknown");
+        expect(snapshot.message).toBe("1 model provider available through Pi.");
         expect(snapshot.version).toBe("0.86.1");
         expect(snapshot.models.map((model) => model.slug)).toContain("test/startup-model");
         expect(commands.some(isVersionCommand)).toBe(true);
@@ -925,7 +947,7 @@ describe("PiDriver startup discovery", () => {
     ),
   );
 
-  it.effect("keeps ready when startup discovery finds zero models", () =>
+  it.effect("reports missing upstream connections when startup discovery finds zero models", () =>
     Effect.scoped(
       Effect.gen(function* () {
         const requests: PiRpcRecord[] = [];
@@ -942,17 +964,18 @@ describe("PiDriver startup discovery", () => {
         const snapshot = yield* awaitStartupSnapshot(
           instance,
           (candidate) =>
-            candidate.status === "ready" &&
+            candidate.status === "warning" &&
             candidate.version === "0.86.1" &&
             candidate.message !== STARTUP_INITIAL_MESSAGE &&
             requests.some((request) => recordString(request, "type") === "get_available_models"),
           "Pi startup zero-model discovery did not settle",
         );
 
-        expect(snapshot.status).toBe("ready");
+        expect(snapshot.status).toBe("warning");
+        expect(snapshot.auth.status).toBe("unknown");
         expect(snapshot.version).toBe("0.86.1");
         expect(snapshot.models).toEqual([]);
-        expect(snapshot.message ?? "").not.toContain("Pi model discovery failed.");
+        expect(snapshot.message).toContain("Connect a model provider in Pi");
       }),
     ),
   );

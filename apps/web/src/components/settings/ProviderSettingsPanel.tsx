@@ -81,6 +81,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { AddProviderInstanceDialog } from "./AddProviderInstanceDialog";
 import { PiGentleSettingsSection } from "./PiGentleSettingsSection";
+import { PiModelProvidersSection } from "./PiModelProvidersSection";
 import { useProjects } from "../../state/entities";
 import { ExpandableText } from "./ExpandableText";
 import { ProviderInstanceCard } from "./ProviderInstanceCard";
@@ -1000,12 +1001,15 @@ export function EnvironmentProviderSettings({
         }
         integration={
           mode === "editor" && row.driver === "pi" ? (
-            <PiGentleSettingsSection
-              environmentId={environmentId}
-              instanceId={row.instanceId}
-              projects={projects.filter((project) => project.environmentId === environmentId)}
-              readOnly={readOnly}
-            />
+            <>
+              <PiModelProvidersSection provider={liveProvider} />
+              <PiGentleSettingsSection
+                environmentId={environmentId}
+                instanceId={row.instanceId}
+                projects={projects.filter((project) => project.environmentId === environmentId)}
+                readOnly={readOnly}
+              />
+            </>
           ) : null
         }
         onUpdate={(next) => {

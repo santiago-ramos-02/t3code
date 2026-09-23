@@ -161,6 +161,11 @@ describe("shouldOfferModelPickerSetup", () => {
     expect(shouldOfferModelPickerSetup(entry("error", "antigravity"), [])).toBe(true);
   });
 
+  it("opens Pi settings when it has no available upstream models", () => {
+    expect(shouldOfferModelPickerSetup(entry("warning", "pi"), [])).toBe(true);
+    expect(shouldOfferModelPickerSetup(entry("ready", "pi"), [availableModel])).toBe(false);
+  });
+
   it("offers setup after sign-out even if a model remains cached", () => {
     const providerEntry = entry("ready", "antigravity");
     expect(

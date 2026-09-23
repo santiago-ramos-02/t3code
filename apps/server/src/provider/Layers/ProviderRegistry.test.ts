@@ -605,6 +605,40 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
         ]);
       });
 
+      it("stores a workspace model catalog only when it differs from the machine catalog", () => {
+        const model = {
+          slug: "project-provider/project-model",
+          name: "Project Model",
+          subProvider: "project-provider",
+          isCustom: false,
+          capabilities: null,
+        } as const;
+        const provider = {
+          instanceId: ProviderInstanceId.make("pi"),
+          driver: ProviderDriverKind.make("pi"),
+          status: "ready",
+          enabled: true,
+          installed: true,
+          auth: { status: "authenticated" },
+          checkedAt: "2026-03-25T00:00:00.000Z",
+          version: "0.87.1",
+          models: [],
+          slashCommands: [],
+          skills: [],
+        } satisfies ServerProvider;
+        const scoped = { ...provider, models: [model] } satisfies ServerProvider;
+
+        const result = upsertProviderWorkspaceSnapshot(provider, "/project", scoped);
+
+        assert.deepStrictEqual(result.models, []);
+        assert.deepStrictEqual(result.workspaceSnapshots?.[0]?.models, [model]);
+        assert.deepStrictEqual(
+          mergeProviderSnapshot(result, { ...provider, checkedAt: "2026-03-25T00:02:00.000Z" })
+            .workspaceSnapshots,
+          undefined,
+        );
+      });
+
       it("preserves previously discovered provider models when a refresh returns none", () => {
         const previousProvider = {
           instanceId: ProviderInstanceId.make("cursor"),

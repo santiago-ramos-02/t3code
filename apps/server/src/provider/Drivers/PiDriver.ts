@@ -304,6 +304,7 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
         readonly status: "ready" | "warning" | "error";
         readonly message?: string;
         readonly models: ReadonlyArray<ServerProviderModel>;
+        readonly auth?: ServerProvider["auth"];
       }) {
         const checkedAt = DateTime.formatIso(yield* DateTime.now);
         return stampIdentity(
@@ -318,7 +319,7 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
               installed: input.installed,
               version: input.version,
               status: input.status,
-              auth: { status: "unknown" },
+              auth: input.auth ?? { status: "unknown" },
               ...(input.message === undefined ? {} : { message: input.message }),
             },
           }),
@@ -421,6 +422,7 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
             version,
             status: "ready",
             models: current.models,
+            auth: current.auth,
           });
         },
         Effect.catch((cause) =>
@@ -474,7 +476,17 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
                 {},
               );
               const current = yield* Ref.get(snapshotRef);
-              yield* publish({ ...current, models });
+              const upstreamCount = new Set(modelsData.models.map((model) => model.provider)).size;
+              yield* publish({
+                ...current,
+                models,
+                status: upstreamCount > 0 ? "ready" : "warning",
+                auth: { status: "unknown" },
+                message:
+                  upstreamCount > 0
+                    ? `${upstreamCount} model provider${upstreamCount === 1 ? "" : "s"} available through Pi.`
+                    : "Pi found no available models. Connect a model provider in Pi, then refresh status.",
+              });
             }),
           ).pipe(
             Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
@@ -544,10 +556,20 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
                   { timeout: PI_STARTUP_REQUEST_TIMEOUT },
                 );
                 const { data } = yield* decodeCommandsResponse(response);
+                const modelsResponse = yield* rpc.request(
+                  { type: "get_available_models" },
+                  { timeout: PI_STARTUP_REQUEST_TIMEOUT },
+                );
+                const { data: modelsData } = yield* decodeModelsResponse(modelsResponse);
                 const inventory = workspaceInventory(data.commands);
                 const base = yield* snapshot.getSnapshot;
                 return {
                   ...base,
+                  models: providerModelsFromSettings(
+                    modelsData.models.map(toServerProviderModel),
+                    effectiveConfig.customModels,
+                    {},
+                  ),
                   slashCommands: inventory.slashCommands,
                   skills: inventory.skills,
                 };

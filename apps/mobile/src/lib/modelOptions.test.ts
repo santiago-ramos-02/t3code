@@ -13,6 +13,42 @@ import {
 } from "./modelOptions";
 
 describe("mobile model options", () => {
+  it("shows project-scoped Pi models only in their workspace", () => {
+    const config = {
+      providers: [
+        {
+          instanceId: "pi",
+          driver: "pi",
+          enabled: true,
+          installed: true,
+          auth: { status: "authenticated" },
+          models: [{ slug: "openai/global", name: "Global", isCustom: false, capabilities: null }],
+          workspaceSnapshots: [
+            {
+              cwd: "/project",
+              models: [
+                {
+                  slug: "local/project",
+                  name: "Project",
+                  subProvider: "local",
+                  isCustom: false,
+                  capabilities: null,
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    } as unknown as ServerConfig;
+
+    expect(buildModelOptions(config, null, "/project").map((option) => option.key)).toEqual([
+      "pi:local/project",
+    ]);
+    expect(buildModelOptions(config, null, "/other").map((option) => option.key)).toEqual([
+      "pi:openai/global",
+    ]);
+  });
+
   it("groups models by provider and flags legacy entries", () => {
     const config = {
       providers: [

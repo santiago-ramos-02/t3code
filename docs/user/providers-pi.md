@@ -14,8 +14,13 @@ npm install -g @earendil-works/pi-coding-agent@latest
 pi --version
 ```
 
-Set up credentials and other Pi preferences with Pi as usual. T3 Code reuses that
-installation, including its credentials, models, skills, and custom commands.
+Set up credentials and other Pi preferences with Pi as usual. Pi can use several
+upstream model providers. Run `pi` on the project environment and use `/login`
+to connect one, or set that provider's API key in **Settings > Providers > Pi >
+Environment**. T3 Code reuses Pi's configuration and shows its available model
+providers and models in Pi settings. Select any of those models in
+T3 Code's model picker. Models registered by a project-local Pi extension appear
+in that project's picker. T3 Code also reuses Pi's skills and custom commands.
 Installed Pi extensions also run in T3 Code threads. If gentle-pi is installed,
 its subagents appear in the thread's Agents panel with live progress and results.
 The Agents panel shows their live status and recent transcript. Gentle AI does
@@ -28,8 +33,9 @@ and enable **Pi**. Pi must be on that environment's `PATH`. If it was installed 
 a version manager or lives elsewhere, set **Binary path** to its executable.
 
 Choose **Refresh provider status** after changing Pi configuration. The provider
-card shows the detected version and status, and a refresh reloads Pi's current
-model catalog. Mobile uses the same provider and models from the connected
+card shows the detected version, available model providers, and status. A refresh
+reloads Pi's current available model catalog after changing credentials.
+Mobile uses the same provider and models from the connected
 environment; provider configuration remains in web or desktop settings.
 
 ## Gentle AI profiles and SDD
