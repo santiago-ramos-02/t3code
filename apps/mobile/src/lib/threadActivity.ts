@@ -1718,15 +1718,15 @@ function deriveThreadFeedTurnFolds(
     if (hiddenEntryIds.size === 0) {
       continue;
     }
-    // A lone compaction row stays visible on its own; it only folds away as
-    // part of a turn that already folds other work. Thinking is the same: a
-    // question answered by thought alone keeps its "Thought" row
-    // rather than collapsing behind a "Worked for ..." that hides nothing else.
+    // A lone compaction row stays visible on its own. Reasoning folds once
+    // the turn has an answer; without one, its "Thought" row remains visible.
     const hidesFoldableWork = entries.some(
       (entry) =>
         hiddenEntryIds.has(entry.id) &&
         !(entry.type === "activity-group" && isContextCompactionActivityGroup(entry)) &&
-        !(entry.type === "message" && entry.message.role === "reasoning"),
+        (terminalAssistantMessageId !== undefined ||
+          entry.type !== "message" ||
+          entry.message.role !== "reasoning"),
     );
     if (!hidesFoldableWork) {
       continue;

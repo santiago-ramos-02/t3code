@@ -747,15 +747,15 @@ function deriveTurnFolds(input: {
     if (hiddenEntryIds.size === 0) {
       continue;
     }
-    // A lone compaction row stays visible on its own; it only folds away as
-    // part of a turn that already folds other work. Thinking is the same: a
-    // question answered by thought alone keeps its "Thought" row
-    // rather than collapsing behind a "Worked for ..." that hides nothing else.
+    // A lone compaction row stays visible on its own. Reasoning folds once
+    // the turn has an answer; without one, its "Thought" row remains visible.
     const hidesFoldableWork = group.entries.some(
       (entry) =>
         hiddenEntryIds.has(entry.id) &&
         !(entry.kind === "work" && entry.entry.sourceActivityKind === "context-compaction") &&
-        !(entry.kind === "message" && entry.message.role === "reasoning"),
+        (group.terminalEntry !== null ||
+          entry.kind !== "message" ||
+          entry.message.role !== "reasoning"),
     );
     if (!hidesFoldableWork) {
       continue;

@@ -2315,6 +2315,77 @@ describe("buildThreadFeed", () => {
     },
   );
 
+  it("folds a thought-only turn after its answer on mobile", () => {
+    const turnId = TurnId.make("reasoning-only");
+    const thought = {
+      id: MessageId.make("reasoning-only-thought"),
+      role: "reasoning" as const,
+      text: "Check the result.",
+      turnId,
+      streaming: false,
+      createdAt: "2026-04-01T00:00:01.000Z",
+      updatedAt: "2026-04-01T00:00:01.000Z",
+    };
+    const answer = {
+      id: MessageId.make("reasoning-only-answer"),
+      role: "assistant" as const,
+      text: "Done.",
+      turnId,
+      streaming: false,
+      createdAt: "2026-04-01T00:00:02.000Z",
+      updatedAt: "2026-04-01T00:00:02.000Z",
+    };
+    const latestTurn = {
+      turnId,
+      state: "running" as const,
+      requestedAt: "2026-04-01T00:00:00.000Z",
+      startedAt: "2026-04-01T00:00:00.000Z",
+      completedAt: null,
+      assistantMessageId: null,
+    };
+    const thread = makeThread({
+      id: ThreadId.make("reasoning-only"),
+      projectId: ProjectId.make("project-1"),
+      title: "Reasoning",
+      messages: [thought, answer],
+      latestTurn,
+    });
+    const feed = buildThreadFeed(thread);
+    const live = deriveThreadFeedPresentation(feed, latestTurn, new Set(), new Set(), "now");
+    expect(live.some((entry) => entry.type === "turn-fold")).toBe(false);
+    expect(live.some((entry) => entry.type === "work-toggle" && entry.hiddenCount === 1)).toBe(
+      true,
+    );
+
+    const settledTurn = {
+      ...latestTurn,
+      state: "completed" as const,
+      completedAt: "2026-04-01T00:00:03.000Z",
+      assistantMessageId: answer.id,
+    };
+    const settled = deriveThreadFeedPresentation(feed, settledTurn, new Set());
+    expect(settled.map((entry) => entry.type)).toEqual(["turn-fold", "message"]);
+    expect(settled[0]).toMatchObject({ label: "Worked for 3.0s", expanded: false });
+    expect(settled[1]).toMatchObject({ message: answer });
+    const reopened = deriveThreadFeedPresentation(
+      feed,
+      settledTurn,
+      new Set([turnId]),
+      new Set([`activity-run:${thought.id}`]),
+    );
+    expect(
+      reopened.some((entry) => entry.type === "message" && entry.message.id === thought.id),
+    ).toBe(true);
+
+    const stranded = deriveThreadFeedPresentation(
+      buildThreadFeed({ ...thread, messages: [thought] }),
+      settledTurn,
+      new Set(),
+    );
+    expect(stranded.some((entry) => entry.type === "turn-fold")).toBe(false);
+    expect(stranded.some((entry) => entry.type === "work-toggle")).toBe(true);
+  });
+
   it("groups ordered reasoning blocks, keeps the live slot, and restores the group after unfolding", () => {
     const turnId = TurnId.make("reasoning-group");
     const messages: OrchestrationThread["messages"] = [1, 2, 3, 4].map((second) => ({
