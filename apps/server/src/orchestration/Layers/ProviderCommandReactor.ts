@@ -414,6 +414,11 @@ const make = Effect.gen(function* () {
       return;
     }
     const session = thread.session;
+    // A failed follow-up is attached to its user message below. It must not
+    // clear the turn that was already running when the follow-up was attempted.
+    if (session?.status === "running" && session.activeTurnId !== null) {
+      return;
+    }
     yield* setThreadSession({
       threadId: input.threadId,
       session: {

@@ -2139,17 +2139,11 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
           }
           const activeTurn = context.activeTurn;
           if (activeTurn !== undefined) {
-            if (
-              activeTurn.promptPending ||
-              activeTurn.abortRequestPending ||
-              activeTurn.abortRequested ||
-              context.pendingApprovals.size > 0 ||
-              context.pendingUserInputs.size > 0
-            ) {
+            if (activeTurn.abortRequestPending || activeTurn.abortRequested) {
               return yield* new ProviderAdapterValidationError({
                 provider: PROVIDER,
                 operation: "sendTurn",
-                issue: "Pi already has an active turn for this thread.",
+                issue: "Pi is stopping this turn. Send the message again after it settles.",
               });
             }
             return { type: "steer" as const, context, turn: activeTurn };
@@ -2163,12 +2157,11 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
       if (admission.type === "steer") {
         yield* admission.context.rpc
           .request({
-            type: "prompt",
+            type: "steer",
             message: input.input ?? "",
-            streamingBehavior: "steer",
             ...(images.length === 0 ? {} : { images }),
           })
-          .pipe(Effect.mapError((cause) => mapRequestError("prompt", cause)));
+          .pipe(Effect.mapError((cause) => mapRequestError("steer", cause)));
         return {
           threadId: input.threadId,
           turnId: admission.turn.turnId,

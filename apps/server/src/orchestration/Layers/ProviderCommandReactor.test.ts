@@ -266,7 +266,7 @@ describe("ProviderCommandReactor", () => {
         ),
       );
     });
-    const sendTurn = vi.fn((_: unknown) =>
+    const sendTurn = vi.fn<ProviderServiceShape["sendTurn"]>(() =>
       Effect.succeed({
         threadId: ThreadId.make("thread-1"),
         turnId: asTurnId("turn-1"),
@@ -3003,6 +3003,73 @@ describe("ProviderCommandReactor", () => {
     ).toBeUndefined();
   });
 
+  it("keeps a running turn alive when a follow-up send fails", async () => {
+    const harness = await createHarness();
+    const threadId = ThreadId.make("thread-1");
+    const now = "2026-01-01T00:00:00.000Z";
+    const dispatchMessage = (suffix: string) =>
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make(`cmd-follow-up-${suffix}`),
+        threadId,
+        message: {
+          messageId: asMessageId(`user-message-follow-up-${suffix}`),
+          role: "user",
+          text: suffix,
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      });
+
+    await Effect.runPromise(dispatchMessage("first"));
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.make("cmd-follow-up-running"),
+        threadId,
+        session: {
+          threadId,
+          status: "running",
+          providerName: "codex",
+          providerInstanceId: ProviderInstanceId.make("codex"),
+          runtimeMode: "approval-required",
+          activeTurnId: asTurnId("turn-1"),
+          lastError: null,
+          updatedAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+    harness.sendTurn.mockImplementation(() =>
+      Effect.fail(
+        new ProviderAdapterRequestError({
+          provider: "codex",
+          method: "sendTurn",
+          detail: "steer was rejected",
+        }),
+      ),
+    );
+    await Effect.runPromise(dispatchMessage("second"));
+    await waitFor(async () => {
+      const thread = (await harness.readModel()).threads.find((entry) => entry.id === threadId);
+      return (
+        thread?.activities.some((activity) => activity.kind === "provider.turn.start.failed") ??
+        false
+      );
+    });
+
+    const thread = (await harness.readModel()).threads.find((entry) => entry.id === threadId);
+    expect(harness.sendTurn).toHaveBeenCalledTimes(2);
+    expect(thread?.session).toMatchObject({
+      status: "running",
+      activeTurnId: asTurnId("turn-1"),
+      lastError: null,
+    });
+  });
+
   it("reuses the same provider session when runtime mode is unchanged", async () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";
@@ -4158,7 +4225,7 @@ describe("ProviderCommandReactor", () => {
       ),
     );
 
-    await Effect.runPromise(
+    await harness.runEffect(
       harness.engine.dispatch({
         type: "thread.session.set",
         commandId: CommandId.make("cmd-session-set-for-user-input-error"),
@@ -4176,7 +4243,7 @@ describe("ProviderCommandReactor", () => {
       }),
     );
 
-    await Effect.runPromise(
+    await harness.runEffect(
       harness.engine.dispatch({
         type: "thread.activity.append",
         commandId: CommandId.make("cmd-user-input-requested"),
@@ -4209,7 +4276,7 @@ describe("ProviderCommandReactor", () => {
       }),
     );
 
-    await Effect.runPromise(
+    await harness.runEffect(
       harness.engine.dispatch({
         type: "thread.user-input.respond",
         commandId: CommandId.make("cmd-user-input-respond-stale"),

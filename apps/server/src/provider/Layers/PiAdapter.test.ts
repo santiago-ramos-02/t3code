@@ -981,7 +981,7 @@ describe("PiAdapter session runtime", () => {
     ),
   );
 
-  it.effect("rejects a second turn while the first prompt awaits blocking UI", () =>
+  it.effect("steers the active turn while Pi prompt preflight waits for user input", () =>
     Effect.scoped(
       Effect.gen(function* () {
         const promptAccepted = yield* Deferred.make<void>();
@@ -1016,25 +1016,32 @@ describe("PiAdapter session runtime", () => {
           .sendTurn({ threadId: THREAD_ID, input: "/blocking" })
           .pipe(Effect.forkChild);
         yield* takeEvents(adapter, 2);
-        const rejected = yield* adapter
-          .sendTurn({ threadId: THREAD_ID, input: "Must not start" })
-          .pipe(Effect.flip);
-
-        expect(rejected).toMatchObject({
-          _tag: "ProviderAdapterValidationError",
-          operation: "sendTurn",
-          issue: "Pi already has an active turn for this thread.",
+        yield* offerNative(harness.transports[0]!, { type: "agent_start" });
+        const steered = yield* adapter.sendTurn({
+          threadId: THREAD_ID,
+          input: "Change direction while waiting",
         });
         expect(
           harness.transports[0]?.requests.filter(
             (request) => recordString(request, "type") === "prompt",
           ),
         ).toHaveLength(1);
+        expect(harness.transports[0]?.requests).toContainEqual(
+          expect.objectContaining({
+            type: "steer",
+            message: "Change direction while waiting",
+          }),
+        );
 
         yield* adapter.respondToUserInput(THREAD_ID, ApprovalRequestId.make("blocking-input"), {
           "blocking-input": "continue",
         });
-        yield* Fiber.join(firstTurn);
+        const first = yield* Fiber.join(firstTurn);
+        expect(steered.turnId).toBe(first.turnId);
+        yield* offerNative(harness.transports[0]!, { type: "agent_settled" });
+        expect(yield* takeEvents(adapter, 2)).toContainEqual(
+          expect.objectContaining({ type: "turn.completed", turnId: first.turnId }),
+        );
       }),
     ),
   );
@@ -1064,14 +1071,49 @@ describe("PiAdapter session runtime", () => {
           input: "Change direction",
         });
         expect(followUp.turnId).toBe(first.turnId);
-        expect(
-          transport.requests.filter((request) => recordString(request, "type") === "prompt"),
-        ).toMatchObject([
-          { message: "First message" },
-          { message: "Change direction", streamingBehavior: "steer" },
-        ]);
+        expect(transport.requests).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ type: "prompt", message: "First message" }),
+            expect.objectContaining({ type: "steer", message: "Change direction" }),
+          ]),
+        );
 
         yield* offerNative(transport, { type: "agent_settled" });
+        expect(yield* takeEvents(adapter, 1)).toMatchObject([
+          { type: "turn.completed", turnId: first.turnId, payload: { state: "completed" } },
+        ]);
+      }),
+    ),
+  );
+
+  it.effect("keeps the active Pi turn after a steer RPC failure", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = makeRpcHarness({
+          onRequest: (request, transport) =>
+            recordString(request, "type") === "steer"
+              ? Effect.fail(
+                  new PiRpcError({
+                    reason: "remote-error",
+                    detail: "steer rejected",
+                    method: "steer",
+                  }),
+                )
+              : Effect.succeed(defaultRpcResponse(request, transport)),
+        });
+        const adapter = yield* makeAdapter(harness);
+        yield* startSession(adapter);
+        yield* takeEvents(adapter, SESSION_EVENTS);
+
+        const first = yield* adapter.sendTurn({ threadId: THREAD_ID, input: "Keep working" });
+        yield* takeEvents(adapter, 1);
+        yield* offerNative(harness.transports[0]!, { type: "agent_start" });
+        const failure = yield* adapter
+          .sendTurn({ threadId: THREAD_ID, input: "Change direction" })
+          .pipe(Effect.flip);
+        expect(failure).toMatchObject({ method: "steer" });
+
+        yield* offerNative(harness.transports[0]!, { type: "agent_settled" });
         expect(yield* takeEvents(adapter, 1)).toMatchObject([
           { type: "turn.completed", turnId: first.turnId, payload: { state: "completed" } },
         ]);
