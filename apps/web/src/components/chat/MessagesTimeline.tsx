@@ -2510,7 +2510,7 @@ function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "workin
     use(TimelineRowActivityCtx);
   // One span for every label so the setup-to-working handoff swaps text in
   // place instead of remounting the row.
-  const shimmer = isPreparingWorktree || isCompacting || startupLabel !== null;
+  const shimmer = isPreparingWorktree || isCompacting;
   const label = isPreparingWorktree ? (
     "Setting up worktree…"
   ) : isCompacting ? (
@@ -2526,7 +2526,13 @@ function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "workin
   );
   return (
     <div className="border-b border-border/60 pb-2 pt-1">
-      <div className="flex h-6 min-w-0 items-baseline gap-2 px-1 text-sm leading-relaxed text-muted-foreground tabular-nums">
+      <div
+        className={cn(
+          "flex h-6 min-w-0 gap-2 px-1 text-sm leading-relaxed text-muted-foreground tabular-nums",
+          startupLabel !== null ? "items-center" : "items-baseline",
+        )}
+      >
+        {startupLabel !== null ? <Spinner size="xs" className="shrink-0" aria-hidden /> : null}
         <span
           ref={shimmer ? observeVisibleAnimation : undefined}
           className="relative shrink-0 overflow-hidden whitespace-nowrap"

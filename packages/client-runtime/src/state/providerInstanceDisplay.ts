@@ -31,12 +31,12 @@ export function providerSessionStartupLabel(
   session: Pick<OrchestrationSession, "status" | "providerName"> | null,
 ): string | null {
   if (session?.status !== "starting") return null;
-  if (session.providerName === "pi") return "Loading Pi extensions…";
+  if (session.providerName === "pi") return "Starting Pi";
   const providerName = session.providerName;
   const name = providerName
     ? (PROVIDER_DISPLAY_NAMES[ProviderDriverKind.make(providerName)] ?? humanizeSlug(providerName))
     : "agent";
-  return `Starting ${name}…`;
+  return `Starting ${name}`;
 }
 
 /**
