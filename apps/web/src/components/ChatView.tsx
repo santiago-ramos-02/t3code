@@ -218,7 +218,6 @@ import { PullRequestDetailGhost } from "./pullRequest/PullRequestGhosts";
 import { PullRequestsUnavailableState } from "./pullRequest/PullRequestsUnavailableState";
 import { RightPanelTabs } from "./RightPanelTabs";
 import { AgentsPanel } from "./AgentsPanel";
-import { gentleAgentControlPrompt, type GentleAgentRequest } from "~/lib/gentleAgentControl";
 import { LinkPullRequestDialogHost } from "./pullRequest/LinkPullRequestDialog";
 import { ThreadPullRequestsPanel } from "./pullRequest/ThreadPullRequestsPanel";
 import { useDeviceState } from "~/state/device";
@@ -9434,29 +9433,6 @@ export default function ChatView(props: ChatViewProps) {
   }, [cancelWorktreeSetup, draftId, routeThreadRef.environmentId, worktreeSetup]);
   const onSendRef = useRef(onSend);
   onSendRef.current = onSend;
-  const onRequestGentleControl = (request: GentleAgentRequest) => {
-    if (!activeThreadKey || !isServerThread || activeProviderStatus?.driver !== "pi") return;
-    const agent = agentPanelModel.directAgents.find((entry) => entry.id === request.taskId);
-    if (
-      agent?.taskSource !== "gentle-pi" ||
-      (agent.status !== "pending" && agent.status !== "running" && agent.status !== "waiting")
-    )
-      return;
-    const prompt = gentleAgentControlPrompt(request);
-    const queue = useQueuedMessageStore.getState();
-    if (queue.queuesByThreadKey[activeThreadKey]?.some((entry) => entry.prompt === prompt)) return;
-    queue.enqueue(activeThreadKey, {
-      prompt,
-      images: [],
-      files: [],
-      terminalContexts: [],
-      previewAnnotations: [],
-      reviewComments: [],
-      submissionIntent: "foreground",
-      queuedAfterToolActivityId: latestCompletedToolActivityId(threadActivities),
-      createdAt: new Date().toISOString(),
-    });
-  };
   // Resend once the cancelled dispatch has settled and the composer is free.
   // Every state that makes `onSend` bail and wait is part of the readiness
   // check, so the flag survives a reconnect, a reverting checkpoint, or a
@@ -9735,9 +9711,6 @@ export default function ChatView(props: ChatViewProps) {
         model={agentPanelModel}
         environmentId={activeThreadRef?.environmentId ?? null}
         threadId={activeThreadRef?.threadId ?? null}
-        onRequestControl={
-          activeProviderStatus?.driver === "pi" ? onRequestGentleControl : undefined
-        }
       />
     ) : renderedRightPanelSurface?.kind === "device" ? (
       <Suspense fallback={null}>

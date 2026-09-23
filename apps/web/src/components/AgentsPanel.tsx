@@ -25,11 +25,9 @@ import { Bot, Braces, Check, ChevronDown, ChevronRight, X } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 
 import { cn } from "~/lib/utils";
-import type { GentleAgentRequest } from "~/lib/gentleAgentControl";
 import { orchestrationEnvironment } from "~/state/orchestration";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { Button } from "~/components/ui/button";
-import { Input } from "~/components/ui/input";
 
 /**
  * In-flight states all present as Working (one steady state, per the
@@ -139,16 +137,8 @@ function agentActivityText(agent: RuntimeSubagent): string | null {
 }
 
 /** The normal status row stays the same height; Pi can add a child transcript below it. */
-function AgentRow({
-  agent,
-  onRequestControl,
-}: {
-  agent: RuntimeSubagent;
-  onRequestControl?: ((request: GentleAgentRequest) => void) | undefined;
-}) {
+function AgentRow({ agent }: { agent: RuntimeSubagent }) {
   const [transcriptOpen, setTranscriptOpen] = useState(false);
-  const [directionOpen, setDirectionOpen] = useState(false);
-  const [direction, setDirection] = useState("");
   const transcriptId = useId();
   const visuals = STATUS_VISUALS[agent.status];
   const statusLabel =
@@ -165,10 +155,6 @@ function AgentRow({
     agent.usage?.toolUses !== undefined ? `${agent.usage.toolUses} tools` : null,
     agent.activationCount > 1 ? `run ${agent.activationCount}` : null,
   ].filter((value): value is string => value !== null);
-  const canRequestControl =
-    agent.taskSource === "gentle-pi" &&
-    (agent.status === "pending" || agent.status === "running" || agent.status === "waiting") &&
-    onRequestControl !== undefined;
   const transcriptOccurrences = new Map<string, number>();
   const transcriptItems = transcriptOpen
     ? agent.transcript?.map((item) => {
@@ -230,53 +216,6 @@ function AgentRow({
         </span>
         <span className="sr-only">{statusLabel}</span>
       </div>
-      {canRequestControl ? (
-        <div className="min-w-0 pl-5 pr-1 pb-1">
-          <div className="flex flex-wrap items-center gap-1">
-            <Button
-              variant="ghost-destructive"
-              size="micro"
-              onClick={() => onRequestControl({ taskId: agent.id, action: "cancel" })}
-            >
-              Ask Pi to stop
-            </Button>
-            <Button
-              variant="ghost-muted"
-              size="micro"
-              aria-expanded={directionOpen}
-              onClick={() => setDirectionOpen((open) => !open)}
-            >
-              Steer
-            </Button>
-            <span className="text-[11px] text-muted-foreground">via parent Pi</span>
-          </div>
-          {directionOpen ? (
-            <form
-              className="mt-1 flex min-w-0 gap-1"
-              onSubmit={(event) => {
-                event.preventDefault();
-                const message = direction.trim();
-                if (!message) return;
-                onRequestControl({ taskId: agent.id, action: "steer", message });
-                setDirection("");
-                setDirectionOpen(false);
-              }}
-            >
-              <Input
-                size="compact"
-                aria-label={`Direction for ${agent.title}`}
-                placeholder="Message to subagent"
-                maxLength={2000}
-                value={direction}
-                onChange={(event) => setDirection(event.target.value)}
-              />
-              <Button type="submit" size="compact" disabled={!direction.trim()}>
-                Send
-              </Button>
-            </form>
-          ) : null}
-        </div>
-      ) : null}
       {agent.transcript?.length ? (
         <div
           id={transcriptId}
@@ -642,12 +581,10 @@ export function AgentsPanel({
   model,
   environmentId = null,
   threadId = null,
-  onRequestControl,
 }: {
   model: AgentPanelModel;
   environmentId?: EnvironmentId | null;
   threadId?: ThreadId | null;
-  onRequestControl?: ((request: GentleAgentRequest) => void) | undefined;
 }) {
   if (!model.hasAgents) {
     return (
@@ -680,7 +617,7 @@ export function AgentsPanel({
                 Direct spawns
               </div>
               {model.directAgents.map((agent) => (
-                <AgentRow key={agent.id} agent={agent} onRequestControl={onRequestControl} />
+                <AgentRow key={agent.id} agent={agent} />
               ))}
             </section>
           ) : null}

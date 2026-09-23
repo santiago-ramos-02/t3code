@@ -18,8 +18,8 @@ Set up credentials and other Pi preferences with Pi as usual. T3 Code reuses tha
 installation, including its credentials, models, skills, and custom commands.
 Installed Pi extensions also run in T3 Code threads. If gentle-pi is installed,
 its subagents appear in the thread's Agents panel with live progress and results.
-The panel's stop and steer actions ask the parent Pi agent to use Gentle AI's
-tools; check the conversation for the result of each request.
+The Agents panel shows their live status and recent transcript. Gentle AI does
+not currently expose direct subagent controls to Pi RPC hosts.
 T3-managed Pi threads use Pi's native persisted sessions for resume behavior;
 T3 Code does not discover or import arbitrary standalone Pi sessions.
 
