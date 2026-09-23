@@ -13,6 +13,7 @@ import {
   ProviderSetupError,
   ProviderSetupInput,
 } from "./providerSetup.ts";
+import { PiGentleActionInput, PiGentleReadInput, PiGentleState } from "./piGentle.ts";
 
 import { ExternalLauncherError, LaunchEditorInput } from "./editor.ts";
 import {
@@ -309,6 +310,8 @@ export const WS_METHODS = {
   providerInstallCancel: "provider.install.cancel",
   providerInstallSubscribe: "provider.install.subscribe",
   providerInstallRemove: "provider.install.remove",
+  providerPiGentleRead: "provider.piGentle.read",
+  providerPiGentleAction: "provider.piGentle.action",
 
   // VCS methods
   vcsPull: "vcs.pull",
@@ -491,6 +494,18 @@ const WsServerUpdateProviderRpc = Rpc.make(WS_METHODS.serverUpdateProvider, {
   payload: ServerProviderUpdateInput,
   success: ServerProviderUpdatedPayload,
   error: Schema.Union([ServerProviderUpdateError, EnvironmentAuthorizationError]),
+});
+
+const WsProviderPiGentleReadRpc = Rpc.make(WS_METHODS.providerPiGentleRead, {
+  payload: PiGentleReadInput,
+  success: PiGentleState,
+  error: Schema.Union([ProviderSetupError, EnvironmentAuthorizationError]),
+});
+
+const WsProviderPiGentleActionRpc = Rpc.make(WS_METHODS.providerPiGentleAction, {
+  payload: PiGentleActionInput,
+  success: PiGentleState,
+  error: Schema.Union([ProviderSetupError, EnvironmentAuthorizationError]),
 });
 
 const ProviderSetupRpcError = Schema.Union([ProviderSetupError, EnvironmentAuthorizationError]);
@@ -1396,6 +1411,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerGetConfigRpc,
   WsServerRefreshProvidersRpc,
   WsServerUpdateProviderRpc,
+  WsProviderPiGentleReadRpc,
+  WsProviderPiGentleActionRpc,
   WsProviderConsumeResetCreditRpc,
   WsProviderAuthStartRpc,
   WsProviderAuthCompleteRpc,

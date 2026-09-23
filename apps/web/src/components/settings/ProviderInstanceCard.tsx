@@ -388,6 +388,7 @@ interface ProviderInstanceCardProps {
    */
   readonly headerAction?: ReactNode | undefined;
   readonly setup?: ReactNode;
+  readonly integration?: ReactNode;
   readonly hiddenModels: ReadonlyArray<string>;
   readonly favoriteModels: ReadonlyArray<string>;
   readonly modelOrder: ReadonlyArray<string>;
@@ -444,6 +445,7 @@ export function ProviderInstanceCard({
   onDelete,
   headerAction,
   setup,
+  integration,
   hiddenModels,
   favoriteModels,
   modelOrder,
@@ -963,6 +965,7 @@ export function ProviderInstanceCard({
       </SettingsSection>
 
       {setup ? <SettingsSection title="Setup">{setup}</SettingsSection> : null}
+      {integration}
 
       <SettingsSection
         title="Runtime"

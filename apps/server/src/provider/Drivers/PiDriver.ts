@@ -31,6 +31,7 @@ import { ProviderDriverError } from "../Errors.ts";
 import { makePiAdapter, PiAdapterAttachmentReadError } from "../Layers/PiAdapter.ts";
 import { materializePiMcpExtension } from "../pi-mcp/PiMcpBridgeMaterializer.ts";
 import { mergeProviderInstanceEnvironment } from "../ProviderInstanceEnvironment.ts";
+import { makePiGentleSettings } from "../PiGentleSettings.ts";
 import {
   makePiRpc,
   PI_STARTUP_REQUEST_TIMEOUT,
@@ -586,6 +587,12 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
         environment: processEnv,
         rpcFactory,
       });
+      const piGentle = makePiGentleSettings({
+        environment: processEnv,
+        fileSystem,
+        path,
+        spawner,
+      });
 
       return {
         instanceId,
@@ -594,6 +601,7 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
         displayName,
         accentColor,
         enabled,
+        piGentle,
         snapshot,
         snapshotForCwd,
         refreshModels,

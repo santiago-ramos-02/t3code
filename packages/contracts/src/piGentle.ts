@@ -1,0 +1,63 @@
+import * as Schema from "effect/Schema";
+import { TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { ProviderInstanceId } from "./providerInstance.ts";
+
+export const PiGentleRoutingEntry = Schema.Struct({
+  model: Schema.optionalKey(Schema.String),
+  thinking: Schema.optionalKey(
+    Schema.Literals(["off", "minimal", "low", "medium", "high", "xhigh", "max"]),
+  ),
+});
+export const PiGentleRouting = Schema.Record(Schema.String, PiGentleRoutingEntry);
+export type PiGentleRouting = typeof PiGentleRouting.Type;
+
+export const PiGentleSddPreferences = Schema.Struct({
+  executionMode: Schema.Literals(["interactive", "auto"]),
+  artifactStore: Schema.Literals(["openspec", "engram", "hybrid", "none"]),
+  chainedPrStrategy: Schema.Literals(["ask-on-risk", "auto-chain", "single-pr"]),
+  reviewBudgetLines: Schema.Int.check(Schema.isGreaterThan(0)),
+});
+export type PiGentleSddPreferences = typeof PiGentleSddPreferences.Type;
+
+export const PiGentleState = Schema.Struct({
+  available: Schema.Boolean,
+  profiles: Schema.Array(Schema.Struct({ name: Schema.String, routing: PiGentleRouting })),
+  active: Schema.NullOr(Schema.String),
+  project: Schema.NullOr(
+    Schema.Struct({
+      pinAvailable: Schema.Boolean,
+      pinned: Schema.NullOr(Schema.String),
+      pinSource: Schema.NullOr(Schema.Literals(["local", "repo"])),
+      sdd: Schema.NullOr(PiGentleSddPreferences),
+    }),
+  ),
+});
+export type PiGentleState = typeof PiGentleState.Type;
+
+export const PiGentleReadInput = Schema.Struct({
+  instanceId: ProviderInstanceId,
+  cwd: Schema.optionalKey(TrimmedNonEmptyString),
+});
+export const PiGentleActionInput = Schema.Struct({
+  instanceId: ProviderInstanceId,
+  action: Schema.Union([
+    Schema.Struct({
+      type: Schema.Literal("create"),
+      name: Schema.String,
+      cwd: Schema.optionalKey(TrimmedNonEmptyString),
+    }),
+    Schema.Struct({
+      type: Schema.Literal("save"),
+      name: Schema.String,
+      routing: PiGentleRouting,
+      cwd: Schema.optionalKey(TrimmedNonEmptyString),
+    }),
+    Schema.Struct({ type: Schema.Literal("pin"), name: Schema.String, cwd: TrimmedNonEmptyString }),
+    Schema.Struct({ type: Schema.Literal("clearPin"), cwd: TrimmedNonEmptyString }),
+    Schema.Struct({
+      type: Schema.Literal("saveSdd"),
+      cwd: TrimmedNonEmptyString,
+      preferences: PiGentleSddPreferences,
+    }),
+  ]),
+});

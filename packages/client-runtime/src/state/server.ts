@@ -1063,6 +1063,14 @@ export function createServerEnvironmentAtoms<R, E>(
         key: ({ environmentId, input }) => JSON.stringify([environmentId, input]),
       },
     }),
+    readPiGentle: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:provider:pi-gentle-read",
+      tag: WS_METHODS.providerPiGentleRead,
+    }),
+    updatePiGentle: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:provider:pi-gentle-action",
+      tag: WS_METHODS.providerPiGentleAction,
+    }),
     refreshProviders: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:refresh-providers",
       tag: WS_METHODS.serverRefreshProviders,

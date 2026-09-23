@@ -80,6 +80,8 @@ import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { AddProviderInstanceDialog } from "./AddProviderInstanceDialog";
+import { PiGentleSettingsSection } from "./PiGentleSettingsSection";
+import { useProjects } from "../../state/entities";
 import { ExpandableText } from "./ExpandableText";
 import { ProviderInstanceCard } from "./ProviderInstanceCard";
 import { UsageProviderSettings } from "./UsageProviderSettings";
@@ -569,6 +571,7 @@ export function EnvironmentProviderSettings({
   readonly readOnly?: boolean;
 }) {
   const settings = useEnvironmentSettings(environmentId);
+  const projects = useProjects();
   // Provider instances hold per-machine credentials and binaries, so this
   // page always edits exactly the environment it displays.
   const updateSettings = useUpdateEnvironmentSettings(environmentId);
@@ -992,6 +995,16 @@ export function EnvironmentProviderSettings({
               enabled={resolveProviderInstanceEnabled(row.instance)}
               readOnly={readOnly}
               onEnable={() => updateProviderInstance(row, { ...row.instance, enabled: true })}
+            />
+          ) : null
+        }
+        integration={
+          mode === "editor" && row.driver === "pi" ? (
+            <PiGentleSettingsSection
+              environmentId={environmentId}
+              instanceId={row.instanceId}
+              projects={projects.filter((project) => project.environmentId === environmentId)}
+              readOnly={readOnly}
             />
           ) : null
         }

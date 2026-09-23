@@ -32,6 +32,20 @@ card shows the detected version and status, and a refresh reloads Pi's current
 model catalog. Mobile uses the same provider and models from the connected
 environment; provider configuration remains in web or desktop settings.
 
+## Gentle AI profiles and SDD
+
+With gentle-pi 3.5 or newer installed for Pi, open **Settings > Providers > Pi**
+and choose a project in the **Gentle AI** section. Create a profile, assign models
+and effort to its subagents, then save it and choose **Use for project**. This
+pins the profile to that Git repository. Other projects keep their own routing;
+the main Pi model still comes from T3 Code's composer. Remove the local pin to
+return to the repository declaration or Gentle AI's global routing.
+
+For SDD, choose the project's execution mode, artifact store, delivery strategy,
+and review budget, then save. These choices are reused as suggestions. In a Pi
+thread for that project, run `/gentle:sdd-preflight` to confirm them for the
+session or `/gentle-sdd-init` to start SDD.
+
 ## T3 Code tools
 
 Each Pi thread automatically receives T3 Code's tools for that thread. No Pi

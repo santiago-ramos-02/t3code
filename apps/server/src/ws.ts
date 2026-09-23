@@ -2455,6 +2455,64 @@ const makeWsRpcLayer = (
               "rpc.aggregate": "server",
             },
           ),
+        [WS_METHODS.providerPiGentleRead]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.providerPiGentleRead,
+            Effect.gen(function* () {
+              const instance = yield* providerInstances.getInstance(input.instanceId);
+              const gentle = instance?.piGentle;
+              if (!gentle) {
+                return yield* new ProviderSetupError({
+                  instanceId: input.instanceId,
+                  operation: "pi-gentle-read",
+                  detail: "This provider is not a Pi instance.",
+                });
+              }
+              return yield* gentle.read(input.cwd).pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new ProviderSetupError({
+                      instanceId: input.instanceId,
+                      operation: "pi-gentle-read",
+                      detail:
+                        cause instanceof Error
+                          ? cause.message
+                          : "Could not read Gentle AI settings.",
+                    }),
+                ),
+              );
+            }),
+            { "rpc.aggregate": "provider" },
+          ),
+        [WS_METHODS.providerPiGentleAction]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.providerPiGentleAction,
+            Effect.gen(function* () {
+              const instance = yield* providerInstances.getInstance(input.instanceId);
+              const gentle = instance?.piGentle;
+              if (!gentle) {
+                return yield* new ProviderSetupError({
+                  instanceId: input.instanceId,
+                  operation: "pi-gentle-action",
+                  detail: "This provider is not a Pi instance.",
+                });
+              }
+              return yield* gentle.action(input.action).pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new ProviderSetupError({
+                      instanceId: input.instanceId,
+                      operation: "pi-gentle-action",
+                      detail:
+                        cause instanceof Error
+                          ? cause.message
+                          : "Could not update Gentle AI settings.",
+                    }),
+                ),
+              );
+            }),
+            { "rpc.aggregate": "provider" },
+          ),
         [WS_METHODS.providerConsumeResetCredit]: (input) =>
           observeRpcEffect(
             WS_METHODS.providerConsumeResetCredit,
