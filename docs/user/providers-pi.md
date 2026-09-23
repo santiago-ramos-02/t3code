@@ -46,6 +46,9 @@ and effort to its subagents, then save it and choose **Use for project**. This
 pins the profile to that Git repository. Other projects keep their own routing;
 the main Pi model still comes from T3 Code's composer. Remove the local pin to
 return to the repository declaration or Gentle AI's global routing.
+The section shows the project's pin and Gentle AI's globally active profile
+separately. Choosing a profile in the editor does not activate it globally;
+projects without a pin use Gentle AI's global model routing.
 
 For SDD, choose the project's execution mode, artifact store, delivery strategy,
 and review budget, then save. These choices are reused as suggestions. In a Pi

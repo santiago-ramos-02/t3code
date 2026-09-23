@@ -82,10 +82,10 @@ import { stackedThreadToast, toastManager } from "../ui/toast";
 import { AddProviderInstanceDialog } from "./AddProviderInstanceDialog";
 import { PiGentleSettingsSection } from "./PiGentleSettingsSection";
 import { PiModelProvidersSection } from "./PiModelProvidersSection";
-import { useProjects } from "../../state/entities";
 import { ExpandableText } from "./ExpandableText";
 import { ProviderInstanceCard } from "./ProviderInstanceCard";
 import { UsageProviderSettings } from "./UsageProviderSettings";
+import { useSettingsProjectGroups } from "./useSettingsProjectGroups";
 import { ProviderSetupSection, readAntigravityAuthMethod } from "./ProviderSetupSection";
 import { DRIVER_OPTIONS, getDriverOption } from "./providerDriverMeta";
 import { searchableSetting } from "./settingsSearch";
@@ -572,7 +572,7 @@ export function EnvironmentProviderSettings({
   readonly readOnly?: boolean;
 }) {
   const settings = useEnvironmentSettings(environmentId);
-  const projects = useProjects();
+  const projectGroups = useSettingsProjectGroups();
   // Provider instances hold per-machine credentials and binaries, so this
   // page always edits exactly the environment it displays.
   const updateSettings = useUpdateEnvironmentSettings(environmentId);
@@ -1006,7 +1006,14 @@ export function EnvironmentProviderSettings({
               <PiGentleSettingsSection
                 environmentId={environmentId}
                 instanceId={row.instanceId}
-                projects={projects.filter((project) => project.environmentId === environmentId)}
+                projects={projectGroups.flatMap((group) =>
+                  group.memberProjects
+                    .filter((project) => project.environmentId === environmentId)
+                    .map((project) => ({
+                      title: group.displayName,
+                      workspaceRoot: project.workspaceRoot,
+                    })),
+                )}
                 readOnly={readOnly}
               />
             </>

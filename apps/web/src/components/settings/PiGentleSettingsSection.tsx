@@ -31,6 +31,37 @@ const DEFAULT_SDD: PiGentleSddPreferences = {
   reviewBudgetLines: 400,
 };
 const THINKING = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+const SDD_LABELS = {
+  executionMode: { auto: "Automatic", interactive: "Confirm each phase" },
+  artifactStore: {
+    openspec: "OpenSpec project files",
+    engram: "Engram memory",
+    hybrid: "Project files + Engram",
+    none: "No saved artifacts",
+  },
+  chainedPrStrategy: {
+    "ask-on-risk": "Ask when over budget",
+    "auto-chain": "Chain large changes",
+    "single-pr": "One pull request",
+  },
+} as const;
+const SDD_DESCRIPTIONS = {
+  executionMode: {
+    auto: "Continue through phases when the required decisions are settled.",
+    interactive: "Ask before starting each new phase.",
+  },
+  artifactStore: {
+    openspec: "Keep specifications and change files in the project.",
+    engram: "Keep SDD artifacts in Engram memory.",
+    hybrid: "Keep project files and Engram memory together.",
+    none: "Do not save SDD artifacts.",
+  },
+  chainedPrStrategy: {
+    "ask-on-risk": "Ask how to split work when it exceeds the review budget.",
+    "auto-chain": "Split large changes into a chain of reviewable PRs.",
+    "single-pr": "Keep the change in one PR.",
+  },
+} as const;
 
 function errorText(failure: unknown): string {
   return failure instanceof Error ? failure.message : "Gentle AI settings could not be updated.";
@@ -127,6 +158,7 @@ export function PiGentleSettingsSection({
 
   const profile = state?.profiles.find((entry) => entry.name === selectedProfile);
   const pinned = state?.project?.pinned;
+  const selectedProject = projects.find((project) => project.workspaceRoot === selectedCwd);
   const canEdit = !readOnly && !pending;
   const routingChanged =
     profile !== undefined &&
@@ -156,9 +188,9 @@ export function PiGentleSettingsSection({
           <div className="space-y-3 px-3 py-3 sm:px-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
-                <h3 className="text-sm font-medium">Project profile</h3>
+                <h3 className="text-sm font-medium">Project routing</h3>
                 <p className="text-xs text-muted-foreground">
-                  Subagent routing for this repository. Choose the main model in T3’s composer.
+                  Choose a T3 Code project. The main Pi model stays in the composer.
                 </p>
               </div>
               {projects.length > 0 ? (
@@ -173,7 +205,7 @@ export function PiGentleSettingsSection({
                     className="w-full min-w-0 sm:w-52"
                     aria-label="Project for Gentle AI settings"
                   >
-                    <SelectValue />
+                    <SelectValue>{selectedProject?.title}</SelectValue>
                   </SelectTrigger>
                   <SelectPopup>
                     {projects.map((project) => (
@@ -190,14 +222,19 @@ export function PiGentleSettingsSection({
                 Add a project to select its Gentle profile and SDD preferences.
               </p>
             ) : (
-              <div className="flex flex-wrap items-center gap-2 text-xs">
-                <span>
+              <div className="space-y-1 text-xs">
+                <p>
+                  <span className="font-medium">This project: </span>
                   {pinned
-                    ? `${pinned} · ${state.project?.pinSource === "repo" ? "repository default" : "local pin"}`
-                    : state.project?.pinAvailable
-                      ? "Using Gentle’s global routing"
-                      : "Profile pins require a Git repository"}
-                </span>
+                    ? `${pinned} (${state.project?.pinSource === "repo" ? "repository default" : "local pin"})`
+                    : "Gentle’s global model routing (no pin)"}
+                </p>
+                <p className="text-muted-foreground">
+                  Globally active profile: {state.active ?? "None"}
+                </p>
+                {!state.project?.pinAvailable && !pinned ? (
+                  <p className="text-muted-foreground">Profile pins require a Git repository.</p>
+                ) : null}
                 {state.project?.pinSource === "local" && canEdit ? (
                   <Button
                     size="xs"
@@ -215,7 +252,7 @@ export function PiGentleSettingsSection({
             <div className="flex flex-wrap items-end gap-2">
               <div className="min-w-0 flex-1">
                 <label className="mb-1 block text-xs font-medium" htmlFor="gentle-profile-select">
-                  Agent-model profile
+                  Profile to edit
                 </label>
                 <Select
                   value={selectedProfile ?? ""}
@@ -239,6 +276,8 @@ export function PiGentleSettingsSection({
                     {state.profiles.map((entry) => (
                       <SelectItem key={entry.name} value={entry.name}>
                         {entry.name}
+                        {entry.name === state.active ? " · globally active" : ""}
+                        {entry.name === pinned ? " · this project" : ""}
                       </SelectItem>
                     ))}
                   </SelectPopup>
@@ -263,6 +302,10 @@ export function PiGentleSettingsSection({
                 Use for project
               </Button>
             </div>
+            <p className="text-xs text-muted-foreground">
+              Choosing a profile here only opens its editor. Use for project pins it here; saving an
+              active profile does not apply it globally in Gentle AI.
+            </p>
             <div className="flex flex-wrap items-end gap-2">
               <div className="min-w-0 flex-1">
                 <label className="mb-1 block text-xs font-medium" htmlFor="gentle-new-profile">
@@ -429,13 +472,18 @@ export function PiGentleSettingsSection({
                     disabled={!canEdit}
                   >
                     <SelectTrigger size="sm">
-                      <SelectValue />
+                      <SelectValue>{SDD_LABELS.executionMode[sdd.executionMode]}</SelectValue>
                     </SelectTrigger>
                     <SelectPopup>
-                      <SelectItem value="auto">Auto</SelectItem>
-                      <SelectItem value="interactive">Interactive</SelectItem>
+                      <SelectItem value="auto">{SDD_LABELS.executionMode.auto}</SelectItem>
+                      <SelectItem value="interactive">
+                        {SDD_LABELS.executionMode.interactive}
+                      </SelectItem>
                     </SelectPopup>
                   </Select>
+                  <span className="block text-muted-foreground">
+                    {SDD_DESCRIPTIONS.executionMode[sdd.executionMode]}
+                  </span>
                 </label>
                 <label className="space-y-1 text-xs">
                   Artifact store
@@ -453,15 +501,18 @@ export function PiGentleSettingsSection({
                     disabled={!canEdit}
                   >
                     <SelectTrigger size="sm">
-                      <SelectValue />
+                      <SelectValue>{SDD_LABELS.artifactStore[sdd.artifactStore]}</SelectValue>
                     </SelectTrigger>
                     <SelectPopup>
-                      <SelectItem value="openspec">OpenSpec</SelectItem>
-                      <SelectItem value="engram">Engram</SelectItem>
-                      <SelectItem value="hybrid">Hybrid</SelectItem>
-                      <SelectItem value="none">None</SelectItem>
+                      <SelectItem value="openspec">{SDD_LABELS.artifactStore.openspec}</SelectItem>
+                      <SelectItem value="engram">{SDD_LABELS.artifactStore.engram}</SelectItem>
+                      <SelectItem value="hybrid">{SDD_LABELS.artifactStore.hybrid}</SelectItem>
+                      <SelectItem value="none">{SDD_LABELS.artifactStore.none}</SelectItem>
                     </SelectPopup>
                   </Select>
+                  <span className="block text-muted-foreground">
+                    {SDD_DESCRIPTIONS.artifactStore[sdd.artifactStore]}
+                  </span>
                 </label>
                 <label className="space-y-1 text-xs">
                   Delivery strategy
@@ -478,14 +529,25 @@ export function PiGentleSettingsSection({
                     disabled={!canEdit}
                   >
                     <SelectTrigger size="sm">
-                      <SelectValue />
+                      <SelectValue>
+                        {SDD_LABELS.chainedPrStrategy[sdd.chainedPrStrategy]}
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectPopup>
-                      <SelectItem value="ask-on-risk">Ask on risk</SelectItem>
-                      <SelectItem value="auto-chain">Auto chain</SelectItem>
-                      <SelectItem value="single-pr">Single PR</SelectItem>
+                      <SelectItem value="ask-on-risk">
+                        {SDD_LABELS.chainedPrStrategy["ask-on-risk"]}
+                      </SelectItem>
+                      <SelectItem value="auto-chain">
+                        {SDD_LABELS.chainedPrStrategy["auto-chain"]}
+                      </SelectItem>
+                      <SelectItem value="single-pr">
+                        {SDD_LABELS.chainedPrStrategy["single-pr"]}
+                      </SelectItem>
                     </SelectPopup>
                   </Select>
+                  <span className="block text-muted-foreground">
+                    {SDD_DESCRIPTIONS.chainedPrStrategy[sdd.chainedPrStrategy]}
+                  </span>
                 </label>
                 <label className="space-y-1 text-xs">
                   Review budget (lines)
@@ -502,6 +564,9 @@ export function PiGentleSettingsSection({
                       }))
                     }
                   />
+                  <span className="block text-muted-foreground">
+                    Changed lines per review before the delivery strategy applies.
+                  </span>
                 </label>
               </div>
               <div className="flex flex-wrap items-center justify-between gap-2">
