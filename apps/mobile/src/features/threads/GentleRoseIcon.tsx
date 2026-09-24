@@ -4,9 +4,10 @@ import { Path, Svg } from "react-native-svg";
 export function GentleRoseIcon({ color }: { readonly color: string }) {
   return (
     <Svg
-      width={20}
+      width={18}
       height={20}
       viewBox={gentleRose.viewBox}
+      preserveAspectRatio="none"
       fill={color}
       stroke={color}
       strokeWidth={2}

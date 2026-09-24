@@ -109,7 +109,10 @@ export function GentleComposerActions({
       ) : null}
       <Menu>
         <MenuTrigger render={<ComposerControl size="xs" aria-label="Gentle AI actions" />}>
-          <GentleRoseIcon className="size-5 text-foreground/90" data-composer-control-icon />
+          <GentleRoseIcon
+            className="size-5 w-[18px] text-foreground/90"
+            data-composer-control-icon
+          />
           Gentle AI <ChevronDownIcon className="size-3 opacity-60" aria-hidden />
         </MenuTrigger>
         <MenuPopup align="end" side="top" {...floatingLayer}>

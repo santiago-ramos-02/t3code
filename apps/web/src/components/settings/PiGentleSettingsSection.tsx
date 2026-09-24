@@ -23,6 +23,7 @@ import { Spinner } from "../ui/spinner";
 import { SettingsSection } from "./settingsLayout";
 
 type GentleAction = typeof PiGentleActionInput.Type.action;
+type GentleArea = "project" | "profile" | "sdd";
 type ProjectOption = { readonly title: string; readonly workspaceRoot: string };
 
 const DEFAULT_SDD: PiGentleSddPreferences = {
@@ -96,8 +97,12 @@ export function PiGentleSettingsSection({
   const [newAgent, setNewAgent] = useState("");
   const [sdd, setSdd] = useState<PiGentleSddPreferences>(DEFAULT_SDD);
   const [pending, setPending] = useState(false);
-  const [errorState, setErrorState] = useState<{ key: string; text: string } | null>(null);
-  const error = errorState?.key === stateKey ? errorState.text : null;
+  const [errorState, setErrorState] = useState<{
+    key: string;
+    text: string;
+    area: GentleArea;
+  } | null>(null);
+  const error = errorState?.key === stateKey ? errorState : null;
   const read = useAtomCommand(serverEnvironment.readPiGentle, {
     reportFailure: false,
     reportDefect: false,
@@ -125,7 +130,11 @@ export function PiGentleSettingsSection({
         setSelectedProfile(initial?.name ?? null);
         setRouting(initial?.routing ?? {});
       } else if (!isAtomCommandInterrupted(result)) {
-        setErrorState({ key: stateKey, text: errorText(squashAtomCommandFailure(result)) });
+        setErrorState({
+          key: stateKey,
+          text: errorText(squashAtomCommandFailure(result)),
+          area: "project",
+        });
       }
     });
     return () => {
@@ -135,6 +144,12 @@ export function PiGentleSettingsSection({
 
   async function runAction(action: GentleAction) {
     if (pending) return;
+    const area: GentleArea =
+      action.type === "saveSdd"
+        ? "sdd"
+        : action.type === "pin" || action.type === "clearPin"
+          ? "project"
+          : "profile";
     setPending(true);
     setErrorState(null);
     try {
@@ -150,10 +165,14 @@ export function PiGentleSettingsSection({
         }
         if (action.type === "saveSdd") setSdd(result.value.project?.sdd ?? action.preferences);
       } else if (!isAtomCommandInterrupted(result)) {
-        setErrorState({ key: stateKey, text: errorText(squashAtomCommandFailure(result)) });
+        setErrorState({
+          key: stateKey,
+          text: errorText(squashAtomCommandFailure(result)),
+          area,
+        });
       }
     } catch (cause) {
-      setErrorState({ key: stateKey, text: errorText(cause) });
+      setErrorState({ key: stateKey, text: errorText(cause), area });
     } finally {
       setPending(false);
     }
@@ -173,17 +192,26 @@ export function PiGentleSettingsSection({
           entry.model !== profile.routing[agent]?.model ||
           entry.thinking !== profile.routing[agent]?.thinking,
       ));
+  const savedSdd = state?.project?.sdd;
+  const sddChanged =
+    savedSdd === null ||
+    savedSdd === undefined ||
+    sdd.executionMode !== savedSdd.executionMode ||
+    sdd.artifactStore !== savedSdd.artifactStore ||
+    sdd.chainedPrStrategy !== savedSdd.chainedPrStrategy ||
+    sdd.reviewBudgetLines !== savedSdd.reviewBudgetLines;
+  const reviewBudgetValid = Number.isInteger(sdd.reviewBudgetLines) && sdd.reviewBudgetLines > 0;
 
   return (
     <SettingsSection
       title="Gentle AI"
-      icon={<GentleRoseIcon className="size-[18px] text-foreground/90" />}
+      icon={<GentleRoseIcon className="h-[18px] w-4 text-foreground/90" />}
     >
       {state === null ? (
         <div className="flex items-center gap-2 px-3 py-3 text-sm sm:px-4">
           {error ? (
             <span role="alert" className="text-destructive">
-              {error}
+              {error?.text}
             </span>
           ) : (
             <>
@@ -243,7 +271,7 @@ export function PiGentleSettingsSection({
                 {!state.project?.pinAvailable && !pinned ? (
                   <p className="text-muted-foreground">Profile pins require a Git repository.</p>
                 ) : null}
-                {state.project?.pinSource === "local" && canEdit ? (
+                {pinned && state.project?.pinSource === "local" && canEdit ? (
                   <Button
                     size="xs"
                     variant="ghost"
@@ -254,6 +282,11 @@ export function PiGentleSettingsSection({
                 ) : null}
               </div>
             )}
+            {error?.area === "project" ? (
+              <p role="alert" className="text-xs text-destructive">
+                {error.text}
+              </p>
+            ) : null}
           </div>
 
           <div className="space-y-3 px-3 py-3 sm:px-4">
@@ -344,7 +377,7 @@ export function PiGentleSettingsSection({
               </Button>
             </div>
             {profile ? (
-              <div className="space-y-2">
+              <div className="@container/gentle-rows space-y-2">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <h4 className="text-xs font-medium">Subagent models</h4>
                   <Button
@@ -362,15 +395,23 @@ export function PiGentleSettingsSection({
                     Save profile
                   </Button>
                 </div>
+                <div className="hidden grid-cols-[minmax(7rem,1fr)_minmax(0,2fr)_minmax(7rem,1fr)_auto] items-center gap-2 text-xs text-muted-foreground @min-[30rem]/gentle-rows:grid">
+                  <span>Agent</span>
+                  <span>Model</span>
+                  <span>Effort</span>
+                </div>
                 {Object.entries(routing).map(([agent, entry]) => (
                   <div
                     key={agent}
-                    className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(7rem,1fr)_minmax(0,2fr)_minmax(7rem,1fr)_auto] sm:items-center"
+                    className="grid grid-cols-[minmax(0,1fr)_7rem_auto] gap-x-2 gap-y-1.5 @min-[30rem]/gentle-rows:grid-cols-[minmax(7rem,1fr)_minmax(0,2fr)_minmax(7rem,1fr)_auto] @min-[30rem]/gentle-rows:items-center"
                   >
-                    <span className="truncate text-xs">{agent}</span>
+                    <span className="col-span-3 col-start-1 row-start-1 min-w-0 wrap-anywhere text-xs @min-[30rem]/gentle-rows:col-span-1">
+                      {agent}
+                    </span>
                     <Input
                       size="sm"
                       font="mono"
+                      className="col-span-3 col-start-1 row-start-2 min-w-0 @min-[30rem]/gentle-rows:col-span-1 @min-[30rem]/gentle-rows:col-start-2 @min-[30rem]/gentle-rows:row-start-1"
                       aria-label={`${agent} model`}
                       placeholder="Inherit model"
                       value={entry.model ?? ""}
@@ -388,6 +429,9 @@ export function PiGentleSettingsSection({
                         })
                       }
                     />
+                    <span className="col-start-1 row-start-3 self-center text-xs text-muted-foreground @min-[30rem]/gentle-rows:hidden">
+                      Effort
+                    </span>
                     <Select
                       value={entry.thinking ?? "inherit"}
                       onValueChange={(value) => {
@@ -403,7 +447,11 @@ export function PiGentleSettingsSection({
                       }}
                       disabled={!canEdit}
                     >
-                      <SelectTrigger size="sm" aria-label={`${agent} thinking level`}>
+                      <SelectTrigger
+                        size="sm"
+                        className="col-start-2 row-start-3 w-full min-w-0 @min-[30rem]/gentle-rows:col-start-3 @min-[30rem]/gentle-rows:row-start-1"
+                        aria-label={`${agent} thinking level`}
+                      >
                         <SelectValue />
                       </SelectTrigger>
                       <SelectPopup>
@@ -418,6 +466,7 @@ export function PiGentleSettingsSection({
                     <Button
                       size="icon-xs"
                       variant="ghost"
+                      className="col-start-3 row-start-3 justify-self-end @min-[30rem]/gentle-rows:col-start-4 @min-[30rem]/gentle-rows:row-start-1"
                       aria-label={`Remove ${agent}`}
                       disabled={!canEdit}
                       onClick={() =>
@@ -457,6 +506,11 @@ export function PiGentleSettingsSection({
                   </Button>
                 </div>
               </div>
+            ) : null}
+            {error?.area === "profile" ? (
+              <p role="alert" className="text-xs text-destructive">
+                {error.text}
+              </p>
             ) : null}
           </div>
 
@@ -562,8 +616,10 @@ export function PiGentleSettingsSection({
                   <Input
                     type="number"
                     min={1}
+                    step={1}
                     size="sm"
                     value={sdd.reviewBudgetLines}
+                    aria-invalid={!reviewBudgetValid}
                     disabled={!canEdit}
                     onChange={(event) =>
                       setSdd((current) => ({
@@ -573,7 +629,9 @@ export function PiGentleSettingsSection({
                     }
                   />
                   <span className="block text-muted-foreground">
-                    Changed lines per review before the delivery strategy applies.
+                    {reviewBudgetValid
+                      ? "Changed lines per review before the delivery strategy applies."
+                      : "Enter a positive whole number."}
                   </span>
                 </label>
               </div>
@@ -584,7 +642,7 @@ export function PiGentleSettingsSection({
                 </p>
                 <Button
                   size="xs"
-                  disabled={!canEdit || sdd.reviewBudgetLines < 1}
+                  disabled={!canEdit || !sddChanged || !reviewBudgetValid}
                   onClick={() =>
                     void runAction({ type: "saveSdd", cwd: selectedCwd, preferences: sdd })
                   }
@@ -592,12 +650,12 @@ export function PiGentleSettingsSection({
                   Save SDD choices
                 </Button>
               </div>
+              {error?.area === "sdd" ? (
+                <p role="alert" className="text-xs text-destructive">
+                  {error.text}
+                </p>
+              ) : null}
             </div>
-          ) : null}
-          {error ? (
-            <p role="alert" className="px-3 py-2 text-xs text-destructive sm:px-4">
-              {error}
-            </p>
           ) : null}
         </>
       )}

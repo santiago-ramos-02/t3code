@@ -5,6 +5,7 @@ export function GentleRoseIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg
       viewBox={gentleRose.viewBox}
+      preserveAspectRatio="none"
       fill="currentColor"
       stroke="currentColor"
       strokeWidth="2"
