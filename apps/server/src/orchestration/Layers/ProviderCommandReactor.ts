@@ -310,6 +310,34 @@ const make = Effect.gen(function* () {
       ),
     );
 
+  const closeUnavailableUserInput = (input: {
+    readonly threadId: ThreadId;
+    readonly requestId: string;
+    readonly createdAt: string;
+  }) =>
+    Effect.all({
+      commandId: serverCommandId("user-input-unavailable"),
+      eventId: serverEventId(),
+    }).pipe(
+      Effect.flatMap(({ commandId, eventId }) =>
+        orchestrationEngine.dispatch({
+          type: "thread.activity.append",
+          commandId,
+          threadId: input.threadId,
+          activity: {
+            id: eventId,
+            tone: "info",
+            kind: "user-input.resolved",
+            summary: "Question closed",
+            payload: { requestId: input.requestId, answers: {}, reason: "unavailable" },
+            turnId: null,
+            createdAt: input.createdAt,
+          },
+          createdAt: input.createdAt,
+        }),
+      ),
+    );
+
   const cancelTurnsAfterCompaction = Effect.fn("cancelTurnsAfterCompaction")(function* (
     threadId: ThreadId,
     detail: string,
@@ -1677,15 +1705,24 @@ const make = Effect.gen(function* () {
       }
       const hasSession = thread.session && thread.session.status !== "stopped";
       if (!hasSession) {
-        return yield* appendProviderFailureActivity({
-          threadId: event.payload.threadId,
-          kind: "provider.user-input.respond.failed",
-          summary: "Provider user input response failed",
-          detail: stalePendingRequestDetail("user-input", event.payload.requestId),
-          turnId: null,
-          createdAt: event.payload.createdAt,
-          requestId: event.payload.requestId,
-        });
+        const providerName =
+          thread.session?.providerName ??
+          (yield* providerService.getInstanceInfo(thread.modelSelection.instanceId).pipe(
+            Effect.map((info) => info.driverKind),
+            Effect.orElseSucceed(() => null),
+          ));
+        const isPiThread = providerName === "pi";
+        return yield* isPiThread
+          ? closeUnavailableUserInput(event.payload)
+          : appendProviderFailureActivity({
+              threadId: event.payload.threadId,
+              kind: "provider.user-input.respond.failed",
+              summary: "Provider user input response failed",
+              detail: stalePendingRequestDetail("user-input", event.payload.requestId),
+              turnId: null,
+              createdAt: event.payload.createdAt,
+              requestId: event.payload.requestId,
+            });
       }
 
       yield* providerService
@@ -1699,17 +1736,20 @@ const make = Effect.gen(function* () {
         })
         .pipe(
           Effect.catchCause((cause) =>
-            appendProviderFailureActivity({
-              threadId: event.payload.threadId,
-              kind: "provider.user-input.respond.failed",
-              summary: "Provider user input response failed",
-              detail: isUnknownPendingUserInputRequestError(cause)
-                ? stalePendingRequestDetail("user-input", event.payload.requestId)
-                : Cause.pretty(cause),
-              turnId: null,
-              createdAt: event.payload.createdAt,
-              requestId: event.payload.requestId,
-            }),
+            findProviderAdapterRequestError(cause)?.provider === "pi" &&
+            isUnknownPendingUserInputRequestError(cause)
+              ? closeUnavailableUserInput(event.payload)
+              : appendProviderFailureActivity({
+                  threadId: event.payload.threadId,
+                  kind: "provider.user-input.respond.failed",
+                  summary: "Provider user input response failed",
+                  detail: isUnknownPendingUserInputRequestError(cause)
+                    ? stalePendingRequestDetail("user-input", event.payload.requestId)
+                    : Cause.pretty(cause),
+                  turnId: null,
+                  createdAt: event.payload.createdAt,
+                  requestId: event.payload.requestId,
+                }),
           ),
         );
     },

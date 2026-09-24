@@ -4118,44 +4118,74 @@ describe("ProviderCommandReactor", () => {
     });
   });
 
-  it("closes a question whose provider session has ended", async () => {
-    const harness = await createHarness();
-    const now = "2026-01-01T00:00:00.000Z";
+  it.each([
+    { provider: "codex", closesQuietly: false },
+    { provider: "pi", closesQuietly: true },
+  ] as const)(
+    "handles a $provider question whose session has ended",
+    async ({ provider, closesQuietly }) => {
+      const harness = await createHarness({
+        threadModelSelection: {
+          instanceId: ProviderInstanceId.make(provider),
+          model: "test-model",
+        },
+      });
+      const now = "2026-01-01T00:00:00.000Z";
 
-    await harness.runEffect(
-      harness.engine.dispatch({
-        type: "thread.user-input.respond",
-        commandId: CommandId.make("cmd-user-input-respond-without-session"),
-        threadId: ThreadId.make("thread-1"),
-        requestId: asApprovalRequestId("user-input-request-1"),
-        answers: { sandbox_mode: "workspace-write" },
-        createdAt: now,
-      }),
-    );
-
-    await waitFor(async () => {
-      const readModel = await harness.readModel();
-      return readModel.threads.some((thread) =>
-        thread.activities.some(
-          (activity) => activity.kind === "provider.user-input.respond.failed",
-        ),
+      await harness.runEffect(
+        harness.engine.dispatch({
+          type: "thread.user-input.respond",
+          commandId: CommandId.make("cmd-user-input-respond-without-session"),
+          threadId: ThreadId.make("thread-1"),
+          requestId: asApprovalRequestId("user-input-request-1"),
+          answers: { sandbox_mode: "workspace-write" },
+          createdAt: now,
+        }),
       );
-    });
 
-    expect(harness.respondToUserInput).not.toHaveBeenCalled();
-    const thread = (await harness.readModel()).threads.find(
-      (entry) => entry.id === ThreadId.make("thread-1"),
-    );
-    const failureActivity = thread?.activities.find(
-      (activity) => activity.kind === "provider.user-input.respond.failed",
-    );
-    expect(failureActivity).toMatchObject({
-      payload: {
-        requestId: "user-input-request-1",
-        detail: expect.stringContaining("Stale pending user-input request"),
-      },
-    });
-  });
+      await waitFor(async () => {
+        const readModel = await harness.readModel();
+        return readModel.threads.some((thread) =>
+          thread.activities.some(
+            (activity) =>
+              activity.kind ===
+              (closesQuietly ? "user-input.resolved" : "provider.user-input.respond.failed"),
+          ),
+        );
+      });
+
+      expect(harness.respondToUserInput).not.toHaveBeenCalled();
+      const thread = (await harness.readModel()).threads.find(
+        (entry) => entry.id === ThreadId.make("thread-1"),
+      );
+      if (closesQuietly) {
+        const closedActivity = thread?.activities.find(
+          (activity) => activity.kind === "user-input.resolved",
+        );
+        expect(closedActivity).toMatchObject({
+          tone: "info",
+          summary: "Question closed",
+          payload: {
+            requestId: "user-input-request-1",
+            answers: {},
+            reason: "unavailable",
+          },
+        });
+        expect(thread?.activities.some((activity) => activity.tone === "error")).toBe(false);
+      } else {
+        const failureActivity = thread?.activities.find(
+          (activity) => activity.kind === "provider.user-input.respond.failed",
+        );
+        expect(failureActivity).toMatchObject({
+          tone: "error",
+          payload: {
+            requestId: "user-input-request-1",
+            detail: expect.stringContaining("Stale pending user-input request"),
+          },
+        });
+      }
+    },
+  );
 
   it("normalizes stale Codex approval callbacks without faking approval resolution", async () => {
     const harness = await createHarness();
@@ -4264,7 +4294,7 @@ describe("ProviderCommandReactor", () => {
       detail: "This Pi user-input request is no longer pending.",
     },
   ] as const)(
-    "surfaces non-resumable $provider user-input callbacks as stale failures",
+    "handles non-resumable $provider user-input callbacks",
     async ({ provider, method, detail }) => {
       const harness = await createHarness();
       const now = "2026-01-01T00:00:00.000Z";
@@ -4347,7 +4377,9 @@ describe("ProviderCommandReactor", () => {
         const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
         if (!thread) return false;
         return thread.activities.some(
-          (activity) => activity.kind === "provider.user-input.respond.failed",
+          (activity) =>
+            activity.kind ===
+            (provider === "pi" ? "user-input.resolved" : "provider.user-input.respond.failed"),
         );
       });
 
@@ -4355,23 +4387,35 @@ describe("ProviderCommandReactor", () => {
       const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
       expect(thread).toBeDefined();
 
-      const failureActivity = thread?.activities.find(
-        (activity) => activity.kind === "provider.user-input.respond.failed",
-      );
-      expect(failureActivity).toBeDefined();
-      expect(failureActivity?.payload).toMatchObject({
-        requestId: "user-input-request-1",
-        detail: expect.stringContaining("Stale pending user-input request: user-input-request-1"),
-      });
-
-      const resolvedActivity = thread?.activities.find(
-        (activity) =>
-          activity.kind === "user-input.resolved" &&
-          typeof activity.payload === "object" &&
-          activity.payload !== null &&
-          (activity.payload as Record<string, unknown>).requestId === "user-input-request-1",
-      );
-      expect(resolvedActivity).toBeUndefined();
+      if (provider === "pi") {
+        const closedActivity = thread?.activities.find(
+          (activity) => activity.kind === "user-input.resolved",
+        );
+        expect(closedActivity).toMatchObject({
+          tone: "info",
+          summary: "Question closed",
+          payload: {
+            requestId: "user-input-request-1",
+            answers: {},
+            reason: "unavailable",
+          },
+        });
+        expect(thread?.activities.some((activity) => activity.tone === "error")).toBe(false);
+      } else {
+        const failureActivity = thread?.activities.find(
+          (activity) => activity.kind === "provider.user-input.respond.failed",
+        );
+        expect(failureActivity).toMatchObject({
+          tone: "error",
+          payload: {
+            requestId: "user-input-request-1",
+            detail: expect.stringContaining("Stale pending user-input request"),
+          },
+        });
+        expect(thread?.activities.some((activity) => activity.kind === "user-input.resolved")).toBe(
+          false,
+        );
+      }
     },
   );
 
