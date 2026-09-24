@@ -365,7 +365,8 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     !props.selectedThread.hasPendingApprovals &&
     !props.selectedThread.hasPendingUserInput &&
     props.selectedThread.session?.status !== "running" &&
-    props.selectedThread.session?.status !== "starting";
+    props.selectedThread.session?.status !== "starting" &&
+    props.selectedThread.backgroundLiveness == null;
   useEffect(() => {
     if (!isPiThread || props.connectionState !== "connected" || props.projectCwd === null) return;
     let current = true;

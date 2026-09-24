@@ -412,6 +412,15 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     if (props.activeWorkStartedAt !== null && contentPresentationKind === "ready") {
       return { kind: "working", startedAt: props.activeWorkStartedAt };
     }
+    if (props.selectedThread.backgroundLiveness != null && contentPresentationKind === "ready") {
+      return {
+        kind: "background",
+        label:
+          props.selectedThread.backgroundLiveness === "working"
+            ? "Background work continues"
+            : "Monitoring background work",
+      };
+    }
     return null;
   })();
   const showWorkingControl = floatingStatus !== null;

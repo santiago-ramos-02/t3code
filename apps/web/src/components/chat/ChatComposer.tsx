@@ -6404,6 +6404,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           canMutate={
             phase !== "running" &&
             phase !== "connecting" &&
+            props.activeThreadShell?.backgroundLiveness == null &&
             !isSendBusy &&
             !isComposerApprovalState &&
             pendingUserInputs.length === 0

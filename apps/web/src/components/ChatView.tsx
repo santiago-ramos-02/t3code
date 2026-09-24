@@ -6300,7 +6300,7 @@ export default function ChatView(props: ChatViewProps) {
       ),
       title: working
         ? liveCount > 0
-          ? `${liveCount} ${liveCount === 1 ? "agent" : "agents"} working`
+          ? `${liveCount} ${liveCount === 1 ? "subagent" : "subagents"} still working`
           : "Background work"
         : "Monitoring",
       actions: (
