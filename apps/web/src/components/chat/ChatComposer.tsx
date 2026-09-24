@@ -6394,9 +6394,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           />
         ) : null}
       </ComposerBanner.Dock>
-      {selectedProvider === "pi" &&
-      gitCwd !== null &&
-      selectedProviderSlashCommands.some((command) => command.name === "gentle:sdd-preflight") ? (
+      {selectedProvider === "pi" && gitCwd !== null ? (
         <GentleComposerActions
           key={`${routeKind}:${activeThreadId ?? draftId ?? "new"}:${activeThread?.latestTurn?.turnId ?? ""}:${activeThread?.latestTurn?.completedAt ?? ""}:${selectedInstanceId}:${gitCwd}`}
           environmentId={environmentId}
@@ -6404,9 +6402,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           threadId={activeThread?.session ? (activeThreadId ?? null) : null}
           cwd={gitCwd}
           onOpenPreferences={() => onOpenProviderSetup(selectedInstanceId, gitCwd)}
-          canInitialize={selectedProviderSlashCommands.some(
-            (command) => command.name === "gentle-sdd-init",
-          )}
           canMutate={
             phase !== "running" &&
             phase !== "connecting" &&

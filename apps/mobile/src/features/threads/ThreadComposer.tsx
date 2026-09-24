@@ -1,7 +1,6 @@
 import type { ComposerTextPaste } from "../../native/T3ComposerEditor.types";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { gentleComposerAction } from "@t3tools/client-runtime/piGentleComposer";
-import { resolveProviderSlashCommandsForCwd } from "@t3tools/client-runtime/providerSkills";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -343,12 +342,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       ) ?? null
     );
   }, [props.serverConfig, props.selectedThread.modelSelection.instanceId]);
-  const gentleCommands =
-    selectedProviderStatus?.driver === "pi" && props.projectCwd !== null
-      ? resolveProviderSlashCommandsForCwd(selectedProviderStatus, props.projectCwd)
-      : [];
-  const gentleAvailable = gentleCommands.some((command) => command.name === "gentle:sdd-preflight");
-  const canInitializeGentle = gentleCommands.some((command) => command.name === "gentle-sdd-init");
+  const isPiThread = selectedProviderStatus?.driver === "pi";
   const gentleKey = `${props.environmentId}:${props.selectedThread.id}:${props.selectedThread.latestTurn?.turnId ?? ""}:${currentModelSelection.instanceId}:${props.projectCwd ?? ""}`;
   const readGentle = useAtomCommand(serverEnvironment.readPiGentleComposer, {
     reportFailure: false,
@@ -373,8 +367,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     props.selectedThread.session?.status !== "running" &&
     props.selectedThread.session?.status !== "starting";
   useEffect(() => {
-    if (!gentleAvailable || props.connectionState !== "connected" || props.projectCwd === null)
-      return;
+    if (!isPiThread || props.connectionState !== "connected" || props.projectCwd === null) return;
     let current = true;
     void readGentle({
       environmentId: props.environmentId,
@@ -398,7 +391,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     };
   }, [
     currentModelSelection.instanceId,
-    gentleAvailable,
+    isPiThread,
     gentleKey,
     gentleRefresh,
     props.connectionState,
@@ -408,11 +401,9 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   ]);
   const gentleStatus = gentleLoaded?.key === gentleKey ? gentleLoaded.value.sddStatus : null;
   const gentleAction =
-    gentleLoaded?.key === gentleKey
-      ? gentleComposerAction(gentleLoaded.value, canInitializeGentle)
-      : null;
+    gentleLoaded?.key === gentleKey ? gentleComposerAction(gentleLoaded.value) : null;
   const showGentleControls =
-    gentleAvailable &&
+    isPiThread &&
     props.connectionState === "connected" &&
     ((gentleLoaded?.key === gentleKey && gentleLoaded.value.available) ||
       gentleError?.key === gentleKey);

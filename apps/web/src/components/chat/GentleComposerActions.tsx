@@ -32,7 +32,6 @@ export function GentleComposerActions({
   threadId,
   cwd,
   onOpenPreferences,
-  canInitialize,
   canMutate,
 }: {
   readonly environmentId: EnvironmentId;
@@ -40,7 +39,6 @@ export function GentleComposerActions({
   readonly threadId: ThreadId | null;
   readonly cwd: string;
   readonly onOpenPreferences: () => void;
-  readonly canInitialize: boolean;
   readonly canMutate: boolean;
 }) {
   const read = useAtomCommand(serverEnvironment.readPiGentleComposer, {
@@ -79,8 +77,8 @@ export function GentleComposerActions({
 
   if (loaded?.available !== true && error === null) return null;
   const status = loaded?.sddStatus ?? null;
-  const guidance = loaded ? gentleComposerAction(loaded, canInitialize) : null;
-  const canSetUp = loaded?.projectInitNeeded && canInitialize && canMutate && threadId !== null;
+  const guidance = loaded ? gentleComposerAction(loaded) : null;
+  const canSetUp = loaded?.projectInitNeeded && canMutate && threadId !== null;
   const canReview =
     loaded?.available && !loaded.projectInitNeeded && canMutate && threadId !== null;
 
