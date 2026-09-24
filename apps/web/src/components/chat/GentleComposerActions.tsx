@@ -17,7 +17,6 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { GentleRoseIcon } from "../GentleRoseIcon";
 import { Dialog, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from "../ui/dialog";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
-import { ComposerControl } from "./ComposerControl";
 import { ComposerBanner } from "./ComposerBanner";
 import { useComposerMenuProps } from "./composerEventScope";
 
@@ -105,11 +104,24 @@ export function GentleComposerActions({
       data-composer-shoulder-tab
       className="ml-auto"
     >
-      <div className="flex items-center gap-1" data-chat-composer-collapsed-controls="true">
+      <div data-chat-composer-collapsed-controls="true">
         <Menu>
-          <MenuTrigger render={<ComposerControl size="xs" aria-label="Gentle AI actions" />}>
-            <GentleRoseIcon className="size-5 text-foreground" data-composer-control-icon />
-            Gentle AI <ChevronDownIcon className="size-3 opacity-60" aria-hidden />
+          <MenuTrigger
+            render={
+              <ComposerBanner.Row
+                render={<button type="button" />}
+                aria-label="Gentle AI actions"
+                className="text-muted-foreground transition-colors duration-200 hover:text-foreground data-popup-open:text-foreground"
+              />
+            }
+          >
+            <ComposerBanner.Icon className="[&>svg]:size-5">
+              <GentleRoseIcon />
+            </ComposerBanner.Icon>
+            <ComposerBanner.Content>Gentle AI</ComposerBanner.Content>
+            <ComposerBanner.Actions>
+              <ChevronDownIcon className="size-3 opacity-60" aria-hidden />
+            </ComposerBanner.Actions>
           </MenuTrigger>
           <MenuPopup align="end" side="top" {...floatingLayer}>
             {canSetUp ? (
