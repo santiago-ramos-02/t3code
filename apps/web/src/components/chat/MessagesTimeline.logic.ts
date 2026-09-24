@@ -1,6 +1,9 @@
 import { worktreeSetupAgentStarted } from "@t3tools/client-runtime/worktree-setup";
 export { worktreeSetupAgentStarted } from "@t3tools/client-runtime/worktree-setup";
-import { finalAssistantMessageIds } from "@t3tools/client-runtime/state/final-assistant-messages";
+import {
+  continuingAssistantTurnIds,
+  finalAssistantMessageIds,
+} from "@t3tools/client-runtime/state/final-assistant-messages";
 import * as Equal from "effect/Equal";
 import { shallow } from "zustand/vanilla/shallow";
 import { renderCodexDirectivesForCopy } from "@t3tools/client-runtime/codex-markdown-directives";
@@ -630,6 +633,7 @@ function deriveTurnFolds(input: {
   terminalAssistantMessageIds: ReadonlySet<string>;
   latestTurn: TimelineLatestTurn | null;
   unfoldedTurnIds: ReadonlySet<TurnId>;
+  continuingTurnIds: ReadonlySet<string>;
 }): ReadonlyMap<string, TurnFold> {
   interface TurnGroup {
     entries: Array<TimelineEntry>;
@@ -789,9 +793,13 @@ function deriveTurnFolds(input: {
       ? duration
         ? `You stopped after ${duration}`
         : "You stopped this response"
-      : duration
-        ? `Worked for ${duration}`
-        : "Worked";
+      : input.continuingTurnIds.has(turnId)
+        ? duration
+          ? `Replied after ${duration}`
+          : "Replied"
+        : duration
+          ? `Worked for ${duration}`
+          : "Worked";
 
     foldsByAnchorEntryId.set(firstHiddenEntry.id, {
       turnId,
@@ -946,6 +954,7 @@ export function deriveMessagesTimelineRows(input: {
   expandedTurnIds?: ReadonlySet<TurnId>;
   expandedWorkGroupIds?: ReadonlySet<string>;
   isWorking: boolean;
+  backgroundWorkContinues?: boolean;
   isStartingProvider?: boolean;
   activeTurnStartedAt: string | null;
   turnDiffSummaries: ReadonlyArray<TurnDiffSummary>;
@@ -987,11 +996,16 @@ export function deriveMessagesTimelineRows(input: {
     unsettledTurnId,
     isWorking: input.isWorking,
   });
+  const continuingTurnIds = continuingAssistantTurnIds(messages, {
+    activeTurnId: input.isWorking ? unsettledTurnId : null,
+    backgroundWorkContinues: input.backgroundWorkContinues === true,
+  });
   const foldsByAnchorEntryId = deriveTurnFolds({
     timelineEntries: input.timelineEntries,
     terminalAssistantMessageIds,
     latestTurn: input.latestTurn ?? null,
     unfoldedTurnIds: activeVisualResponseTurnIds,
+    continuingTurnIds,
   });
   const collapsedEntryIds = new Set<string>();
   for (const fold of foldsByAnchorEntryId.values()) {

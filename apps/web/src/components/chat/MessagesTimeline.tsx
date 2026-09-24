@@ -402,6 +402,7 @@ interface MessagesTimelineProps {
   agentPanelModel?: AgentPanelModel;
   onOpenAgents?: () => void;
   isWorking: boolean;
+  backgroundWorkContinues?: boolean;
   startupLabel?: string | null;
   isPreparingWorktree?: boolean;
   isCompacting?: boolean;
@@ -476,6 +477,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   citationHistoryLoading = false,
   onCiteAssistantText,
   isWorking,
+  backgroundWorkContinues = false,
   startupLabel = null,
   worktreeSetup = null,
   onCancelWorktreeSetup,
@@ -777,6 +779,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         expandedTurnIds: paintedExpandedTurnIds,
         expandedWorkGroupIds: paintedExpandedWorkGroupIds,
         isWorking,
+        backgroundWorkContinues,
         isStartingProvider: startupLabel !== null,
         activeTurnStartedAt,
         turnDiffSummaries,
@@ -801,6 +804,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     paintedExpandedTurnIds,
     paintedExpandedWorkGroupIds,
     isWorking,
+    backgroundWorkContinues,
     startupLabel,
     activeTurnStartedAt,
     turnDiffSummaries,

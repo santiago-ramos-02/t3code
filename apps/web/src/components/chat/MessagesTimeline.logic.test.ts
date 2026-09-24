@@ -2799,7 +2799,41 @@ describe("deriveMessagesTimelineRows", () => {
     });
     expect(rows.some((row) => row.id === "turn-fold:first-turn")).toBe(true);
     expect(rows.some((row) => row.id === "turn-fold:follow-up-turn")).toBe(true);
+    expect(rows.find((row) => row.id === "turn-fold:first-turn")).toMatchObject({
+      label: "Replied after 3.0s",
+    });
+    expect(rows.find((row) => row.id === "turn-fold:follow-up-turn")).toMatchObject({
+      label: "Worked for 1.0s",
+    });
     expect(rows.some((row) => row.id === "activity-group:follow-up-thought")).toBe(false);
+  });
+
+  it("labels a settled Pi reply as an update while Gentle work continues", () => {
+    const timelineEntries = [
+      reasoningEntry("first-thought", "2026-01-01T00:00:01Z", "first-turn"),
+      answerEntry("first-reply", "2026-01-01T00:00:03Z", "first-turn"),
+    ];
+    const rows = deriveMessagesTimelineRows({
+      timelineEntries,
+      isWorking: false,
+      backgroundWorkContinues: true,
+      activeTurnStartedAt: null,
+      turnDiffSummaries: [],
+      supportsConversationRollback: false,
+    });
+
+    expect(rows.find((row) => row.id === "turn-fold:first-turn")).toMatchObject({
+      label: "Replied after 2.0s",
+    });
+    expect(
+      deriveMessagesTimelineRows({
+        timelineEntries,
+        isWorking: false,
+        activeTurnStartedAt: null,
+        turnDiffSummaries: [],
+        supportsConversationRollback: false,
+      }).find((row) => row.id === "turn-fold:first-turn"),
+    ).toMatchObject({ label: "Worked for 2.0s" });
   });
 
   it("keeps an actually running tool in the shared activity row", () => {

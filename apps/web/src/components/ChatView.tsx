@@ -9913,6 +9913,9 @@ export default function ChatView(props: ChatViewProps) {
                     }
                   : {})}
                 isWorking={!paintOnlyDisplayedTimeline && isWorking}
+                backgroundWorkContinues={
+                  !paintOnlyDisplayedTimeline && activeThreadShell?.backgroundLiveness != null
+                }
                 startupLabel={paintOnlyDisplayedTimeline ? null : startupLabel}
                 isPreparingWorktree={!paintOnlyDisplayedTimeline && isPreparingWorktree}
                 isCompacting={!paintOnlyDisplayedTimeline && isCompacting}

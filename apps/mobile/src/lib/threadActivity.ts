@@ -15,6 +15,7 @@ import type {
   UserInputQuestion,
 } from "@t3tools/contracts";
 import { formatDuration } from "@t3tools/shared/orchestrationTiming";
+import { continuingAssistantTurnIds } from "@t3tools/client-runtime/state/final-assistant-messages";
 import {
   commandDetailRepeatsCommand,
   extractCommandOutputText,
@@ -1635,6 +1636,7 @@ interface ThreadFeedTurnFold {
 function deriveThreadFeedTurnFolds(
   feed: ReadonlyArray<ThreadFeedEntry>,
   latestTurn: ThreadFeedLatestTurn | null,
+  continuingTurnIds: ReadonlySet<string>,
 ): ReadonlyMap<string, ThreadFeedTurnFold> {
   const firstAssistantMessageIdByTurn = new Map<TurnId, string>();
   const terminalAssistantMessageIdByTurn = new Map<TurnId, string>();
@@ -1760,9 +1762,13 @@ function deriveThreadFeedTurnFolds(
       ? duration
         ? `You stopped after ${duration}`
         : "You stopped this response"
-      : duration
-        ? `Worked for ${duration}`
-        : "Worked";
+      : continuingTurnIds.has(turnId)
+        ? duration
+          ? `Replied after ${duration}`
+          : "Replied"
+        : duration
+          ? `Worked for ${duration}`
+          : "Worked";
 
     foldsByAnchorId.set(firstHiddenEntry.id, {
       turnId,
@@ -1780,6 +1786,7 @@ export function deriveThreadFeedPresentation(
   expandedTurnIds: ReadonlySet<TurnId>,
   expandedWorkGroupIds: ReadonlySet<string> = new Set(),
   activeWorkStartedAt: string | null = null,
+  backgroundWorkContinues = false,
 ): ThreadFeedEntry[] {
   const sourceFeed = feed.filter(
     (entry) =>
@@ -1791,9 +1798,16 @@ export function deriveThreadFeedPresentation(
   const activeTailGroup = sourceFeed.findLast(
     (entry) => entry.type !== "message" || !isEmptyMessage(entry),
   );
-  const foldsByAnchorId = deriveThreadFeedTurnFolds(sourceFeed, latestTurn);
   const unsettledTurnId = deriveUnsettledTurnId(latestTurn);
   const isWorking = activeWorkStartedAt !== null;
+  const continuingTurnIds = continuingAssistantTurnIds(
+    sourceFeed.flatMap((entry) => (entry.type === "message" ? [entry.message] : [])),
+    {
+      activeTurnId: isWorking ? unsettledTurnId : null,
+      backgroundWorkContinues,
+    },
+  );
+  const foldsByAnchorId = deriveThreadFeedTurnFolds(sourceFeed, latestTurn, continuingTurnIds);
   const collapsedEntryIds = new Set<string>();
   for (const fold of foldsByAnchorId.values()) {
     if (!expandedTurnIds.has(fold.turnId)) {

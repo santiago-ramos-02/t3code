@@ -2386,6 +2386,80 @@ describe("buildThreadFeed", () => {
     expect(stranded.some((entry) => entry.type === "work-toggle")).toBe(true);
   });
 
+  it("keeps Pi follow-up replies separate and labels background work as continuing", () => {
+    const firstTurn = TurnId.make("pi-first");
+    const followUpTurn = TurnId.make("pi-follow-up");
+    const firstThought = {
+      id: MessageId.make("pi-first-thought"),
+      role: "reasoning" as const,
+      text: "Checking the project.",
+      turnId: firstTurn,
+      streaming: false,
+      createdAt: "2026-04-01T00:00:01.000Z",
+      updatedAt: "2026-04-01T00:00:01.000Z",
+    };
+    const firstReply = {
+      ...firstThought,
+      id: MessageId.make("pi-first-reply"),
+      role: "assistant" as const,
+      text: "The subagent is working.",
+      createdAt: "2026-04-01T00:00:03.000Z",
+      updatedAt: "2026-04-01T00:00:03.000Z",
+    };
+    const followUpThought = {
+      ...firstThought,
+      id: MessageId.make("pi-follow-up-thought"),
+      turnId: followUpTurn,
+      createdAt: "2026-04-01T00:01:01.000Z",
+      updatedAt: "2026-04-01T00:01:01.000Z",
+    };
+    const followUpReply = {
+      ...firstReply,
+      id: MessageId.make("pi-follow-up-reply"),
+      turnId: followUpTurn,
+      text: "The subagent finished.",
+      createdAt: "2026-04-01T00:01:03.000Z",
+      updatedAt: "2026-04-01T00:01:03.000Z",
+    };
+    const firstFeed = buildThreadFeed(
+      makeThread({
+        id: ThreadId.make("pi-follow-up"),
+        projectId: ProjectId.make("project-1"),
+        title: "Pi follow-up",
+        messages: [firstThought, firstReply],
+      }),
+    );
+    const continuing = deriveThreadFeedPresentation(
+      firstFeed,
+      null,
+      new Set(),
+      new Set(),
+      null,
+      true,
+    );
+    expect(continuing.find((entry) => entry.type === "turn-fold")).toMatchObject({
+      label: "Replied after 2.0s",
+    });
+
+    const completedFeed = buildThreadFeed(
+      makeThread({
+        id: ThreadId.make("pi-follow-up"),
+        projectId: ProjectId.make("project-1"),
+        title: "Pi follow-up",
+        messages: [firstThought, firstReply, followUpThought, followUpReply],
+      }),
+    );
+    const completed = deriveThreadFeedPresentation(completedFeed, null, new Set());
+    expect(completed.filter((entry) => entry.type === "turn-fold")).toMatchObject([
+      { label: "Replied after 2.0s" },
+      { label: "Worked for 2.0s" },
+    ]);
+    expect(completed.filter((entry) => entry.type === "message")).toMatchObject([
+      { message: firstReply },
+      { message: followUpReply },
+    ]);
+  });
+
   it("groups ordered reasoning blocks, keeps the live slot, and restores the group after unfolding", () => {
     const turnId = TurnId.make("reasoning-group");
     const messages: OrchestrationThread["messages"] = [1, 2, 3, 4].map((second) => ({
