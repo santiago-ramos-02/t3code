@@ -894,13 +894,22 @@ export const PiSettings = makeProviderSettingsSchema(
         providerSettingsForm: { placeholder: "pi", clearWhenEmpty: "omit" },
       }),
     ),
+    gentleAiBinaryPath: TrimmedString.pipe(
+      Schema.withDecodingDefault(Effect.succeed("")),
+      Schema.annotateKey({
+        title: "Gentle AI binary path",
+        description:
+          "Optional path to the Gentle AI CLI. T3 uses the version bundled with gentle-pi by default.",
+        providerSettingsForm: { hidden: true },
+      }),
+    ),
     customModels: Schema.Array(CustomModelSetting).pipe(
       Schema.withDecodingDefault(Effect.succeed([])),
       Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
     ),
   },
   {
-    order: ["binaryPath"],
+    order: ["binaryPath", "gentleAiBinaryPath"],
   },
 );
 export type PiSettings = typeof PiSettings.Type;
@@ -1465,6 +1474,7 @@ const OpenCodeSettingsPatch = Schema.Struct({
 const PiSettingsPatch = Schema.Struct({
   enabled: Schema.optionalKey(Schema.Boolean),
   binaryPath: Schema.optionalKey(TrimmedString),
+  gentleAiBinaryPath: Schema.optionalKey(TrimmedString),
   customModels: Schema.optionalKey(Schema.Array(CustomModelSetting)),
 });
 

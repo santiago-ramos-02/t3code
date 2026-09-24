@@ -348,6 +348,10 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     reportFailure: false,
     reportDefect: false,
   });
+  const initializeGentleSdd = useAtomCommand(serverEnvironment.initializePiGentleSdd, {
+    reportFailure: false,
+    reportDefect: false,
+  });
   const [gentleLoaded, setGentleLoaded] = useState<{
     key: string;
     value: PiGentleComposerState;
@@ -388,21 +392,21 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     readGentle,
   ]);
   const gentleStatus = gentleLoaded?.key === gentleKey ? gentleLoaded.value.sddStatus : null;
+  const gentleAvailable = gentleLoaded?.key === gentleKey && gentleLoaded.value.available;
+  const gentleEnabled =
+    currentModelSelection.options?.find((option) => option.id === "gentleAi")?.value !== false;
+  const canChangeGentle = props.selectedThread.latestTurn === null;
   const gentleAction =
     gentleLoaded?.key === gentleKey ? gentleComposerAction(gentleLoaded.value) : null;
   const showGentleControls =
     isPiThread &&
     props.connectionState === "connected" &&
-    ((gentleLoaded?.key === gentleKey && gentleLoaded.value.available) ||
-      gentleError?.key === gentleKey);
+    (gentleAvailable || gentleError?.key === gentleKey);
   const showGentleStatus = () => {
     const details = gentleStatus
       ? [
           `Change: ${gentleStatus.changeName ?? "No active change"}`,
           `Next step: ${gentleAction?.label ?? gentleStatus.nextRecommended}`,
-          ...(gentleLoaded?.value.projectInitNeeded
-            ? ["SDD setup requires an interactive Pi session in this Gentle AI version."]
-            : []),
           ...(gentleAction?.reason ? [gentleAction.reason] : []),
           ...(gentleStatus.taskProgress.total > 0
             ? [
@@ -420,7 +424,21 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     Alert.alert("Gentle SDD status", details);
   };
   const gentleMenuActions: MenuAction[] = [
-    { id: "status", title: "View SDD status", image: "doc.text" },
+    ...(canChangeGentle
+      ? [
+          {
+            id: "enable",
+            title: "Enable",
+            state: gentleEnabled ? ("on" as const) : ("off" as const),
+          },
+        ]
+      : []),
+    ...(gentleEnabled && gentleAvailable && gentleLoaded.value.projectInitNeeded
+      ? [{ id: "setup", title: "Set up SDD", image: "doc.text" }]
+      : []),
+    ...(gentleEnabled && gentleStatus && !gentleLoaded?.value.projectInitNeeded
+      ? [{ id: "status", title: "View SDD status", image: "doc.text" }]
+      : []),
     { id: "refresh", title: "Refresh status", image: "arrow.clockwise" },
   ];
   const composerOwnerKey = scopedThreadKey(props.environmentId, props.selectedThread.id);
@@ -779,6 +797,38 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
             <ControlPillMenu
               actions={gentleMenuActions}
               onPressAction={({ nativeEvent }) => {
+                if (nativeEvent.event === "enable" && canChangeGentle) {
+                  props.onUpdateModelSelection({
+                    ...currentModelSelection,
+                    options: [
+                      ...(currentModelSelection.options?.filter(
+                        (option) => option.id !== "gentleAi",
+                      ) ?? []),
+                      { id: "gentleAi", value: !gentleEnabled },
+                    ],
+                  });
+                }
+                if (nativeEvent.event === "setup" && props.projectCwd) {
+                  void initializeGentleSdd({
+                    environmentId: props.environmentId,
+                    input: {
+                      instanceId: currentModelSelection.instanceId,
+                      cwd: props.projectCwd,
+                      command: "setup",
+                    },
+                  }).then((result) => {
+                    if (result._tag === "Success") {
+                      setGentleLoaded({ key: gentleKey, value: result.value });
+                      setGentleError(null);
+                    } else if (!isAtomCommandInterrupted(result)) {
+                      const failure = squashAtomCommandFailure(result);
+                      Alert.alert(
+                        "Could not set up SDD",
+                        failure instanceof Error ? failure.message : "Try again.",
+                      );
+                    }
+                  });
+                }
                 if (nativeEvent.event === "status") showGentleStatus();
                 if (nativeEvent.event === "refresh") setGentleRefresh((value) => value + 1);
               }}

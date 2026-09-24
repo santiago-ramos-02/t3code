@@ -46,28 +46,25 @@ Install the latest Gentle AI package on the project environment with
 installed package; remote clients do not need their own installation.
 
 With gentle-pi 3.5 or newer installed for Pi, open **Settings > Providers > Pi**
-and choose a project in the **Gentle AI** section. Create a profile, assign models
-and effort to its subagents, then save it. **Use globally** makes it the default
-for projects without a pin. **Use for project** pins it to that Git repository;
-removing a local pin restores the repository declaration or global profile.
-The main Pi model still comes from T3 Code's composer. The **Persona for this
-project** setting chooses Gentleman or Neutral, or inherits Gentle AI's global
-persona. Profile routing and persona changes take effect when Pi reloads or a
-new session starts. On mobile, open the project's **Project overview** to choose
-the global profile, pin a profile, or set its persona. Edit subagent model
-routing in web or desktop settings. Refreshing Providers also reloads Gentle AI
-settings changed outside T3 Code.
-
-For SDD, choose the project's execution mode, artifact store, delivery strategy,
-and review budget, then save. These preferences apply to Gentle's interactive
-Pi sessions. Gentle AI 3.7 does not allow SDD setup or preflight through Pi RPC,
-so T3 Code cannot run those commands from a thread. To initialize SDD, open the
-project in interactive Pi and run `/gentle-sdd-init`. Use
-`/gentle:sdd-preflight --edit` there to review your choices. After setup,
-**Gentle AI > View SDD status** shows the next phase and any prerequisites.
-In web or desktop, **Gentle AI > Project profiles and persona** opens the
-current project's provider settings. On mobile, save SDD preferences from
+to choose the global persona and manage model profiles. The active global profile
+applies unless the repository declares one or the local clone has a pin. The
+**Project overrides** section shows which source applies and lets you pin a
+profile or override the persona. The main Pi model stays in T3 Code's composer.
+Changes to routing and persona take effect when a Pi session starts or reloads.
+The optional **Gentle AI binary path** uses the copy bundled with gentle-pi when
+left empty. Refreshing Providers also reloads Gentle AI settings changed
+outside T3 Code. On mobile, project profile and persona controls are in
 **Project overview**.
+
+For a new Pi thread, open the Gentle AI dropdown and clear **Enable** to run
+without Gentle AI. The choice is stored with the thread when you send its first
+message; other installed Pi extensions remain available.
+
+For SDD, save the project's execution mode, artifact store, delivery strategy,
+and review budget in Pi settings. In a Gentle-enabled thread, **Set up SDD**
+runs Gentle's project setup in the background when needed. **View SDD status**
+shows the next phase and any prerequisites after setup. Use the Pi settings to
+edit SDD preferences; on mobile, they are in **Project overview**.
 
 ## T3 Code tools
 

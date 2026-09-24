@@ -1,5 +1,5 @@
 import * as Schema from "effect/Schema";
-import { ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
 
 export const PiGentleRoutingEntry = Schema.Struct({
@@ -81,7 +81,6 @@ export const PiGentleComposerReadInput = Schema.Struct({
 
 export const PiGentleInitializeInput = Schema.Struct({
   instanceId: ProviderInstanceId,
-  threadId: ThreadId,
   cwd: TrimmedNonEmptyString,
   command: Schema.optionalKey(Schema.Literals(["setup", "review"])),
 });
@@ -89,6 +88,8 @@ export const PiGentleInitializeInput = Schema.Struct({
 export const PiGentleState = Schema.Struct({
   available: Schema.Boolean,
   version: Schema.NullOr(Schema.String),
+  bundledBinaryPath: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  globalPersona: Schema.optionalKey(PiGentlePersona),
   profiles: Schema.Array(Schema.Struct({ name: Schema.String, routing: PiGentleRouting })),
   active: Schema.NullOr(Schema.String),
   project: Schema.NullOr(
@@ -115,6 +116,14 @@ export const PiGentleActionInput = Schema.Struct({
   instanceId: ProviderInstanceId,
   action: Schema.Union([
     Schema.Struct({
+      type: Schema.Literal("install"),
+      cwd: Schema.optionalKey(TrimmedNonEmptyString),
+    }),
+    Schema.Struct({
+      type: Schema.Literal("update"),
+      cwd: Schema.optionalKey(TrimmedNonEmptyString),
+    }),
+    Schema.Struct({
       type: Schema.Literal("create"),
       name: Schema.String,
       cwd: Schema.optionalKey(TrimmedNonEmptyString),
@@ -136,6 +145,11 @@ export const PiGentleActionInput = Schema.Struct({
       type: Schema.Literal("setPersona"),
       cwd: TrimmedNonEmptyString,
       mode: Schema.NullOr(PiGentlePersona),
+    }),
+    Schema.Struct({
+      type: Schema.Literal("setGlobalPersona"),
+      mode: PiGentlePersona,
+      cwd: Schema.optionalKey(TrimmedNonEmptyString),
     }),
     Schema.Struct({
       type: Schema.Literal("saveSdd"),

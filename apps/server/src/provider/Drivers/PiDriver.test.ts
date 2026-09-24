@@ -116,6 +116,7 @@ function makeInstance(
     config: {
       enabled: input.enabled ?? true,
       binaryPath: input.binaryPath ?? "pi-test",
+      gentleAiBinaryPath: "",
       customModels: input.customModels ?? [],
     },
   }).pipe(

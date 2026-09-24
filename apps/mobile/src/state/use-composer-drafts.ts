@@ -1247,7 +1247,11 @@ function updateComposerDrafts(
 }
 
 export function setStickyComposerModelSelection(modelSelection: ModelSelection): void {
-  appAtomRegistry.set(stickyComposerModelSelectionAtom, modelSelection);
+  const options = modelSelection.options?.filter((option) => option.id !== "gentleAi");
+  appAtomRegistry.set(stickyComposerModelSelectionAtom, {
+    ...modelSelection,
+    ...(options && options.length > 0 ? { options } : { options: undefined }),
+  });
   schedulePersistComposerState();
 }
 

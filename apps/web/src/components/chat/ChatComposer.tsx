@@ -1741,6 +1741,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           })
       : null);
   const setComposerDraftPrompt = useComposerDraftStore((store) => store.setPrompt);
+  const setComposerDraftModelSelection = useComposerDraftStore((store) => store.setModelSelection);
   const addComposerDraftImages = useComposerDraftStore((store) => store.addImages);
   const removeComposerDraftImage = useComposerDraftStore((store) => store.removeImage);
   const addComposerDraftFiles = useComposerDraftStore((store) => store.addFiles);
@@ -6400,7 +6401,22 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               environmentId={environmentId}
               instanceId={selectedInstanceId}
               cwd={gitCwd}
-              onOpenSettings={() => onOpenProviderSetup(selectedInstanceId, gitCwd)}
+              enabled={
+                selectedModelSelection.options?.find((option) => option.id === "gentleAi")
+                  ?.value !== false
+              }
+              canChange={_isLocalDraftThread && multipleModelSelections === null}
+              onEnabledChange={(enabled) =>
+                setComposerDraftModelSelection(
+                  composerDraftTarget,
+                  createModelSelection(selectedInstanceId, selectedModel, [
+                    ...(selectedModelSelection.options?.filter(
+                      (option) => option.id !== "gentleAi",
+                    ) ?? []),
+                    { id: "gentleAi", value: enabled },
+                  ]),
+                )
+              }
             />
           ) : null}
         </div>

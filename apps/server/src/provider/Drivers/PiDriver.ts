@@ -32,6 +32,7 @@ import { makePiAdapter, PiAdapterAttachmentReadError } from "../Layers/PiAdapter
 import { materializePiMcpExtension } from "../pi-mcp/PiMcpBridgeMaterializer.ts";
 import { mergeProviderInstanceEnvironment } from "../ProviderInstanceEnvironment.ts";
 import { makePiGentleSettings } from "../PiGentleSettings.ts";
+import { PiPlainExtensionError, plainPiExtensionArgs } from "../PiPlainExtensions.ts";
 import {
   makePiRpc,
   PI_STARTUP_REQUEST_TIMEOUT,
@@ -603,6 +604,22 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
           fileSystem
             .readFile(path)
             .pipe(Effect.mapError((cause) => new PiAdapterAttachmentReadError({ cause }))),
+        plainExtensionArgs: (cwd) =>
+          plainPiExtensionArgs({
+            cwd,
+            environment: processEnv,
+            bridgePath: piMcpExtensionPath,
+          }).pipe(
+            Effect.provideService(FileSystem.FileSystem, fileSystem),
+            Effect.provideService(Path.Path, path),
+            Effect.mapError(
+              (cause) =>
+                new PiPlainExtensionError({
+                  detail: "Pi extensions could not be resolved for this thread.",
+                  cause,
+                }),
+            ),
+          ),
       });
       const textGeneration = yield* makePiTextGeneration({
         binaryPath: effectiveConfig.binaryPath,
@@ -611,14 +628,13 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
       });
       const piGentleSettings = makePiGentleSettings({
         environment: processEnv,
+        piBinaryPath: effectiveConfig.binaryPath,
+        binaryPath: effectiveConfig.gentleAiBinaryPath,
         fileSystem,
         path,
         spawner,
       });
-      const piGentle = {
-        ...piGentleSettings,
-        initializeSdd: adapter.initializeGentleSdd,
-      };
+      const piGentle = piGentleSettings;
 
       return {
         instanceId,

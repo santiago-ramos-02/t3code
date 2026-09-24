@@ -73,6 +73,25 @@ const ULTRATHINK_FRAME_CLASSES = {
 } as const;
 
 describe("getComposerProviderState", () => {
+  it("retains a plain Pi choice alongside model options", () => {
+    const state = getComposerProviderState({
+      provider: ProviderDriverKind.make("pi"),
+      model: MODEL,
+      models: modelWith([
+        selectDescriptor("thinkingLevel", [
+          { id: "low", label: "Low" },
+          { id: "high", label: "High" },
+        ]),
+      ]),
+      modelOptions: selections(["thinkingLevel", "low"], ["gentleAi", false]),
+      planModeEnabled: true,
+    });
+
+    expect(state.modelOptionsForDispatch).toEqual(
+      selections(["thinkingLevel", "low"], ["gentleAi", false]),
+    );
+  });
+
   it("derives a stable prompt injection state for ordinary prompt edits", () => {
     expect(getComposerPromptInjectionState("Investigate this failure")).toBe("none");
     expect(getComposerPromptInjectionState("Ultrathink:\nInvestigate this failure")).toBe(

@@ -141,13 +141,18 @@ export function getComposerProviderState(input: ComposerProviderStateInput): Com
     (primarySelectDescriptor?.promptInjectedValues?.length ?? 0) > 0 &&
     promptInjectionState === "ultrathink";
 
+  const providerOptions = buildExplicitProviderOptionSelectionsFromDescriptors(
+    descriptors,
+    selections,
+  );
+  const gentleSelection =
+    provider === "pi" ? selections?.find((selection) => selection.id === "gentleAi") : undefined;
   return {
     provider,
     promptEffort,
-    modelOptionsForDispatch: buildExplicitProviderOptionSelectionsFromDescriptors(
-      descriptors,
-      selections,
-    ),
+    modelOptionsForDispatch: gentleSelection
+      ? [...(providerOptions ?? []), gentleSelection]
+      : providerOptions,
     ...(ultrathinkActive
       ? {
           composerFrameClassName: "ultrathink-frame",

@@ -47,7 +47,7 @@ export function PiModelProvidersSection({
         <p className="mt-2 text-xs text-muted-foreground">
           To connect another provider, run <code className="text-foreground">pi</code> on this
           environment and use <code className="text-foreground">/login</code>, or add its API key in
-          the Environment section below. Then refresh Pi status to update the model picker.
+          the Environment section above. Then refresh Pi status to update the model picker.
         </p>
       </div>
     </SettingsSection>

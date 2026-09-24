@@ -37,6 +37,7 @@ import type { ProviderAdapterShape } from "../Services/ProviderAdapter.ts";
 import {
   makePiAdapter,
   PiAdapterAttachmentReadError,
+  type PiAdapterOptions,
   type PiAdapterRpcFactory,
 } from "./PiAdapter.ts";
 
@@ -234,6 +235,7 @@ function makeAdapter(
   input: {
     readonly readFile?: (path: string) => Effect.Effect<Uint8Array, PiAdapterAttachmentReadError>;
     readonly interruptSettlementTimeout?: number;
+    readonly plainExtensionArgs?: PiAdapterOptions["plainExtensionArgs"];
   } = {},
 ) {
   return makePiAdapter({
@@ -245,6 +247,7 @@ function makeAdapter(
     normalizeWorkspaceCwd: (cwd) => cwd.replace("/./", "/"),
     rpcFactory: harness.factory,
     readFile: input.readFile ?? (() => Effect.succeed(new TextEncoder().encode("image-bytes"))),
+    ...(input.plainExtensionArgs ? { plainExtensionArgs: input.plainExtensionArgs } : {}),
     ...(input.interruptSettlementTimeout === undefined
       ? {}
       : { interruptSettlementTimeout: input.interruptSettlementTimeout }),
@@ -910,26 +913,33 @@ describe("PiAdapter session runtime", () => {
     ),
   );
 
-  it.effect("rejects Gentle SDD commands that cannot run in Pi RPC", () =>
+  it.effect("starts a plain Pi thread without Gentle while retaining other extensions", () =>
     Effect.scoped(
       Effect.gen(function* () {
-        const harness = makeRpcHarness({
-          onRequest: (request) =>
-            Effect.succeed(
-              recordString(request, "type") === "get_state"
-                ? successResponse(request, sessionState(1))
-                : successResponse(request),
-            ),
+        const harness = makeRpcHarness();
+        const adapter = yield* makeAdapter(harness, {
+          plainExtensionArgs: () =>
+            Effect.succeed([
+              "--no-extensions",
+              "--extension",
+              "/other-extension",
+              "--extension",
+              "/private/runtime/pi-mcp/t3-mcp-test.mjs",
+            ]),
         });
-        const adapter = yield* makeAdapter(harness);
-        yield* startSession(adapter);
-        yield* takeEvents(adapter, SESSION_EVENTS);
-
-        const result = yield* Effect.exit(adapter.initializeGentleSdd(THREAD_ID));
-        const review = yield* Effect.exit(adapter.initializeGentleSdd(THREAD_ID, "review"));
-        expect(Exit.isFailure(result)).toBe(true);
-        expect(Exit.isFailure(review)).toBe(true);
-        expect(harness.transports[0]?.requests).toMatchObject([{ type: "get_state" }]);
+        yield* startSession(adapter, THREAD_ID, {
+          instanceId: INSTANCE_ID,
+          model: "openai/gpt-test",
+          options: [{ id: "gentleAi", value: false }],
+        });
+        expect(harness.transports[0]?.options.args).toEqual([
+          "--no-extensions",
+          "--extension",
+          "/other-extension",
+        ]);
+        expect(
+          harness.transports[0]?.options.environment?.GENTLE_SHELL_INTERACTIVE_HOST,
+        ).toBeUndefined();
       }),
     ),
   );

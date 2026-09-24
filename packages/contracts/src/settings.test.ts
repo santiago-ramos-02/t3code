@@ -199,11 +199,13 @@ describe("PiSettings", () => {
     expect(decodePiSettings({})).toEqual({
       enabled: false,
       binaryPath: "pi",
+      gentleAiBinaryPath: "",
       customModels: [],
     });
     expect(DEFAULT_SERVER_SETTINGS.providers.pi).toEqual({
       enabled: false,
       binaryPath: "pi",
+      gentleAiBinaryPath: "",
       customModels: [],
     });
   });
@@ -218,6 +220,7 @@ describe("PiSettings", () => {
     ).toEqual({
       enabled: true,
       binaryPath: "/opt/pi/bin/pi",
+      gentleAiBinaryPath: "",
       customModels: ["  openai/custom-model  "],
     });
     expect(
@@ -239,6 +242,7 @@ describe("PiSettings", () => {
     expect(stored.providers.pi).toEqual({
       enabled: true,
       binaryPath: "/usr/local/bin/pi",
+      gentleAiBinaryPath: "",
       customModels: [{ slug: "openrouter/custom", name: "Custom" }],
     });
   });

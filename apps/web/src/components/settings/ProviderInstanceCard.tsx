@@ -388,6 +388,7 @@ interface ProviderInstanceCardProps {
    */
   readonly headerAction?: ReactNode | undefined;
   readonly setup?: ReactNode;
+  /** Driver-specific sections, rendered after the shared Runtime, Environment, and Models sections. */
   readonly integration?: ReactNode;
   readonly hiddenModels: ReadonlyArray<string>;
   readonly favoriteModels: ReadonlyArray<string>;
@@ -965,7 +966,6 @@ export function ProviderInstanceCard({
       </SettingsSection>
 
       {setup ? <SettingsSection title="Setup">{setup}</SettingsSection> : null}
-      {integration}
 
       <SettingsSection
         title="Runtime"
@@ -1035,6 +1035,8 @@ export function ProviderInstanceCard({
           </div>
         </SettingsSection>
       ) : null}
+
+      {integration}
     </>
   );
 }

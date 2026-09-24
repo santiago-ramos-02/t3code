@@ -27,6 +27,7 @@ import * as Fiber from "effect/Fiber";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
+import { PiPlainExtensionError } from "../PiPlainExtensions.ts";
 import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
@@ -628,15 +629,13 @@ export interface PiAdapterOptions {
   readonly normalizeWorkspaceCwd: (cwd: string) => string;
   readonly rpcFactory: PiAdapterRpcFactory;
   readonly readFile: (path: string) => Effect.Effect<Uint8Array, PiAdapterAttachmentReadError>;
+  readonly plainExtensionArgs?: (
+    cwd: string,
+  ) => Effect.Effect<ReadonlyArray<string>, PiPlainExtensionError>;
   readonly interruptSettlementTimeout?: Duration.Input;
 }
 
-type Adapter = ProviderAdapterShape<ProviderAdapterError> & {
-  readonly initializeGentleSdd: (
-    threadId: ThreadId,
-    command?: "setup" | "review",
-  ) => Effect.Effect<void, ProviderAdapterError>;
-};
+type Adapter = ProviderAdapterShape<ProviderAdapterError>;
 type PiUsage = typeof UsageSchema.Type;
 type PiResumeCursor = typeof PiResumeCursorSchema.Type;
 type PiSessionEntry = typeof PiSessionEntrySchema.Type;
@@ -1925,6 +1924,9 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
             });
           }
           const sessionScope = yield* Scope.make("sequential");
+          const gentleEnabled =
+            input.modelSelection?.options?.find((option) => option.id === "gentleAi")?.value !==
+            false;
           const environment = {
             ...McpProviderSession.withAgentDeviceEnvironment(
               options.environment ?? process.env,
@@ -1932,7 +1934,8 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
             ),
           };
           // gentle-pi publishes subagent activity and interactive questions only for RPC hosts.
-          environment.GENTLE_SHELL_INTERACTIVE_HOST = "1";
+          if (gentleEnabled) environment.GENTLE_SHELL_INTERACTIVE_HOST = "1";
+          else delete environment.GENTLE_SHELL_INTERACTIVE_HOST;
           delete environment[PI_MCP_ENDPOINT_ENV];
           delete environment[PI_MCP_AUTHORIZATION_ENV];
           delete environment[PI_MCP_SCOPE_ENV];
@@ -1949,12 +1952,32 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
               capabilities: Array.from(mcpSession.capabilities).sort(),
             });
           }
+          const extensionArgs = gentleEnabled
+            ? ["--extension", options.mcpExtensionPath]
+            : yield* (
+                options.plainExtensionArgs?.(cwd) ??
+                Effect.fail(
+                  new PiPlainExtensionError({
+                    detail: "Plain Pi extension resolution is unavailable.",
+                  }),
+                )
+              ).pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new ProviderAdapterProcessError({
+                      provider: PROVIDER,
+                      threadId: input.threadId,
+                      detail: "Pi extensions could not be resolved for this plain thread.",
+                      cause,
+                    }),
+                ),
+              );
           const rpc = yield* rpcFactory({
             binaryPath: options.binaryPath,
             cwd,
-            ...(mcpSession === undefined
+            ...(mcpSession === undefined && gentleEnabled
               ? {}
-              : { args: ["--extension", options.mcpExtensionPath] }),
+              : { args: mcpSession === undefined ? extensionArgs.slice(0, -2) : extensionArgs }),
             ...(requestedCursor === undefined ? {} : { sessionId: requestedCursor.sessionId }),
             environment,
           }).pipe(
@@ -2366,16 +2389,6 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
         resumeCursor: context.session.resumeCursor,
       };
     });
-
-  const initializeGentleSdd: Adapter["initializeGentleSdd"] = () =>
-    Effect.fail(
-      new ProviderAdapterValidationError({
-        provider: PROVIDER,
-        operation: "initializeGentleSdd",
-        issue:
-          "Gentle AI SDD preflight requires an interactive Pi session. Its commands cannot initialize or review SDD through Pi RPC.",
-      }),
-    );
 
   const compactThread = Effect.fn("PiAdapter.compactThread")(function* (
     threadId: ThreadId,
@@ -2933,7 +2946,6 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
     compaction: { type: "native", start: compactThread },
     startSession,
     sendTurn,
-    initializeGentleSdd,
     interruptTurn,
     respondToRequest,
     respondToUserInput,

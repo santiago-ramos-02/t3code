@@ -26,7 +26,6 @@ import type {
   ProviderDriverKind,
   ProviderInstanceEnvironment,
   ProviderInstanceId,
-  ThreadId,
   PiGentleComposerState,
   PiGentleState,
   ServerProvider,
@@ -88,9 +87,9 @@ export interface ProviderInstance {
       action: import("./PiGentleSettings.ts").PiGentleAction,
     ) => Effect.Effect<PiGentleState, import("./PiGentleSettings.ts").PiGentleSettingsError>;
     readonly initializeSdd: (
-      threadId: ThreadId,
+      cwd: string,
       command?: "setup" | "review",
-    ) => Effect.Effect<void, ProviderAdapterError>;
+    ) => Effect.Effect<void, import("./PiGentleSettings.ts").PiGentleSettingsError>;
   };
   readonly snapshot: ServerProviderShape;
   readonly snapshotForCwd?: (cwd: string) => Effect.Effect<ServerProvider, ProviderDriverError>;

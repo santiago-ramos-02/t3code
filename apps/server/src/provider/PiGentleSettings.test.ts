@@ -1,4 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -12,6 +13,63 @@ import { makePiGentleSettings } from "./PiGentleSettings.ts";
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
 it.layer(NodeServices.layer)("Pi Gentle settings", (it) => {
+  it.effect("installs, updates, and sets up SDD through an isolated Pi executable", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+        const platform = yield* HostProcessPlatform;
+        const root = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-pi-gentle-cli-" });
+        const cwd = path.join(root, "project");
+        const agentHome = path.join(root, "agent");
+        const script = path.join(root, "fake-pi.cjs");
+        const binary = path.join(root, platform === "win32" ? "fake-pi.cmd" : "fake-pi");
+        yield* fileSystem.makeDirectory(cwd);
+        yield* fileSystem.writeFileString(
+          script,
+          `
+const fs = require("node:fs");
+const path = require("node:path");
+const home = process.env.PI_CODING_AGENT_DIR;
+if (process.argv.includes("/gentle-sdd-init")) {
+  const target = path.join(process.cwd(), "openspec", "config.yaml");
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.writeFileSync(target, "project: test\\n");
+} else {
+  const packageDir = path.join(home, "npm", "node_modules", "gentle-pi");
+  fs.mkdirSync(packageDir, { recursive: true });
+  fs.writeFileSync(path.join(packageDir, "package.json"), JSON.stringify({ version: process.argv.includes("update") ? "3.8.0" : "3.7.0" }));
+  fs.writeFileSync(path.join(home, "settings.json"), JSON.stringify({ packages: ["npm:gentle-pi"] }));
+}
+`,
+        );
+        yield* fileSystem.writeFileString(
+          binary,
+          platform === "win32"
+            ? `@echo off\r\n"${process.execPath}" "${script}" %*\r\n`
+            : `#!/bin/sh\nexec '${process.execPath}' '${script}' "$@"\n`,
+        );
+        if (platform !== "win32") yield* fileSystem.chmod(binary, 0o755);
+        const gentle = makePiGentleSettings({
+          environment: {
+            PI_CODING_AGENT_DIR: agentHome,
+            GENTLE_PI_CONFIG_HOME: path.join(root, "config"),
+          },
+          piBinaryPath: binary,
+          fileSystem,
+          path,
+          spawner,
+        });
+        expect((yield* gentle.read()).available).toBe(false);
+        expect((yield* gentle.action({ type: "install" })).version).toBe("3.7.0");
+        expect((yield* gentle.action({ type: "update" })).version).toBe("3.8.0");
+        yield* gentle.initializeSdd(cwd);
+        expect(yield* fileSystem.exists(path.join(cwd, "openspec", "config.yaml"))).toBe(true);
+      }),
+    ),
+  );
+
   it.effect("creates, edits, pins and clears a profile in isolated state", () =>
     Effect.scoped(
       Effect.gen(function* () {
@@ -75,14 +133,29 @@ it.layer(NodeServices.layer)("Pi Gentle settings", (it) => {
           global: "gentleman",
           override: null,
         });
+        const changedGlobalPersona = yield* gentle.action({
+          type: "setGlobalPersona",
+          mode: "neutral",
+          cwd,
+        });
+        expect(changedGlobalPersona.globalPersona).toBe("neutral");
+        expect(changedGlobalPersona.project?.persona).toEqual({
+          effective: "neutral",
+          global: "neutral",
+          override: null,
+        });
         expect(yield* gentle.readComposer(cwd)).toMatchObject({
           available: true,
           sddStatus: null,
-          projectInitNeeded: false,
+          projectInitNeeded: true,
         });
 
         const created = yield* gentle.action({ type: "create", name: "review-fast", cwd });
-        expect(created.project).toMatchObject({ pinned: null, pinAvailable: true });
+        expect(created.project).toMatchObject({
+          pinned: null,
+          pinSource: null,
+          pinAvailable: true,
+        });
         const saved = yield* gentle.action({
           type: "save",
           name: "review-fast",

@@ -4,14 +4,21 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentId, PiGentleComposerState, ProviderInstanceId } from "@t3tools/contracts";
-import { ChevronDownIcon, ClipboardListIcon, RefreshCwIcon, SettingsIcon } from "lucide-react";
+import { ChevronDownIcon, ClipboardListIcon, RefreshCwIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { GentleRoseIcon } from "../GentleRoseIcon";
 import { Dialog, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from "../ui/dialog";
-import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
+import {
+  Menu,
+  MenuCheckboxItem,
+  MenuItem,
+  MenuPopup,
+  MenuSeparator,
+  MenuTrigger,
+} from "../ui/menu";
 import { ComposerBanner } from "./ComposerBanner";
 import { useComposerMenuProps } from "./composerEventScope";
 
@@ -19,14 +26,22 @@ export function GentleComposerActions({
   environmentId,
   instanceId,
   cwd,
-  onOpenSettings,
+  enabled,
+  canChange,
+  onEnabledChange,
 }: {
   readonly environmentId: EnvironmentId;
   readonly instanceId: ProviderInstanceId;
   readonly cwd: string;
-  readonly onOpenSettings: () => void;
+  readonly enabled: boolean;
+  readonly canChange: boolean;
+  readonly onEnabledChange: (enabled: boolean) => void;
 }) {
   const read = useAtomCommand(serverEnvironment.readPiGentleComposer, {
+    reportFailure: false,
+    reportDefect: false,
+  });
+  const initialize = useAtomCommand(serverEnvironment.initializePiGentleSdd, {
     reportFailure: false,
     reportDefect: false,
   });
@@ -34,6 +49,7 @@ export function GentleComposerActions({
   const [loaded, setLoaded] = useState<PiGentleComposerState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [statusOpen, setStatusOpen] = useState(false);
+  const [settingUp, setSettingUp] = useState(false);
   const floatingLayer = useComposerMenuProps();
   const requestKey = `${environmentId}:${instanceId}:${cwd}:${refresh}`;
 
@@ -87,23 +103,49 @@ export function GentleComposerActions({
             </ComposerBanner.Actions>
           </MenuTrigger>
           <MenuPopup align="end" side="top" {...floatingLayer}>
-            <MenuItem onClick={onOpenSettings}>
-              <SettingsIcon aria-hidden /> Project profiles and persona
-            </MenuItem>
-            {status && !loaded?.projectInitNeeded ? (
+            {canChange ? (
+              <>
+                <MenuCheckboxItem checked={enabled} onCheckedChange={onEnabledChange}>
+                  Enable
+                </MenuCheckboxItem>
+                <MenuSeparator />
+              </>
+            ) : null}
+            {enabled && status && !loaded?.projectInitNeeded ? (
               <MenuItem onClick={() => setStatusOpen(true)}>
                 <ClipboardListIcon aria-hidden /> View SDD status
               </MenuItem>
             ) : null}
-            {loaded?.available && status === null ? (
+            {enabled && loaded?.available && status === null ? (
               <MenuItem onClick={() => setStatusOpen(true)}>
                 <ClipboardListIcon aria-hidden /> SDD status unavailable
               </MenuItem>
             ) : null}
-            {needsSetup ? (
-              <p className="max-w-64 px-2 py-1 text-xs text-muted-foreground">
-                SDD setup requires an interactive Pi session in this Gentle AI version.
-              </p>
+            {enabled && needsSetup ? (
+              <MenuItem
+                disabled={settingUp}
+                onClick={() => {
+                  setSettingUp(true);
+                  void initialize({
+                    environmentId,
+                    input: { instanceId, cwd, command: "setup" },
+                  }).then((result) => {
+                    if (result._tag === "Success") {
+                      setLoaded(result.value);
+                      setError(null);
+                    } else if (!isAtomCommandInterrupted(result)) {
+                      const failure = squashAtomCommandFailure(result);
+                      setError(
+                        failure instanceof Error ? failure.message : "Could not set up SDD.",
+                      );
+                      setStatusOpen(true);
+                    }
+                    setSettingUp(false);
+                  });
+                }}
+              >
+                <ClipboardListIcon aria-hidden /> {settingUp ? "Setting up SDD…" : "Set up SDD"}
+              </MenuItem>
             ) : null}
             {error ? (
               <MenuItem onClick={() => setStatusOpen(true)}>
@@ -126,9 +168,6 @@ export function GentleComposerActions({
                 <div className="space-y-2 text-sm">
                   <p>Change: {status.changeName ?? "No active change"}</p>
                   <p>Next step: {guidance?.label ?? status.nextRecommended}</p>
-                  {loaded?.projectInitNeeded ? (
-                    <p>SDD setup requires an interactive Pi session in this Gentle AI version.</p>
-                  ) : null}
                   {guidance?.reason ? <p>{guidance.reason}</p> : null}
                   {status.taskProgress.total > 0 ? (
                     <p>

@@ -17,6 +17,7 @@ import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import * as ChildProcess from "effect/unstable/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
+import { resolveSpawnCommand } from "@t3tools/shared/shell";
 
 const PROFILE_KIND = "gentle-pi.agent_model_profiles";
 const PIN_KIND = "gentle-pi.agent_model_profile_pin";
@@ -150,6 +151,8 @@ export type PiGentleAction = typeof PiGentleActionInput.Type.action;
 
 export function makePiGentleSettings(input: {
   readonly environment: NodeJS.ProcessEnv;
+  readonly piBinaryPath?: string;
+  readonly binaryPath?: string;
   readonly fileSystem: FileSystem.FileSystem;
   readonly path: Path.Path;
   readonly spawner: ChildProcessSpawner.ChildProcessSpawner["Service"];
@@ -194,6 +197,20 @@ export function makePiGentleSettings(input: {
       : null;
   }).pipe(Effect.orElseSucceed(() => null));
   const installed = installedVersion.pipe(Effect.map((version) => version !== null));
+
+  const bundledBinaryPath = (version: string) =>
+    Effect.gen(function* () {
+      const platform = yield* HostProcessPlatform;
+      return path.join(
+        agentHome,
+        "npm",
+        "node_modules",
+        "gentle-pi",
+        ".gentle-ai",
+        `v${version}`,
+        platform === "win32" ? "gentle-ai.exe" : "gentle-ai",
+      );
+    });
 
   const loadProfiles = Effect.gen(function* () {
     if (!(yield* fileSystem.exists(profilesPath))) {
@@ -287,18 +304,13 @@ export function makePiGentleSettings(input: {
       ) {
         return null;
       }
-      const platform = yield* HostProcessPlatform;
       const packageHome = path.join(agentHome, "npm", "node_modules", "gentle-pi");
       const manifest = yield* decodeManifest(
         yield* readJson(path.join(packageHome, "package.json")),
       );
-      const binary = path.join(
-        packageHome,
-        ".gentle-ai",
-        `v${manifest.version}`,
-        platform === "win32" ? "gentle-ai.exe" : "gentle-ai",
-      );
-      if (!(yield* fileSystem.exists(binary))) return null;
+      const bundledBinary = yield* bundledBinaryPath(manifest.version);
+      const binary = input.binaryPath || bundledBinary;
+      if (!input.binaryPath && !(yield* fileSystem.exists(binary))) return null;
       const output = yield* spawner
         .string(
           ChildProcess.make(binary, ["sdd-status", "--cwd", cwd, "--json"], {
@@ -330,6 +342,8 @@ export function makePiGentleSettings(input: {
         return {
           available: false,
           version: null,
+          bundledBinaryPath: null,
+          globalPersona: "gentleman",
           profiles: [],
           active: null,
           project: null,
@@ -352,6 +366,8 @@ export function makePiGentleSettings(input: {
       return {
         available: true,
         version,
+        bundledBinaryPath: yield* bundledBinaryPath(version),
+        globalPersona,
         profiles: Object.entries(store.profiles).map(([name, routing]) => ({ name, routing })),
         active: store.active ?? null,
         project: paths
@@ -359,7 +375,7 @@ export function makePiGentleSettings(input: {
               pinAvailable: paths.localPin !== null,
               pinned,
               pinSource:
-                pinned === local ? ("local" as const) : pinned === repo ? ("repo" as const) : null,
+                pinned === null ? null : pinned === local ? ("local" as const) : ("repo" as const),
               sdd: storedSdd?.preferences ?? null,
               persona: {
                 effective: personaOverride ?? globalPersona,
@@ -382,14 +398,56 @@ export function makePiGentleSettings(input: {
       if (!path.isAbsolute(cwd))
         return yield* new PiGentleSettingsError({ detail: "Choose an absolute project folder." });
       const sddStatus = yield* readSddStatus(cwd);
+      const persistedSdd = yield* readSdd((yield* projectPaths(cwd)).sdd);
+      const artifactStore = persistedSdd?.preferences.artifactStore ?? "openspec";
       return {
         available: true,
         sddStatus,
         projectInitNeeded:
-          sddStatus !== null &&
-          (sddStatus.artifactStore === "openspec" || sddStatus.artifactStore === "hybrid") &&
+          (artifactStore === "openspec" || artifactStore === "hybrid") &&
           !(yield* fileSystem.exists(path.join(cwd, "openspec", "config.yaml"))),
       } satisfies PiGentleComposerState;
+    }).pipe(Effect.mapError(toGentleError));
+
+  const initializeSdd = (cwd: string, command: "setup" | "review" = "setup") =>
+    Effect.gen(function* () {
+      if (!path.isAbsolute(cwd))
+        return yield* new PiGentleSettingsError({ detail: "Choose an absolute project folder." });
+      if (command === "review")
+        return yield* new PiGentleSettingsError({
+          detail: "Edit SDD preferences in Pi provider settings, then run setup again.",
+        });
+      if (!(yield* installed))
+        return yield* new PiGentleSettingsError({ detail: "Gentle AI is not installed for Pi." });
+      const packageHome = path.join(agentHome, "npm", "node_modules", "gentle-pi");
+      const args = [
+        "--no-extensions",
+        "--extension",
+        packageHome,
+        "--no-session",
+        "-p",
+        "/gentle-sdd-init",
+      ];
+      const spawnEnv = {
+        ...environment,
+        PI_CODING_AGENT_DIR: agentHome,
+        GENTLE_PI_CONFIG_HOME: configHome,
+      };
+      const resolved = yield* resolveSpawnCommand(input.piBinaryPath ?? "pi", args, {
+        env: spawnEnv,
+      });
+      yield* spawner
+        .string(
+          ChildProcess.make(resolved.command, resolved.args, {
+            cwd,
+            env: spawnEnv,
+            extendEnv: false,
+            shell: resolved.shell,
+            stdin: "ignore",
+            stderr: "ignore",
+          }),
+        )
+        .pipe(Effect.timeout("60 seconds"));
     }).pipe(Effect.mapError(toGentleError));
 
   const applyGlobalProfile = (store: ProfileStore, name: string) =>
@@ -425,6 +483,27 @@ export function makePiGentleSettings(input: {
 
   const action = (command: PiGentleAction) =>
     Effect.gen(function* () {
+      if (command.type === "install" || command.type === "update") {
+        if (command.type === "update" && !(yield* installed))
+          return yield* new PiGentleSettingsError({ detail: "Install Gentle AI first." });
+        const spawnEnv = { ...environment, PI_CODING_AGENT_DIR: agentHome };
+        const args = [command.type, "npm:gentle-pi"];
+        const resolved = yield* resolveSpawnCommand(input.piBinaryPath ?? "pi", args, {
+          env: spawnEnv,
+        });
+        yield* spawner
+          .string(
+            ChildProcess.make(resolved.command, resolved.args, {
+              env: spawnEnv,
+              extendEnv: false,
+              shell: resolved.shell,
+              stdin: "ignore",
+              stderr: "pipe",
+            }),
+          )
+          .pipe(Effect.timeout("2 minutes"));
+        return yield* read(command.cwd);
+      }
       if (!(yield* installed))
         return yield* new PiGentleSettingsError({
           detail: "Gentle AI 3.5 or newer is not installed for this Pi instance.",
@@ -474,6 +553,8 @@ export function makePiGentleSettings(input: {
             detail: "Profile pins require a Git repository.",
           });
         yield* fileSystem.remove(paths.localPin, { force: true });
+      } else if (command.type === "setGlobalPersona") {
+        yield* writeAtomic(globalPersonaPath, { mode: command.mode });
       } else if (command.type === "setPersona") {
         if (!path.isAbsolute(command.cwd))
           return yield* new PiGentleSettingsError({ detail: "Choose an absolute project folder." });
@@ -497,5 +578,5 @@ export function makePiGentleSettings(input: {
       return yield* read(command.cwd);
     }).pipe(Effect.mapError(toGentleError));
 
-  return { read, readComposer, action };
+  return { read, readComposer, action, initializeSdd };
 }

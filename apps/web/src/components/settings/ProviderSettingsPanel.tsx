@@ -141,6 +141,11 @@ function configuredBinaryPath(config: unknown): string {
   return typeof config.binaryPath === "string" ? config.binaryPath.trim() : "";
 }
 
+function configuredGentleAiBinaryPath(config: unknown): string {
+  if (config === null || typeof config !== "object" || !("gentleAiBinaryPath" in config)) return "";
+  return typeof config.gentleAiBinaryPath === "string" ? config.gentleAiBinaryPath : "";
+}
+
 function ProviderLastChecked({ lastCheckedAt }: { lastCheckedAt: string | null }) {
   useRelativeTimeTick();
   const lastCheckedRelative = getRelativeTimeState(lastCheckedAt);
@@ -1027,6 +1032,18 @@ export function EnvironmentProviderSettings({
               <PiGentleSettingsSection
                 environmentId={environmentId}
                 instanceId={row.instanceId}
+                binaryPathValue={configuredGentleAiBinaryPath(row.instance.config)}
+                onBinaryPathChange={(gentleAiBinaryPath) =>
+                  updateProviderInstance(row, {
+                    ...row.instance,
+                    config: {
+                      ...(row.instance.config !== null && typeof row.instance.config === "object"
+                        ? row.instance.config
+                        : {}),
+                      gentleAiBinaryPath,
+                    },
+                  })
+                }
                 refreshKey={gentleRefreshKey}
                 models={liveProvider?.models ?? []}
                 initialProjectCwd={projectCwd}

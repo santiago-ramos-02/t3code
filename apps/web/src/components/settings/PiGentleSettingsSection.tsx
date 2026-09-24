@@ -16,7 +16,6 @@ import { useEffect, useState } from "react";
 
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
-import { GentleRoseIcon } from "../GentleRoseIcon";
 import { Button } from "../ui/button";
 import {
   Combobox,
@@ -27,13 +26,14 @@ import {
   ComboboxSearchInput,
   ComboboxTrigger,
 } from "../ui/combobox";
+import { DraftInput } from "../ui/draft-input";
 import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Spinner } from "../ui/spinner";
-import { SettingsSection } from "./settingsLayout";
+import { SettingsRow, SettingsSection } from "./settingsLayout";
 
 type GentleAction = typeof PiGentleActionInput.Type.action;
-type GentleArea = "project" | "profile" | "persona" | "sdd";
+type GentleArea = "global" | "profiles" | "project" | "sdd";
 type ProjectOption = { readonly title: string; readonly workspaceRoot: string };
 
 const DEFAULT_SDD: PiGentleSddPreferences = {
@@ -43,6 +43,18 @@ const DEFAULT_SDD: PiGentleSddPreferences = {
   reviewBudgetLines: 400,
 };
 const THINKING = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+const THINKING_LABELS = {
+  off: "Off",
+  minimal: "Minimal",
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  xhigh: "Extra high",
+  max: "Max",
+} satisfies Record<(typeof THINKING)[number], string>;
+const PERSONA_LABELS = { gentleman: "Gentleman", neutral: "Neutral" } as const;
+// Select value for "no local pin": the repository declaration or global profile applies.
+const PROJECT_DEFAULT_PROFILE = "__default__";
 const SDD_LABELS = {
   executionMode: { auto: "Automatic", interactive: "Confirm each phase" },
   artifactStore: {
@@ -57,6 +69,9 @@ const SDD_LABELS = {
     "single-pr": "One pull request",
   },
 } as const;
+// Matches the control width of the shared provider settings rows.
+const ROW_CONTROL = "w-full max-w-full @min-[32rem]/settings-row:w-56";
+
 function errorText(failure: unknown): string {
   return failure instanceof Error ? failure.message : "Gentle AI settings could not be updated.";
 }
@@ -147,9 +162,60 @@ function GentleModelSelect({
   );
 }
 
+/** A settings-row select over a label map; `value` is one of its keys, or null when unset. */
+function GentleSelect<T extends string>({
+  label,
+  value,
+  labels,
+  placeholder,
+  disabled,
+  onChange,
+}: {
+  readonly label: string;
+  readonly value: T | null;
+  readonly labels: Record<T, string>;
+  readonly placeholder?: string;
+  readonly disabled: boolean;
+  readonly onChange: (value: T) => void;
+}) {
+  const options = Object.keys(labels).filter((key): key is T => Object.hasOwn(labels, key));
+  return (
+    <Select
+      value={value ?? ""}
+      onValueChange={(next) => {
+        const option = options.find((candidate) => candidate === next);
+        if (option !== undefined && option !== value) onChange(option);
+      }}
+      disabled={disabled}
+    >
+      <SelectTrigger size="sm" className={ROW_CONTROL} aria-label={label}>
+        {value === null ? (
+          <SelectValue placeholder={placeholder} />
+        ) : (
+          <SelectValue>{labels[value]}</SelectValue>
+        )}
+      </SelectTrigger>
+      <SelectPopup>
+        {options.map((option) => (
+          <SelectItem key={option} value={option}>
+            {labels[option]}
+          </SelectItem>
+        ))}
+      </SelectPopup>
+    </Select>
+  );
+}
+
+/**
+ * Gentle AI controls for a Pi provider instance, rendered as extra sections of its settings card.
+ * Every change is written to the environment's Gentle AI config immediately, like other provider
+ * settings.
+ */
 export function PiGentleSettingsSection({
   environmentId,
   instanceId,
+  binaryPathValue,
+  onBinaryPathChange,
   refreshKey,
   models,
   projects,
@@ -158,6 +224,8 @@ export function PiGentleSettingsSection({
 }: {
   readonly environmentId: EnvironmentId;
   readonly instanceId: ProviderInstanceId;
+  readonly binaryPathValue: string;
+  readonly onBinaryPathChange: (value: string) => void;
   readonly refreshKey: number;
   readonly models: ReadonlyArray<ServerProviderModel>;
   readonly projects: ReadonlyArray<ProjectOption>;
@@ -175,11 +243,9 @@ export function PiGentleSettingsSection({
   const state = loaded?.key === stateKey ? loaded.state : null;
   const [selectedProfile, setSelectedProfile] = useState<string | null>(null);
   const [refresh, setRefresh] = useState(0);
-  const [routingDrafts, setRoutingDrafts] = useState<Record<string, PiGentleRouting>>({});
   const [newName, setNewName] = useState("");
   const [newAgent, setNewAgent] = useState("");
   const [agentFilter, setAgentFilter] = useState("");
-  const [sddDrafts, setSddDrafts] = useState<Record<string, PiGentleSddPreferences>>({});
   const [pending, setPending] = useState(false);
   const [errorState, setErrorState] = useState<{
     key: string;
@@ -214,8 +280,8 @@ export function PiGentleSettingsSection({
         setLoaded({ key: stateKey, state: result.value });
         setErrorState(null);
         const initial =
-          result.value.profiles.find((entry) => entry.name === result.value.project?.pinned) ??
           result.value.profiles.find((entry) => entry.name === result.value.active) ??
+          result.value.profiles.find((entry) => entry.name === result.value.project?.pinned) ??
           result.value.profiles[0];
         setSelectedProfile(initial?.name ?? null);
       } else if (!isAtomCommandInterrupted(result)) {
@@ -236,11 +302,14 @@ export function PiGentleSettingsSection({
     const area: GentleArea =
       action.type === "saveSdd"
         ? "sdd"
-        : action.type === "setPersona"
-          ? "persona"
-          : action.type === "pin" || action.type === "clearPin"
-            ? "project"
-            : "profile";
+        : action.type === "setPersona" || action.type === "pin" || action.type === "clearPin"
+          ? "project"
+          : action.type === "setGlobalPersona" ||
+              action.type === "activate" ||
+              action.type === "install" ||
+              action.type === "update"
+            ? "global"
+            : "profiles";
     setPending(true);
     setErrorState(null);
     try {
@@ -250,21 +319,6 @@ export function PiGentleSettingsSection({
         if (action.type === "create") {
           setSelectedProfile(action.name);
           setNewName("");
-        }
-        if (action.type === "save") {
-          const key = JSON.stringify([stateKey, action.name]);
-          setRoutingDrafts((drafts) => {
-            const next = { ...drafts };
-            delete next[key];
-            return next;
-          });
-        }
-        if (action.type === "saveSdd") {
-          setSddDrafts((drafts) => {
-            const next = { ...drafts };
-            delete next[stateKey];
-            return next;
-          });
         }
       } else if (!isAtomCommandInterrupted(result)) {
         setErrorState({
@@ -280,60 +334,30 @@ export function PiGentleSettingsSection({
     }
   }
 
-  if (state?.available === false) return null;
-
-  const profile = state?.profiles.find((entry) => entry.name === selectedProfile);
-  const routingDraftKey = JSON.stringify([stateKey, selectedProfile]);
-  const routing = routingDrafts[routingDraftKey] ?? profile?.routing ?? {};
-  const sdd = sddDrafts[stateKey] ?? state?.project?.sdd ?? DEFAULT_SDD;
-  const visibleRouting = Object.entries(routing).filter(([agent]) =>
-    agent.toLocaleLowerCase().includes(agentFilter.trim().toLocaleLowerCase()),
-  );
-  const setRouting = (update: (current: PiGentleRouting) => PiGentleRouting) =>
-    setRoutingDrafts((drafts) => ({
-      ...drafts,
-      [routingDraftKey]: update(drafts[routingDraftKey] ?? profile?.routing ?? {}),
-    }));
-  const setSdd = (update: (current: PiGentleSddPreferences) => PiGentleSddPreferences) =>
-    setSddDrafts((drafts) => ({
-      ...drafts,
-      [stateKey]: update(drafts[stateKey] ?? state?.project?.sdd ?? DEFAULT_SDD),
-    }));
-  const pinned = state?.project?.pinned;
-  const selectedProject = projects.find((project) => project.workspaceRoot === selectedCwd);
+  const readOnlyProps = {
+    inert: readOnly,
+    "aria-disabled": readOnly || undefined,
+    className: readOnly ? "opacity-50 select-none" : undefined,
+  };
   const canEdit = !readOnly && !pending;
-  const routingChanged =
-    profile !== undefined &&
-    (Object.keys(routing).length !== Object.keys(profile.routing).length ||
-      Object.entries(routing).some(
-        ([agent, entry]) =>
-          entry.model !== profile.routing[agent]?.model ||
-          entry.thinking !== profile.routing[agent]?.thinking,
-      ));
-  const savedSdd = state?.project?.sdd;
-  const sddChanged =
-    savedSdd === null ||
-    savedSdd === undefined ||
-    sdd.executionMode !== savedSdd.executionMode ||
-    sdd.artifactStore !== savedSdd.artifactStore ||
-    sdd.chainedPrStrategy !== savedSdd.chainedPrStrategy ||
-    sdd.reviewBudgetLines !== savedSdd.reviewBudgetLines;
-  const reviewBudgetValid = Number.isInteger(sdd.reviewBudgetLines) && sdd.reviewBudgetLines > 0;
+  const cwdInput = selectedCwd ? { cwd: selectedCwd } : {};
+  const errorFor = (area: GentleArea) =>
+    error?.area === area ? (
+      <span role="alert" className="text-destructive">
+        {error.text}
+      </span>
+    ) : null;
 
-  return (
-    <SettingsSection
-      title={`Gentle AI${state?.version ? ` · ${state.version}` : ""}`}
-      icon={<GentleRoseIcon className="size-5 text-foreground" />}
-    >
-      {state === null ? (
-        <div className="flex items-center gap-2 px-3 py-3 text-sm sm:px-4">
-          {error ? (
-            <>
-              <span role="alert" className="text-destructive">
-                {error.text}
-              </span>
+  if (state === null) {
+    return (
+      <SettingsSection title="Gentle AI" {...readOnlyProps}>
+        <SettingsRow
+          title={error ? "Gentle AI is unavailable" : "Checking Gentle AI"}
+          status={errorFor("project")}
+          control={
+            error ? (
               <Button
-                size="xs"
+                size="sm"
                 variant="outline"
                 onClick={() => {
                   setErrorState(null);
@@ -342,199 +366,166 @@ export function PiGentleSettingsSection({
               >
                 Retry
               </Button>
-            </>
-          ) : (
-            <>
-              <Spinner className="size-3.5" /> Checking Gentle AI
-            </>
-          )}
-        </div>
-      ) : (
-        <>
-          <div className="space-y-3 px-3 py-3 sm:px-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <h3 className="text-sm font-medium">Project</h3>
-              </div>
-              {projects.length > 0 ? (
-                <Select
-                  value={selectedCwd ?? ""}
-                  onValueChange={(value) => {
-                    if (value) setSelectedCwdChoice(value);
-                  }}
-                >
-                  <SelectTrigger
-                    size="sm"
-                    className="w-full min-w-0 sm:w-52"
-                    aria-label="Project for Gentle AI settings"
-                  >
-                    <SelectValue>{selectedProject?.title}</SelectValue>
-                  </SelectTrigger>
-                  <SelectPopup>
-                    {projects.map((project) => (
-                      <SelectItem key={project.workspaceRoot} value={project.workspaceRoot}>
-                        {project.title}
-                      </SelectItem>
-                    ))}
-                  </SelectPopup>
-                </Select>
-              ) : null}
-            </div>
-            {selectedCwd === null ? (
-              <p className="text-xs text-muted-foreground">
-                Add a project to select its Gentle profile and SDD preferences.
-              </p>
             ) : (
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-                <p>
-                  <span className="font-medium">This project: </span>
-                  {pinned
-                    ? `${pinned}${state.project?.pinSource === "repo" ? " (repository)" : ""}`
-                    : `Global (${state.active ?? "none"})`}
-                </p>
-                {pinned ? (
-                  <p className="text-muted-foreground">Global: {state.active ?? "none"}</p>
-                ) : null}
-                {!state.project?.pinAvailable && !pinned ? (
-                  <p className="text-muted-foreground">Profile pins require a Git repository.</p>
-                ) : null}
-                {pinned && state.project?.pinSource === "local" && canEdit ? (
-                  <Button
-                    size="xs"
-                    variant="ghost"
-                    onClick={() => void runAction({ type: "clearPin", cwd: selectedCwd })}
-                  >
-                    Remove pin
-                  </Button>
-                ) : null}
-              </div>
-            )}
-            {error?.area === "project" ? (
-              <p role="alert" className="text-xs text-destructive">
-                {error.text}
-              </p>
-            ) : null}
-          </div>
+              <Spinner className="size-3.5" />
+            )
+          }
+        />
+      </SettingsSection>
+    );
+  }
 
-          <div className="space-y-3 px-3 py-3 sm:px-4">
-            <div className="flex flex-wrap items-end gap-2">
-              <div className="min-w-0 basis-full sm:basis-0 sm:flex-1">
-                <label className="mb-1 block text-xs font-medium" htmlFor="gentle-profile-select">
-                  Model profiles
-                </label>
-                <Select
-                  value={selectedProfile ?? ""}
-                  onValueChange={(value) => {
-                    if (!value) return;
-                    setSelectedProfile(value);
-                  }}
-                >
-                  <SelectTrigger
-                    id="gentle-profile-select"
-                    size="sm"
-                    className="w-full"
-                    aria-label="Gentle AI profile"
-                  >
-                    <SelectValue
-                      placeholder={state.profiles.length ? "Choose profile" : "No profiles"}
-                    />
-                  </SelectTrigger>
-                  <SelectPopup>
-                    {state.profiles.map((entry) => (
-                      <SelectItem key={entry.name} value={entry.name}>
-                        {entry.name}
-                        {entry.name === state.active ? " · globally active" : ""}
-                        {entry.name === pinned ? " · this project" : ""}
-                      </SelectItem>
-                    ))}
-                  </SelectPopup>
-                </Select>
-              </div>
+  if (!state.available) {
+    return (
+      <SettingsSection title="Gentle AI" {...readOnlyProps}>
+        <SettingsRow
+          title="Install for Pi"
+          description="Add profiles, personas, and SDD to this Pi environment."
+          status={errorFor("global")}
+          control={
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!canEdit}
+              onClick={() => void runAction({ type: "install", ...cwdInput })}
+            >
+              {pending ? "Working…" : "Install Gentle AI"}
+            </Button>
+          }
+        />
+      </SettingsSection>
+    );
+  }
+
+  const profile = state.profiles.find((entry) => entry.name === selectedProfile);
+  const routing = profile?.routing ?? {};
+  const visibleRouting = Object.entries(routing).filter(([agent]) =>
+    agent.toLocaleLowerCase().includes(agentFilter.trim().toLocaleLowerCase()),
+  );
+  const saveRouting = (update: (current: PiGentleRouting) => PiGentleRouting) => {
+    if (profile) {
+      void runAction({ type: "save", name: profile.name, routing: update(routing), ...cwdInput });
+    }
+  };
+  const profileNames = Object.fromEntries(
+    state.profiles.map((entry) => [entry.name, entry.name] as const),
+  );
+  const newProfileName = newName.trim();
+  const newAgentName = newAgent.trim();
+  const canCreateProfile =
+    canEdit && newProfileName.length > 0 && !Object.hasOwn(profileNames, newProfileName);
+  const canAddAgent = canEdit && newAgentName.length > 0 && !Object.hasOwn(routing, newAgentName);
+  const createProfile = () => {
+    if (canCreateProfile) void runAction({ type: "create", name: newProfileName, ...cwdInput });
+  };
+  const addAgent = () => {
+    if (!canAddAgent) return;
+    saveRouting((current) => ({ ...current, [newAgentName]: {} }));
+    setNewAgent("");
+  };
+
+  const project = selectedCwd ? state.project : null;
+  const pinned = project?.pinned ?? null;
+  const localPin = project?.pinSource === "local" ? pinned : null;
+  const selectedProject = projects.find((entry) => entry.workspaceRoot === selectedCwd);
+  const sdd = project?.sdd ?? DEFAULT_SDD;
+  const saveSdd = (patch: Partial<PiGentleSddPreferences>) => {
+    if (selectedCwd) {
+      void runAction({ type: "saveSdd", cwd: selectedCwd, preferences: { ...sdd, ...patch } });
+    }
+  };
+
+  return (
+    <>
+      <SettingsSection
+        title="Gentle AI"
+        headerAction={
+          state.version ? (
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-xs text-muted-foreground">v{state.version}</span>
               <Button
-                size="sm"
-                variant="outline"
-                disabled={!canEdit || !profile || state.active === profile.name || routingChanged}
-                onClick={() => {
-                  if (profile)
-                    void runAction({
-                      type: "activate",
-                      name: profile.name,
-                      ...(selectedCwd ? { cwd: selectedCwd } : {}),
-                    });
-                }}
+                size="xs"
+                variant="ghost"
+                disabled={!canEdit}
+                onClick={() => void runAction({ type: "update", ...cwdInput })}
               >
-                Use globally
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={
-                  !canEdit ||
-                  !selectedCwd ||
-                  !state.project?.pinAvailable ||
-                  !profile ||
-                  pinned === profile.name ||
-                  routingChanged
-                }
-                onClick={() => {
-                  if (selectedCwd && profile)
-                    void runAction({ type: "pin", cwd: selectedCwd, name: profile.name });
-                }}
-              >
-                Use for project
-              </Button>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Subagent routing updates when Pi reloads. The main model stays in the composer.
-            </p>
-            <div className="flex flex-wrap items-end gap-2">
-              <div className="min-w-0 flex-1">
-                <label className="mb-1 block text-xs font-medium" htmlFor="gentle-new-profile">
-                  New profile name
-                </label>
-                <Input
-                  id="gentle-new-profile"
-                  size="sm"
-                  value={newName}
-                  onChange={(event) => setNewName(event.target.value)}
-                  placeholder="e.g. review-fast"
-                  disabled={!canEdit}
-                />
-              </div>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={!canEdit || !newName.trim()}
-                onClick={() => {
-                  void runAction({
-                    type: "create",
-                    name: newName.trim(),
-                    ...(selectedCwd ? { cwd: selectedCwd } : {}),
-                  });
-                }}
-              >
-                <PlusIcon className="size-3.5" /> Create
+                Update
               </Button>
             </div>
-            {profile ? (
-              <div className="@container/gentle-rows space-y-2">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <h4 className="text-xs font-medium">Subagent models</h4>
-                  <Button
-                    size="xs"
-                    disabled={!canEdit || !routingChanged}
-                    onClick={() =>
-                      void runAction({
-                        type: "save",
-                        name: profile.name,
-                        routing,
-                        ...(selectedCwd ? { cwd: selectedCwd } : {}),
-                      })
-                    }
-                  >
-                    Save profile
-                  </Button>
-                </div>
+          ) : null
+        }
+        {...readOnlyProps}
+      >
+        <SettingsRow
+          title="Binary path"
+          description="Leave blank to use Gentle AI bundled with this Pi installation."
+          control={
+            <DraftInput
+              size="sm"
+              className={ROW_CONTROL}
+              aria-label="Gentle AI binary path"
+              value={binaryPathValue}
+              onCommit={onBinaryPathChange}
+              placeholder={state.bundledBinaryPath ?? "Bundled Gentle AI"}
+              disabled={!canEdit}
+              spellCheck={false}
+            />
+          }
+        />
+        <SettingsRow
+          title="Persona"
+          description="Default persona for every project."
+          control={
+            <GentleSelect
+              label="Global Gentle AI persona"
+              value={state.globalPersona ?? "gentleman"}
+              labels={PERSONA_LABELS}
+              disabled={!canEdit}
+              onChange={(mode) => void runAction({ type: "setGlobalPersona", mode, ...cwdInput })}
+            />
+          }
+        />
+        <SettingsRow
+          title="Active profile"
+          description="Subagent routing used by every project without its own profile."
+          status={errorFor("global")}
+          control={
+            <GentleSelect
+              label="Active Gentle AI profile"
+              value={state.active}
+              labels={profileNames}
+              placeholder={state.profiles.length ? "None" : "No profiles"}
+              disabled={!canEdit || state.profiles.length === 0}
+              onChange={(name) => void runAction({ type: "activate", name, ...cwdInput })}
+            />
+          }
+        />
+      </SettingsSection>
+
+      <SettingsSection title="Subagent models" {...readOnlyProps}>
+        <SettingsRow
+          title="Profile"
+          description="Model and effort for each subagent. The main model stays in the composer. Changes apply when Pi reloads."
+          status={errorFor("profiles")}
+          control={
+            <GentleSelect
+              label="Gentle AI profile to edit"
+              value={profile ? profile.name : null}
+              labels={Object.fromEntries(
+                state.profiles.map((entry) => [
+                  entry.name,
+                  entry.name === state.active ? `${entry.name} · active` : entry.name,
+                ]),
+              )}
+              placeholder={state.profiles.length ? "Choose profile" : "No profiles"}
+              disabled={state.profiles.length === 0}
+              onChange={setSelectedProfile}
+            />
+          }
+        >
+          {profile ? (
+            <div className="@container/gentle-rows mt-3 space-y-2 pb-2">
+              {Object.keys(routing).length > 8 ? (
                 <Input
                   size="sm"
                   aria-label="Filter subagents"
@@ -542,302 +533,301 @@ export function PiGentleSettingsSection({
                   value={agentFilter}
                   onChange={(event) => setAgentFilter(event.target.value)}
                 />
-                <div className="max-h-[min(55vh,32rem)] space-y-2 overflow-y-auto pr-1">
-                  <div className="hidden grid-cols-[minmax(7rem,1fr)_minmax(0,2fr)_minmax(7rem,1fr)_auto] items-center gap-2 text-xs text-muted-foreground @min-[30rem]/gentle-rows:grid">
-                    <span>Agent</span>
-                    <span>Model</span>
-                    <span>Effort</span>
-                  </div>
-                  {visibleRouting.map(([agent, entry]) => (
-                    <div
-                      key={agent}
-                      className="grid grid-cols-[minmax(0,1fr)_7rem_auto] gap-x-2 gap-y-1.5 @min-[30rem]/gentle-rows:grid-cols-[minmax(7rem,1fr)_minmax(0,2fr)_minmax(7rem,1fr)_auto] @min-[30rem]/gentle-rows:items-center"
-                    >
-                      <span className="col-span-3 col-start-1 row-start-1 min-w-0 wrap-anywhere text-xs @min-[30rem]/gentle-rows:col-span-1">
-                        {agent}
-                      </span>
-                      <GentleModelSelect
-                        agent={agent}
-                        value={entry.model}
-                        models={models}
-                        disabled={!canEdit}
-                        onChange={(model) =>
-                          setRouting((current) => {
-                            const { model: _model, ...rest } = current[agent] ?? {};
-                            return {
-                              ...current,
-                              [agent]: {
-                                ...rest,
-                                ...(model ? { model } : {}),
-                              },
-                            };
-                          })
-                        }
-                      />
-                      <span className="col-start-1 row-start-3 self-center text-xs text-muted-foreground @min-[30rem]/gentle-rows:hidden">
-                        Effort
-                      </span>
-                      <Select
-                        value={entry.thinking ?? "inherit"}
-                        onValueChange={(value) => {
-                          if (!value) return;
-                          const thinking = THINKING.find((level) => level === value);
-                          setRouting((current) => {
-                            const { thinking: _thinking, ...rest } = current[agent] ?? {};
-                            return {
-                              ...current,
-                              [agent]: { ...rest, ...(thinking ? { thinking } : {}) },
-                            };
-                          });
-                        }}
-                        disabled={!canEdit}
-                      >
-                        <SelectTrigger
-                          size="sm"
-                          className="col-start-2 row-start-3 w-full min-w-0 @min-[30rem]/gentle-rows:col-start-3 @min-[30rem]/gentle-rows:row-start-1"
-                          aria-label={`${agent} thinking level`}
-                        >
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectPopup>
-                          <SelectItem value="inherit">Inherit effort</SelectItem>
-                          {THINKING.map((level) => (
-                            <SelectItem key={level} value={level}>
-                              {level}
-                            </SelectItem>
-                          ))}
-                        </SelectPopup>
-                      </Select>
-                      <Button
-                        size="icon-xs"
-                        variant="ghost"
-                        className="col-start-3 row-start-3 justify-self-end @min-[30rem]/gentle-rows:col-start-4 @min-[30rem]/gentle-rows:row-start-1"
-                        aria-label={`Remove ${agent}`}
-                        disabled={!canEdit}
-                        onClick={() =>
-                          setRouting((current) => {
-                            const next = { ...current };
-                            delete next[agent];
-                            return next;
-                          })
-                        }
-                      >
-                        <Trash2Icon className="size-3.5" />
-                      </Button>
-                    </div>
-                  ))}
-                  {visibleRouting.length === 0 ? (
-                    <p className="py-3 text-xs text-muted-foreground">No matching subagents.</p>
-                  ) : null}
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Input
-                    size="sm"
-                    className="max-w-48"
-                    aria-label="New subagent name"
-                    placeholder="Agent name"
-                    value={newAgent}
-                    disabled={!canEdit}
-                    onChange={(event) => setNewAgent(event.target.value)}
-                  />
-                  <Button
-                    size="xs"
-                    variant="outline"
-                    disabled={
-                      !canEdit || !newAgent.trim() || Object.hasOwn(routing, newAgent.trim())
-                    }
-                    onClick={() => {
-                      setRouting((current) => ({ ...current, [newAgent.trim()]: {} }));
-                      setNewAgent("");
-                    }}
+              ) : null}
+              <div className="max-h-[min(55vh,32rem)] space-y-2 overflow-y-auto pr-1">
+                {visibleRouting.map(([agent, entry]) => (
+                  <div
+                    key={agent}
+                    className="grid grid-cols-[minmax(0,1fr)_7rem_auto] gap-x-2 gap-y-1.5 @min-[30rem]/gentle-rows:grid-cols-[minmax(7rem,1fr)_minmax(0,2fr)_minmax(7rem,1fr)_auto] @min-[30rem]/gentle-rows:items-center"
                   >
-                    Add agent
-                  </Button>
-                </div>
+                    <span className="col-span-3 col-start-1 row-start-1 min-w-0 wrap-anywhere font-mono text-xs @min-[30rem]/gentle-rows:col-span-1">
+                      {agent}
+                    </span>
+                    <GentleModelSelect
+                      agent={agent}
+                      value={entry.model}
+                      models={models}
+                      disabled={!canEdit}
+                      onChange={(model) =>
+                        saveRouting((current) => {
+                          const { model: _model, ...rest } = current[agent] ?? {};
+                          return { ...current, [agent]: { ...rest, ...(model ? { model } : {}) } };
+                        })
+                      }
+                    />
+                    <span className="col-start-1 row-start-3 self-center text-xs text-muted-foreground @min-[30rem]/gentle-rows:hidden">
+                      Effort
+                    </span>
+                    <Select
+                      value={entry.thinking ?? "inherit"}
+                      onValueChange={(value) => {
+                        if (!value || value === (entry.thinking ?? "inherit")) return;
+                        const thinking = THINKING.find((level) => level === value);
+                        saveRouting((current) => {
+                          const { thinking: _thinking, ...rest } = current[agent] ?? {};
+                          return {
+                            ...current,
+                            [agent]: { ...rest, ...(thinking ? { thinking } : {}) },
+                          };
+                        });
+                      }}
+                      disabled={!canEdit}
+                    >
+                      <SelectTrigger
+                        size="sm"
+                        className="col-start-2 row-start-3 w-full min-w-0 @min-[30rem]/gentle-rows:col-start-3 @min-[30rem]/gentle-rows:row-start-1"
+                        aria-label={`${agent} thinking level`}
+                      >
+                        <SelectValue>
+                          {entry.thinking ? THINKING_LABELS[entry.thinking] : "Inherit effort"}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectPopup>
+                        <SelectItem value="inherit">Inherit effort</SelectItem>
+                        {THINKING.map((level) => (
+                          <SelectItem key={level} value={level}>
+                            {THINKING_LABELS[level]}
+                          </SelectItem>
+                        ))}
+                      </SelectPopup>
+                    </Select>
+                    <Button
+                      size="icon-xs"
+                      variant="ghost"
+                      className="col-start-3 row-start-3 justify-self-end @min-[30rem]/gentle-rows:col-start-4 @min-[30rem]/gentle-rows:row-start-1"
+                      aria-label={`Remove ${agent}`}
+                      disabled={!canEdit}
+                      onClick={() =>
+                        saveRouting((current) => {
+                          const next = { ...current };
+                          delete next[agent];
+                          return next;
+                        })
+                      }
+                    >
+                      <Trash2Icon className="size-3.5" />
+                    </Button>
+                  </div>
+                ))}
+                {visibleRouting.length === 0 ? (
+                  <p className="py-3 text-xs text-muted-foreground">
+                    {agentFilter.trim()
+                      ? "No matching subagents."
+                      : "No subagents in this profile."}
+                  </p>
+                ) : null}
               </div>
-            ) : null}
-            {error?.area === "profile" ? (
-              <p role="alert" className="text-xs text-destructive">
-                {error.text}
-              </p>
-            ) : null}
-          </div>
+              <div className="flex min-w-0 items-center gap-1.5">
+                <Input
+                  size="sm"
+                  font="mono"
+                  className="w-full min-w-0 sm:w-44"
+                  aria-label="New subagent name"
+                  placeholder="subagent-name"
+                  value={newAgent}
+                  disabled={!canEdit}
+                  onChange={(event) => setNewAgent(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") addAgent();
+                  }}
+                />
+                <Button size="sm" variant="outline" disabled={!canAddAgent} onClick={addAgent}>
+                  <PlusIcon className="size-3" />
+                  Add subagent
+                </Button>
+              </div>
+            </div>
+          ) : null}
+        </SettingsRow>
+        <SettingsRow
+          title="New profile"
+          description="Create another routing profile to switch between."
+          control={
+            <div className="flex w-full min-w-0 items-center gap-2 @min-[32rem]/settings-row:w-auto">
+              <Input
+                size="sm"
+                className="min-w-0 flex-1 @min-[32rem]/settings-row:w-40 @min-[32rem]/settings-row:flex-none"
+                aria-label="New profile name"
+                placeholder="e.g. review-fast"
+                value={newName}
+                onChange={(event) => setNewName(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") createProfile();
+                }}
+                disabled={!canEdit}
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!canCreateProfile}
+                onClick={createProfile}
+              >
+                <PlusIcon className="size-3" />
+                Create
+              </Button>
+            </div>
+          }
+        />
+      </SettingsSection>
 
-          {selectedCwd && state.project ? (
-            <div className="space-y-2 px-3 py-3 sm:px-4">
-              <label className="block text-xs font-medium" htmlFor="gentle-persona-select">
-                Persona for this project
-              </label>
-              <Select
-                value={state.project.persona.override ?? "global"}
-                onValueChange={(value) => {
-                  if (value === "global" || value === "gentleman" || value === "neutral") {
+      <SettingsSection
+        title="Project overrides"
+        headerAction={
+          projects.length > 0 ? (
+            <Select
+              value={selectedCwd ?? ""}
+              onValueChange={(value) => {
+                if (value) setSelectedCwdChoice(value);
+              }}
+            >
+              <SelectTrigger
+                size="xs"
+                variant="ghost"
+                className="max-w-56"
+                aria-label="Project for Gentle AI settings"
+              >
+                <SelectValue>{selectedProject?.title}</SelectValue>
+              </SelectTrigger>
+              <SelectPopup align="end">
+                {projects.map((entry) => (
+                  <SelectItem key={entry.workspaceRoot} value={entry.workspaceRoot}>
+                    {entry.title}
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
+          ) : null
+        }
+        {...readOnlyProps}
+      >
+        {selectedCwd && project ? (
+          <>
+            <SettingsRow
+              title="Profile"
+              description={
+                !project.pinAvailable
+                  ? "Profile pins require a Git repository."
+                  : project.pinSource === "repo"
+                    ? "Declared by the repository. Pick a profile to override it for this clone."
+                    : "Overrides the active profile for this clone."
+              }
+              status={errorFor("project")}
+              control={
+                <GentleSelect
+                  label="Gentle AI profile for this project"
+                  value={localPin ?? PROJECT_DEFAULT_PROFILE}
+                  labels={{
+                    ...profileNames,
+                    [PROJECT_DEFAULT_PROFILE]:
+                      project.pinSource === "repo"
+                        ? `Repository (${pinned})`
+                        : `Use global (${state.active ?? "none"})`,
+                  }}
+                  disabled={!canEdit || !project.pinAvailable}
+                  onChange={(name) =>
+                    void runAction(
+                      name === PROJECT_DEFAULT_PROFILE
+                        ? { type: "clearPin", cwd: selectedCwd }
+                        : { type: "pin", cwd: selectedCwd, name },
+                    )
+                  }
+                />
+              }
+            />
+            <SettingsRow
+              title="Persona"
+              description="Overrides the default persona for this project."
+              control={
+                <GentleSelect
+                  label="Gentle AI persona for this project"
+                  value={project.persona.override ?? "global"}
+                  labels={{
+                    global: `Use global (${PERSONA_LABELS[project.persona.global]})`,
+                    ...PERSONA_LABELS,
+                  }}
+                  disabled={!canEdit}
+                  onChange={(mode) =>
                     void runAction({
                       type: "setPersona",
                       cwd: selectedCwd,
-                      mode: value === "global" ? null : value,
-                    });
+                      mode: mode === "global" ? null : mode,
+                    })
                   }
-                }}
-                disabled={!canEdit}
-              >
-                <SelectTrigger id="gentle-persona-select" size="sm" className="w-full sm:w-72">
-                  <SelectValue>
-                    {state.project.persona.override === null
-                      ? `Use global (${state.project.persona.global})`
-                      : state.project.persona.override === "gentleman"
-                        ? "Gentleman"
-                        : "Neutral"}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectPopup>
-                  <SelectItem value="global">
-                    Use global ({state.project.persona.global})
-                  </SelectItem>
-                  <SelectItem value="gentleman">Gentleman</SelectItem>
-                  <SelectItem value="neutral">Neutral</SelectItem>
-                </SelectPopup>
-              </Select>
-              <p className="text-xs text-muted-foreground">Applies when a new Pi session starts.</p>
-              {error?.area === "persona" ? (
-                <p role="alert" className="text-xs text-destructive">
-                  {error.text}
-                </p>
-              ) : null}
-            </div>
-          ) : null}
-
-          {selectedCwd ? (
-            <div className="space-y-3 px-3 py-3 sm:px-4">
-              <div>
-                <h3 className="text-sm font-medium">SDD preferences</h3>
-                <p className="text-xs text-muted-foreground">
-                  Used by Gentle AI in interactive Pi sessions. SDD setup is unavailable through Pi
-                  RPC.
-                </p>
-              </div>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                <label className="space-y-1 text-xs">
-                  Execution mode
-                  <Select
-                    value={sdd.executionMode}
-                    onValueChange={(value) => {
-                      if (value === "auto" || value === "interactive")
-                        setSdd((current) => ({ ...current, executionMode: value }));
-                    }}
-                    disabled={!canEdit}
-                  >
-                    <SelectTrigger size="sm">
-                      <SelectValue>{SDD_LABELS.executionMode[sdd.executionMode]}</SelectValue>
-                    </SelectTrigger>
-                    <SelectPopup>
-                      <SelectItem value="auto">{SDD_LABELS.executionMode.auto}</SelectItem>
-                      <SelectItem value="interactive">
-                        {SDD_LABELS.executionMode.interactive}
-                      </SelectItem>
-                    </SelectPopup>
-                  </Select>
-                </label>
-                <label className="space-y-1 text-xs">
-                  Artifact store
-                  <Select
-                    value={sdd.artifactStore}
-                    onValueChange={(value) => {
-                      if (
-                        value === "openspec" ||
-                        value === "engram" ||
-                        value === "hybrid" ||
-                        value === "none"
-                      )
-                        setSdd((current) => ({ ...current, artifactStore: value }));
-                    }}
-                    disabled={!canEdit}
-                  >
-                    <SelectTrigger size="sm">
-                      <SelectValue>{SDD_LABELS.artifactStore[sdd.artifactStore]}</SelectValue>
-                    </SelectTrigger>
-                    <SelectPopup>
-                      <SelectItem value="openspec">{SDD_LABELS.artifactStore.openspec}</SelectItem>
-                      <SelectItem value="engram">{SDD_LABELS.artifactStore.engram}</SelectItem>
-                      <SelectItem value="hybrid">{SDD_LABELS.artifactStore.hybrid}</SelectItem>
-                      <SelectItem value="none">{SDD_LABELS.artifactStore.none}</SelectItem>
-                    </SelectPopup>
-                  </Select>
-                </label>
-                <label className="space-y-1 text-xs">
-                  Delivery strategy
-                  <Select
-                    value={sdd.chainedPrStrategy}
-                    onValueChange={(value) => {
-                      if (
-                        value === "ask-on-risk" ||
-                        value === "auto-chain" ||
-                        value === "single-pr"
-                      )
-                        setSdd((current) => ({ ...current, chainedPrStrategy: value }));
-                    }}
-                    disabled={!canEdit}
-                  >
-                    <SelectTrigger size="sm">
-                      <SelectValue>
-                        {SDD_LABELS.chainedPrStrategy[sdd.chainedPrStrategy]}
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectPopup>
-                      <SelectItem value="ask-on-risk">
-                        {SDD_LABELS.chainedPrStrategy["ask-on-risk"]}
-                      </SelectItem>
-                      <SelectItem value="auto-chain">
-                        {SDD_LABELS.chainedPrStrategy["auto-chain"]}
-                      </SelectItem>
-                      <SelectItem value="single-pr">
-                        {SDD_LABELS.chainedPrStrategy["single-pr"]}
-                      </SelectItem>
-                    </SelectPopup>
-                  </Select>
-                </label>
-                <label className="space-y-1 text-xs">
-                  Review budget (lines)
-                  <Input
+                />
+              }
+            />
+            <SettingsRow
+              title="SDD execution"
+              description="How Gentle AI moves between spec-driven development phases."
+              status={errorFor("sdd")}
+              control={
+                <GentleSelect
+                  label="SDD execution mode"
+                  value={sdd.executionMode}
+                  labels={SDD_LABELS.executionMode}
+                  disabled={!canEdit}
+                  onChange={(executionMode) => saveSdd({ executionMode })}
+                />
+              }
+            />
+            <SettingsRow
+              title="SDD artifacts"
+              description="Where proposals, specs, and tasks are saved."
+              control={
+                <GentleSelect
+                  label="SDD artifact store"
+                  value={sdd.artifactStore}
+                  labels={SDD_LABELS.artifactStore}
+                  disabled={!canEdit}
+                  onChange={(artifactStore) => saveSdd({ artifactStore })}
+                />
+              }
+            />
+            <SettingsRow
+              title="SDD delivery"
+              description="How large changes are split into pull requests."
+              control={
+                <GentleSelect
+                  label="SDD delivery strategy"
+                  value={sdd.chainedPrStrategy}
+                  labels={SDD_LABELS.chainedPrStrategy}
+                  disabled={!canEdit}
+                  onChange={(chainedPrStrategy) => saveSdd({ chainedPrStrategy })}
+                />
+              }
+            />
+            <SettingsRow
+              title="Review budget"
+              description="Changed lines per pull request before delivery applies."
+              control={
+                <div className="flex w-full items-center gap-2 @min-[32rem]/settings-row:w-auto">
+                  <DraftInput
                     type="number"
                     min={1}
                     step={1}
                     size="sm"
-                    value={sdd.reviewBudgetLines}
-                    aria-invalid={!reviewBudgetValid}
+                    className="min-w-0 flex-1 @min-[32rem]/settings-row:w-24 @min-[32rem]/settings-row:flex-none"
+                    aria-label="SDD review budget in lines"
+                    value={String(sdd.reviewBudgetLines)}
                     disabled={!canEdit}
-                    onChange={(event) =>
-                      setSdd((current) => ({
-                        ...current,
-                        reviewBudgetLines: Number(event.target.value),
-                      }))
-                    }
+                    onCommit={(next) => {
+                      const lines = Number(next);
+                      if (Number.isInteger(lines) && lines > 0)
+                        saveSdd({ reviewBudgetLines: lines });
+                    }}
                   />
-                  {!reviewBudgetValid ? (
-                    <span className="block text-destructive">Enter a positive whole number.</span>
-                  ) : null}
-                </label>
-              </div>
-              <div className="flex justify-end">
-                <Button
-                  size="xs"
-                  disabled={!canEdit || !sddChanged || !reviewBudgetValid}
-                  onClick={() =>
-                    void runAction({ type: "saveSdd", cwd: selectedCwd, preferences: sdd })
-                  }
-                >
-                  Save SDD choices
-                </Button>
-              </div>
-              {error?.area === "sdd" ? (
-                <p role="alert" className="text-xs text-destructive">
-                  {error.text}
-                </p>
-              ) : null}
-            </div>
-          ) : null}
-        </>
-      )}
-    </SettingsSection>
+                  <span className="text-xs text-muted-foreground">lines</span>
+                </div>
+              }
+            />
+          </>
+        ) : (
+          <SettingsRow
+            title="No project selected"
+            description="Add a project on this environment to override Gentle AI for it."
+          />
+        )}
+      </SettingsSection>
+    </>
   );
 }
