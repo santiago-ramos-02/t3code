@@ -28,7 +28,7 @@ it.layer(NodeServices.layer)("Pi Gentle settings", (it) => {
         });
         yield* fileSystem.writeFileString(
           path.join(agentHome, "npm", "node_modules", "gentle-pi", "package.json"),
-          encodeJson({ version: "3.5.1" }),
+          encodeJson({ version: "3.7.0" }),
         );
         yield* fileSystem.writeFileString(
           path.join(agentHome, "settings.json"),
@@ -53,6 +53,7 @@ it.layer(NodeServices.layer)("Pi Gentle settings", (it) => {
         });
         expect(yield* gentle.read(cwd)).toMatchObject({
           available: true,
+          version: "3.7.0",
           profiles: [],
           project: { pinned: null },
         });

@@ -35,10 +35,15 @@ a version manager or lives elsewhere, set **Binary path** to its executable.
 Choose **Refresh provider status** after changing Pi configuration. The provider
 card shows the detected version, available model providers, and status. A refresh
 reloads Pi's current available model catalog after changing credentials.
-Mobile uses the same provider and models from the connected
-environment; provider configuration remains in web or desktop settings.
+Mobile uses the same provider and models from the connected environment. Set
+Pi's binary path and credentials in web or desktop settings.
 
 ## Gentle AI profiles and SDD
+
+Install the latest Gentle AI package on the project environment with
+`pi install npm:gentle-pi`. If it is already installed, run
+`pi update npm:gentle-pi` to upgrade it. T3 Code uses that environment's
+installed package; remote clients do not need their own installation.
 
 With gentle-pi 3.5 or newer installed for Pi, open **Settings > Providers > Pi**
 and choose a project in the **Gentle AI** section. Create a profile, assign models
@@ -48,17 +53,21 @@ the main Pi model still comes from T3 Code's composer. Remove the local pin to
 return to the repository declaration or Gentle AI's global routing.
 The section shows the project's pin and Gentle AI's globally active profile
 separately. Choosing a profile in the editor does not activate it globally;
-projects without a pin use Gentle AI's global model routing.
+projects without a pin use Gentle AI's global model routing. On mobile, open
+the project's **Project overview** to create a profile, pin it to a checkout,
+or remove a local pin. Edit subagent model routing in web or desktop settings.
 
 For SDD, choose the project's execution mode, artifact store, delivery strategy,
 and review budget, then save. These choices are reused as suggestions. In a Pi
 thread for that project, **Set up SDD** runs Gentle's installed setup command
 directly in the Pi session when the project needs it. **Gentle AI > View SDD
 status** shows the next phase and any prerequisites. To begin or continue a
-change, describe the work in the normal composer. In web or desktop, **Gentle AI
-
-> SDD preferences** opens the current project's provider settings. Gentle AI
-> confirms saved SDD choices at the start of each Pi session.
+change, describe the work in the normal composer. In web or desktop,
+**Gentle AI > Project SDD defaults** opens the current project's provider settings.
+In an idle Pi thread, **Gentle AI > Review SDD choices** opens Gentle's preflight
+editor directly.
+On mobile, save SDD choices from **Project overview**. Gentle AI confirms
+saved choices at the start of each Pi session.
 
 ## T3 Code tools
 

@@ -2553,7 +2553,7 @@ const makeWsRpcLayer = (
                   detail: "This Pi instance is unavailable.",
                 });
               }
-              yield* gentle.initializeSdd(input.threadId).pipe(
+              yield* gentle.initializeSdd(input.threadId, input.command).pipe(
                 Effect.mapError(
                   (cause) =>
                     new ProviderSetupError({

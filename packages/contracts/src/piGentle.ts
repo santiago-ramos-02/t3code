@@ -81,10 +81,12 @@ export const PiGentleInitializeInput = Schema.Struct({
   instanceId: ProviderInstanceId,
   threadId: ThreadId,
   cwd: TrimmedNonEmptyString,
+  command: Schema.optionalKey(Schema.Literals(["setup", "review"])),
 });
 
 export const PiGentleState = Schema.Struct({
   available: Schema.Boolean,
+  version: Schema.NullOr(Schema.String),
   profiles: Schema.Array(Schema.Struct({ name: Schema.String, routing: PiGentleRouting })),
   active: Schema.NullOr(Schema.String),
   project: Schema.NullOr(

@@ -1439,6 +1439,75 @@ describe("ProviderRuntimeIngestion", () => {
     expect(message?.streaming).toBe(false);
   });
 
+  it("keeps Pi commentary, reasoning, and final text as separate messages", async () => {
+    const harness = await createHarness();
+    const now = "2026-01-01T00:00:00.000Z";
+    const provider = ProviderDriverKind.make("pi");
+    const threadId = asThreadId("thread-1");
+    const turnId = asTurnId("pi-turn");
+    const base = { provider, createdAt: now, threadId, turnId };
+
+    await harness.emitAndDrain([
+      { ...base, type: "turn.started", eventId: asEventId("pi-start") },
+      {
+        ...base,
+        type: "content.delta",
+        eventId: asEventId("pi-commentary"),
+        itemId: asItemId("pi-message-1"),
+        payload: { streamKind: "assistant_text", delta: "I’ll inspect the code." },
+      },
+      {
+        ...base,
+        type: "item.completed",
+        eventId: asEventId("pi-commentary-end"),
+        itemId: asItemId("pi-message-1"),
+        payload: { itemType: "assistant_message", status: "completed" },
+      },
+      {
+        ...base,
+        type: "content.delta",
+        eventId: asEventId("pi-reasoning"),
+        itemId: asItemId("pi-message-2"),
+        payload: { streamKind: "reasoning_text", delta: "Found the cause." },
+      },
+      {
+        ...base,
+        type: "content.delta",
+        eventId: asEventId("pi-final"),
+        itemId: asItemId("pi-message-2"),
+        payload: { streamKind: "assistant_text", delta: "The final answer." },
+      },
+      {
+        ...base,
+        type: "item.completed",
+        eventId: asEventId("pi-final-end"),
+        itemId: asItemId("pi-message-2"),
+        payload: { itemType: "assistant_message", status: "completed" },
+      },
+      {
+        ...base,
+        type: "turn.completed",
+        eventId: asEventId("pi-turn-end"),
+        payload: { state: "completed" },
+      },
+    ]);
+
+    const thread = (await harness.readModel()).threads.find((entry) => entry.id === threadId);
+    const messages = thread?.messages.map((message: ProviderRuntimeTestMessage) => ({
+      role: message.role,
+      text: message.text,
+      streaming: message.streaming,
+    }));
+    expect(messages).toHaveLength(3);
+    expect(messages).toEqual(
+      expect.arrayContaining([
+        { role: "assistant", text: "I’ll inspect the code.", streaming: false },
+        { role: "reasoning", text: "Found the cause.", streaming: false },
+        { role: "assistant", text: "The final answer.", streaming: false },
+      ]),
+    );
+  });
+
   it("streams reasoning deltas into a finalized reasoning message", async () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";

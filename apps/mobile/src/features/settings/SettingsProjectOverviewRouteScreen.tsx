@@ -16,6 +16,7 @@ import {
   SettingsEnvironmentFilterHeader,
 } from "./components/SettingsEnvironmentFilterHeader";
 import { useSettingsEnvironmentFilter, type SettingsTarget } from "./settings-environment-filter";
+import { PiGentleProjectSettings } from "./PiGentleProjectSettings";
 
 export function SettingsProjectOverviewRouteScreen() {
   const insets = useSafeAreaInsets();
@@ -169,6 +170,17 @@ function ProjectOverviewContent(props: {
           );
         })}
       </SettingsSection>
+      {props.members.map((member) => (
+        <PiGentleProjectSettings
+          key={`${member.environmentId}:${member.id}:gentle`}
+          environmentId={member.environmentId}
+          workspaceRoot={member.workspaceRoot}
+          environmentLabel={
+            props.environments.find((entry) => entry.environmentId === member.environmentId)
+              ?.label ?? "Environment"
+          }
+        />
+      ))}
     </>
   );
 }

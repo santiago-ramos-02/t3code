@@ -1024,6 +1024,7 @@ export function EnvironmentProviderSettings({
               <PiGentleSettingsSection
                 environmentId={environmentId}
                 instanceId={row.instanceId}
+                models={liveProvider?.models ?? []}
                 initialProjectCwd={projectCwd}
                 projects={projectGroups.flatMap((group) =>
                   group.memberProjects

@@ -638,7 +638,10 @@ export interface PiAdapterOptions {
 }
 
 type Adapter = ProviderAdapterShape<ProviderAdapterError> & {
-  readonly initializeGentleSdd: (threadId: ThreadId) => Effect.Effect<void, ProviderAdapterError>;
+  readonly initializeGentleSdd: (
+    threadId: ThreadId,
+    command?: "setup" | "review",
+  ) => Effect.Effect<void, ProviderAdapterError>;
 };
 type PiUsage = typeof UsageSchema.Type;
 type PiResumeCursor = typeof PiResumeCursorSchema.Type;
@@ -690,6 +693,8 @@ interface ActiveTurn {
   readonly usageByModel: Map<string, UsageTotals>;
   stopReason: string | undefined;
   errorMessage: string | undefined;
+  messageIndex: number;
+  messageHasText: boolean;
   model: string;
   thinkingLevel: PiThinkingLevel | undefined;
 }
@@ -840,10 +845,31 @@ function answerValue(
 }
 
 function mapRequestError(method: string, cause: unknown): ProviderAdapterRequestError {
+  const detail = Schema.is(PiRpcError)(cause)
+    ? (() => {
+        switch (cause.reason) {
+          case "remote-error":
+            return `Pi rejected ${method}: ${cause.detail}`;
+          case "request-timeout":
+            return `Pi did not answer ${method} before the timeout. Check the Pi session and try again.`;
+          case "spawn-failed":
+            return "Pi could not start. Check the configured Pi binary path and installation.";
+          case "closed":
+          case "stdout-eof":
+          case "stdout-failed":
+          case "process-exited":
+            return `Pi closed while ${method} was running. Restart the session and try again.`;
+          case "write-failed":
+            return `T3 Code could not send ${method} to Pi. Restart the session and try again.`;
+          case "malformed-response":
+            return `Pi returned an invalid response to ${method}. Refresh Pi or update the installed version.`;
+        }
+      })()
+    : `Pi could not complete ${method}. Restart the session and try again.`;
   return new ProviderAdapterRequestError({
     provider: PROVIDER,
     method,
-    detail: "Pi rejected or could not complete the RPC request.",
+    detail,
     cause,
   });
 }
@@ -1209,6 +1235,8 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
       usageByModel: new Map(),
       stopReason: undefined,
       errorMessage: undefined,
+      messageIndex: 0,
+      messageHasText: false,
       model: input.model,
       thinkingLevel: input.thinkingLevel,
     };
@@ -1615,10 +1643,17 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
     const turn = context.activeTurn;
     if (turn === undefined || turn.settled) return;
     if (native.type === "message_update") {
+      if (
+        native.assistantMessageEvent.type === "text_delta" &&
+        native.assistantMessageEvent.delta
+      ) {
+        turn.messageHasText = true;
+      }
       yield* emit({
         ...(yield* eventBase(context)),
         type: "content.delta",
         turnId: turn.turnId,
+        itemId: RuntimeItemId.make(`pi-message:${turn.turnId}:${turn.messageIndex + 1}`),
         payload: {
           streamKind:
             native.assistantMessageEvent.type === "text_delta"
@@ -1634,6 +1669,17 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
     // that same message again on turn_end after tool results. Count only message_end.
     if (native.type === "turn_end") return;
     if (native.type === "message_end") {
+      turn.messageIndex += 1;
+      if (turn.messageHasText) {
+        yield* emit({
+          ...(yield* eventBase(context)),
+          type: "item.completed",
+          turnId: turn.turnId,
+          itemId: RuntimeItemId.make(`pi-message:${turn.turnId}:${turn.messageIndex}`),
+          payload: { itemType: "assistant_message", status: "completed" },
+        });
+        turn.messageHasText = false;
+      }
       const model = `${native.message.provider}/${native.message.model}`;
       addUsage(turn.usage, native.message.usage);
       const modelUsage = turn.usageByModel.get(model) ?? emptyUsage();
@@ -2327,8 +2373,9 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
       };
     });
 
-  const initializeGentleSdd: Adapter["initializeGentleSdd"] = (threadId) =>
+  const initializeGentleSdd: Adapter["initializeGentleSdd"] = (threadId, command = "setup") =>
     Effect.gen(function* () {
+      const extensionCommand = command === "review" ? "gentle:sdd-preflight" : "gentle-sdd-init";
       const context = yield* operationLock.withPermits(1)(
         Effect.gen(function* () {
           const context = yield* requireSession(threadId);
@@ -2344,7 +2391,7 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
             return yield* new ProviderAdapterValidationError({
               provider: PROVIDER,
               operation: "initializeGentleSdd",
-              issue: "Finish the current Pi activity before setting up SDD.",
+              issue: "Finish the current Pi activity before opening Gentle SDD.",
             });
           }
           context.turnStarting = true;
@@ -2364,21 +2411,26 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
         );
         if (
           !available.data.commands.some(
-            (command) => command.name === "gentle-sdd-init" && command.source === "extension",
+            (entry) => entry.name === extensionCommand && entry.source === "extension",
           )
         ) {
           return yield* new ProviderAdapterValidationError({
             provider: PROVIDER,
             operation: "initializeGentleSdd",
-            issue: "This Pi session does not provide Gentle AI's SDD setup command.",
+            issue: `This Pi session does not provide Gentle AI's ${command === "review" ? "SDD preflight" : "SDD setup"} command.`,
           });
         }
         // Pi dispatches registered extension commands immediately through RPC prompt.
         // This bypasses T3's sendTurn path and does not create a user chat message.
-        yield* context.rpc.request({ type: "prompt", message: "/gentle-sdd-init" }).pipe(
-          Effect.mapError((cause) => mapRequestError("prompt", cause)),
-          Effect.asVoid,
-        );
+        yield* context.rpc
+          .request({
+            type: "prompt",
+            message: command === "review" ? "/gentle:sdd-preflight --edit" : "/gentle-sdd-init",
+          })
+          .pipe(
+            Effect.mapError((cause) => mapRequestError("prompt", cause)),
+            Effect.asVoid,
+          );
       }).pipe(
         Effect.ensuring(
           operationLock.withPermits(1)(

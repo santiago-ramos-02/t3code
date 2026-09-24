@@ -689,6 +689,9 @@ describe("PiAdapter session runtime", () => {
             ).pipe(Effect.flip);
 
             expect(failure._tag).toBe("ProviderAdapterRequestError");
+            expect(failure).toMatchObject({
+              detail: `Pi rejected ${failedCommand}: ${failedCommand} failed`,
+            });
             expect(yield* adapter.hasSession(THREAD_ID)).toBe(false);
             expect(harness.transports[0]?.closeCount()).toBe(1);
           }),
@@ -907,7 +910,7 @@ describe("PiAdapter session runtime", () => {
     ),
   );
 
-  it.effect("runs Gentle setup as an extension command without a T3 user turn", () =>
+  it.effect("runs Gentle setup and preference review without T3 user turns", () =>
     Effect.scoped(
       Effect.gen(function* () {
         const harness = makeRpcHarness({
@@ -917,7 +920,10 @@ describe("PiAdapter session runtime", () => {
                 ? successResponse(request, sessionState(1))
                 : recordString(request, "type") === "get_commands"
                   ? successResponse(request, {
-                      commands: [{ name: "gentle-sdd-init", source: "extension" }],
+                      commands: [
+                        { name: "gentle-sdd-init", source: "extension" },
+                        { name: "gentle:sdd-preflight", source: "extension" },
+                      ],
                     })
                   : successResponse(request),
             ),
@@ -927,10 +933,13 @@ describe("PiAdapter session runtime", () => {
         yield* takeEvents(adapter, SESSION_EVENTS);
 
         yield* adapter.initializeGentleSdd(THREAD_ID);
+        yield* adapter.initializeGentleSdd(THREAD_ID, "review");
         expect(harness.transports[0]?.requests).toMatchObject([
           { type: "get_state" },
           { type: "get_commands" },
           { type: "prompt", message: "/gentle-sdd-init" },
+          { type: "get_commands" },
+          { type: "prompt", message: "/gentle:sdd-preflight --edit" },
         ]);
 
         const turn = yield* adapter.sendTurn({ threadId: THREAD_ID, input: "Now work" });
@@ -960,7 +969,9 @@ describe("PiAdapter session runtime", () => {
         yield* takeEvents(adapter, SESSION_EVENTS);
 
         const result = yield* Effect.exit(adapter.initializeGentleSdd(THREAD_ID));
+        const review = yield* Effect.exit(adapter.initializeGentleSdd(THREAD_ID, "review"));
         expect(Exit.isFailure(result)).toBe(true);
+        expect(Exit.isFailure(review)).toBe(true);
         expect(
           harness.transports[0]?.requests.some(
             (request) => recordString(request, "type") === "prompt",
@@ -1175,6 +1186,7 @@ describe("PiAdapter session runtime", () => {
           .sendTurn({ threadId: THREAD_ID, input: "Change direction" })
           .pipe(Effect.flip);
         expect(failure).toMatchObject({ method: "steer" });
+        expect(failure).toMatchObject({ detail: "Pi rejected steer: steer rejected" });
 
         yield* offerNative(harness.transports[0]!, { type: "agent_settled" });
         expect(yield* takeEvents(adapter, 1)).toMatchObject([
@@ -1308,8 +1320,13 @@ describe("PiAdapter session runtime", () => {
           message: assistantMessage({ usage: usage(4, 5, 0, 0, 0.1) }),
         });
         yield* offerNative(transport, { type: "agent_settled" });
-        expect(yield* takeEvents(adapter, 2)).toMatchObject([
+        expect(yield* takeEvents(adapter, 3)).toMatchObject([
           { type: "content.delta", turnId: childTurnId, payload: { delta: "Child finished" } },
+          {
+            type: "item.completed",
+            turnId: childTurnId,
+            payload: { itemType: "assistant_message" },
+          },
           { type: "turn.completed", turnId: childTurnId, payload: { state: "completed" } },
         ]);
       }),
@@ -1348,6 +1365,58 @@ describe("PiAdapter session runtime", () => {
             type: "content.delta",
             payload: { streamKind: "reasoning_text", delta: "reason", contentIndex: 1 },
           },
+        ]);
+      }),
+    ),
+  );
+
+  it.effect("completes each Pi assistant message before the next one starts", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = makeRpcHarness();
+        const adapter = yield* makeAdapter(harness);
+        yield* startSession(adapter);
+        yield* takeEvents(adapter, SESSION_EVENTS);
+        yield* adapter.sendTurn({ threadId: THREAD_ID, input: "Investigate" });
+        yield* takeEvents(adapter, 1);
+        const transport = harness.transports[0]!;
+
+        yield* offerNative(transport, {
+          type: "message_update",
+          usage: usage(1, 1, 0, 0, 0),
+          assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "I’ll check." },
+        });
+        yield* offerNative(transport, {
+          type: "message_end",
+          message: assistantMessage({ usage: usage(2, 2, 0, 0, 0), stopReason: "toolUse" }),
+        });
+        yield* offerNative(transport, {
+          type: "message_update",
+          usage: usage(2, 3, 0, 0, 0),
+          assistantMessageEvent: { type: "thinking_delta", contentIndex: 0, delta: "Result" },
+        });
+        yield* offerNative(transport, {
+          type: "message_update",
+          usage: usage(2, 4, 0, 0, 0),
+          assistantMessageEvent: { type: "text_delta", contentIndex: 1, delta: "Final answer." },
+        });
+        yield* offerNative(transport, {
+          type: "message_end",
+          message: assistantMessage({ usage: usage(3, 5, 0, 0, 0) }),
+        });
+
+        expect(yield* takeEvents(adapter, 5)).toMatchObject([
+          {
+            type: "content.delta",
+            payload: { streamKind: "assistant_text", delta: "I’ll check." },
+          },
+          { type: "item.completed", payload: { itemType: "assistant_message" } },
+          { type: "content.delta", payload: { streamKind: "reasoning_text", delta: "Result" } },
+          {
+            type: "content.delta",
+            payload: { streamKind: "assistant_text", delta: "Final answer." },
+          },
+          { type: "item.completed", payload: { itemType: "assistant_message" } },
         ]);
       }),
     ),
@@ -3503,7 +3572,7 @@ describe("PiAdapter session runtime", () => {
             toolResults: [],
           });
           yield* offerNative(transport, { type: "agent_settled" });
-          const terminal = (yield* takeEvents(adapter, 1))[0];
+          const terminal = (yield* takeEvents(adapter, 2))[1];
 
           // Live adapter usage remains tied to the exact provider instance. The
           // historical transcript pipeline is intentionally provider-level only.

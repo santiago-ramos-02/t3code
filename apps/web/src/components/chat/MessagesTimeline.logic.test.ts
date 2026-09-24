@@ -84,6 +84,46 @@ describe("provider startup row", () => {
   });
 });
 
+it("folds completed Pi commentary and reasoning while keeping the final reply visible", () => {
+  const turnId = TurnId.make("pi-turn");
+  const message = (id: string, role: "assistant" | "reasoning", text: string, second: number) => ({
+    id,
+    kind: "message" as const,
+    createdAt: `2026-09-23T15:00:0${second}.000Z`,
+    message: {
+      id: MessageId.make(id),
+      role,
+      text,
+      turnId,
+      createdAt: `2026-09-23T15:00:0${second}.000Z`,
+      updatedAt: `2026-09-23T15:00:0${second}.000Z`,
+      streaming: false,
+    },
+  });
+  const rows = deriveMessagesTimelineRows({
+    timelineEntries: [
+      message("pi-commentary", "assistant", "I’ll inspect the issue.", 1),
+      message("pi-reasoning", "reasoning", "Checking the cause.", 2),
+      message("pi-final", "assistant", "Here is the result.", 3),
+    ],
+    latestTurn: {
+      turnId,
+      state: "completed",
+      startedAt: "2026-09-23T15:00:00.000Z",
+      completedAt: "2026-09-23T15:00:04.000Z",
+    },
+    isWorking: false,
+    activeTurnStartedAt: null,
+    turnDiffSummaries: [],
+    supportsConversationRollback: false,
+  });
+
+  expect(rows.some((row) => row.kind === "turn-fold")).toBe(true);
+  expect(rows.filter((row) => row.kind === "message").map((row) => row.message.text)).toEqual([
+    "Here is the result.",
+  ]);
+});
+
 describe("streaming row projection", () => {
   function fixture(text = "") {
     const turnId = TurnId.make("live-turn");

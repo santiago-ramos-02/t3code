@@ -174,21 +174,22 @@ export function makePiGentleSettings(input: {
         .pipe(Effect.ensuring(fileSystem.remove(temporary, { force: true }).pipe(Effect.ignore)));
     });
 
-  const installed = Effect.gen(function* () {
+  const installedVersion = Effect.gen(function* () {
     const packagePath = path.join(agentHome, "npm", "node_modules", "gentle-pi", "package.json");
     const settingsPath = path.join(agentHome, "settings.json");
     if (!(yield* fileSystem.exists(packagePath)) || !(yield* fileSystem.exists(settingsPath)))
-      return false;
+      return null;
     const manifest = yield* decodeManifest(yield* readJson(packagePath));
     const settings = yield* decodePackageSettings(yield* readJson(settingsPath));
     const parts = manifest.version.split(".").map(Number);
     const major = parts[0] ?? 0;
     const minor = parts[1] ?? 0;
-    return (
-      (major > 3 || (major === 3 && minor >= 5)) &&
+    return (major > 3 || (major === 3 && minor >= 5)) &&
       settings.packages.some((entry) => /^npm:gentle-pi(?:@|$)/.test(entry))
-    );
-  }).pipe(Effect.orElseSucceed(() => false));
+      ? manifest.version
+      : null;
+  }).pipe(Effect.orElseSucceed(() => null));
+  const installed = installedVersion.pipe(Effect.map((version) => version !== null));
 
   const loadProfiles = Effect.gen(function* () {
     if (!(yield* fileSystem.exists(profilesPath))) {
@@ -310,9 +311,11 @@ export function makePiGentleSettings(input: {
 
   const read = (cwd?: string) =>
     Effect.gen(function* () {
-      if (!(yield* installed))
+      const version = yield* installedVersion;
+      if (version === null)
         return {
           available: false,
+          version: null,
           profiles: [],
           active: null,
           project: null,
@@ -330,6 +333,7 @@ export function makePiGentleSettings(input: {
       const storedSdd = paths ? yield* readSdd(paths.sdd) : null;
       return {
         available: true,
+        version,
         profiles: Object.entries(store.profiles).map(([name, routing]) => ({ name, routing })),
         active: store.active ?? null,
         project: paths

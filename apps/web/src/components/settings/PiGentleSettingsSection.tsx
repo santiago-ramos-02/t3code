@@ -5,18 +5,28 @@ import {
   type PiGentleSddPreferences,
   type PiGentleState,
   type ProviderInstanceId,
+  type ServerProviderModel,
 } from "@t3tools/contracts";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import { PlusIcon, Trash2Icon } from "lucide-react";
+import { ChevronDownIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { GentleRoseIcon } from "../GentleRoseIcon";
 import { Button } from "../ui/button";
+import {
+  Combobox,
+  ComboboxEmpty,
+  ComboboxItem,
+  ComboboxList,
+  ComboboxPopup,
+  ComboboxSearchInput,
+  ComboboxTrigger,
+} from "../ui/combobox";
 import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Spinner } from "../ui/spinner";
@@ -69,15 +79,103 @@ function errorText(failure: unknown): string {
   return failure instanceof Error ? failure.message : "Gentle AI settings could not be updated.";
 }
 
+const INHERIT_MODEL = "__inherit__";
+
+function GentleModelSelect({
+  agent,
+  value,
+  models,
+  disabled,
+  onChange,
+}: {
+  readonly agent: string;
+  readonly value: string | undefined;
+  readonly models: ReadonlyArray<ServerProviderModel>;
+  readonly disabled: boolean;
+  readonly onChange: (model: string | undefined) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const options = [INHERIT_MODEL, ...models.map((model) => model.slug)];
+  if (value && !options.includes(value)) options.push(value);
+  const normalized = query.trim().toLocaleLowerCase();
+  const filtered = normalized
+    ? options.filter((slug) => {
+        if (slug === INHERIT_MODEL) return "inherit model".includes(normalized);
+        const model = models.find((entry) => entry.slug === slug);
+        return `${model?.name ?? ""} ${model?.subProvider ?? ""} ${slug}`
+          .toLocaleLowerCase()
+          .includes(normalized);
+      })
+    : options;
+  const selected = models.find((model) => model.slug === value);
+
+  return (
+    <Combobox
+      items={options}
+      filteredItems={filtered}
+      value={value ?? INHERIT_MODEL}
+      onOpenChange={(open) => {
+        if (!open) setQuery("");
+      }}
+      onValueChange={(model) => {
+        if (model) onChange(model === INHERIT_MODEL ? undefined : model);
+      }}
+    >
+      <ComboboxTrigger
+        render={<Button size="sm" variant="outline" />}
+        className="col-span-3 col-start-1 row-start-2 w-full min-w-0 justify-between @min-[30rem]/gentle-rows:col-span-1 @min-[30rem]/gentle-rows:col-start-2 @min-[30rem]/gentle-rows:row-start-1"
+        aria-label={`${agent} model`}
+        disabled={disabled}
+      >
+        <span className="min-w-0 truncate">
+          {selected?.name ?? (value ? `Unavailable: ${value}` : "Inherit model")}
+        </span>
+        <ChevronDownIcon aria-hidden className="size-3.5 shrink-0 opacity-60" />
+      </ComboboxTrigger>
+      <ComboboxPopup align="start" className="w-80 min-w-0 max-w-[calc(100vw-1rem)]">
+        <ComboboxSearchInput
+          placeholder="Search Pi models…"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+        />
+        <ComboboxEmpty>No matching Pi models.</ComboboxEmpty>
+        <ComboboxList className="max-h-64 min-w-0 overflow-x-hidden">
+          {filtered.map((slug) => {
+            const model = models.find((entry) => entry.slug === slug);
+            return (
+              <ComboboxItem key={slug} value={slug} className="w-full min-w-0">
+                <span className="flex min-w-0 flex-col">
+                  <span className="truncate">
+                    {slug === INHERIT_MODEL
+                      ? "Inherit model"
+                      : (model?.name ?? `Unavailable: ${slug}`)}
+                  </span>
+                  {model ? (
+                    <span className="truncate text-xs text-muted-foreground">
+                      {model.subProvider ?? "Pi"} · {slug}
+                    </span>
+                  ) : null}
+                </span>
+              </ComboboxItem>
+            );
+          })}
+        </ComboboxList>
+      </ComboboxPopup>
+    </Combobox>
+  );
+}
+
 export function PiGentleSettingsSection({
   environmentId,
   instanceId,
+  models,
   projects,
   initialProjectCwd,
   readOnly,
 }: {
   readonly environmentId: EnvironmentId;
   readonly instanceId: ProviderInstanceId;
+  readonly models: ReadonlyArray<ServerProviderModel>;
   readonly projects: ReadonlyArray<ProjectOption>;
   readonly initialProjectCwd?: string | undefined;
   readonly readOnly: boolean;
@@ -92,10 +190,12 @@ export function PiGentleSettingsSection({
   const [loaded, setLoaded] = useState<{ key: string; state: PiGentleState } | null>(null);
   const state = loaded?.key === stateKey ? loaded.state : null;
   const [selectedProfile, setSelectedProfile] = useState<string | null>(null);
-  const [routing, setRouting] = useState<PiGentleRouting>({});
+  const [refresh, setRefresh] = useState(0);
+  const [routingDrafts, setRoutingDrafts] = useState<Record<string, PiGentleRouting>>({});
   const [newName, setNewName] = useState("");
   const [newAgent, setNewAgent] = useState("");
-  const [sdd, setSdd] = useState<PiGentleSddPreferences>(DEFAULT_SDD);
+  const [agentFilter, setAgentFilter] = useState("");
+  const [sddDrafts, setSddDrafts] = useState<Record<string, PiGentleSddPreferences>>({});
   const [pending, setPending] = useState(false);
   const [errorState, setErrorState] = useState<{
     key: string;
@@ -113,22 +213,21 @@ export function PiGentleSettingsSection({
   });
 
   useEffect(() => {
-    let live = true;
+    const requestKey = JSON.stringify([environmentId, instanceId, selectedCwd, refresh]);
+    let liveRequest: string | null = requestKey;
     void read({
       environmentId,
       input: { instanceId, ...(selectedCwd ? { cwd: selectedCwd } : {}) },
     }).then((result) => {
-      if (!live) return;
+      if (liveRequest !== requestKey) return;
       if (result._tag === "Success") {
         setLoaded({ key: stateKey, state: result.value });
         setErrorState(null);
-        setSdd(result.value.project?.sdd ?? DEFAULT_SDD);
         const initial =
           result.value.profiles.find((entry) => entry.name === result.value.project?.pinned) ??
           result.value.profiles.find((entry) => entry.name === result.value.active) ??
           result.value.profiles[0];
         setSelectedProfile(initial?.name ?? null);
-        setRouting(initial?.routing ?? {});
       } else if (!isAtomCommandInterrupted(result)) {
         setErrorState({
           key: stateKey,
@@ -138,9 +237,9 @@ export function PiGentleSettingsSection({
       }
     });
     return () => {
-      live = false;
+      liveRequest = null;
     };
-  }, [environmentId, instanceId, read, selectedCwd, stateKey]);
+  }, [environmentId, instanceId, read, refresh, selectedCwd, stateKey]);
 
   async function runAction(action: GentleAction) {
     if (pending) return;
@@ -158,12 +257,23 @@ export function PiGentleSettingsSection({
         setLoaded({ key: stateKey, state: result.value });
         if (action.type === "create") {
           setSelectedProfile(action.name);
-          setRouting(
-            result.value.profiles.find((entry) => entry.name === action.name)?.routing ?? {},
-          );
           setNewName("");
         }
-        if (action.type === "saveSdd") setSdd(result.value.project?.sdd ?? action.preferences);
+        if (action.type === "save") {
+          const key = JSON.stringify([stateKey, action.name]);
+          setRoutingDrafts((drafts) => {
+            const next = { ...drafts };
+            delete next[key];
+            return next;
+          });
+        }
+        if (action.type === "saveSdd") {
+          setSddDrafts((drafts) => {
+            const next = { ...drafts };
+            delete next[stateKey];
+            return next;
+          });
+        }
       } else if (!isAtomCommandInterrupted(result)) {
         setErrorState({
           key: stateKey,
@@ -178,9 +288,25 @@ export function PiGentleSettingsSection({
     }
   }
 
-  if (state?.available === false || (state === null && error === null)) return null;
+  if (state?.available === false) return null;
 
   const profile = state?.profiles.find((entry) => entry.name === selectedProfile);
+  const routingDraftKey = JSON.stringify([stateKey, selectedProfile]);
+  const routing = routingDrafts[routingDraftKey] ?? profile?.routing ?? {};
+  const sdd = sddDrafts[stateKey] ?? state?.project?.sdd ?? DEFAULT_SDD;
+  const visibleRouting = Object.entries(routing).filter(([agent]) =>
+    agent.toLocaleLowerCase().includes(agentFilter.trim().toLocaleLowerCase()),
+  );
+  const setRouting = (update: (current: PiGentleRouting) => PiGentleRouting) =>
+    setRoutingDrafts((drafts) => ({
+      ...drafts,
+      [routingDraftKey]: update(drafts[routingDraftKey] ?? profile?.routing ?? {}),
+    }));
+  const setSdd = (update: (current: PiGentleSddPreferences) => PiGentleSddPreferences) =>
+    setSddDrafts((drafts) => ({
+      ...drafts,
+      [stateKey]: update(drafts[stateKey] ?? state?.project?.sdd ?? DEFAULT_SDD),
+    }));
   const pinned = state?.project?.pinned;
   const selectedProject = projects.find((project) => project.workspaceRoot === selectedCwd);
   const canEdit = !readOnly && !pending;
@@ -203,16 +329,25 @@ export function PiGentleSettingsSection({
   const reviewBudgetValid = Number.isInteger(sdd.reviewBudgetLines) && sdd.reviewBudgetLines > 0;
 
   return (
-    <SettingsSection
-      title="Gentle AI"
-      icon={<GentleRoseIcon className="h-[18px] w-4 text-foreground/90" />}
-    >
+    <SettingsSection title="Gentle AI" icon={<GentleRoseIcon className="size-5 text-foreground" />}>
       {state === null ? (
         <div className="flex items-center gap-2 px-3 py-3 text-sm sm:px-4">
           {error ? (
-            <span role="alert" className="text-destructive">
-              {error?.text}
-            </span>
+            <>
+              <span role="alert" className="text-destructive">
+                {error.text}
+              </span>
+              <Button
+                size="xs"
+                variant="outline"
+                onClick={() => {
+                  setErrorState(null);
+                  setRefresh((value) => value + 1);
+                }}
+              >
+                Retry
+              </Button>
+            </>
           ) : (
             <>
               <Spinner className="size-3.5" /> Checking Gentle AI
@@ -221,6 +356,9 @@ export function PiGentleSettingsSection({
         </div>
       ) : (
         <>
+          <p className="px-3 pt-3 text-xs text-muted-foreground sm:px-4">
+            Gentle AI {state.version} installed on this environment
+          </p>
           <div className="space-y-3 px-3 py-3 sm:px-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
@@ -300,7 +438,6 @@ export function PiGentleSettingsSection({
                   onValueChange={(value) => {
                     if (!value) return;
                     setSelectedProfile(value);
-                    setRouting(state.profiles.find((entry) => entry.name === value)?.routing ?? {});
                   }}
                 >
                   <SelectTrigger
@@ -395,92 +532,101 @@ export function PiGentleSettingsSection({
                     Save profile
                   </Button>
                 </div>
-                <div className="hidden grid-cols-[minmax(7rem,1fr)_minmax(0,2fr)_minmax(7rem,1fr)_auto] items-center gap-2 text-xs text-muted-foreground @min-[30rem]/gentle-rows:grid">
-                  <span>Agent</span>
-                  <span>Model</span>
-                  <span>Effort</span>
-                </div>
-                {Object.entries(routing).map(([agent, entry]) => (
-                  <div
-                    key={agent}
-                    className="grid grid-cols-[minmax(0,1fr)_7rem_auto] gap-x-2 gap-y-1.5 @min-[30rem]/gentle-rows:grid-cols-[minmax(7rem,1fr)_minmax(0,2fr)_minmax(7rem,1fr)_auto] @min-[30rem]/gentle-rows:items-center"
-                  >
-                    <span className="col-span-3 col-start-1 row-start-1 min-w-0 wrap-anywhere text-xs @min-[30rem]/gentle-rows:col-span-1">
-                      {agent}
-                    </span>
-                    <Input
-                      size="sm"
-                      font="mono"
-                      className="col-span-3 col-start-1 row-start-2 min-w-0 @min-[30rem]/gentle-rows:col-span-1 @min-[30rem]/gentle-rows:col-start-2 @min-[30rem]/gentle-rows:row-start-1"
-                      aria-label={`${agent} model`}
-                      placeholder="Inherit model"
-                      value={entry.model ?? ""}
-                      disabled={!canEdit}
-                      onChange={(event) =>
-                        setRouting((current) => {
-                          const { model: _model, ...rest } = current[agent] ?? {};
-                          return {
-                            ...current,
-                            [agent]: {
-                              ...rest,
-                              ...(event.target.value ? { model: event.target.value } : {}),
-                            },
-                          };
-                        })
-                      }
-                    />
-                    <span className="col-start-1 row-start-3 self-center text-xs text-muted-foreground @min-[30rem]/gentle-rows:hidden">
-                      Effort
-                    </span>
-                    <Select
-                      value={entry.thinking ?? "inherit"}
-                      onValueChange={(value) => {
-                        if (!value) return;
-                        const thinking = THINKING.find((level) => level === value);
-                        setRouting((current) => {
-                          const { thinking: _thinking, ...rest } = current[agent] ?? {};
-                          return {
-                            ...current,
-                            [agent]: { ...rest, ...(thinking ? { thinking } : {}) },
-                          };
-                        });
-                      }}
-                      disabled={!canEdit}
-                    >
-                      <SelectTrigger
-                        size="sm"
-                        className="col-start-2 row-start-3 w-full min-w-0 @min-[30rem]/gentle-rows:col-start-3 @min-[30rem]/gentle-rows:row-start-1"
-                        aria-label={`${agent} thinking level`}
-                      >
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectPopup>
-                        <SelectItem value="inherit">Inherit effort</SelectItem>
-                        {THINKING.map((level) => (
-                          <SelectItem key={level} value={level}>
-                            {level}
-                          </SelectItem>
-                        ))}
-                      </SelectPopup>
-                    </Select>
-                    <Button
-                      size="icon-xs"
-                      variant="ghost"
-                      className="col-start-3 row-start-3 justify-self-end @min-[30rem]/gentle-rows:col-start-4 @min-[30rem]/gentle-rows:row-start-1"
-                      aria-label={`Remove ${agent}`}
-                      disabled={!canEdit}
-                      onClick={() =>
-                        setRouting((current) => {
-                          const next = { ...current };
-                          delete next[agent];
-                          return next;
-                        })
-                      }
-                    >
-                      <Trash2Icon className="size-3.5" />
-                    </Button>
+                <Input
+                  size="sm"
+                  aria-label="Filter subagents"
+                  placeholder="Find a subagent"
+                  value={agentFilter}
+                  onChange={(event) => setAgentFilter(event.target.value)}
+                />
+                <div className="max-h-[min(55vh,32rem)] space-y-2 overflow-y-auto pr-1">
+                  <div className="hidden grid-cols-[minmax(7rem,1fr)_minmax(0,2fr)_minmax(7rem,1fr)_auto] items-center gap-2 text-xs text-muted-foreground @min-[30rem]/gentle-rows:grid">
+                    <span>Agent</span>
+                    <span>Model</span>
+                    <span>Effort</span>
                   </div>
-                ))}
+                  {visibleRouting.map(([agent, entry]) => (
+                    <div
+                      key={agent}
+                      className="grid grid-cols-[minmax(0,1fr)_7rem_auto] gap-x-2 gap-y-1.5 @min-[30rem]/gentle-rows:grid-cols-[minmax(7rem,1fr)_minmax(0,2fr)_minmax(7rem,1fr)_auto] @min-[30rem]/gentle-rows:items-center"
+                    >
+                      <span className="col-span-3 col-start-1 row-start-1 min-w-0 wrap-anywhere text-xs @min-[30rem]/gentle-rows:col-span-1">
+                        {agent}
+                      </span>
+                      <GentleModelSelect
+                        agent={agent}
+                        value={entry.model}
+                        models={models}
+                        disabled={!canEdit}
+                        onChange={(model) =>
+                          setRouting((current) => {
+                            const { model: _model, ...rest } = current[agent] ?? {};
+                            return {
+                              ...current,
+                              [agent]: {
+                                ...rest,
+                                ...(model ? { model } : {}),
+                              },
+                            };
+                          })
+                        }
+                      />
+                      <span className="col-start-1 row-start-3 self-center text-xs text-muted-foreground @min-[30rem]/gentle-rows:hidden">
+                        Effort
+                      </span>
+                      <Select
+                        value={entry.thinking ?? "inherit"}
+                        onValueChange={(value) => {
+                          if (!value) return;
+                          const thinking = THINKING.find((level) => level === value);
+                          setRouting((current) => {
+                            const { thinking: _thinking, ...rest } = current[agent] ?? {};
+                            return {
+                              ...current,
+                              [agent]: { ...rest, ...(thinking ? { thinking } : {}) },
+                            };
+                          });
+                        }}
+                        disabled={!canEdit}
+                      >
+                        <SelectTrigger
+                          size="sm"
+                          className="col-start-2 row-start-3 w-full min-w-0 @min-[30rem]/gentle-rows:col-start-3 @min-[30rem]/gentle-rows:row-start-1"
+                          aria-label={`${agent} thinking level`}
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectPopup>
+                          <SelectItem value="inherit">Inherit effort</SelectItem>
+                          {THINKING.map((level) => (
+                            <SelectItem key={level} value={level}>
+                              {level}
+                            </SelectItem>
+                          ))}
+                        </SelectPopup>
+                      </Select>
+                      <Button
+                        size="icon-xs"
+                        variant="ghost"
+                        className="col-start-3 row-start-3 justify-self-end @min-[30rem]/gentle-rows:col-start-4 @min-[30rem]/gentle-rows:row-start-1"
+                        aria-label={`Remove ${agent}`}
+                        disabled={!canEdit}
+                        onClick={() =>
+                          setRouting((current) => {
+                            const next = { ...current };
+                            delete next[agent];
+                            return next;
+                          })
+                        }
+                      >
+                        <Trash2Icon className="size-3.5" />
+                      </Button>
+                    </div>
+                  ))}
+                  {visibleRouting.length === 0 ? (
+                    <p className="py-3 text-xs text-muted-foreground">No matching subagents.</p>
+                  ) : null}
+                </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <Input
                     size="sm"

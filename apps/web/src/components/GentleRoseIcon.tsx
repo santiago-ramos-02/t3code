@@ -3,15 +3,7 @@ import type { SVGProps } from "react";
 
 export function GentleRoseIcon(props: SVGProps<SVGSVGElement>) {
   return (
-    <svg
-      viewBox={gentleRose.viewBox}
-      preserveAspectRatio="none"
-      fill="currentColor"
-      stroke="currentColor"
-      strokeWidth="2"
-      aria-hidden="true"
-      {...props}
-    >
+    <svg viewBox={gentleRose.viewBox} fill="currentColor" aria-hidden="true" {...props}>
       <path d={gentleRose.path} />
     </svg>
   );

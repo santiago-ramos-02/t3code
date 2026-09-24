@@ -6310,7 +6310,7 @@ export default function ChatView(props: ChatViewProps) {
           disabled={isStoppingBackgroundWork}
           onClick={() => void handleStopBackgroundWork()}
         >
-          {isStoppingBackgroundWork ? "Stopping..." : "Stop"}
+          {isStoppingBackgroundWork ? "Stopping all..." : "Stop all"}
         </Button>
       ),
     };

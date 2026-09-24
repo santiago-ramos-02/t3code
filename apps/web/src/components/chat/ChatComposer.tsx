@@ -6394,12 +6394,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           />
         ) : null}
       </ComposerBanner.Dock>
-      {phase !== "running" &&
-      phase !== "connecting" &&
-      !isSendBusy &&
-      !isComposerApprovalState &&
-      pendingUserInputs.length === 0 &&
-      selectedProvider === "pi" &&
+      {selectedProvider === "pi" &&
       gitCwd !== null &&
       selectedProviderSlashCommands.some((command) => command.name === "gentle:sdd-preflight") ? (
         <GentleComposerActions
@@ -6412,6 +6407,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           canInitialize={selectedProviderSlashCommands.some(
             (command) => command.name === "gentle-sdd-init",
           )}
+          canMutate={
+            phase !== "running" &&
+            phase !== "connecting" &&
+            !isSendBusy &&
+            !isComposerApprovalState &&
+            pendingUserInputs.length === 0
+          }
         />
       ) : null}
       <div className="relative">

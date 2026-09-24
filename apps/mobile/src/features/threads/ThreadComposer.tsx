@@ -373,7 +373,8 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     props.selectedThread.session?.status !== "running" &&
     props.selectedThread.session?.status !== "starting";
   useEffect(() => {
-    if (!gentleAvailable || !gentleIdle || props.projectCwd === null) return;
+    if (!gentleAvailable || props.connectionState !== "connected" || props.projectCwd === null)
+      return;
     let current = true;
     void readGentle({
       environmentId: props.environmentId,
@@ -398,9 +399,9 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   }, [
     currentModelSelection.instanceId,
     gentleAvailable,
-    gentleIdle,
     gentleKey,
     gentleRefresh,
+    props.connectionState,
     props.environmentId,
     props.projectCwd,
     readGentle,
@@ -412,7 +413,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       : null;
   const showGentleControls =
     gentleAvailable &&
-    gentleIdle &&
+    props.connectionState === "connected" &&
     ((gentleLoaded?.key === gentleKey && gentleLoaded.value.available) ||
       gentleError?.key === gentleKey);
   const showGentleStatus = () => {
@@ -440,11 +441,19 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     Alert.alert("Gentle SDD status", details);
   };
   const gentleMenuActions: MenuAction[] = [
+    ...(gentleIdle &&
+    !initializingGentle &&
+    props.selectedThread.session !== null &&
+    gentleLoaded?.key === gentleKey &&
+    gentleLoaded.value.available &&
+    !gentleLoaded.value.projectInitNeeded
+      ? [{ id: "review", title: "Review SDD choices", image: "slider.horizontal.3" }]
+      : []),
     { id: "status", title: "View SDD status", image: "doc.text" },
     { id: "refresh", title: "Refresh status", image: "arrow.clockwise" },
   ];
-  const setUpGentleSdd = async () => {
-    if (initializingGentle || props.projectCwd === null) return;
+  const setUpGentleSdd = async (command: "setup" | "review" = "setup") => {
+    if (initializingGentle || !gentleIdle || props.projectCwd === null) return;
     setInitializingGentle(true);
     const result = await initializeGentle({
       environmentId: props.environmentId,
@@ -452,20 +461,21 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
         instanceId: currentModelSelection.instanceId,
         threadId: props.selectedThread.id,
         cwd: props.projectCwd,
+        command,
       },
     });
     setInitializingGentle(false);
     if (result._tag === "Success") {
       setGentleLoaded({ key: gentleKey, value: result.value });
       setGentleError(null);
-      if (result.value.projectInitNeeded) {
+      if (command === "setup" && result.value.projectInitNeeded) {
         Alert.alert("SDD setup", "Gentle AI did not complete this project's setup.");
       }
     } else if (!isAtomCommandInterrupted(result)) {
       const failure = squashAtomCommandFailure(result);
       Alert.alert(
-        "Could not set up Gentle SDD",
-        failure instanceof Error ? failure.message : "Pi could not run Gentle AI setup.",
+        "Could not open Gentle SDD",
+        failure instanceof Error ? failure.message : "Pi could not open Gentle AI SDD.",
       );
     }
   };
@@ -822,7 +832,9 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
 
         {gentleControlsVisible ? (
           <View className="flex-row items-center justify-end gap-1 px-2 pb-1">
-            {gentleAction?.kind === "setup" && props.selectedThread.session !== null ? (
+            {gentleAction?.kind === "setup" &&
+            gentleIdle &&
+            props.selectedThread.session !== null ? (
               <ComposerInlineControl
                 icon="hammer"
                 label={initializingGentle ? "Setting up SDD…" : "Set up SDD"}
@@ -835,6 +847,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
               actions={gentleMenuActions}
               onPressAction={({ nativeEvent }) => {
                 if (nativeEvent.event === "status") showGentleStatus();
+                if (nativeEvent.event === "review") void setUpGentleSdd("review");
                 if (nativeEvent.event === "refresh") setGentleRefresh((value) => value + 1);
               }}
             >

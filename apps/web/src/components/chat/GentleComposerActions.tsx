@@ -33,6 +33,7 @@ export function GentleComposerActions({
   cwd,
   onOpenPreferences,
   canInitialize,
+  canMutate,
 }: {
   readonly environmentId: EnvironmentId;
   readonly instanceId: ProviderInstanceId;
@@ -40,6 +41,7 @@ export function GentleComposerActions({
   readonly cwd: string;
   readonly onOpenPreferences: () => void;
   readonly canInitialize: boolean;
+  readonly canMutate: boolean;
 }) {
   const read = useAtomCommand(serverEnvironment.readPiGentleComposer, {
     reportFailure: false,
@@ -53,7 +55,7 @@ export function GentleComposerActions({
   const [loaded, setLoaded] = useState<PiGentleComposerState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [statusOpen, setStatusOpen] = useState(false);
-  const [initializing, setInitializing] = useState(false);
+  const [runningCommand, setRunningCommand] = useState<"setup" | "review" | null>(null);
   const floatingLayer = useComposerMenuProps();
   const requestKey = `${environmentId}:${instanceId}:${cwd}:${refresh}`;
 
@@ -78,20 +80,29 @@ export function GentleComposerActions({
   if (loaded?.available !== true && error === null) return null;
   const status = loaded?.sddStatus ?? null;
   const guidance = loaded ? gentleComposerAction(loaded, canInitialize) : null;
-  const canSetUp = loaded?.projectInitNeeded && canInitialize && threadId !== null;
+  const canSetUp = loaded?.projectInitNeeded && canInitialize && canMutate && threadId !== null;
+  const canReview =
+    loaded?.available && !loaded.projectInitNeeded && canMutate && threadId !== null;
 
-  const setUp = async () => {
-    if (threadId === null || initializing) return;
-    setInitializing(true);
-    const result = await initialize({ environmentId, input: { instanceId, threadId, cwd } });
-    setInitializing(false);
+  const runCommand = async (command: "setup" | "review") => {
+    if (threadId === null || runningCommand !== null || !canMutate) return;
+    setRunningCommand(command);
+    const result = await initialize({
+      environmentId,
+      input: { instanceId, threadId, cwd, command },
+    });
+    setRunningCommand(null);
     if (result._tag === "Success") {
       setLoaded(result.value);
-      setError(result.value.projectInitNeeded ? "SDD setup was not completed." : null);
-      if (result.value.projectInitNeeded) setStatusOpen(true);
+      setError(
+        command === "setup" && result.value.projectInitNeeded
+          ? "SDD setup was not completed."
+          : null,
+      );
+      if (command === "setup" && result.value.projectInitNeeded) setStatusOpen(true);
     } else if (!isAtomCommandInterrupted(result)) {
       const failure = squashAtomCommandFailure(result);
-      setError(failure instanceof Error ? failure.message : "Could not set up Gentle SDD.");
+      setError(failure instanceof Error ? failure.message : "Could not open Gentle SDD.");
       setStatusOpen(true);
     }
   };
@@ -102,25 +113,31 @@ export function GentleComposerActions({
       data-chat-composer-collapsed-controls="true"
     >
       {canSetUp ? (
-        <ComposerControl size="xs" disabled={initializing} onClick={() => void setUp()}>
+        <ComposerControl
+          size="xs"
+          disabled={runningCommand !== null}
+          onClick={() => void runCommand("setup")}
+        >
           <ComposerControlIcon icon={WrenchIcon} size="xs" />
-          {initializing ? "Setting up SDD…" : "Set up SDD"}
+          {runningCommand === "setup" ? "Setting up SDD…" : "Set up SDD"}
         </ComposerControl>
       ) : null}
       <Menu>
         <MenuTrigger render={<ComposerControl size="xs" aria-label="Gentle AI actions" />}>
-          <GentleRoseIcon
-            className="size-5 w-[18px] text-foreground/90"
-            data-composer-control-icon
-          />
+          <GentleRoseIcon className="size-5 text-foreground" data-composer-control-icon />
           Gentle AI <ChevronDownIcon className="size-3 opacity-60" aria-hidden />
         </MenuTrigger>
         <MenuPopup align="end" side="top" {...floatingLayer}>
+          {canReview ? (
+            <MenuItem disabled={runningCommand !== null} onClick={() => void runCommand("review")}>
+              <WrenchIcon aria-hidden /> Review SDD choices
+            </MenuItem>
+          ) : null}
           <MenuItem onClick={() => setStatusOpen(true)}>
             <ClipboardListIcon aria-hidden /> View SDD status
           </MenuItem>
           <MenuItem onClick={onOpenPreferences}>
-            <Settings2Icon aria-hidden /> SDD preferences
+            <Settings2Icon aria-hidden /> Project SDD defaults
           </MenuItem>
           <MenuItem onClick={() => setRefresh((value) => value + 1)}>
             <RefreshCwIcon aria-hidden /> Refresh status
