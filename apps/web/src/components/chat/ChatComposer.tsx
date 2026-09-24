@@ -6401,7 +6401,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           instanceId={selectedInstanceId}
           threadId={activeThread?.session ? (activeThreadId ?? null) : null}
           cwd={gitCwd}
-          onOpenPreferences={() => onOpenProviderSetup(selectedInstanceId, gitCwd)}
           canMutate={
             phase !== "running" &&
             phase !== "connecting" &&

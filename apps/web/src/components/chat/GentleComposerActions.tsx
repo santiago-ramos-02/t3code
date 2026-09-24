@@ -9,13 +9,7 @@ import type {
   ProviderInstanceId,
   ThreadId,
 } from "@t3tools/contracts";
-import {
-  ChevronDownIcon,
-  ClipboardListIcon,
-  RefreshCwIcon,
-  Settings2Icon,
-  WrenchIcon,
-} from "lucide-react";
+import { ChevronDownIcon, ClipboardListIcon, RefreshCwIcon, WrenchIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { serverEnvironment } from "../../state/server";
@@ -31,14 +25,12 @@ export function GentleComposerActions({
   instanceId,
   threadId,
   cwd,
-  onOpenPreferences,
   canMutate,
 }: {
   readonly environmentId: EnvironmentId;
   readonly instanceId: ProviderInstanceId;
   readonly threadId: ThreadId | null;
   readonly cwd: string;
-  readonly onOpenPreferences: () => void;
   readonly canMutate: boolean;
 }) {
   const read = useAtomCommand(serverEnvironment.readPiGentleComposer, {
@@ -133,9 +125,6 @@ export function GentleComposerActions({
           ) : null}
           <MenuItem onClick={() => setStatusOpen(true)}>
             <ClipboardListIcon aria-hidden /> View SDD status
-          </MenuItem>
-          <MenuItem onClick={onOpenPreferences}>
-            <Settings2Icon aria-hidden /> Project SDD defaults
           </MenuItem>
           <MenuItem onClick={() => setRefresh((value) => value + 1)}>
             <RefreshCwIcon aria-hidden /> Refresh status
