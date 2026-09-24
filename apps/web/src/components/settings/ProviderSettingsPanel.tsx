@@ -604,6 +604,7 @@ export function EnvironmentProviderSettings({
     reportFailure: false,
   });
   const [isRefreshingProviders, setIsRefreshingProviders] = useState(false);
+  const [gentleRefreshKey, setGentleRefreshKey] = useState(0);
   // Instances with an explicit scoped status refresh in flight, keyed by
   // environment+instance so a stale completion for a previous environment
   // can never mark the new card Checking. Local pending state only: the
@@ -678,6 +679,7 @@ export function EnvironmentProviderSettings({
       });
       refreshingRef.current = false;
       setIsRefreshingProviders(false);
+      if (result._tag === "Success") setGentleRefreshKey((key) => key + 1);
       if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
         console.warn("Failed to refresh providers", {
           operation: "refresh-providers",
@@ -710,6 +712,7 @@ export function EnvironmentProviderSettings({
         // the old environment must not clear new state, toast, or mark a
         // new card Checking.
         if (!mountedRef.current || activeEnvironmentRef.current !== environmentId) return;
+        if (result._tag === "Success") setGentleRefreshKey((value) => value + 1);
         setRefreshingKeys((previous) => {
           if (!previous.has(key)) return previous;
           const next = new Set(previous);
@@ -1024,6 +1027,7 @@ export function EnvironmentProviderSettings({
               <PiGentleSettingsSection
                 environmentId={environmentId}
                 instanceId={row.instanceId}
+                refreshKey={gentleRefreshKey}
                 models={liveProvider?.models ?? []}
                 initialProjectCwd={projectCwd}
                 projects={projectGroups.flatMap((group) =>

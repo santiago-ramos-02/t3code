@@ -3,6 +3,7 @@ import * as NodeOS from "node:os";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import {
   PiGentleActionInput,
+  PiGentlePersona,
   PiGentleRouting,
   PiGentleRoutingEntry,
   PiGentleSddPreferences,
@@ -43,6 +44,7 @@ const ProfilePin = Schema.Struct({
   version: Schema.Literal(1),
   profile: Schema.String,
 });
+const PersonaFile = Schema.Struct({ mode: PiGentlePersona });
 const StoredSdd = Schema.Struct({
   executionMode: PiGentleSddPreferences.fields.executionMode,
   artifactStore: Schema.Literals(["openspec", "engram", "hybrid", "none", "both"]),
@@ -160,6 +162,8 @@ export function makePiGentleSettings(input: {
   const configHome =
     environment.GENTLE_PI_CONFIG_HOME || path.join(NodeOS.homedir(), ".pi", "gentle-ai");
   const profilesPath = path.join(configHome, "profiles.json");
+  const modelsPath = path.join(configHome, "models.json");
+  const globalPersonaPath = path.join(configHome, "persona.json");
 
   const readJson = (filePath: string) =>
     fileSystem.readFileString(filePath).pipe(Effect.flatMap(decodeJson));
@@ -231,6 +235,16 @@ export function makePiGentleSettings(input: {
       return yield* readJson(filePath).pipe(
         Effect.flatMap(decodePin),
         Effect.map((pin) => (validProfileName(pin.profile) ? pin.profile : null)),
+        Effect.orElseSucceed(() => null),
+      );
+    });
+
+  const readPersona = (filePath: string) =>
+    Effect.gen(function* () {
+      if (!(yield* fileSystem.exists(filePath))) return null;
+      return yield* readJson(filePath).pipe(
+        Effect.flatMap(Schema.decodeUnknownEffect(PersonaFile)),
+        Effect.map(({ mode }) => mode),
         Effect.orElseSucceed(() => null),
       );
     });
@@ -331,6 +345,10 @@ export function makePiGentleSettings(input: {
             ? repo
             : null;
       const storedSdd = paths ? yield* readSdd(paths.sdd) : null;
+      const globalPersona = (yield* readPersona(globalPersonaPath)) ?? "gentleman";
+      const personaOverride = cwd
+        ? yield* readPersona(path.join(path.resolve(cwd), ".pi", "gentle-ai", "persona.json"))
+        : null;
       return {
         available: true,
         version,
@@ -343,6 +361,11 @@ export function makePiGentleSettings(input: {
               pinSource:
                 pinned === local ? ("local" as const) : pinned === repo ? ("repo" as const) : null,
               sdd: storedSdd?.preferences ?? null,
+              persona: {
+                effective: personaOverride ?? globalPersona,
+                global: globalPersona,
+                override: personaOverride,
+              },
             }
           : null,
       } satisfies PiGentleState;
@@ -368,6 +391,37 @@ export function makePiGentleSettings(input: {
           !(yield* fileSystem.exists(path.join(cwd, "openspec", "config.yaml"))),
       } satisfies PiGentleComposerState;
     }).pipe(Effect.mapError(toGentleError));
+
+  const applyGlobalProfile = (store: ProfileStore, name: string) =>
+    Effect.gen(function* () {
+      const selected = store.profiles[name];
+      if (!Object.hasOwn(store.profiles, name) || selected === undefined)
+        return yield* new PiGentleSettingsError({ detail: "The profile no longer exists." });
+      const hadModels = yield* fileSystem.exists(modelsPath);
+      const previousModels = hadModels
+        ? yield* readJson(modelsPath).pipe(
+            Effect.flatMap((value) =>
+              Effect.try({ try: () => parseRouting(value), catch: toGentleError }),
+            ),
+          )
+        : {};
+      const knownAgents = new Set([
+        ...Object.keys(previousModels),
+        ...Object.values(store.profiles).flatMap(Object.keys),
+      ]);
+      const nextModels = Object.fromEntries(
+        [...knownAgents].map((agent) => [agent, selected[agent] ?? {}]),
+      );
+      yield* writeAtomic(modelsPath, nextModels);
+      yield* writeAtomic(profilesPath, { ...store, active: name }).pipe(
+        Effect.onError(() =>
+          (hadModels
+            ? writeAtomic(modelsPath, previousModels)
+            : fileSystem.remove(modelsPath, { force: true })
+          ).pipe(Effect.ignore),
+        ),
+      );
+    });
 
   const action = (command: PiGentleAction) =>
     Effect.gen(function* () {
@@ -396,10 +450,14 @@ export function makePiGentleSettings(input: {
           try: () => parseRouting(command.routing),
           catch: toGentleError,
         });
-        yield* writeAtomic(profilesPath, {
+        const updated = {
           ...store,
           profiles: { ...store.profiles, [command.name]: routing },
-        });
+        };
+        if (store.active === command.name) yield* applyGlobalProfile(updated, command.name);
+        else yield* writeAtomic(profilesPath, updated);
+      } else if (command.type === "activate") {
+        yield* applyGlobalProfile(store, command.name);
       } else if (command.type === "pin") {
         if (!Object.hasOwn(store.profiles, command.name))
           return yield* new PiGentleSettingsError({ detail: "The profile no longer exists." });
@@ -416,6 +474,20 @@ export function makePiGentleSettings(input: {
             detail: "Profile pins require a Git repository.",
           });
         yield* fileSystem.remove(paths.localPin, { force: true });
+      } else if (command.type === "setPersona") {
+        if (!path.isAbsolute(command.cwd))
+          return yield* new PiGentleSettingsError({ detail: "Choose an absolute project folder." });
+        const personaPath = path.join(
+          path.resolve(command.cwd),
+          ".pi",
+          "gentle-ai",
+          "persona.json",
+        );
+        if (command.mode === null) {
+          yield* fileSystem.remove(personaPath, { force: true });
+        } else {
+          yield* writeAtomic(personaPath, { mode: command.mode });
+        }
       } else {
         const preferences = yield* decodePreferences(command.preferences);
         const paths = yield* projectPaths(command.cwd);

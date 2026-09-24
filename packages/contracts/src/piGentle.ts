@@ -19,6 +19,8 @@ export const PiGentleSddPreferences = Schema.Struct({
 });
 export type PiGentleSddPreferences = typeof PiGentleSddPreferences.Type;
 
+export const PiGentlePersona = Schema.Literals(["gentleman", "neutral"]);
+
 export const PiGentleSddStatus = Schema.Struct({
   changeName: Schema.NullOr(Schema.String),
   artifactStore: Schema.Literals(["openspec", "engram", "hybrid", "none"]),
@@ -95,6 +97,11 @@ export const PiGentleState = Schema.Struct({
       pinned: Schema.NullOr(Schema.String),
       pinSource: Schema.NullOr(Schema.Literals(["local", "repo"])),
       sdd: Schema.NullOr(PiGentleSddPreferences),
+      persona: Schema.Struct({
+        effective: PiGentlePersona,
+        global: PiGentlePersona,
+        override: Schema.NullOr(PiGentlePersona),
+      }),
     }),
   ),
 });
@@ -118,8 +125,18 @@ export const PiGentleActionInput = Schema.Struct({
       routing: PiGentleRouting,
       cwd: Schema.optionalKey(TrimmedNonEmptyString),
     }),
+    Schema.Struct({
+      type: Schema.Literal("activate"),
+      name: Schema.String,
+      cwd: Schema.optionalKey(TrimmedNonEmptyString),
+    }),
     Schema.Struct({ type: Schema.Literal("pin"), name: Schema.String, cwd: TrimmedNonEmptyString }),
     Schema.Struct({ type: Schema.Literal("clearPin"), cwd: TrimmedNonEmptyString }),
+    Schema.Struct({
+      type: Schema.Literal("setPersona"),
+      cwd: TrimmedNonEmptyString,
+      mode: Schema.NullOr(PiGentlePersona),
+    }),
     Schema.Struct({
       type: Schema.Literal("saveSdd"),
       cwd: TrimmedNonEmptyString,

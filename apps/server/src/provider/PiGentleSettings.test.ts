@@ -55,7 +55,25 @@ it.layer(NodeServices.layer)("Pi Gentle settings", (it) => {
           available: true,
           version: "3.7.0",
           profiles: [],
-          project: { pinned: null },
+          project: {
+            pinned: null,
+            persona: { effective: "gentleman", global: "gentleman", override: null },
+          },
+        });
+        const persona = yield* gentle.action({ type: "setPersona", cwd, mode: "neutral" });
+        expect(persona.project?.persona).toEqual({
+          effective: "neutral",
+          global: "gentleman",
+          override: "neutral",
+        });
+        expect(
+          yield* fileSystem.readFileString(path.join(cwd, ".pi", "gentle-ai", "persona.json")),
+        ).toContain('"mode":"neutral"');
+        const globalPersona = yield* gentle.action({ type: "setPersona", cwd, mode: null });
+        expect(globalPersona.project?.persona).toEqual({
+          effective: "gentleman",
+          global: "gentleman",
+          override: null,
         });
         expect(yield* gentle.readComposer(cwd)).toMatchObject({
           available: true,
@@ -78,6 +96,26 @@ it.layer(NodeServices.layer)("Pi Gentle settings", (it) => {
           name: "review-fast",
           routing: { "gentle-ai-worker": { model: "openai/gpt-5.2", thinking: "medium" } },
         });
+        const active = yield* gentle.action({ type: "activate", name: "review-fast", cwd });
+        expect(active.active).toBe("review-fast");
+        expect(yield* fileSystem.readFileString(path.join(configHome, "models.json"))).toContain(
+          '"gentle-ai-worker"',
+        );
+        yield* gentle.action({
+          type: "save",
+          name: "review-fast",
+          cwd,
+          routing: { "gentle-ai-worker": { model: "openai/gpt-5.3" } },
+        });
+        expect(yield* fileSystem.readFileString(path.join(configHome, "models.json"))).toContain(
+          "openai/gpt-5.3",
+        );
+        yield* gentle.action({ type: "create", name: "minimal", cwd });
+        const switched = yield* gentle.action({ type: "activate", name: "minimal", cwd });
+        expect(switched.active).toBe("minimal");
+        expect(yield* fileSystem.readFileString(path.join(configHome, "models.json"))).toContain(
+          '"gentle-ai-worker":{}',
+        );
 
         const withSdd = yield* gentle.action({
           type: "saveSdd",

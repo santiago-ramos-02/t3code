@@ -33,7 +33,7 @@ import { Spinner } from "../ui/spinner";
 import { SettingsSection } from "./settingsLayout";
 
 type GentleAction = typeof PiGentleActionInput.Type.action;
-type GentleArea = "project" | "profile" | "sdd";
+type GentleArea = "project" | "profile" | "persona" | "sdd";
 type ProjectOption = { readonly title: string; readonly workspaceRoot: string };
 
 const DEFAULT_SDD: PiGentleSddPreferences = {
@@ -57,24 +57,6 @@ const SDD_LABELS = {
     "single-pr": "One pull request",
   },
 } as const;
-const SDD_DESCRIPTIONS = {
-  executionMode: {
-    auto: "Continue through phases when the required decisions are settled.",
-    interactive: "Ask before starting each new phase.",
-  },
-  artifactStore: {
-    openspec: "Keep specifications and change files in the project.",
-    engram: "Keep SDD artifacts in Engram memory.",
-    hybrid: "Keep project files and Engram memory together.",
-    none: "Do not save SDD artifacts.",
-  },
-  chainedPrStrategy: {
-    "ask-on-risk": "Ask how to split work when it exceeds the review budget.",
-    "auto-chain": "Split large changes into a chain of reviewable PRs.",
-    "single-pr": "Keep the change in one PR.",
-  },
-} as const;
-
 function errorText(failure: unknown): string {
   return failure instanceof Error ? failure.message : "Gentle AI settings could not be updated.";
 }
@@ -168,6 +150,7 @@ function GentleModelSelect({
 export function PiGentleSettingsSection({
   environmentId,
   instanceId,
+  refreshKey,
   models,
   projects,
   initialProjectCwd,
@@ -175,6 +158,7 @@ export function PiGentleSettingsSection({
 }: {
   readonly environmentId: EnvironmentId;
   readonly instanceId: ProviderInstanceId;
+  readonly refreshKey: number;
   readonly models: ReadonlyArray<ServerProviderModel>;
   readonly projects: ReadonlyArray<ProjectOption>;
   readonly initialProjectCwd?: string | undefined;
@@ -213,7 +197,13 @@ export function PiGentleSettingsSection({
   });
 
   useEffect(() => {
-    const requestKey = JSON.stringify([environmentId, instanceId, selectedCwd, refresh]);
+    const requestKey = JSON.stringify([
+      environmentId,
+      instanceId,
+      selectedCwd,
+      refresh,
+      refreshKey,
+    ]);
     let liveRequest: string | null = requestKey;
     void read({
       environmentId,
@@ -239,16 +229,18 @@ export function PiGentleSettingsSection({
     return () => {
       liveRequest = null;
     };
-  }, [environmentId, instanceId, read, refresh, selectedCwd, stateKey]);
+  }, [environmentId, instanceId, read, refresh, refreshKey, selectedCwd, stateKey]);
 
   async function runAction(action: GentleAction) {
     if (pending) return;
     const area: GentleArea =
       action.type === "saveSdd"
         ? "sdd"
-        : action.type === "pin" || action.type === "clearPin"
-          ? "project"
-          : "profile";
+        : action.type === "setPersona"
+          ? "persona"
+          : action.type === "pin" || action.type === "clearPin"
+            ? "project"
+            : "profile";
     setPending(true);
     setErrorState(null);
     try {
@@ -329,7 +321,10 @@ export function PiGentleSettingsSection({
   const reviewBudgetValid = Number.isInteger(sdd.reviewBudgetLines) && sdd.reviewBudgetLines > 0;
 
   return (
-    <SettingsSection title="Gentle AI" icon={<GentleRoseIcon className="size-5 text-foreground" />}>
+    <SettingsSection
+      title={`Gentle AI${state?.version ? ` · ${state.version}` : ""}`}
+      icon={<GentleRoseIcon className="size-5 text-foreground" />}
+    >
       {state === null ? (
         <div className="flex items-center gap-2 px-3 py-3 text-sm sm:px-4">
           {error ? (
@@ -356,16 +351,10 @@ export function PiGentleSettingsSection({
         </div>
       ) : (
         <>
-          <p className="px-3 pt-3 text-xs text-muted-foreground sm:px-4">
-            Gentle AI {state.version} installed on this environment
-          </p>
           <div className="space-y-3 px-3 py-3 sm:px-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
-                <h3 className="text-sm font-medium">Project routing</h3>
-                <p className="text-xs text-muted-foreground">
-                  Choose a T3 Code project. The main Pi model stays in the composer.
-                </p>
+                <h3 className="text-sm font-medium">Project</h3>
               </div>
               {projects.length > 0 ? (
                 <Select
@@ -396,16 +385,16 @@ export function PiGentleSettingsSection({
                 Add a project to select its Gentle profile and SDD preferences.
               </p>
             ) : (
-              <div className="space-y-1 text-xs">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
                 <p>
                   <span className="font-medium">This project: </span>
                   {pinned
-                    ? `${pinned} (${state.project?.pinSource === "repo" ? "repository default" : "local pin"})`
-                    : "Gentle’s global model routing (no pin)"}
+                    ? `${pinned}${state.project?.pinSource === "repo" ? " (repository)" : ""}`
+                    : `Global (${state.active ?? "none"})`}
                 </p>
-                <p className="text-muted-foreground">
-                  Globally active profile: {state.active ?? "None"}
-                </p>
+                {pinned ? (
+                  <p className="text-muted-foreground">Global: {state.active ?? "none"}</p>
+                ) : null}
                 {!state.project?.pinAvailable && !pinned ? (
                   <p className="text-muted-foreground">Profile pins require a Git repository.</p>
                 ) : null}
@@ -429,9 +418,9 @@ export function PiGentleSettingsSection({
 
           <div className="space-y-3 px-3 py-3 sm:px-4">
             <div className="flex flex-wrap items-end gap-2">
-              <div className="min-w-0 flex-1">
+              <div className="min-w-0 basis-full sm:basis-0 sm:flex-1">
                 <label className="mb-1 block text-xs font-medium" htmlFor="gentle-profile-select">
-                  Profile to edit
+                  Model profiles
                 </label>
                 <Select
                   value={selectedProfile ?? ""}
@@ -464,6 +453,21 @@ export function PiGentleSettingsSection({
               <Button
                 size="sm"
                 variant="outline"
+                disabled={!canEdit || !profile || state.active === profile.name || routingChanged}
+                onClick={() => {
+                  if (profile)
+                    void runAction({
+                      type: "activate",
+                      name: profile.name,
+                      ...(selectedCwd ? { cwd: selectedCwd } : {}),
+                    });
+                }}
+              >
+                Use globally
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
                 disabled={
                   !canEdit ||
                   !selectedCwd ||
@@ -481,8 +485,7 @@ export function PiGentleSettingsSection({
               </Button>
             </div>
             <p className="text-xs text-muted-foreground">
-              Choosing a profile here only opens its editor. Use for project pins it here; saving an
-              active profile does not apply it globally in Gentle AI.
+              Subagent routing updates when Pi reloads. The main model stays in the composer.
             </p>
             <div className="flex flex-wrap items-end gap-2">
               <div className="min-w-0 flex-1">
@@ -660,12 +663,56 @@ export function PiGentleSettingsSection({
             ) : null}
           </div>
 
+          {selectedCwd && state.project ? (
+            <div className="space-y-2 px-3 py-3 sm:px-4">
+              <label className="block text-xs font-medium" htmlFor="gentle-persona-select">
+                Persona for this project
+              </label>
+              <Select
+                value={state.project.persona.override ?? "global"}
+                onValueChange={(value) => {
+                  if (value === "global" || value === "gentleman" || value === "neutral") {
+                    void runAction({
+                      type: "setPersona",
+                      cwd: selectedCwd,
+                      mode: value === "global" ? null : value,
+                    });
+                  }
+                }}
+                disabled={!canEdit}
+              >
+                <SelectTrigger id="gentle-persona-select" size="sm" className="w-full sm:w-72">
+                  <SelectValue>
+                    {state.project.persona.override === null
+                      ? `Use global (${state.project.persona.global})`
+                      : state.project.persona.override === "gentleman"
+                        ? "Gentleman"
+                        : "Neutral"}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectPopup>
+                  <SelectItem value="global">
+                    Use global ({state.project.persona.global})
+                  </SelectItem>
+                  <SelectItem value="gentleman">Gentleman</SelectItem>
+                  <SelectItem value="neutral">Neutral</SelectItem>
+                </SelectPopup>
+              </Select>
+              <p className="text-xs text-muted-foreground">Applies when a new Pi session starts.</p>
+              {error?.area === "persona" ? (
+                <p role="alert" className="text-xs text-destructive">
+                  {error.text}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+
           {selectedCwd ? (
             <div className="space-y-3 px-3 py-3 sm:px-4">
               <div>
                 <h3 className="text-sm font-medium">SDD setup</h3>
                 <p className="text-xs text-muted-foreground">
-                  Saved choices are suggestions. Gentle confirms them in each Pi session.
+                  Gentle confirms these choices in each Pi session.
                 </p>
               </div>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -689,9 +736,6 @@ export function PiGentleSettingsSection({
                       </SelectItem>
                     </SelectPopup>
                   </Select>
-                  <span className="block text-muted-foreground">
-                    {SDD_DESCRIPTIONS.executionMode[sdd.executionMode]}
-                  </span>
                 </label>
                 <label className="space-y-1 text-xs">
                   Artifact store
@@ -718,9 +762,6 @@ export function PiGentleSettingsSection({
                       <SelectItem value="none">{SDD_LABELS.artifactStore.none}</SelectItem>
                     </SelectPopup>
                   </Select>
-                  <span className="block text-muted-foreground">
-                    {SDD_DESCRIPTIONS.artifactStore[sdd.artifactStore]}
-                  </span>
                 </label>
                 <label className="space-y-1 text-xs">
                   Delivery strategy
@@ -753,9 +794,6 @@ export function PiGentleSettingsSection({
                       </SelectItem>
                     </SelectPopup>
                   </Select>
-                  <span className="block text-muted-foreground">
-                    {SDD_DESCRIPTIONS.chainedPrStrategy[sdd.chainedPrStrategy]}
-                  </span>
                 </label>
                 <label className="space-y-1 text-xs">
                   Review budget (lines)
@@ -774,18 +812,12 @@ export function PiGentleSettingsSection({
                       }))
                     }
                   />
-                  <span className="block text-muted-foreground">
-                    {reviewBudgetValid
-                      ? "Changed lines per review before the delivery strategy applies."
-                      : "Enter a positive whole number."}
-                  </span>
+                  {!reviewBudgetValid ? (
+                    <span className="block text-destructive">Enter a positive whole number.</span>
+                  ) : null}
                 </label>
               </div>
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-xs text-muted-foreground">
-                  In a Pi thread, use Set up SDD if this project needs it. Gentle confirms these
-                  choices in the session.
-                </p>
+              <div className="flex justify-end">
                 <Button
                   size="xs"
                   disabled={!canEdit || !sddChanged || !reviewBudgetValid}

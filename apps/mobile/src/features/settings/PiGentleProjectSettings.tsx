@@ -30,7 +30,9 @@ const DEFAULT_SDD: PiGentleSddPreferences = {
 
 type ProjectAction =
   | { readonly type: "create" | "pin"; readonly name: string }
+  | { readonly type: "activate"; readonly name: string }
   | { readonly type: "clearPin" }
+  | { readonly type: "setPersona"; readonly mode: "gentleman" | "neutral" | null }
   | { readonly type: "saveSdd"; readonly preferences: PiGentleSddPreferences };
 
 function ChoiceMenu<Value extends string>(props: {
@@ -195,14 +197,9 @@ function PiGentleInstanceSettings(props: {
 
   return (
     <SettingsSection
-      title={`Gentle AI · ${props.environmentLabel}${props.instanceName === "Pi" ? "" : ` · ${props.instanceName}`}`}
+      title={`Gentle AI${state?.version ? ` · ${state.version}` : ""} · ${props.environmentLabel}${props.instanceName === "Pi" ? "" : ` · ${props.instanceName}`}`}
     >
       <View className="gap-3 p-4">
-        {state?.version ? (
-          <Text className="text-xs text-muted-foreground">
-            Gentle AI {state.version} installed on this environment
-          </Text>
-        ) : null}
         {state === null ? (
           error ? (
             <View className="gap-2">
@@ -225,11 +222,13 @@ function PiGentleInstanceSettings(props: {
         ) : (
           <>
             <Text className="text-sm text-foreground">
-              This checkout: {state.project?.pinned ?? "Global profile"}
+              Model profile: {state.project?.pinned ?? `Global (${state.active ?? "none"})`}
             </Text>
-            <Text className="text-sm text-foreground-muted">
-              Globally active: {state.active ?? "None"}. The main Pi model stays in the composer.
-            </Text>
+            {state.project?.pinned ? (
+              <Text className="text-sm text-foreground-muted">
+                Global profile: {state.active ?? "none"}
+              </Text>
+            ) : null}
             <ChoiceMenu
               label="Profile to pin"
               value={selectedProfile ?? ""}
@@ -241,6 +240,13 @@ function PiGentleInstanceSettings(props: {
               onChange={setSelectedProfile}
             />
             <View className="flex-row flex-wrap gap-2">
+              {selectedProfile ? (
+                <Action
+                  label="Use globally"
+                  disabled={!editable || state.active === selectedProfile}
+                  onPress={() => void act({ type: "activate", name: selectedProfile })}
+                />
+              ) : null}
               {selectedProfile && state.project?.pinAvailable ? (
                 <Action
                   label="Use for checkout"
@@ -260,6 +266,26 @@ function PiGentleInstanceSettings(props: {
               <Text className="text-sm text-foreground-muted">
                 Profile pins require a Git repository.
               </Text>
+            ) : null}
+            {state.project ? (
+              <>
+                <ChoiceMenu
+                  label="Persona for this project"
+                  value={state.project.persona.override ?? "global"}
+                  choices={[
+                    { value: "global", label: `Use global (${state.project.persona.global})` },
+                    { value: "gentleman", label: "Gentleman" },
+                    { value: "neutral", label: "Neutral" },
+                  ]}
+                  disabled={!editable}
+                  onChange={(value) =>
+                    void act({ type: "setPersona", mode: value === "global" ? null : value })
+                  }
+                />
+                <Text className="text-xs text-foreground-muted">
+                  Applies when a new Pi session starts.
+                </Text>
+              </>
             ) : null}
             <View className="flex-row items-center gap-2">
               <AppTextInput

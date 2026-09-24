@@ -47,15 +47,16 @@ installed package; remote clients do not need their own installation.
 
 With gentle-pi 3.5 or newer installed for Pi, open **Settings > Providers > Pi**
 and choose a project in the **Gentle AI** section. Create a profile, assign models
-and effort to its subagents, then save it and choose **Use for project**. This
-pins the profile to that Git repository. Other projects keep their own routing;
-the main Pi model still comes from T3 Code's composer. Remove the local pin to
-return to the repository declaration or Gentle AI's global routing.
-The section shows the project's pin and Gentle AI's globally active profile
-separately. Choosing a profile in the editor does not activate it globally;
-projects without a pin use Gentle AI's global model routing. On mobile, open
-the project's **Project overview** to create a profile, pin it to a checkout,
-or remove a local pin. Edit subagent model routing in web or desktop settings.
+and effort to its subagents, then save it. **Use globally** makes it the default
+for projects without a pin. **Use for project** pins it to that Git repository;
+removing a local pin restores the repository declaration or global profile.
+The main Pi model still comes from T3 Code's composer. The **Persona for this
+project** setting chooses Gentleman or Neutral, or inherits Gentle AI's global
+persona. Profile routing and persona changes take effect when Pi reloads or a
+new session starts. On mobile, open the project's **Project overview** to choose
+the global profile, pin a profile, or set its persona. Edit subagent model
+routing in web or desktop settings. Refreshing Providers also reloads Gentle AI
+settings changed outside T3 Code.
 
 For SDD, choose the project's execution mode, artifact store, delivery strategy,
 and review budget, then save. These choices are reused as suggestions. In a Pi
