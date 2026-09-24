@@ -6384,33 +6384,35 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             </ComposerBanner.Attachment>
           ) : null}
         </ComposerBanner.Column>
-        {!isComposerApprovalState ? (
-          <ComposerStashBadge
-            count={stashQueue.length}
-            menuOpen={isStashMenuOpen}
-            pulseKey={stashPulse.key}
-            pulsing={stashPulse.active}
-            onToggleMenu={toggleStashMenu}
-          />
-        ) : null}
+        <div className="ml-auto flex min-w-0 items-end gap-1">
+          {!isComposerApprovalState ? (
+            <ComposerStashBadge
+              count={stashQueue.length}
+              menuOpen={isStashMenuOpen}
+              pulseKey={stashPulse.key}
+              pulsing={stashPulse.active}
+              onToggleMenu={toggleStashMenu}
+            />
+          ) : null}
+          {selectedProvider === "pi" && gitCwd !== null ? (
+            <GentleComposerActions
+              key={`${routeKind}:${activeThreadId ?? draftId ?? "new"}:${activeThread?.latestTurn?.turnId ?? ""}:${activeThread?.latestTurn?.completedAt ?? ""}:${selectedInstanceId}:${gitCwd}`}
+              environmentId={environmentId}
+              instanceId={selectedInstanceId}
+              threadId={activeThread?.session ? (activeThreadId ?? null) : null}
+              cwd={gitCwd}
+              canMutate={
+                phase !== "running" &&
+                phase !== "connecting" &&
+                props.activeThreadShell?.backgroundLiveness == null &&
+                !isSendBusy &&
+                !isComposerApprovalState &&
+                pendingUserInputs.length === 0
+              }
+            />
+          ) : null}
+        </div>
       </ComposerBanner.Dock>
-      {selectedProvider === "pi" && gitCwd !== null ? (
-        <GentleComposerActions
-          key={`${routeKind}:${activeThreadId ?? draftId ?? "new"}:${activeThread?.latestTurn?.turnId ?? ""}:${activeThread?.latestTurn?.completedAt ?? ""}:${selectedInstanceId}:${gitCwd}`}
-          environmentId={environmentId}
-          instanceId={selectedInstanceId}
-          threadId={activeThread?.session ? (activeThreadId ?? null) : null}
-          cwd={gitCwd}
-          canMutate={
-            phase !== "running" &&
-            phase !== "connecting" &&
-            props.activeThreadShell?.backgroundLiveness == null &&
-            !isSendBusy &&
-            !isComposerApprovalState &&
-            pendingUserInputs.length === 0
-          }
-        />
-      ) : null}
       <div className="relative">
         <ComposerSurface.Main
           ref={composerMainSurfaceRef}

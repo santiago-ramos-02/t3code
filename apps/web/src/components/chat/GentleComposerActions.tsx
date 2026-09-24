@@ -18,6 +18,7 @@ import { GentleRoseIcon } from "../GentleRoseIcon";
 import { Dialog, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from "../ui/dialog";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { ComposerControl, ComposerControlIcon } from "./ComposerControl";
+import { ComposerBanner } from "./ComposerBanner";
 import { useComposerMenuProps } from "./composerEventScope";
 
 export function GentleComposerActions({
@@ -98,80 +99,97 @@ export function GentleComposerActions({
   };
 
   return (
-    <div
-      className="mb-1 flex items-center justify-end gap-1 px-2"
-      data-chat-composer-collapsed-controls="true"
+    <ComposerBanner.Root
+      density="comfortable"
+      width="content"
+      data-composer-shoulder-tab
+      className="ml-auto"
     >
-      {canSetUp ? (
-        <ComposerControl
-          size="xs"
-          disabled={runningCommand !== null}
-          onClick={() => void runCommand("setup")}
-        >
-          <ComposerControlIcon icon={WrenchIcon} size="xs" />
-          {runningCommand === "setup" ? "Setting up SDD…" : "Set up SDD"}
-        </ComposerControl>
-      ) : null}
-      <Menu>
-        <MenuTrigger render={<ComposerControl size="xs" aria-label="Gentle AI actions" />}>
-          <GentleRoseIcon className="size-5 text-foreground" data-composer-control-icon />
-          Gentle AI <ChevronDownIcon className="size-3 opacity-60" aria-hidden />
-        </MenuTrigger>
-        <MenuPopup align="end" side="top" {...floatingLayer}>
-          {canReview ? (
-            <MenuItem disabled={runningCommand !== null} onClick={() => void runCommand("review")}>
-              <WrenchIcon aria-hidden /> Review SDD choices
-            </MenuItem>
-          ) : null}
-          <MenuItem onClick={() => setStatusOpen(true)}>
-            <ClipboardListIcon aria-hidden /> View SDD status
-          </MenuItem>
-          <MenuItem onClick={() => setRefresh((value) => value + 1)}>
-            <RefreshCwIcon aria-hidden /> Refresh status
-          </MenuItem>
-        </MenuPopup>
-      </Menu>
-      <Dialog open={statusOpen} onOpenChange={setStatusOpen}>
-        <DialogPopup {...floatingLayer} className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Gentle SDD status</DialogTitle>
-          </DialogHeader>
-          <DialogPanel>
-            {error ? <p className="text-sm text-destructive">{error}</p> : null}
-            {status ? (
-              <div className="space-y-2 text-sm">
-                <p>Change: {status.changeName ?? "No active change"}</p>
-                <p>Next step: {guidance?.label ?? status.nextRecommended}</p>
-                {loaded?.projectInitNeeded && threadId === null ? (
-                  <p>Send a message to start this Pi thread, then use Set up SDD.</p>
-                ) : null}
-                {guidance?.reason ? <p>{guidance.reason}</p> : null}
-                {status.taskProgress.total > 0 ? (
-                  <p>
-                    Tasks: {status.taskProgress.completed} of {status.taskProgress.total} complete
-                  </p>
-                ) : null}
-                {status.blockedReasons.length > 0 &&
-                status.nextRecommended !== "sdd-new" &&
-                status.nextRecommended !== "archived" ? (
-                  <div>
-                    <p className="font-medium">Status details</p>
-                    <ul className="list-disc space-y-1 pl-5">
-                      {status.blockedReasons.map((reason) => (
-                        <li key={reason}>{reason}</li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
-              </div>
-            ) : error === null ? (
-              <p className="text-sm text-muted-foreground">
-                SDD status is unavailable from this Gentle AI installation.
-              </p>
+      <div className="flex items-center gap-1" data-chat-composer-collapsed-controls="true">
+        {canSetUp ? (
+          <ComposerControl
+            size="xs"
+            className="max-sm:hidden"
+            disabled={runningCommand !== null}
+            onClick={() => void runCommand("setup")}
+          >
+            <ComposerControlIcon icon={WrenchIcon} size="xs" />
+            {runningCommand === "setup" ? "Setting up SDD…" : "Set up SDD"}
+          </ComposerControl>
+        ) : null}
+        <Menu>
+          <MenuTrigger render={<ComposerControl size="xs" aria-label="Gentle AI actions" />}>
+            <GentleRoseIcon className="size-5 text-foreground" data-composer-control-icon />
+            Gentle AI <ChevronDownIcon className="size-3 opacity-60" aria-hidden />
+          </MenuTrigger>
+          <MenuPopup align="end" side="top" {...floatingLayer}>
+            {canSetUp ? (
+              <MenuItem
+                className="sm:hidden"
+                disabled={runningCommand !== null}
+                onClick={() => void runCommand("setup")}
+              >
+                <WrenchIcon aria-hidden /> Set up SDD
+              </MenuItem>
             ) : null}
-          </DialogPanel>
-        </DialogPopup>
-      </Dialog>
-    </div>
+            {canReview ? (
+              <MenuItem
+                disabled={runningCommand !== null}
+                onClick={() => void runCommand("review")}
+              >
+                <WrenchIcon aria-hidden /> Review SDD choices
+              </MenuItem>
+            ) : null}
+            <MenuItem onClick={() => setStatusOpen(true)}>
+              <ClipboardListIcon aria-hidden /> View SDD status
+            </MenuItem>
+            <MenuItem onClick={() => setRefresh((value) => value + 1)}>
+              <RefreshCwIcon aria-hidden /> Refresh status
+            </MenuItem>
+          </MenuPopup>
+        </Menu>
+        <Dialog open={statusOpen} onOpenChange={setStatusOpen}>
+          <DialogPopup {...floatingLayer} className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Gentle SDD status</DialogTitle>
+            </DialogHeader>
+            <DialogPanel>
+              {error ? <p className="text-sm text-destructive">{error}</p> : null}
+              {status ? (
+                <div className="space-y-2 text-sm">
+                  <p>Change: {status.changeName ?? "No active change"}</p>
+                  <p>Next step: {guidance?.label ?? status.nextRecommended}</p>
+                  {loaded?.projectInitNeeded && threadId === null ? (
+                    <p>Send a message to start this Pi thread, then use Set up SDD.</p>
+                  ) : null}
+                  {guidance?.reason ? <p>{guidance.reason}</p> : null}
+                  {status.taskProgress.total > 0 ? (
+                    <p>
+                      Tasks: {status.taskProgress.completed} of {status.taskProgress.total} complete
+                    </p>
+                  ) : null}
+                  {status.blockedReasons.length > 0 &&
+                  status.nextRecommended !== "sdd-new" &&
+                  status.nextRecommended !== "archived" ? (
+                    <div>
+                      <p className="font-medium">Status details</p>
+                      <ul className="list-disc space-y-1 pl-5">
+                        {status.blockedReasons.map((reason) => (
+                          <li key={reason}>{reason}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                </div>
+              ) : error === null ? (
+                <p className="text-sm text-muted-foreground">
+                  SDD status is unavailable from this Gentle AI installation.
+                </p>
+              ) : null}
+            </DialogPanel>
+          </DialogPopup>
+        </Dialog>
+      </div>
+    </ComposerBanner.Root>
   );
 }
