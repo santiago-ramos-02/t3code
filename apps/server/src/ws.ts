@@ -2553,6 +2553,19 @@ const makeWsRpcLayer = (
                   detail: "This Pi instance is unavailable.",
                 });
               }
+              yield* providerService
+                .ensureSession(input.threadId, input.instanceId, input.cwd)
+                .pipe(
+                  Effect.mapError(
+                    (cause) =>
+                      new ProviderSetupError({
+                        instanceId: input.instanceId,
+                        operation: "pi-gentle-initialize",
+                        detail:
+                          cause instanceof Error ? cause.message : "Could not open this Pi thread.",
+                      }),
+                  ),
+                );
               yield* gentle.initializeSdd(input.threadId, input.command).pipe(
                 Effect.mapError(
                   (cause) =>

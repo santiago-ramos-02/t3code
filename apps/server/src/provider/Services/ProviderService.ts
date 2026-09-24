@@ -95,6 +95,13 @@ export interface ProviderServiceShape {
    */
   readonly listSessions: () => Effect.Effect<ReadonlyArray<ProviderSession>>;
 
+  /** Restore a persisted session before an instance-specific provider action. */
+  readonly ensureSession: (
+    threadId: ThreadId,
+    instanceId: ProviderInstanceId,
+    cwd: string,
+  ) => Effect.Effect<void, ProviderServiceError>;
+
   /**
    * Read capabilities for the adapter bound to a configured provider instance.
    */

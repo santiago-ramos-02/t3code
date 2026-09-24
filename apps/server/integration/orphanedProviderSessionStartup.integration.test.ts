@@ -120,6 +120,7 @@ const startupDependencies = Layer.mergeAll(
     respondToUserInput: () => Effect.die("unused"),
     stopSession: () => Effect.die("unused"),
     listSessions: () => Effect.succeed([]),
+    ensureSession: () => Effect.die("unused"),
     getCapabilities: () => Effect.die("unused"),
     assertConversationRollbackSupported: () => Effect.die("unused"),
     getInstanceInfo: () => Effect.die("unused"),

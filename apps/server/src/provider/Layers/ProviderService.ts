@@ -2317,6 +2317,36 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     },
   );
 
+  const ensureSession: ProviderServiceMethod<"ensureSession"> = Effect.fn("ensureSession")(
+    function* (threadId, instanceId, cwd) {
+      const operation = "ProviderService.ensureSession";
+      const binding = Option.getOrUndefined(yield* directory.getBinding(threadId));
+      if (!binding) {
+        return yield* toValidationError(
+          operation,
+          "Send a message in this Pi thread before opening Gentle SDD.",
+        );
+      }
+      const boundInstanceId = yield* requireBindingInstanceId(operation, binding);
+      if (boundInstanceId !== instanceId || binding.provider !== "pi") {
+        return yield* toValidationError(
+          operation,
+          "This thread is not bound to the selected Pi instance.",
+        );
+      }
+      const persistedCwd = readPersistedCwd(binding.runtimePayload);
+      const platform = yield* HostProcessPlatform;
+      const canonicalCwd = (value: string) => {
+        const resolved = pathService.resolve(value);
+        return platform === "win32" ? resolved.toLocaleLowerCase() : resolved;
+      };
+      if (persistedCwd !== undefined && canonicalCwd(persistedCwd) !== canonicalCwd(cwd)) {
+        return yield* toValidationError(operation, "This thread belongs to a different project.");
+      }
+      yield* resolveRoutableSession({ threadId, operation, allowRecovery: true });
+    },
+  );
+
   const listSessions: ProviderServiceMethod<"listSessions"> = Effect.fn("listSessions")(
     function* () {
       const currentAdapters = yield* getAdapterEntries;
@@ -2629,6 +2659,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     respondToRequest,
     respondToUserInput,
     stopSession,
+    ensureSession,
     listSessions,
     getCapabilities,
     getInstanceInfo,

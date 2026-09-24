@@ -2534,6 +2534,50 @@ routing.layer("ProviderServiceLive routing", (it) => {
     }).pipe(Effect.provide(layer));
   });
 
+  it.effect("restores a dormant Pi thread for a Gentle action and rejects another project", () => {
+    const piDriver = ProviderDriverKind.make("pi");
+    const piInstanceId = ProviderInstanceId.make("pi");
+    const pi = makeFakeCodexAdapter(piDriver);
+    const layer = makeCustomProviderServiceLayer(
+      makeStaticInstanceRegistry([[piInstanceId, pi.adapter]]),
+    );
+    const cwd = fixtureCwd("pi-gentle-recovery");
+    return Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
+      const threadId = asThreadId("thread-pi-gentle-recovery");
+      const missing = yield* Effect.exit(
+        provider.ensureSession(asThreadId("thread-not-started"), piInstanceId, cwd),
+      );
+      assert.equal(missing._tag, "Failure");
+      yield* provider.startSession(threadId, {
+        provider: piDriver,
+        providerInstanceId: piInstanceId,
+        threadId,
+        cwd,
+        runtimeMode: "full-access",
+      });
+      yield* pi.stopAll();
+      pi.startSession.mockClear();
+
+      const wrongInstance = yield* Effect.exit(
+        provider.ensureSession(threadId, ProviderInstanceId.make("other-pi"), cwd),
+      );
+      assert.equal(wrongInstance._tag, "Failure");
+
+      const wrongProject = yield* Effect.exit(
+        provider.ensureSession(threadId, piInstanceId, fixtureCwd("other-project")),
+      );
+      assert.equal(wrongProject._tag, "Failure");
+      assert.equal(pi.startSession.mock.calls.length, 0);
+
+      yield* provider.ensureSession(threadId, piInstanceId, cwd);
+      assert.equal(pi.startSession.mock.calls.length, 1);
+      assert.equal(pi.startSession.mock.calls[0]?.[0].cwd, cwd);
+      yield* provider.ensureSession(threadId, piInstanceId, cwd);
+      assert.equal(pi.startSession.mock.calls.length, 1);
+    }).pipe(Effect.provide(layer));
+  });
+
   it.effect("preserves background turn boundaries when stopping before rollback recovery", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService.ProviderService;
