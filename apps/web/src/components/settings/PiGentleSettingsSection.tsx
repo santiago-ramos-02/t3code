@@ -710,9 +710,10 @@ export function PiGentleSettingsSection({
           {selectedCwd ? (
             <div className="space-y-3 px-3 py-3 sm:px-4">
               <div>
-                <h3 className="text-sm font-medium">SDD setup</h3>
+                <h3 className="text-sm font-medium">SDD preferences</h3>
                 <p className="text-xs text-muted-foreground">
-                  Gentle confirms these choices in each Pi session.
+                  Used by Gentle AI in interactive Pi sessions. SDD setup is unavailable through Pi
+                  RPC.
                 </p>
               </div>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">

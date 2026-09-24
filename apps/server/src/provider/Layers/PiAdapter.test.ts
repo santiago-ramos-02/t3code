@@ -910,7 +910,7 @@ describe("PiAdapter session runtime", () => {
     ),
   );
 
-  it.effect("runs Gentle setup and preference review without T3 user turns", () =>
+  it.effect("rejects Gentle SDD commands that cannot run in Pi RPC", () =>
     Effect.scoped(
       Effect.gen(function* () {
         const harness = makeRpcHarness({
@@ -918,50 +918,7 @@ describe("PiAdapter session runtime", () => {
             Effect.succeed(
               recordString(request, "type") === "get_state"
                 ? successResponse(request, sessionState(1))
-                : recordString(request, "type") === "get_commands"
-                  ? successResponse(request, {
-                      commands: [
-                        { name: "gentle-sdd-init", source: "extension" },
-                        { name: "gentle:sdd-preflight", source: "extension" },
-                      ],
-                    })
-                  : successResponse(request),
-            ),
-        });
-        const adapter = yield* makeAdapter(harness);
-        yield* startSession(adapter);
-        yield* takeEvents(adapter, SESSION_EVENTS);
-
-        yield* adapter.initializeGentleSdd(THREAD_ID);
-        yield* adapter.initializeGentleSdd(THREAD_ID, "review");
-        expect(harness.transports[0]?.requests).toMatchObject([
-          { type: "get_state" },
-          { type: "get_commands" },
-          { type: "prompt", message: "/gentle-sdd-init" },
-          { type: "get_commands" },
-          { type: "prompt", message: "/gentle:sdd-preflight --edit" },
-        ]);
-
-        const turn = yield* adapter.sendTurn({ threadId: THREAD_ID, input: "Now work" });
-        expect(yield* takeEvents(adapter, 2)).toMatchObject([
-          { type: "turn.started", turnId: turn.turnId },
-          { type: "turn.completed", turnId: turn.turnId },
-        ]);
-      }),
-    ),
-  );
-
-  it.effect("rejects Gentle setup when this Pi session did not register the extension", () =>
-    Effect.scoped(
-      Effect.gen(function* () {
-        const harness = makeRpcHarness({
-          onRequest: (request) =>
-            Effect.succeed(
-              recordString(request, "type") === "get_state"
-                ? successResponse(request, sessionState(1))
-                : recordString(request, "type") === "get_commands"
-                  ? successResponse(request, { commands: [] })
-                  : successResponse(request),
+                : successResponse(request),
             ),
         });
         const adapter = yield* makeAdapter(harness);
@@ -972,11 +929,7 @@ describe("PiAdapter session runtime", () => {
         const review = yield* Effect.exit(adapter.initializeGentleSdd(THREAD_ID, "review"));
         expect(Exit.isFailure(result)).toBe(true);
         expect(Exit.isFailure(review)).toBe(true);
-        expect(
-          harness.transports[0]?.requests.some(
-            (request) => recordString(request, "type") === "prompt",
-          ),
-        ).toBe(false);
+        expect(harness.transports[0]?.requests).toMatchObject([{ type: "get_state" }]);
       }),
     ),
   );

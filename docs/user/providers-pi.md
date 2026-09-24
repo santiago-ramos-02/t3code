@@ -59,16 +59,15 @@ routing in web or desktop settings. Refreshing Providers also reloads Gentle AI
 settings changed outside T3 Code.
 
 For SDD, choose the project's execution mode, artifact store, delivery strategy,
-and review budget, then save. These choices are reused as suggestions. In a Pi
-thread for that project, **Set up SDD** runs Gentle's installed setup command
-directly in the Pi session when the project needs it. **Gentle AI > View SDD
-status** shows the next phase and any prerequisites. To begin or continue a
-change, describe the work in the normal composer. In web or desktop,
-**Gentle AI > Project SDD defaults** opens the current project's provider settings.
-In an idle Pi thread, **Gentle AI > Review SDD choices** opens Gentle's preflight
-editor directly.
-On mobile, save SDD choices from **Project overview**. Gentle AI confirms
-saved choices at the start of each Pi session.
+and review budget, then save. These preferences apply to Gentle's interactive
+Pi sessions. Gentle AI 3.7 does not allow SDD setup or preflight through Pi RPC,
+so T3 Code cannot run those commands from a thread. To initialize SDD, open the
+project in interactive Pi and run `/gentle-sdd-init`. Use
+`/gentle:sdd-preflight --edit` there to review your choices. After setup,
+**Gentle AI > View SDD status** shows the next phase and any prerequisites.
+In web or desktop, **Gentle AI > Project profiles and persona** opens the
+current project's provider settings. On mobile, save SDD preferences from
+**Project overview**.
 
 ## T3 Code tools
 

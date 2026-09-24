@@ -303,9 +303,9 @@ function PiGentleInstanceSettings(props: {
               />
             </View>
             <View className="pt-3">
-              <Text className="text-base font-t3-semibold text-foreground">SDD setup</Text>
+              <Text className="text-base font-t3-semibold text-foreground">SDD preferences</Text>
               <Text className="text-sm text-foreground-muted">
-                Saved choices guide Gentle AI in this checkout.
+                Used in interactive Pi sessions. SDD setup is unavailable through Pi RPC.
               </Text>
             </View>
             <ChoiceMenu

@@ -348,25 +348,12 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     reportFailure: false,
     reportDefect: false,
   });
-  const initializeGentle = useAtomCommand(serverEnvironment.initializePiGentleSdd, {
-    reportFailure: false,
-    reportDefect: false,
-  });
   const [gentleLoaded, setGentleLoaded] = useState<{
     key: string;
     value: PiGentleComposerState;
   } | null>(null);
   const [gentleError, setGentleError] = useState<{ key: string; message: string } | null>(null);
   const [gentleRefresh, setGentleRefresh] = useState(0);
-  const [initializingGentle, setInitializingGentle] = useState(false);
-  const gentleIdle =
-    props.connectionState === "connected" &&
-    props.queueCount === 0 &&
-    !props.selectedThread.hasPendingApprovals &&
-    !props.selectedThread.hasPendingUserInput &&
-    props.selectedThread.session?.status !== "running" &&
-    props.selectedThread.session?.status !== "starting" &&
-    props.selectedThread.backgroundLiveness == null;
   useEffect(() => {
     if (!isPiThread || props.connectionState !== "connected" || props.projectCwd === null) return;
     let current = true;
@@ -413,8 +400,8 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       ? [
           `Change: ${gentleStatus.changeName ?? "No active change"}`,
           `Next step: ${gentleAction?.label ?? gentleStatus.nextRecommended}`,
-          ...(gentleLoaded?.value.projectInitNeeded && props.selectedThread.session === null
-            ? ["Send a message to start this Pi thread, then use Set up SDD."]
+          ...(gentleLoaded?.value.projectInitNeeded
+            ? ["SDD setup requires an interactive Pi session in this Gentle AI version."]
             : []),
           ...(gentleAction?.reason ? [gentleAction.reason] : []),
           ...(gentleStatus.taskProgress.total > 0
@@ -433,44 +420,9 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     Alert.alert("Gentle SDD status", details);
   };
   const gentleMenuActions: MenuAction[] = [
-    ...(gentleIdle &&
-    !initializingGentle &&
-    props.selectedThread.session !== null &&
-    gentleLoaded?.key === gentleKey &&
-    gentleLoaded.value.available &&
-    !gentleLoaded.value.projectInitNeeded
-      ? [{ id: "review", title: "Review SDD choices", image: "slider.horizontal.3" }]
-      : []),
     { id: "status", title: "View SDD status", image: "doc.text" },
     { id: "refresh", title: "Refresh status", image: "arrow.clockwise" },
   ];
-  const setUpGentleSdd = async (command: "setup" | "review" = "setup") => {
-    if (initializingGentle || !gentleIdle || props.projectCwd === null) return;
-    setInitializingGentle(true);
-    const result = await initializeGentle({
-      environmentId: props.environmentId,
-      input: {
-        instanceId: currentModelSelection.instanceId,
-        threadId: props.selectedThread.id,
-        cwd: props.projectCwd,
-        command,
-      },
-    });
-    setInitializingGentle(false);
-    if (result._tag === "Success") {
-      setGentleLoaded({ key: gentleKey, value: result.value });
-      setGentleError(null);
-      if (command === "setup" && result.value.projectInitNeeded) {
-        Alert.alert("SDD setup", "Gentle AI did not complete this project's setup.");
-      }
-    } else if (!isAtomCommandInterrupted(result)) {
-      const failure = squashAtomCommandFailure(result);
-      Alert.alert(
-        "Could not open Gentle SDD",
-        failure instanceof Error ? failure.message : "Pi could not open Gentle AI SDD.",
-      );
-    }
-  };
   const composerOwnerKey = scopedThreadKey(props.environmentId, props.selectedThread.id);
   const openDraftDocument = (attachment: ComposerDocumentAttachment) => {
     Keyboard.dismiss();
@@ -824,22 +776,10 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
 
         {gentleControlsVisible ? (
           <View className="flex-row items-center justify-end gap-1 px-2 pb-1">
-            {gentleAction?.kind === "setup" &&
-            gentleIdle &&
-            props.selectedThread.session !== null ? (
-              <ComposerInlineControl
-                icon="hammer"
-                label={initializingGentle ? "Setting up SDD…" : "Set up SDD"}
-                maxWidth={220}
-                showChevron={false}
-                onPress={() => void setUpGentleSdd()}
-              />
-            ) : null}
             <ControlPillMenu
               actions={gentleMenuActions}
               onPressAction={({ nativeEvent }) => {
                 if (nativeEvent.event === "status") showGentleStatus();
-                if (nativeEvent.event === "review") void setUpGentleSdd("review");
                 if (nativeEvent.event === "refresh") setGentleRefresh((value) => value + 1);
               }}
             >

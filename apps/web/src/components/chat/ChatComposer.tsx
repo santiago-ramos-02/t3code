@@ -6399,16 +6399,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               key={`${routeKind}:${activeThreadId ?? draftId ?? "new"}:${activeThread?.latestTurn?.turnId ?? ""}:${activeThread?.latestTurn?.completedAt ?? ""}:${selectedInstanceId}:${gitCwd}`}
               environmentId={environmentId}
               instanceId={selectedInstanceId}
-              threadId={activeThread?.session ? (activeThreadId ?? null) : null}
               cwd={gitCwd}
-              canMutate={
-                phase !== "running" &&
-                phase !== "connecting" &&
-                props.activeThreadShell?.backgroundLiveness == null &&
-                !isSendBusy &&
-                !isComposerApprovalState &&
-                pendingUserInputs.length === 0
-              }
+              onOpenSettings={() => onOpenProviderSetup(selectedInstanceId, gitCwd)}
             />
           ) : null}
         </div>
