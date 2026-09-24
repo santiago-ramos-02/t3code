@@ -17,7 +17,7 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { GentleRoseIcon } from "../GentleRoseIcon";
 import { Dialog, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from "../ui/dialog";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
-import { ComposerControl, ComposerControlIcon } from "./ComposerControl";
+import { ComposerControl } from "./ComposerControl";
 import { ComposerBanner } from "./ComposerBanner";
 import { useComposerMenuProps } from "./composerEventScope";
 
@@ -106,17 +106,6 @@ export function GentleComposerActions({
       className="ml-auto"
     >
       <div className="flex items-center gap-1" data-chat-composer-collapsed-controls="true">
-        {canSetUp ? (
-          <ComposerControl
-            size="xs"
-            className="max-sm:hidden"
-            disabled={runningCommand !== null}
-            onClick={() => void runCommand("setup")}
-          >
-            <ComposerControlIcon icon={WrenchIcon} size="xs" />
-            {runningCommand === "setup" ? "Setting up SDD…" : "Set up SDD"}
-          </ComposerControl>
-        ) : null}
         <Menu>
           <MenuTrigger render={<ComposerControl size="xs" aria-label="Gentle AI actions" />}>
             <GentleRoseIcon className="size-5 text-foreground" data-composer-control-icon />
@@ -124,12 +113,9 @@ export function GentleComposerActions({
           </MenuTrigger>
           <MenuPopup align="end" side="top" {...floatingLayer}>
             {canSetUp ? (
-              <MenuItem
-                className="sm:hidden"
-                disabled={runningCommand !== null}
-                onClick={() => void runCommand("setup")}
-              >
-                <WrenchIcon aria-hidden /> Set up SDD
+              <MenuItem disabled={runningCommand !== null} onClick={() => void runCommand("setup")}>
+                <WrenchIcon aria-hidden />
+                {runningCommand === "setup" ? "Setting up SDD…" : "Set up SDD"}
               </MenuItem>
             ) : null}
             {canReview ? (
@@ -140,9 +126,11 @@ export function GentleComposerActions({
                 <WrenchIcon aria-hidden /> Review SDD choices
               </MenuItem>
             ) : null}
-            <MenuItem onClick={() => setStatusOpen(true)}>
-              <ClipboardListIcon aria-hidden /> View SDD status
-            </MenuItem>
+            {status && !loaded?.projectInitNeeded ? (
+              <MenuItem onClick={() => setStatusOpen(true)}>
+                <ClipboardListIcon aria-hidden /> View SDD status
+              </MenuItem>
+            ) : null}
             <MenuItem onClick={() => setRefresh((value) => value + 1)}>
               <RefreshCwIcon aria-hidden /> Refresh status
             </MenuItem>
