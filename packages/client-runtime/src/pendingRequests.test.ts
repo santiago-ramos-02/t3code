@@ -415,7 +415,10 @@ describe("pending questions", () => {
     ]);
   });
 
-  it("clears stale pending user-input prompts when the provider reports an orphaned request", () => {
+  it.each([
+    "Provider adapter request failed (codex) for item/tool/requestUserInput: Unknown pending Codex user input request: req-user-input-stale-1",
+    "ProviderAdapterRequestError: Provider adapter request failed (pi) for extension_ui_response: This Pi user-input request is no longer pending.",
+  ])("clears stale pending user-input prompts when the provider reports %s", (detail) => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
         id: "user-input-open-stale",
@@ -449,8 +452,7 @@ describe("pending questions", () => {
         tone: "error",
         payload: {
           requestId: "req-user-input-stale-1",
-          detail:
-            "Provider adapter request failed (codex) for item/tool/requestUserInput: Unknown pending Codex user input request: req-user-input-stale-1",
+          detail,
         },
       }),
     ];

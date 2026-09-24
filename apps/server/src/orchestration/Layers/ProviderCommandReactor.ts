@@ -168,14 +168,16 @@ function isUnknownPendingUserInputRequestError(cause: Cause.Cause<ProviderServic
     return (
       detail.includes("unknown pending user-input request") ||
       detail.includes("unknown pending user input request") ||
-      detail.includes("unknown pending codex user input request")
+      detail.includes("unknown pending codex user input request") ||
+      detail.includes("pi user-input request is no longer pending")
     );
   }
   const message = Cause.pretty(cause).toLowerCase();
   return (
     message.includes("unknown pending user-input request") ||
     message.includes("unknown pending user input request") ||
-    message.includes("unknown pending codex user input request")
+    message.includes("unknown pending codex user input request") ||
+    message.includes("pi user-input request is no longer pending")
   );
 }
 
@@ -183,7 +185,10 @@ function stalePendingRequestDetail(
   requestKind: "approval" | "user-input",
   requestId: string,
 ): string {
-  return `Stale pending ${requestKind} request: ${requestId}. Provider callback state does not survive app restarts or recovered sessions. Restart the turn to continue.`;
+  if (requestKind === "user-input") {
+    return `This question is no longer available. Ask the agent to ask it again. (Stale pending user-input request: ${requestId}.)`;
+  }
+  return `Stale pending approval request: ${requestId}. Provider callback state does not survive app restarts or recovered sessions. Restart the turn to continue.`;
 }
 
 function buildGeneratedWorktreeBranchName(raw: string): string {
@@ -1676,7 +1681,7 @@ const make = Effect.gen(function* () {
           threadId: event.payload.threadId,
           kind: "provider.user-input.respond.failed",
           summary: "Provider user input response failed",
-          detail: "No active provider session is bound to this thread.",
+          detail: stalePendingRequestDetail("user-input", event.payload.requestId),
           turnId: null,
           createdAt: event.payload.createdAt,
           requestId: event.payload.requestId,

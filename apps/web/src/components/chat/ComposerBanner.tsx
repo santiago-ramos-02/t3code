@@ -123,7 +123,7 @@ function Dock({ className, ...props }: ComponentProps<"div">) {
   return (
     <Attachment
       className={cn(
-        "flex items-end gap-1 not-has-data-[composer-banner-surface=attached]:hidden",
+        "@container flex flex-wrap items-end gap-1 not-has-data-[composer-banner-surface=attached]:hidden",
         className,
       )}
       {...props}
@@ -136,7 +136,7 @@ function Column({ className, ...props }: ComponentProps<"div">) {
   return (
     <div
       className={cn(
-        "flex min-w-0 flex-1 flex-col empty:hidden",
+        "flex min-w-0 flex-1 flex-col empty:hidden @max-[560px]:w-full @max-[560px]:flex-none",
         "[&>[data-slot=composer-banner-attachment]]:w-full [&>[data-slot=composer-banner-attachment]:last-child]:mb-0",
         className,
       )}
