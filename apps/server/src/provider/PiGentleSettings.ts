@@ -342,7 +342,6 @@ export function makePiGentleSettings(input: {
         return {
           available: false,
           version: null,
-          bundledBinaryPath: null,
           globalPersona: "gentleman",
           profiles: [],
           active: null,
@@ -366,7 +365,6 @@ export function makePiGentleSettings(input: {
       return {
         available: true,
         version,
-        bundledBinaryPath: yield* bundledBinaryPath(version),
         globalPersona,
         profiles: Object.entries(store.profiles).map(([name, routing]) => ({ name, routing })),
         active: store.active ?? null,

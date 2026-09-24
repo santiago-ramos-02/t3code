@@ -88,7 +88,6 @@ export const PiGentleInitializeInput = Schema.Struct({
 export const PiGentleState = Schema.Struct({
   available: Schema.Boolean,
   version: Schema.NullOr(Schema.String),
-  bundledBinaryPath: Schema.optionalKey(Schema.NullOr(Schema.String)),
   globalPersona: Schema.optionalKey(PiGentlePersona),
   profiles: Schema.Array(Schema.Struct({ name: Schema.String, routing: PiGentleRouting })),
   active: Schema.NullOr(Schema.String),

@@ -466,7 +466,7 @@ export function PiGentleSettingsSection({
               aria-label="Gentle AI binary path"
               value={binaryPathValue}
               onCommit={onBinaryPathChange}
-              placeholder={state.bundledBinaryPath ?? "Bundled Gentle AI"}
+              placeholder="gentle-ai"
               disabled={!canEdit}
               spellCheck={false}
             />
