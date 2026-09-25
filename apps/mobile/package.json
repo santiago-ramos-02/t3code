@@ -50,7 +50,7 @@
     "@effect/atom-react": "catalog:",
     "@expo-google-fonts/dm-sans": "^0.4.2",
     "@expo/ui": "~57.0.14",
-    "@legendapp/list": "catalog:",
+    "@legendapp/list": "catalog:mobile",
     "@material/material-color-utilities": "0.3.0",
     "@noble/curves": "catalog:",
     "@pierre/diffs": "catalog:",

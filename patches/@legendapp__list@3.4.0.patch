@@ -1,0 +1,78 @@
+diff --git a/react-native.js b/react-native.js
+index eeeb142..2fb25ba 100644
+--- a/react-native.js
++++ b/react-native.js
+@@ -1721,7 +1721,7 @@ function prepareMVCP(ctx, dataChanged, adjustmentSource) {
+           anchorPositionForLock = newPosition;
+         }
+       }
+-      if (scrollingToViewPosition && scrollingToViewPosition > 0) {
++      if (scrollingToViewPosition && scrollingToViewPosition > 0 && targetId !== null && targetId !== void 0) {
+         const newSize = getItemSize(ctx, targetId, scrollTarget, state.props.data[scrollTarget]);
+         const prevSize = scrollingTo == null ? void 0 : scrollingTo.itemSize;
+         if (newSize !== void 0 && prevSize !== void 0 && newSize !== prevSize) {
+diff --git a/react-native.mjs b/react-native.mjs
+index f39ea15..5544ce2 100644
+--- a/react-native.mjs
++++ b/react-native.mjs
+@@ -1700,7 +1700,7 @@ function prepareMVCP(ctx, dataChanged, adjustmentSource) {
+           anchorPositionForLock = newPosition;
+         }
+       }
+-      if (scrollingToViewPosition && scrollingToViewPosition > 0) {
++      if (scrollingToViewPosition && scrollingToViewPosition > 0 && targetId !== null && targetId !== void 0) {
+         const newSize = getItemSize(ctx, targetId, scrollTarget, state.props.data[scrollTarget]);
+         const prevSize = scrollingTo == null ? void 0 : scrollingTo.itemSize;
+         if (newSize !== void 0 && prevSize !== void 0 && newSize !== prevSize) {
+diff --git a/react-native.web.js b/react-native.web.js
+index cc5be49..3678a89 100644
+--- a/react-native.web.js
++++ b/react-native.web.js
+@@ -1645,7 +1645,7 @@ function prepareMVCP(ctx, dataChanged, adjustmentSource) {
+           anchorPositionForLock = newPosition;
+         }
+       }
+-      if (scrollingToViewPosition && scrollingToViewPosition > 0) {
++      if (scrollingToViewPosition && scrollingToViewPosition > 0 && targetId !== null && targetId !== void 0) {
+         const newSize = getItemSize(ctx, targetId, scrollTarget, state.props.data[scrollTarget]);
+         const prevSize = scrollingTo == null ? void 0 : scrollingTo.itemSize;
+         if (newSize !== void 0 && prevSize !== void 0 && newSize !== prevSize) {
+diff --git a/react-native.web.mjs b/react-native.web.mjs
+index d300980..2c37a29 100644
+--- a/react-native.web.mjs
++++ b/react-native.web.mjs
+@@ -1624,7 +1624,7 @@ function prepareMVCP(ctx, dataChanged, adjustmentSource) {
+           anchorPositionForLock = newPosition;
+         }
+       }
+-      if (scrollingToViewPosition && scrollingToViewPosition > 0) {
++      if (scrollingToViewPosition && scrollingToViewPosition > 0 && targetId !== null && targetId !== void 0) {
+         const newSize = getItemSize(ctx, targetId, scrollTarget, state.props.data[scrollTarget]);
+         const prevSize = scrollingTo == null ? void 0 : scrollingTo.itemSize;
+         if (newSize !== void 0 && prevSize !== void 0 && newSize !== prevSize) {
+diff --git a/react.js b/react.js
+index cc5be49..3678a89 100644
+--- a/react.js
++++ b/react.js
+@@ -1645,7 +1645,7 @@ function prepareMVCP(ctx, dataChanged, adjustmentSource) {
+           anchorPositionForLock = newPosition;
+         }
+       }
+-      if (scrollingToViewPosition && scrollingToViewPosition > 0) {
++      if (scrollingToViewPosition && scrollingToViewPosition > 0 && targetId !== null && targetId !== void 0) {
+         const newSize = getItemSize(ctx, targetId, scrollTarget, state.props.data[scrollTarget]);
+         const prevSize = scrollingTo == null ? void 0 : scrollingTo.itemSize;
+         if (newSize !== void 0 && prevSize !== void 0 && newSize !== prevSize) {
+diff --git a/react.mjs b/react.mjs
+index d300980..2c37a29 100644
+--- a/react.mjs
++++ b/react.mjs
+@@ -1624,7 +1624,7 @@ function prepareMVCP(ctx, dataChanged, adjustmentSource) {
+           anchorPositionForLock = newPosition;
+         }
+       }
+-      if (scrollingToViewPosition && scrollingToViewPosition > 0) {
++      if (scrollingToViewPosition && scrollingToViewPosition > 0 && targetId !== null && targetId !== void 0) {
+         const newSize = getItemSize(ctx, targetId, scrollTarget, state.props.data[scrollTarget]);
+         const prevSize = scrollingTo == null ? void 0 : scrollingTo.itemSize;
+         if (newSize !== void 0 && prevSize !== void 0 && newSize !== prevSize) {
