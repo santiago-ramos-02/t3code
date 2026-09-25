@@ -151,7 +151,7 @@ export function resolveProviderForCwd(
     auth: { status: "unknown" },
     message:
       upstreamCount > 0
-        ? `${upstreamCount} model provider${upstreamCount === 1 ? "" : "s"} available through Pi in this project.`
+        ? `${upstreamCount} model provider${upstreamCount === 1 ? "" : "s"} in this project.`
         : "Pi found no available models in this project. Connect a model provider in Pi, then refresh status.",
   };
 }

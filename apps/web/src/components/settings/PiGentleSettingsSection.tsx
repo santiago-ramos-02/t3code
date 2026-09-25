@@ -16,6 +16,7 @@ import { useEffect, useState } from "react";
 
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { GentleRoseIcon } from "../GentleRoseIcon";
 import { Button } from "../ui/button";
 import {
   Combobox,
@@ -339,6 +340,7 @@ export function PiGentleSettingsSection({
     "aria-disabled": readOnly || undefined,
     className: readOnly ? "opacity-50 select-none" : undefined,
   };
+  const sectionIcon = <GentleRoseIcon className="size-5 shrink-0" />;
   const canEdit = !readOnly && !pending;
   const cwdInput = selectedCwd ? { cwd: selectedCwd } : {};
   const errorFor = (area: GentleArea) =>
@@ -350,7 +352,7 @@ export function PiGentleSettingsSection({
 
   if (state === null) {
     return (
-      <SettingsSection title="Gentle AI" {...readOnlyProps}>
+      <SettingsSection title="Gentle AI" icon={sectionIcon} {...readOnlyProps}>
         <SettingsRow
           title={error ? "Gentle AI is unavailable" : "Checking Gentle AI"}
           status={errorFor("project")}
@@ -377,7 +379,7 @@ export function PiGentleSettingsSection({
 
   if (!state.available) {
     return (
-      <SettingsSection title="Gentle AI" {...readOnlyProps}>
+      <SettingsSection title="Gentle AI" icon={sectionIcon} {...readOnlyProps}>
         <SettingsRow
           title="Install for Pi"
           description="Add profiles, personas, and SDD to this Pi environment."
@@ -439,6 +441,7 @@ export function PiGentleSettingsSection({
     <>
       <SettingsSection
         title="Gentle AI"
+        icon={sectionIcon}
         headerAction={
           state.version ? (
             <div className="flex items-center gap-2">

@@ -485,7 +485,7 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
                 auth: { status: "unknown" },
                 message:
                   upstreamCount > 0
-                    ? `${upstreamCount} model provider${upstreamCount === 1 ? "" : "s"} available through Pi.`
+                    ? `${upstreamCount} model provider${upstreamCount === 1 ? "" : "s"}.`
                     : "Pi found no available models. Connect a model provider in Pi, then refresh status.",
               });
             }),

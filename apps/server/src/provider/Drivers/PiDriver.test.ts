@@ -598,7 +598,7 @@ describe("PiDriver explicit discovery", () => {
           "custom/provider-model",
         ]);
         expect(snapshot.auth.status).toBe("unknown");
-        expect(snapshot.message).toBe("3 model providers available through Pi.");
+        expect(snapshot.message).toBe("3 model providers.");
         expect(snapshot.models[0]?.capabilities?.optionDescriptors?.[0]).toMatchObject({
           id: "thinkingLevel",
           currentValue: "medium",
@@ -877,7 +877,7 @@ describe("PiDriver startup discovery", () => {
 
         expect(snapshot.status).toBe("ready");
         expect(snapshot.auth.status).toBe("unknown");
-        expect(snapshot.message).toBe("1 model provider available through Pi.");
+        expect(snapshot.message).toBe("1 model provider.");
         expect(snapshot.version).toBe("0.86.1");
         expect(snapshot.models.map((model) => model.slug)).toContain("test/startup-model");
         expect(commands.some(isVersionCommand)).toBe(true);
