@@ -2,17 +2,22 @@ import type { ServerProvider } from "@t3tools/contracts";
 
 import { SettingsSection } from "./settingsLayout";
 
-export function PiModelProvidersSection({
-  provider,
-}: {
-  readonly provider: ServerProvider | undefined;
-}) {
+/** Model providers Pi reports models for, with their model counts, sorted by name. */
+export function piModelProviderCounts(provider: ServerProvider | undefined) {
   const counts = new Map<string, number>();
   for (const model of provider?.models ?? []) {
     if (model.isCustom || !model.subProvider) continue;
     counts.set(model.subProvider, (counts.get(model.subProvider) ?? 0) + 1);
   }
-  const available = [...counts].sort(([left], [right]) => left.localeCompare(right));
+  return [...counts].sort(([left], [right]) => left.localeCompare(right));
+}
+
+export function PiModelProvidersSection({
+  provider,
+}: {
+  readonly provider: ServerProvider | undefined;
+}) {
+  const available = piModelProviderCounts(provider);
   const checked =
     provider?.enabled && provider.installed && provider.status === "ready" && available.length > 0;
 

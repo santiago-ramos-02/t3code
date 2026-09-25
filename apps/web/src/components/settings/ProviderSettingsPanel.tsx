@@ -82,6 +82,7 @@ import { stackedThreadToast, toastManager } from "../ui/toast";
 import { AddProviderInstanceDialog } from "./AddProviderInstanceDialog";
 import { PiGentleSettingsSection } from "./PiGentleSettingsSection";
 import { PiModelProvidersSection } from "./PiModelProvidersSection";
+import { PiSetupSection, piSetupSteps } from "./PiSetupSection";
 import { ExpandableText } from "./ExpandableText";
 import { ProviderInstanceCard } from "./ProviderInstanceCard";
 import { UsageProviderSettings } from "./UsageProviderSettings";
@@ -1023,6 +1024,8 @@ export function EnvironmentProviderSettings({
               readOnly={readOnly}
               onEnable={() => updateProviderInstance(row, { ...row.instance, enabled: true })}
             />
+          ) : mode === "editor" && row.driver === "pi" && piSetupSteps(liveProvider).length > 0 ? (
+            <PiSetupSection steps={piSetupSteps(liveProvider)} />
           ) : null
         }
         integration={

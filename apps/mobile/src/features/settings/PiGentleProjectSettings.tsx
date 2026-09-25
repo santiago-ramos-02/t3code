@@ -21,6 +21,8 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { SettingsSection } from "./components/SettingsSection";
 import { canMaintainEnvironment } from "./environment-maintenance";
 
+// Choice value for "no checkout pin": the repository declaration or the active profile applies.
+const PROJECT_DEFAULT_PROFILE = "__default__";
 const DEFAULT_SDD: PiGentleSddPreferences = {
   executionMode: "auto",
   artifactStore: "openspec",
@@ -67,7 +69,7 @@ function ChoiceMenu<Value extends string>(props: {
       >
         <Text className="text-sm text-foreground-muted">{props.label}</Text>
         <Text className="min-w-0 flex-1 text-right text-sm text-foreground" numberOfLines={2}>
-          {selected?.label ?? props.value}
+          {selected?.label ?? (props.value || "None")}
         </Text>
       </Pressable>
     </ControlPillMenu>
@@ -115,9 +117,7 @@ function PiGentleInstanceSettings(props: {
   const [refresh, setRefresh] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
-  const [selectedProfile, setSelectedProfile] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
-  const [sddDraft, setSddDraft] = useState<PiGentleSddPreferences | null>(null);
   const [budgetDraft, setBudgetDraft] = useState<string | null>(null);
 
   useEffect(() => {
@@ -135,7 +135,6 @@ function PiGentleInstanceSettings(props: {
       if (activeRequest !== requestKey) return;
       if (result._tag === "Success") {
         setState(result.value);
-        setSelectedProfile(result.value.project?.pinned ?? result.value.active);
         setError(null);
       } else if (!isAtomCommandInterrupted(result)) {
         const failure = squashAtomCommandFailure(result);
@@ -149,18 +148,12 @@ function PiGentleInstanceSettings(props: {
 
   if (state?.available === false) return null;
 
-  const sdd = sddDraft ?? state?.project?.sdd ?? DEFAULT_SDD;
-  const budget = budgetDraft ?? String(sdd.reviewBudgetLines);
-  const parsedBudget = Number(budget);
-  const budgetValid = Number.isInteger(parsedBudget) && parsedBudget > 0;
-  const savedSdd = state?.project?.sdd;
-  const sddChanged =
-    !savedSdd ||
-    savedSdd.executionMode !== sdd.executionMode ||
-    savedSdd.artifactStore !== sdd.artifactStore ||
-    savedSdd.chainedPrStrategy !== sdd.chainedPrStrategy ||
-    savedSdd.reviewBudgetLines !== parsedBudget;
+  // Every choice saves as soon as it changes, like the web Pi settings.
+  const sdd = state?.project?.sdd ?? DEFAULT_SDD;
+  const localPin = state?.project?.pinSource === "local" ? state.project.pinned : null;
   const editable = canEdit && !pending;
+  const saveSdd = (patch: Partial<PiGentleSddPreferences>) =>
+    void act({ type: "saveSdd", preferences: { ...sdd, ...patch } });
 
   async function act(action: ProjectAction) {
     if (pending) return;
@@ -174,14 +167,7 @@ function PiGentleInstanceSettings(props: {
       });
       if (result._tag === "Success") {
         setState(result.value);
-        if (action.type === "create") {
-          setSelectedProfile(action.name);
-          setNewName("");
-        }
-        if (action.type === "saveSdd") {
-          setSddDraft(null);
-          setBudgetDraft(null);
-        }
+        if (action.type === "create") setNewName("");
       } else if (!isAtomCommandInterrupted(result)) {
         const failure = squashAtomCommandFailure(result);
         setError(
@@ -221,54 +207,51 @@ function PiGentleInstanceSettings(props: {
           )
         ) : (
           <>
-            <Text className="text-sm text-foreground">
-              Model profile: {state.project?.pinned ?? `Global (${state.active ?? "none"})`}
-            </Text>
-            {state.project?.pinned ? (
-              <Text className="text-sm text-foreground-muted">
-                Global profile: {state.active ?? "none"}
-              </Text>
+            {state.compatibilityWarning ? (
+              <Text className="text-sm text-foreground-muted">{state.compatibilityWarning}</Text>
             ) : null}
             <ChoiceMenu
-              label="Profile to pin"
-              value={selectedProfile ?? ""}
+              label="Active profile"
+              value={state.active ?? ""}
               choices={state.profiles.map((profile) => ({
                 value: profile.name,
                 label: profile.name,
               }))}
-              disabled={!editable || !state.project?.pinAvailable || state.profiles.length === 0}
-              onChange={setSelectedProfile}
+              disabled={!editable || state.profiles.length === 0}
+              onChange={(name) => void act({ type: "activate", name })}
             />
-            <View className="flex-row flex-wrap gap-2">
-              {selectedProfile ? (
-                <Action
-                  label="Use globally"
-                  disabled={!editable || state.active === selectedProfile}
-                  onPress={() => void act({ type: "activate", name: selectedProfile })}
-                />
-              ) : null}
-              {selectedProfile && state.project?.pinAvailable ? (
-                <Action
-                  label="Use for checkout"
-                  disabled={!editable || state.project.pinned === selectedProfile}
-                  onPress={() => void act({ type: "pin", name: selectedProfile })}
-                />
-              ) : null}
-              {state.project?.pinSource === "local" ? (
-                <Action
-                  label="Remove pin"
-                  disabled={!editable}
-                  onPress={() => void act({ type: "clearPin" })}
-                />
-              ) : null}
-            </View>
-            {!state.project?.pinAvailable ? (
-              <Text className="text-sm text-foreground-muted">
-                Profile pins require a Git repository.
-              </Text>
-            ) : null}
             {state.project ? (
               <>
+                <ChoiceMenu
+                  label="Profile for this checkout"
+                  value={localPin ?? PROJECT_DEFAULT_PROFILE}
+                  choices={[
+                    {
+                      value: PROJECT_DEFAULT_PROFILE,
+                      label:
+                        state.project.pinSource === "repo"
+                          ? `Repository (${state.project.pinned})`
+                          : `Use global (${state.active ?? "none"})`,
+                    },
+                    ...state.profiles.map((profile) => ({
+                      value: profile.name,
+                      label: profile.name,
+                    })),
+                  ]}
+                  disabled={!editable || !state.project.pinAvailable}
+                  onChange={(value) =>
+                    void act(
+                      value === PROJECT_DEFAULT_PROFILE
+                        ? { type: "clearPin" }
+                        : { type: "pin", name: value },
+                    )
+                  }
+                />
+                <Text className="text-xs text-foreground-muted">
+                  {state.project.pinAvailable
+                    ? "Checkout pins are saved only on this machine."
+                    : "Profile pins require a Git repository."}
+                </Text>
                 <ChoiceMenu
                   label="Persona for this project"
                   value={state.project.persona.override ?? "global"}
@@ -283,7 +266,8 @@ function PiGentleInstanceSettings(props: {
                   }
                 />
                 <Text className="text-xs text-foreground-muted">
-                  Applies when a new Pi session starts.
+                  Applies when a new Pi session starts. Saved in the project's .pi folder, so
+                  committing it applies to your team.
                 </Text>
               </>
             ) : null}
@@ -305,7 +289,7 @@ function PiGentleInstanceSettings(props: {
             <View className="pt-3">
               <Text className="text-base font-t3-semibold text-foreground">SDD preferences</Text>
               <Text className="text-sm text-foreground-muted">
-                Used in interactive Pi sessions. SDD setup is unavailable through Pi RPC.
+                Saved in .pi/gentle-ai/sdd-preflight.json; commit it to share them with your team.
               </Text>
             </View>
             <ChoiceMenu
@@ -316,7 +300,7 @@ function PiGentleInstanceSettings(props: {
                 { value: "interactive", label: "Confirm each phase" },
               ]}
               disabled={!editable}
-              onChange={(value) => setSddDraft({ ...sdd, executionMode: value })}
+              onChange={(executionMode) => saveSdd({ executionMode })}
             />
             <ChoiceMenu
               label="Artifact store"
@@ -328,7 +312,7 @@ function PiGentleInstanceSettings(props: {
                 { value: "none", label: "No saved artifacts" },
               ]}
               disabled={!editable}
-              onChange={(value) => setSddDraft({ ...sdd, artifactStore: value })}
+              onChange={(artifactStore) => saveSdd({ artifactStore })}
             />
             <ChoiceMenu
               label="Delivery strategy"
@@ -339,29 +323,26 @@ function PiGentleInstanceSettings(props: {
                 { value: "single-pr", label: "One pull request" },
               ]}
               disabled={!editable}
-              onChange={(value) => setSddDraft({ ...sdd, chainedPrStrategy: value })}
+              onChange={(chainedPrStrategy) => saveSdd({ chainedPrStrategy })}
             />
             <View className="flex-row items-center gap-3">
               <Text className="flex-1 text-sm text-foreground-muted">Review budget (lines)</Text>
               <AppTextInput
                 accessibilityLabel="Review budget in lines"
                 keyboardType="number-pad"
-                value={budget}
+                value={budgetDraft ?? String(sdd.reviewBudgetLines)}
                 editable={editable}
                 onChangeText={setBudgetDraft}
+                onEndEditing={() => {
+                  const lines = Number(budgetDraft);
+                  setBudgetDraft(null);
+                  if (Number.isInteger(lines) && lines > 0 && lines !== sdd.reviewBudgetLines) {
+                    saveSdd({ reviewBudgetLines: lines });
+                  }
+                }}
                 className="min-h-11 w-24 rounded-xl border-continuous bg-card px-3 text-base text-foreground"
               />
             </View>
-            <Action
-              label={pending ? "Saving…" : "Save SDD choices"}
-              disabled={!editable || !budgetValid || !sddChanged}
-              onPress={() =>
-                void act({
-                  type: "saveSdd",
-                  preferences: { ...sdd, reviewBudgetLines: parsedBudget },
-                })
-              }
-            />
             {error ? <Text className="text-sm text-danger-foreground">{error}</Text> : null}
           </>
         )}

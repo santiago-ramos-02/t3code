@@ -247,6 +247,7 @@ export function PiGentleSettingsSection({
   const [newName, setNewName] = useState("");
   const [newAgent, setNewAgent] = useState("");
   const [agentFilter, setAgentFilter] = useState("");
+  const [customizing, setCustomizing] = useState(false);
   const [pending, setPending] = useState(false);
   const [errorState, setErrorState] = useState<{
     key: string;
@@ -380,21 +381,39 @@ export function PiGentleSettingsSection({
   if (!state.available) {
     return (
       <SettingsSection title="Gentle AI" icon={sectionIcon} {...readOnlyProps}>
-        <SettingsRow
-          title="Install for Pi"
-          description="Add profiles, personas, and SDD to this Pi environment."
-          status={errorFor("global")}
-          control={
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={!canEdit}
-              onClick={() => void runAction({ type: "install", ...cwdInput })}
-            >
-              {pending ? "Working…" : "Install Gentle AI"}
-            </Button>
-          }
-        />
+        {state.version === null ? (
+          <SettingsRow
+            title="Install for Pi"
+            description="Add profiles, personas, and SDD to this Pi environment."
+            status={errorFor("global")}
+            control={
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!canEdit}
+                onClick={() => void runAction({ type: "install", ...cwdInput })}
+              >
+                {pending ? "Working…" : "Install Gentle AI"}
+              </Button>
+            }
+          />
+        ) : (
+          <SettingsRow
+            title="Update for Pi"
+            description={`Gentle AI ${state.version} is installed. T3 Code needs 3.5 or newer.`}
+            status={errorFor("global")}
+            control={
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!canEdit}
+                onClick={() => void runAction({ type: "update", ...cwdInput })}
+              >
+                {pending ? "Working…" : "Update Gentle AI"}
+              </Button>
+            }
+          />
+        )}
       </SettingsSection>
     );
   }
@@ -459,6 +478,9 @@ export function PiGentleSettingsSection({
         }
         {...readOnlyProps}
       >
+        {state.compatibilityWarning ? (
+          <SettingsRow title="Untested version" description={state.compatibilityWarning} />
+        ) : null}
         <SettingsRow
           title="Binary path"
           description="Leave blank to use Gentle AI bundled with this Pi installation."
@@ -526,7 +548,17 @@ export function PiGentleSettingsSection({
             />
           }
         >
-          {profile ? (
+          {profile && !customizing ? (
+            <div className="mt-1 flex items-center justify-between gap-2 pb-2">
+              <span className="text-xs text-muted-foreground">
+                {Object.keys(routing).length} subagents routed
+              </span>
+              <Button size="xs" variant="ghost" onClick={() => setCustomizing(true)}>
+                Customize
+              </Button>
+            </div>
+          ) : null}
+          {profile && customizing ? (
             <div className="@container/gentle-rows mt-3 space-y-2 pb-2">
               {Object.keys(routing).length > 8 ? (
                 <Input
@@ -638,6 +670,14 @@ export function PiGentleSettingsSection({
                   <PlusIcon className="size-3" />
                   Add subagent
                 </Button>
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  className="ml-auto"
+                  onClick={() => setCustomizing(false)}
+                >
+                  Done
+                </Button>
               </div>
             </div>
           ) : null}
@@ -712,7 +752,7 @@ export function PiGentleSettingsSection({
                   ? "Profile pins require a Git repository."
                   : project.pinSource === "repo"
                     ? "Declared by the repository. Pick a profile to override it for this clone."
-                    : "Overrides the active profile for this clone."
+                    : "Overrides the active profile for this clone. Saved only on this machine."
               }
               status={errorFor("project")}
               control={
@@ -739,7 +779,7 @@ export function PiGentleSettingsSection({
             />
             <SettingsRow
               title="Persona"
-              description="Overrides the default persona for this project."
+              description="Overrides the default persona for this project. Saved in the project's .pi folder, so committing it applies to your team."
               control={
                 <GentleSelect
                   label="Gentle AI persona for this project"
@@ -761,7 +801,7 @@ export function PiGentleSettingsSection({
             />
             <SettingsRow
               title="SDD execution"
-              description="How Gentle AI moves between spec-driven development phases."
+              description="How Gentle AI moves between spec-driven development phases. SDD settings are saved in .pi/gentle-ai/sdd-preflight.json; commit it to share them with your team."
               status={errorFor("sdd")}
               control={
                 <GentleSelect
