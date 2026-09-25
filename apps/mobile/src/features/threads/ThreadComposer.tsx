@@ -897,7 +897,9 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
             >
               <ComposerInlineControl
                 label={gentleEnabled ? "Gentle AI" : "Gentle AI off"}
-                iconNode={<GentleRoseIcon color={materialTheme["--color-foreground"]} />}
+                renderIcon={(size) => (
+                  <GentleRoseIcon color={materialTheme["--color-foreground"]} size={size} />
+                )}
                 maxWidth={125}
               />
             </ControlPillMenu>
@@ -1191,9 +1193,9 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                       <ComposerInlineControl
                         accessibilityLabel="Model and reasoning settings"
                         emphasized
-                        iconNode={
-                          <ProviderIcon provider={currentModelOption?.providerDriver} size={16} />
-                        }
+                        renderIcon={(size) => (
+                          <ProviderIcon provider={currentModelOption?.providerDriver} size={size} />
+                        )}
                         label={currentModelOption?.label ?? currentModelSelection.model}
                         maxWidth="100%"
                         onPress={openSettings}

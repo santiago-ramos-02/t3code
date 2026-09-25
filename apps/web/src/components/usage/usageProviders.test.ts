@@ -5,7 +5,15 @@ import { PROVIDER_ORDER, PROVIDER_PRESENTATION } from "./usageProviders";
 
 describe("usage provider presentation", () => {
   it("keeps an exhaustive stable order including Pi", () => {
-    expect(PROVIDER_ORDER).toEqual(["codex", "claude", "grok", "pi"]);
+    expect(PROVIDER_ORDER).toEqual([
+      "codex",
+      "claude",
+      "grok",
+      "cursor",
+      "opencode",
+      "antigravity",
+      "pi",
+    ]);
     expect(Object.keys(PROVIDER_PRESENTATION)).toEqual(PROVIDER_ORDER);
   });
 
