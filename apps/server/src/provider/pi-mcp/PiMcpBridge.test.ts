@@ -1,4 +1,5 @@
-// @effect-diagnostics globalFetch:off globalFetchInEffect:off - This suite exercises the bridge's native fetch transport and skips Unix permission attacks where Windows cannot create the fixture symlinks.
+// @effect-diagnostics globalFetch:off globalFetchInEffect:off nodeBuiltinImport:off - This suite exercises the bridge's native fetch transport and skips Unix permission attacks where Windows cannot create the fixture symlinks.
+import * as NodeURL from "node:url";
 import { NodeHttpServer } from "@effect/platform-node";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
@@ -15,50 +16,51 @@ import * as NetAddress from "effect/unstable/net/NetAddress";
 
 import { PI_MCP_EXTENSION_DIGEST, materializePiMcpExtension } from "./PiMcpBridgeMaterializer.ts";
 import {
-  __testing,
   PI_MCP_AUTHORIZATION_ENV,
   PI_MCP_ENDPOINT_ENV,
   PI_MCP_EXTENSION_SOURCE,
   PI_MCP_SCOPE_ENV,
 } from "./PiMcpBridgeSource.ts";
+import {
+  t3PiMcpExtension,
+  type PiBridgeApi,
+  type PiBridgeToolResult,
+} from "./PiMcpBridgeExtension.ts";
 
-interface RegisteredTool {
-  readonly name: string;
-  readonly label: string;
-  readonly description: string;
-  readonly parameters: Readonly<Record<string, unknown>>;
-  readonly execute: (
-    toolCallId: string,
-    params: Readonly<Record<string, unknown>>,
-    signal: AbortSignal | undefined,
-    onUpdate: undefined,
-    context: { readonly ui: { readonly confirm: () => Promise<boolean> } },
-  ) => Promise<{
-    readonly content: ReadonlyArray<Readonly<Record<string, unknown>>>;
-    readonly details: Readonly<Record<string, unknown>>;
-  }>;
-}
+type RegisteredTool = Parameters<PiBridgeApi["registerTool"]>[0];
+type ToolResultHandler = (event: {
+  readonly toolName: string;
+  readonly details: unknown;
+}) => { readonly details: Record<string, unknown>; readonly isError: boolean } | undefined;
 
-type Handler = (event: Readonly<Record<string, unknown>>) => unknown;
-
+/** A fake Pi extension API that records what the bridge registers. */
 function makePi(confirm = true) {
   const tools: RegisteredTool[] = [];
-  const handlers = new Map<string, Handler[]>();
+  const handlers: {
+    toolResult?: ToolResultHandler;
+    sessionShutdown?: () => Promise<void>;
+  } = {};
+  const api: PiBridgeApi = {
+    registerTool(tool) {
+      tools.push(tool);
+    },
+    on(...args: ["tool_result", ToolResultHandler] | ["session_shutdown", () => Promise<void>]) {
+      if (args[0] === "tool_result") handlers.toolResult = args[1];
+      else handlers.sessionShutdown = args[1];
+    },
+  };
   return {
     tools,
     handlers,
-    api: {
-      registerTool(tool: RegisteredTool) {
-        tools.push(tool);
-      },
-      on(event: string, handler: Handler) {
-        const registered = handlers.get(event) ?? [];
-        registered.push(handler);
-        handlers.set(event, registered);
-      },
-    },
+    api,
     context: { ui: { confirm: () => Promise.resolve(confirm) } },
   };
+}
+
+/** The text of a tool result's first content item, or "" when it is not text. */
+function firstText(result: PiBridgeToolResult): string {
+  const first = result.content[0];
+  return first?.type === "text" ? first.text : "";
 }
 
 function scope(runtimeMode = "full-access") {
@@ -189,7 +191,7 @@ describe("Pi MCP bridge source", () => {
     const pi = makePi();
     let fetchCount = 0;
 
-    await __testing.loadBridgeFactory()(
+    await t3PiMcpExtension(
       pi.api,
       runtime({}, () => {
         fetchCount += 1;
@@ -198,7 +200,7 @@ describe("Pi MCP bridge source", () => {
     );
 
     expect(pi.tools).toEqual([]);
-    expect(pi.handlers.size).toBe(0);
+    expect(pi.handlers).toEqual({});
     expect(fetchCount).toBe(0);
   });
 
@@ -207,7 +209,7 @@ describe("Pi MCP bridge source", () => {
     const pi = makePi();
     const fetch = protocolFetch({ requests, authorization: "Bearer secret-token" });
 
-    await __testing.loadBridgeFactory()(pi.api, runtime(environment(), fetch));
+    await t3PiMcpExtension(pi.api, runtime(environment(), fetch));
 
     expect(pi.tools).toHaveLength(1);
     expect(pi.tools[0]).toMatchObject({
@@ -243,7 +245,7 @@ describe("Pi MCP bridge source", () => {
         structuredContent: { available: true },
       },
     });
-    const projected = pi.handlers.get("tool_result")?.[0]?.({
+    const projected = pi.handlers.toolResult?.({
       toolName: "t3__preview_snapshot",
       details: result.details,
     });
@@ -252,8 +254,8 @@ describe("Pi MCP bridge source", () => {
       isError: false,
     });
 
-    await pi.handlers.get("session_shutdown")?.[0]?.({});
-    await pi.handlers.get("session_shutdown")?.[0]?.({});
+    await pi.handlers.sessionShutdown?.();
+    await pi.handlers.sessionShutdown?.();
     expect(requests.filter(({ init }) => init.method === "DELETE")).toHaveLength(1);
   });
 
@@ -270,7 +272,7 @@ describe("Pi MCP bridge source", () => {
       },
     });
 
-    await __testing.loadBridgeFactory()(pi.api, runtime(environment(), fetch));
+    await t3PiMcpExtension(pi.api, runtime(environment(), fetch));
 
     expect(pi.tools.map(({ name }) => name)).toEqual(["t3__bash"]);
     await pi.tools[0]!.execute("call-1", {}, undefined, undefined, pi.context);
@@ -293,15 +295,13 @@ describe("Pi MCP bridge source", () => {
         isError: true,
       },
     });
-    await __testing.loadBridgeFactory()(pi.api, runtime(environment(), fetch));
+    await t3PiMcpExtension(pi.api, runtime(environment(), fetch));
 
     const result = await pi.tools[0]!.execute("call-1", {}, undefined, undefined, pi.context);
+    expect(new TextEncoder().encode(firstText(result)).byteLength).toBeLessThanOrEqual(50 * 1024);
+    expect(firstText(result)).not.toContain("thread-test");
     expect(
-      new TextEncoder().encode(String(result.content[0]?.text)).byteLength,
-    ).toBeLessThanOrEqual(50 * 1024);
-    expect(String(result.content[0]?.text)).not.toContain("thread-test");
-    expect(
-      pi.handlers.get("tool_result")?.[0]?.({
+      pi.handlers.toolResult?.({
         toolName: "t3__preview_snapshot",
         details: result.details,
       }),
@@ -326,16 +326,10 @@ describe("Pi MCP bridge source", () => {
     });
 
     await expect(
-      __testing.loadBridgeFactory()(
-        pi.api,
-        runtime(environment({ endpoint, authorization }), fetch),
-      ),
+      t3PiMcpExtension(pi.api, runtime(environment({ endpoint, authorization }), fetch)),
     ).rejects.not.toThrow(endpoint);
     await expect(
-      __testing.loadBridgeFactory()(
-        pi.api,
-        runtime(environment({ endpoint, authorization }), fetch),
-      ),
+      t3PiMcpExtension(pi.api, runtime(environment({ endpoint, authorization }), fetch)),
     ).rejects.not.toThrow(authorization);
   });
 
@@ -349,10 +343,7 @@ describe("Pi MCP bridge source", () => {
         message: `${endpoint} ${authorization} ${"x".repeat(4_000)}`,
       },
     });
-    await __testing.loadBridgeFactory()(
-      pi.api,
-      runtime(environment({ endpoint, authorization }), fetch),
-    );
+    await t3PiMcpExtension(pi.api, runtime(environment({ endpoint, authorization }), fetch));
 
     const error = await pi.tools[0]!.execute("call-1", {}, undefined, undefined, pi.context).then(
       () => undefined,
@@ -382,7 +373,7 @@ describe("Pi MCP bridge source", () => {
         );
       });
     };
-    await __testing.loadBridgeFactory()(pi.api, runtime(environment(), fetch));
+    await t3PiMcpExtension(pi.api, runtime(environment(), fetch));
     const controller = new AbortController();
     const execution = pi.tools[0]!.execute("call-1", {}, controller.signal, undefined, pi.context);
     controller.abort();
@@ -400,14 +391,14 @@ describe("Pi MCP bridge source", () => {
     const secondAuthorization = "Bearer second-private-token";
 
     await Promise.all([
-      __testing.loadBridgeFactory()(
+      t3PiMcpExtension(
         first.api,
         runtime(
           environment({ authorization: firstAuthorization, scope: scope("full-access") }),
           protocolFetch({ requests: firstRequests, authorization: firstAuthorization }),
         ),
       ),
-      __testing.loadBridgeFactory()(
+      t3PiMcpExtension(
         second.api,
         runtime(
           environment({ authorization: secondAuthorization, scope: scope("approval-required") }),
@@ -477,16 +468,14 @@ it.layer(NodeHttpServer.layerTest)("Pi MCP bridge HTTP transport", (it) => {
         const pi = makePi();
 
         yield* Effect.promise(() =>
-          __testing.loadBridgeFactory()(pi.api, runtime(environment({ endpoint }), fetch)),
+          t3PiMcpExtension(pi.api, runtime(environment({ endpoint }), fetch)),
         );
         expect(pi.tools.map(({ name }) => name)).toEqual(["t3__bash"]);
         const result = yield* Effect.promise(() =>
           pi.tools[0]!.execute("call-1", {}, undefined, undefined, pi.context),
         );
         expect(result.content).toEqual([{ type: "text", text: "actual server result" }]);
-        yield* Effect.promise(() =>
-          Promise.resolve(pi.handlers.get("session_shutdown")?.[0]?.({})),
-        );
+        yield* Effect.promise(() => Promise.resolve(pi.handlers.sessionShutdown?.()));
 
         expect(exchanges.map(({ method, status }) => [method, status])).toEqual([
           ["POST", 200],
@@ -539,6 +528,36 @@ it.layer(NodeServices.layer)("Pi MCP bridge materialization", (it) => {
     ),
   );
 
+  // The source is the bridge function serialized with toString(), so it must run with none of
+  // this module's bindings in scope. Loading the materialized file proves that.
+  it.effect("materializes a module that runs the bridge outside its source file", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const stateDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-pi-mcp-load-" });
+        const modulePath = yield* materializePiMcpExtension(stateDir);
+        const loaded: { readonly default?: unknown } = yield* Effect.promise(
+          () => import(NodeURL.pathToFileURL(modulePath).href),
+        );
+        const bridge = loaded.default;
+        expect(typeof bridge).toBe("function");
+        if (typeof bridge !== "function") return;
+        const requests: Array<{ readonly url: string; readonly init: RequestInit }> = [];
+        const pi = makePi();
+        yield* Effect.promise(() =>
+          bridge(
+            pi.api,
+            runtime(
+              environment(),
+              protocolFetch({ requests, authorization: "Bearer secret-token" }),
+            ),
+          ),
+        );
+        expect(pi.tools.map((tool) => tool.name)).toEqual(["t3__preview_snapshot"]);
+      }),
+    ),
+  );
+
   it.effect("publishes one verified inode under concurrent materialization", () =>
     Effect.scoped(
       Effect.gen(function* () {
@@ -560,7 +579,7 @@ it.layer(NodeServices.layer)("Pi MCP bridge materialization", (it) => {
   );
 
   it.effect.skipIf(HostProcessPlatform.defaultValue() === "win32")(
-    "rejects a symlink target without reading or chmodding its victim",
+    "replaces a planted symlink without touching its target",
     () =>
       Effect.scoped(
         Effect.gen(function* () {
@@ -578,10 +597,11 @@ it.layer(NodeServices.layer)("Pi MCP bridge materialization", (it) => {
           yield* fileSystem.chmod(victimPath, 0o644);
           yield* fileSystem.symlink(victimPath, extensionPath);
 
-          const outcome = yield* materializePiMcpExtension(stateDir).pipe(Effect.exit);
+          const published = yield* materializePiMcpExtension(stateDir);
           const victimInfo = yield* fileSystem.stat(victimPath);
 
-          expect(Exit.isFailure(outcome)).toBe(true);
+          expect(published).toBe(extensionPath);
+          expect(yield* fileSystem.readFileString(extensionPath)).toBe(PI_MCP_EXTENSION_SOURCE);
           expect(yield* fileSystem.readFileString(victimPath)).toBe("private victim");
           expect(victimInfo.mode & 0o777).toBe(0o644);
         }),
