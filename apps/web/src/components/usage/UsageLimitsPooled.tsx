@@ -18,7 +18,7 @@ import { usePrimarySettings } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
 import { formatUpcomingTimestamp } from "../../timestampFormat";
 import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
-import { getDriverOption } from "../settings/providerDriverMeta";
+import { DRIVER_OPTIONS, getDriverOption } from "../settings/providerDriverMeta";
 import { RedactedSensitiveText } from "../settings/RedactedSensitiveText";
 import { Button } from "../ui/button";
 import { Alert, AlertTitle } from "../ui/alert";
@@ -30,6 +30,10 @@ import {
   resetCreditsSummary,
   useResetCredit,
 } from "./UsageLimits";
+
+const PROVIDER_DISPLAY_ORDER = new Map(
+  DRIVER_OPTIONS.map((option, index) => [option.value, index]),
+);
 
 /** `someone@example.com` → `SE`: enough to tell accounts apart, too little to identify one. */
 function accountInitials(email: string): string {
@@ -571,7 +575,12 @@ export function UsageLimitsPooled({
   readonly now: number;
   readonly cursorPrompt?: ReactNode;
 }) {
-  const pools = collectLimitPools(collectLimitAccounts(presentations), now);
+  // Hub accounts arrive after native providers, but the sections follow Providers order.
+  const pools = collectLimitPools(collectLimitAccounts(presentations), now).toSorted(
+    (left, right) =>
+      (PROVIDER_DISPLAY_ORDER.get(left.driver) ?? Number.MAX_SAFE_INTEGER) -
+      (PROVIDER_DISPLAY_ORDER.get(right.driver) ?? Number.MAX_SAFE_INTEGER),
+  );
   const notices = collectLimitNotices(presentations);
   const cursorPromptAt =
     Math.max(
