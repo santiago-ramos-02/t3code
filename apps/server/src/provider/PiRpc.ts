@@ -66,7 +66,8 @@ export interface PiModelSlug {
   readonly thinkingLevel?: PiThinkingLevel;
 }
 
-const piThinkingLevels = new Set<string>(PI_THINKING_LEVELS);
+const isPiThinkingLevel = (value: string): value is PiThinkingLevel =>
+  PI_THINKING_LEVELS.some((level) => level === value);
 
 /** Parse Pi's `provider/model` slug and its optional recognized `:thinking` suffix. */
 export function parsePiModelSlug(slug: string): PiModelSlug | undefined {
@@ -85,7 +86,7 @@ export function parsePiModelSlug(slug: string): PiModelSlug | undefined {
   const thinkingSeparator = modelId.lastIndexOf(":");
   const possibleThinkingLevel =
     thinkingSeparator === -1 ? undefined : modelId.slice(thinkingSeparator + 1);
-  if (possibleThinkingLevel && piThinkingLevels.has(possibleThinkingLevel)) {
+  if (possibleThinkingLevel && isPiThinkingLevel(possibleThinkingLevel)) {
     modelId = modelId.slice(0, thinkingSeparator);
     if (modelId.length === 0) {
       return undefined;
@@ -93,7 +94,7 @@ export function parsePiModelSlug(slug: string): PiModelSlug | undefined {
     return {
       provider,
       modelId,
-      thinkingLevel: possibleThinkingLevel as PiThinkingLevel,
+      thinkingLevel: possibleThinkingLevel,
     };
   }
 

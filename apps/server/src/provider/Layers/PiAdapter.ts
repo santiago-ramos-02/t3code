@@ -4,9 +4,7 @@ import {
   ProviderDriverKind,
   RuntimeItemId,
   RuntimeRequestId,
-  RuntimeTaskId,
   TurnId,
-  TrimmedNonEmptyString,
   isProviderSendTurnSupportedImageMimeType,
   type ProviderInstanceId,
   type ProviderRuntimeEvent,
@@ -27,7 +25,30 @@ import * as Fiber from "effect/Fiber";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
+import {
+  GENTLE_ACTIVITY_WIDGET_KEY,
+  gentleActivityEvents,
+  type GentleTaskSnapshot,
+} from "../PiGentleActivity.ts";
+import {
+  UsageSchema,
+  modelSlug,
+  PiResumeCursorSchema,
+  PiHistoryMessageSchema,
+  PiSessionEntrySchema,
+  ToolResultSchema,
+  BlockingExtensionUiSchema,
+  NativeEventSchema,
+  decodeResumeCursor,
+  decodeStateResponse,
+  decodeForkResponse,
+  decodeEntriesResponse,
+  decodeNativeEvent,
+  isPiRpcError,
+  decodeAnswer,
+} from "../PiAdapterSchemas.ts";
 import { PiPlainExtensionError } from "../PiPlainExtensions.ts";
+import { boundedText, MAX_TOOL_DETAIL_CHARS, nonEmpty } from "../PiText.ts";
 import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
@@ -59,7 +80,6 @@ import {
 import type { ProviderAdapterShape, ProviderThreadSnapshot } from "../Services/ProviderAdapter.ts";
 
 const PROVIDER = ProviderDriverKind.make("pi");
-const MAX_TOOL_DETAIL_CHARS = 2_048;
 const DEFAULT_INTERRUPT_SETTLEMENT_TIMEOUT = "5 seconds";
 const decodeThinkingLevel = Schema.decodeUnknownOption(Schema.Literals(PI_THINKING_LEVELS));
 const encodePiMcpScope = Schema.encodeSync(
@@ -79,537 +99,6 @@ const encodePiMcpScope = Schema.encodeSync(
       capabilities: Schema.Array(Schema.String),
     }),
   ),
-);
-
-const JsonRecord = Schema.Record(Schema.String, Schema.Unknown);
-const FiniteNonNegative = Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0));
-const UsageSchema = Schema.Struct({
-  input: FiniteNonNegative,
-  output: FiniteNonNegative,
-  cacheRead: FiniteNonNegative,
-  cacheWrite: FiniteNonNegative,
-  reasoning: Schema.optionalKey(FiniteNonNegative),
-  totalTokens: FiniteNonNegative,
-  cost: Schema.Struct({
-    input: Schema.Finite,
-    output: Schema.Finite,
-    cacheRead: Schema.Finite,
-    cacheWrite: Schema.Finite,
-    total: Schema.Finite,
-  }),
-});
-const PiModelIdentitySchema = Schema.Struct({
-  id: Schema.String,
-  provider: Schema.String,
-});
-const PiSessionIdSchema = TrimmedNonEmptyString.check(
-  Schema.isPattern(/^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/),
-);
-const PiResumeCursorSchema = Schema.Struct({
-  version: Schema.Literal(2),
-  sessionId: PiSessionIdSchema,
-  providerInstanceId: TrimmedNonEmptyString,
-  cwd: TrimmedNonEmptyString,
-});
-
-type PiJsonValue =
-  | null
-  | boolean
-  | number
-  | string
-  | ReadonlyArray<PiJsonValue>
-  | { readonly [key: string]: PiJsonValue };
-const PiJsonValueSchema: Schema.Codec<PiJsonValue> = Schema.suspend((): Schema.Codec<PiJsonValue> =>
-  Schema.Union([
-    Schema.Null,
-    Schema.Boolean,
-    Schema.Finite,
-    Schema.String,
-    Schema.Array(PiJsonValueSchema),
-    Schema.Record(Schema.String, PiJsonValueSchema),
-  ]),
-);
-const PiJsonObjectSchema = Schema.Record(Schema.String, PiJsonValueSchema);
-const PiTextContentSchema = Schema.Struct({
-  type: Schema.Literal("text"),
-  text: Schema.String,
-  textSignature: Schema.optionalKey(Schema.String),
-});
-const PiImageContentSchema = Schema.Struct({
-  type: Schema.Literal("image"),
-  data: Schema.String,
-  mimeType: Schema.String,
-});
-const PiThinkingContentSchema = Schema.Struct({
-  type: Schema.Literal("thinking"),
-  thinking: Schema.String,
-  thinkingSignature: Schema.optionalKey(Schema.String),
-  redacted: Schema.optionalKey(Schema.Boolean),
-});
-const PiToolCallSchema = Schema.Struct({
-  type: Schema.Literal("toolCall"),
-  id: Schema.String,
-  name: Schema.String,
-  arguments: PiJsonObjectSchema,
-  thoughtSignature: Schema.optionalKey(Schema.String),
-  namespace: Schema.optionalKey(Schema.String),
-});
-const PiUserContentSchema = Schema.Union([
-  Schema.String,
-  Schema.Array(Schema.Union([PiTextContentSchema, PiImageContentSchema])),
-]);
-const PiUsageSchema = Schema.Struct({
-  input: FiniteNonNegative,
-  output: FiniteNonNegative,
-  cacheRead: FiniteNonNegative,
-  cacheWrite: FiniteNonNegative,
-  cacheWrite1h: Schema.optionalKey(FiniteNonNegative),
-  reasoning: Schema.optionalKey(FiniteNonNegative),
-  totalTokens: FiniteNonNegative,
-  cost: Schema.Struct({
-    input: Schema.Finite,
-    output: Schema.Finite,
-    cacheRead: Schema.Finite,
-    cacheWrite: Schema.Finite,
-    total: Schema.Finite,
-  }),
-});
-const PiDiagnosticSchema = Schema.Struct({
-  type: Schema.String,
-  timestamp: Schema.Finite,
-  error: Schema.optionalKey(
-    Schema.Struct({
-      name: Schema.optionalKey(Schema.String),
-      message: Schema.String,
-      stack: Schema.optionalKey(Schema.String),
-      code: Schema.optionalKey(Schema.Union([Schema.String, Schema.Finite])),
-    }),
-  ),
-  details: Schema.optionalKey(PiJsonObjectSchema),
-});
-const PiDeferredHandleSchema = Schema.Struct({
-  provider: Schema.String,
-  modelId: Schema.String,
-  api: Schema.String,
-  id: Schema.String,
-  expiresAt: Schema.optionalKey(Schema.Finite),
-  pollAfterMs: Schema.optionalKey(Schema.Finite),
-  data: Schema.optionalKey(PiJsonValueSchema),
-});
-const PiToolSchema = Schema.Struct({
-  name: Schema.String,
-  description: Schema.String,
-  parameters: PiJsonObjectSchema,
-  constrainedSampling: Schema.optionalKey(
-    Schema.Union([
-      Schema.Literal(false),
-      Schema.Struct({
-        type: Schema.Literal("json_schema"),
-        strict: Schema.Literals(["prefer", "require"]),
-      }),
-      Schema.Struct({
-        type: Schema.Literal("grammar"),
-        variants: Schema.Record(Schema.String, Schema.String),
-      }),
-    ]),
-  ),
-});
-const PiSystemMessageSchema = Schema.Struct({
-  role: Schema.Literal("system"),
-  content: Schema.Union([Schema.String, Schema.Array(PiTextContentSchema)]),
-  sections: Schema.optionalKey(Schema.Record(Schema.String, Schema.NullOr(Schema.String))),
-  toolsAdded: Schema.optionalKey(Schema.Array(PiToolSchema)),
-  toolsRemoved: Schema.optionalKey(Schema.Array(Schema.Struct({ name: Schema.String }))),
-  timestamp: Schema.Finite,
-});
-const PiHistoryMessageSchema = Schema.Union([
-  PiSystemMessageSchema,
-  Schema.Struct({
-    role: Schema.Literal("user"),
-    content: PiUserContentSchema,
-    timestamp: Schema.Finite,
-  }),
-  Schema.Struct({
-    role: Schema.Literal("assistant"),
-    content: Schema.Array(
-      Schema.Union([PiTextContentSchema, PiThinkingContentSchema, PiToolCallSchema]),
-    ),
-    api: Schema.String,
-    provider: Schema.String,
-    model: Schema.String,
-    responseModel: Schema.optionalKey(Schema.String),
-    responseId: Schema.optionalKey(Schema.String),
-    providerThinkingLevel: Schema.optionalKey(Schema.String),
-    diagnostics: Schema.optionalKey(Schema.Array(PiDiagnosticSchema)),
-    usage: PiUsageSchema,
-    stopReason: Schema.Literals([
-      "pending",
-      "stop",
-      "length",
-      "toolUse",
-      "error",
-      "aborted",
-      "deferred",
-    ]),
-    deferred: Schema.optionalKey(PiDeferredHandleSchema),
-    errorMessage: Schema.optionalKey(Schema.String),
-    rawStopReason: Schema.optionalKey(Schema.String),
-    endTurn: Schema.optionalKey(Schema.Boolean),
-    timestamp: Schema.Finite,
-  }),
-  Schema.Struct({
-    role: Schema.Literal("toolResult"),
-    toolCallId: Schema.String,
-    toolName: Schema.String,
-    content: Schema.Array(Schema.Union([PiTextContentSchema, PiImageContentSchema])),
-    details: Schema.optionalKey(Schema.Unknown),
-    usage: Schema.optionalKey(PiUsageSchema),
-    isError: Schema.Boolean,
-    timestamp: Schema.Finite,
-  }),
-  Schema.Struct({
-    role: Schema.Literal("bashExecution"),
-    command: Schema.String,
-    output: Schema.String,
-    exitCode: Schema.optionalKey(Schema.Finite),
-    cancelled: Schema.Boolean,
-    truncated: Schema.Boolean,
-    fullOutputPath: Schema.optionalKey(Schema.String),
-    timestamp: Schema.Finite,
-    excludeFromContext: Schema.optionalKey(Schema.Boolean),
-  }),
-  Schema.Struct({
-    role: Schema.Literal("custom"),
-    customType: Schema.String,
-    content: PiUserContentSchema,
-    display: Schema.Boolean,
-    details: Schema.optionalKey(Schema.Unknown),
-    timestamp: Schema.Finite,
-  }),
-  Schema.Struct({
-    role: Schema.Literal("branchSummary"),
-    summary: Schema.String,
-    fromId: Schema.NullOr(Schema.String),
-    timestamp: Schema.Finite,
-  }),
-  Schema.Struct({
-    role: Schema.Literal("compactionSummary"),
-    summary: Schema.String,
-    tokensBefore: FiniteNonNegative,
-    timestamp: Schema.Finite,
-  }),
-]);
-const PiSessionEntryBase = {
-  id: TrimmedNonEmptyString,
-  parentId: Schema.NullOr(TrimmedNonEmptyString),
-  timestamp: Schema.String,
-} as const;
-const PiSessionEntrySchema = Schema.Union([
-  Schema.Struct({
-    ...PiSessionEntryBase,
-    type: Schema.Literal("message"),
-    message: PiHistoryMessageSchema,
-  }),
-  Schema.Struct({
-    ...PiSessionEntryBase,
-    type: Schema.Literal("thinking_level_change"),
-    thinkingLevel: Schema.String,
-  }),
-  Schema.Struct({
-    ...PiSessionEntryBase,
-    type: Schema.Literal("model_change"),
-    provider: Schema.String,
-    modelId: Schema.String,
-  }),
-  Schema.Struct({
-    ...PiSessionEntryBase,
-    type: Schema.Literal("usage"),
-    kind: Schema.String,
-    provider: Schema.String,
-    model: Schema.String,
-    usage: PiUsageSchema,
-    note: Schema.optionalKey(Schema.String),
-  }),
-  Schema.Struct({
-    ...PiSessionEntryBase,
-    type: Schema.Literal("compaction"),
-    summary: Schema.String,
-    firstKeptEntryId: Schema.String,
-    tokensBefore: FiniteNonNegative,
-    details: Schema.optionalKey(Schema.Unknown),
-    usage: Schema.optionalKey(PiUsageSchema),
-    fromHook: Schema.optionalKey(Schema.Boolean),
-    systemMessage: Schema.optionalKey(PiSystemMessageSchema),
-  }),
-  Schema.Struct({
-    ...PiSessionEntryBase,
-    type: Schema.Literal("branch_summary"),
-    fromId: Schema.String,
-    summary: Schema.String,
-    details: Schema.optionalKey(Schema.Unknown),
-    usage: Schema.optionalKey(PiUsageSchema),
-    fromHook: Schema.optionalKey(Schema.Boolean),
-  }),
-  Schema.Struct({
-    ...PiSessionEntryBase,
-    type: Schema.Literal("custom"),
-    customType: Schema.String,
-    data: Schema.optionalKey(Schema.Unknown),
-  }),
-  Schema.Struct({
-    ...PiSessionEntryBase,
-    type: Schema.Literal("label"),
-    targetId: Schema.String,
-    label: Schema.optionalKey(Schema.String),
-  }),
-  Schema.Struct({
-    ...PiSessionEntryBase,
-    type: Schema.Literal("session_info"),
-    name: Schema.optionalKey(Schema.String),
-  }),
-  Schema.Struct({
-    ...PiSessionEntryBase,
-    type: Schema.Literal("custom_message"),
-    customType: Schema.String,
-    content: PiUserContentSchema,
-    details: Schema.optionalKey(Schema.Unknown),
-    display: Schema.Boolean,
-  }),
-]);
-const StateResponseSchema = Schema.Struct({
-  data: Schema.Struct({
-    model: Schema.optionalKey(Schema.NullOr(PiModelIdentitySchema)),
-    thinkingLevel: Schema.String,
-    isStreaming: Schema.Boolean,
-    isCompacting: Schema.Boolean,
-    sessionFile: Schema.optionalKey(Schema.String),
-    sessionId: PiSessionIdSchema,
-  }),
-});
-const AssistantMessageSchema = Schema.Struct({
-  role: Schema.Literal("assistant"),
-  provider: Schema.String,
-  model: Schema.String,
-  usage: UsageSchema,
-  stopReason: Schema.String,
-  errorMessage: Schema.optionalKey(Schema.String),
-});
-const MessageUpdateSchema = Schema.Struct({
-  type: Schema.Literal("message_update"),
-  usage: UsageSchema,
-  assistantMessageEvent: Schema.Union([
-    Schema.Struct({
-      type: Schema.Literal("text_delta"),
-      contentIndex: Schema.Int,
-      delta: Schema.String,
-    }),
-    Schema.Struct({
-      type: Schema.Literal("thinking_delta"),
-      contentIndex: Schema.Int,
-      delta: Schema.String,
-    }),
-  ]),
-});
-const FinalAssistantEventSchema = Schema.Union([
-  Schema.Struct({
-    type: Schema.Literal("turn_end"),
-    message: AssistantMessageSchema,
-  }),
-  Schema.Struct({
-    type: Schema.Literal("message_end"),
-    message: AssistantMessageSchema,
-  }),
-]);
-const ToolContentSchema = Schema.Array(
-  Schema.Union([
-    Schema.Struct({ type: Schema.Literal("text"), text: Schema.String }),
-    Schema.Struct({ type: Schema.Literal("image"), data: Schema.String, mimeType: Schema.String }),
-  ]),
-);
-const ToolResultSchema = Schema.Struct({
-  content: ToolContentSchema,
-  details: Schema.optionalKey(Schema.Unknown),
-});
-const ToolEventSchema = Schema.Union([
-  Schema.Struct({
-    type: Schema.Literal("tool_execution_start"),
-    toolCallId: Schema.String,
-    toolName: Schema.String,
-    args: JsonRecord,
-  }),
-  Schema.Struct({
-    type: Schema.Literal("tool_execution_update"),
-    toolCallId: Schema.String,
-    toolName: Schema.String,
-    args: JsonRecord,
-    partialResult: ToolResultSchema,
-  }),
-  Schema.Struct({
-    type: Schema.Literal("tool_execution_end"),
-    toolCallId: Schema.String,
-    toolName: Schema.String,
-    result: ToolResultSchema,
-    isError: Schema.Boolean,
-  }),
-]);
-const BlockingExtensionUiSchema = Schema.Union([
-  Schema.Struct({
-    type: Schema.Literal("extension_ui_request"),
-    id: Schema.String,
-    method: Schema.Literal("select"),
-    title: Schema.String,
-    options: Schema.Array(Schema.String),
-    timeout: Schema.optionalKey(Schema.Finite),
-  }),
-  Schema.Struct({
-    type: Schema.Literal("extension_ui_request"),
-    id: Schema.String,
-    method: Schema.Literal("confirm"),
-    title: Schema.String,
-    message: Schema.String,
-    timeout: Schema.optionalKey(Schema.Finite),
-  }),
-  Schema.Struct({
-    type: Schema.Literal("extension_ui_request"),
-    id: Schema.String,
-    method: Schema.Literal("input"),
-    title: Schema.String,
-    placeholder: Schema.optionalKey(Schema.String),
-    timeout: Schema.optionalKey(Schema.Finite),
-  }),
-  Schema.Struct({
-    type: Schema.Literal("extension_ui_request"),
-    id: Schema.String,
-    method: Schema.Literal("editor"),
-    title: Schema.String,
-    prefill: Schema.optionalKey(Schema.String),
-  }),
-]);
-const NonBlockingExtensionUiSchema = Schema.Union([
-  Schema.Struct({
-    type: Schema.Literal("extension_ui_request"),
-    id: Schema.String,
-    method: Schema.Literal("notify"),
-  }),
-  Schema.Struct({
-    type: Schema.Literal("extension_ui_request"),
-    id: Schema.String,
-    method: Schema.Literal("setStatus"),
-  }),
-  Schema.Struct({
-    type: Schema.Literal("extension_ui_request"),
-    id: Schema.optionalKey(Schema.String),
-    method: Schema.Literal("setWidget"),
-    widgetKey: Schema.optionalKey(Schema.String),
-    widgetLines: Schema.optionalKey(Schema.Array(Schema.String)),
-  }),
-  Schema.Struct({
-    type: Schema.Literal("extension_ui_request"),
-    id: Schema.String,
-    method: Schema.Literal("setTitle"),
-  }),
-  Schema.Struct({
-    type: Schema.Literal("extension_ui_request"),
-    id: Schema.String,
-    method: Schema.Literal("set_editor_text"),
-  }),
-]);
-const AgentStartedSchema = Schema.Struct({ type: Schema.Literal("agent_start") });
-const SettledSchema = Schema.Struct({ type: Schema.Literal("agent_settled") });
-const IgnoredAgentEndSchema = Schema.Struct({ type: Schema.Literal("agent_end") });
-const CompactionResultSchema = Schema.Struct({
-  summary: Schema.String,
-  firstKeptEntryId: Schema.String,
-  tokensBefore: FiniteNonNegative,
-  estimatedTokensAfter: Schema.optionalKey(FiniteNonNegative),
-});
-const CompactionEventSchema = Schema.Union([
-  Schema.Struct({
-    type: Schema.Literal("compaction_start"),
-    reason: Schema.Literals(["manual", "threshold", "overflow"]),
-  }),
-  Schema.Struct({
-    type: Schema.Literal("compaction_end"),
-    reason: Schema.Literals(["manual", "threshold", "overflow"]),
-    result: Schema.optionalKey(CompactionResultSchema),
-    aborted: Schema.Boolean,
-    willRetry: Schema.Boolean,
-    errorMessage: Schema.optionalKey(Schema.String),
-  }),
-]);
-const NativeEventSchema = Schema.Union([
-  MessageUpdateSchema,
-  FinalAssistantEventSchema,
-  ToolEventSchema,
-  BlockingExtensionUiSchema,
-  NonBlockingExtensionUiSchema,
-  AgentStartedSchema,
-  SettledSchema,
-  IgnoredAgentEndSchema,
-  CompactionEventSchema,
-]);
-const ForkResponseSchema = Schema.Struct({
-  data: Schema.Struct({
-    text: Schema.String,
-    cancelled: Schema.Boolean,
-  }),
-});
-const EntriesResponseSchema = Schema.Struct({
-  data: Schema.Struct({
-    entries: Schema.Array(PiSessionEntrySchema),
-    leafId: Schema.NullOr(Schema.String),
-  }),
-});
-const decodeResumeCursor = Schema.decodeUnknownEffect(PiResumeCursorSchema);
-const decodeStateResponse = Schema.decodeUnknownEffect(StateResponseSchema);
-const decodeForkResponse = Schema.decodeUnknownEffect(ForkResponseSchema);
-const decodeEntriesResponse = Schema.decodeUnknownEffect(EntriesResponseSchema);
-const decodeNativeEvent = Schema.decodeUnknownOption(NativeEventSchema);
-const GentleActivitySchema = Schema.Struct({
-  schema: Schema.Literal("gentle-agents.activity/v1"),
-  tasks: Schema.Array(
-    Schema.Struct({
-      summary: Schema.Struct({
-        id: TrimmedNonEmptyString,
-        agent: Schema.String,
-        label: Schema.String,
-        prompt: Schema.String,
-        status: Schema.Literals([
-          "queued",
-          "running",
-          "waiting",
-          "completed",
-          "failed",
-          "cancelled",
-          "timed_out",
-        ]),
-        lastStep: Schema.String,
-        error: Schema.NullOr(Schema.String),
-      }),
-      thread: Schema.Struct({
-        version: FiniteNonNegative,
-        items: Schema.Array(
-          Schema.Union([
-            Schema.Struct({
-              kind: Schema.Literals(["text", "thinking", "note"]),
-              text: Schema.String,
-            }),
-            Schema.Struct({
-              kind: Schema.Literal("tool"),
-              name: Schema.String,
-              output: Schema.String,
-            }),
-          ]),
-        ),
-      }),
-    }),
-  ),
-});
-const decodeGentleActivity = Schema.decodeUnknownOption(
-  Schema.fromJsonString(GentleActivitySchema),
-);
-const decodeAnswer = Schema.decodeUnknownOption(
-  Schema.Union([Schema.String, Schema.Array(Schema.String)]),
 );
 
 export type PiAdapterRpcFactory = (
@@ -698,10 +187,7 @@ interface SessionContext {
   readonly rpc: PiRpcClient;
   readonly pendingApprovals: Map<ApprovalRequestId, PendingApproval>;
   readonly pendingUserInputs: Map<ApprovalRequestId, PendingUserInput>;
-  readonly gentleTasks: Map<
-    string,
-    { status: string; progress: string; lastToolName: string; threadVersion: number }
-  >;
+  readonly gentleTasks: Map<string, GentleTaskSnapshot>;
   session: ProviderSession;
   model: string;
   thinkingLevel: PiThinkingLevel | undefined;
@@ -712,16 +198,6 @@ interface SessionContext {
   rollbacking: boolean;
   stopped: boolean;
   explicitScopeClose: boolean;
-}
-
-function boundedText(value: string, maxChars = MAX_TOOL_DETAIL_CHARS): string {
-  if (value.length <= maxChars) return value;
-  return `${value.slice(0, Math.max(0, maxChars - 1))}…`;
-}
-
-function nonEmpty(value: string | undefined, fallback: string): string {
-  const trimmed = value?.trim() ?? "";
-  return boundedText(trimmed.length > 0 ? trimmed : fallback);
 }
 
 function toolText(result: typeof ToolResultSchema.Type): string | undefined {
@@ -838,7 +314,7 @@ function answerValue(
 }
 
 function mapRequestError(method: string, cause: unknown): ProviderAdapterRequestError {
-  const detail = Schema.is(PiRpcError)(cause)
+  const detail = isPiRpcError(cause)
     ? (() => {
         switch (cause.reason) {
           case "remote-error":
@@ -1045,7 +521,7 @@ const historyFromEntriesResponse = Effect.fnUntraced(function* (
     reversed.push(entry);
     nextId = entry.parentId;
   }
-  const activeBranch = reversed.reverse();
+  const activeBranch = reversed.toReversed();
   const turns: Array<{ id: TurnId; items: Array<unknown> }> = [];
   const userEntryIds: Array<string> = [];
   for (const entry of activeBranch) {
@@ -1429,11 +905,7 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
     context: SessionContext,
     event: PiRpcEvent,
   ) {
-    if (
-      event.type === "pi_rpc_transport_closed" &&
-      "error" in event &&
-      Schema.is(PiRpcError)(event.error)
-    ) {
+    if (event.type === "pi_rpc_transport_closed" && "error" in event && isPiRpcError(event.error)) {
       yield* handleTransportClosed(context, event.error);
       return;
     }
@@ -1484,145 +956,29 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
       return;
     }
     if (native.type === "extension_ui_request") {
-      if (native.method === "setWidget" && native.widgetKey === "gentle-agents") {
-        const line = native.widgetLines?.length === 1 ? native.widgetLines[0] : undefined;
-        if (line !== undefined && line.length <= 256 * 1024) {
-          const activity = decodeGentleActivity(line);
-          if (Option.isSome(activity)) {
-            for (const task of activity.value.tasks) {
-              const summary = task.summary;
-              const taskId = RuntimeTaskId.make(summary.id);
-              const title = nonEmpty(summary.label, summary.agent || "Pi subagent");
-              const lastItem = task.thread.items.at(-1);
-              const output = lastItem?.kind === "tool" ? lastItem.output : lastItem?.text;
-              const resultItem = task.thread.items.findLast((item) => item.kind === "text");
-              const result = resultItem?.kind === "text" ? resultItem.text : undefined;
-              const lastToolName = lastItem?.kind === "tool" ? lastItem.name : "";
-              const recentThread = task.thread.items.slice(-40).map((item) =>
-                item.kind === "tool"
-                  ? {
-                      kind: "tool" as const,
-                      name: item.name.slice(0, 120),
-                      output: item.output.slice(0, 2048),
-                    }
-                  : { kind: item.kind, text: item.text.slice(0, 2048) },
-              );
-              let threadChars = recentThread.reduce(
-                (sum, item) =>
-                  sum +
-                  (item.kind === "tool" ? item.name.length + item.output.length : item.text.length),
-                0,
-              );
-              while (threadChars > 24 * 1024 && recentThread.length > 1) {
-                const oldest = recentThread.shift()!;
-                threadChars -=
-                  oldest.kind === "tool"
-                    ? oldest.name.length + oldest.output.length
-                    : oldest.text.length;
-              }
-              const progress = nonEmpty(
-                lastItem?.kind === "text" && output?.trim() ? output : summary.lastStep || output,
-                title,
-              );
-              const taskIdentity = {
-                taskId,
-                taskType: "subagent",
-                taskSource: "gentle-pi" as const,
-                title,
-                role: nonEmpty(summary.agent, "Pi subagent"),
-              };
-              const previous = context.gentleTasks.get(summary.id);
-              if (previous === undefined) {
-                yield* emit({
-                  ...(yield* eventBase(context)),
-                  type: "task.started",
-                  payload: {
-                    ...taskIdentity,
-                    description: title,
-                  },
-                });
-              }
-              if (
-                previous?.status === summary.status &&
-                previous.progress === progress &&
-                previous.lastToolName === lastToolName &&
-                previous.threadVersion === task.thread.version
-              )
-                continue;
-              const terminal = ["completed", "failed", "cancelled", "timed_out"].includes(
-                summary.status,
-              );
-              if (recentThread.length > 0) {
-                yield* emit({
-                  ...(yield* eventBase(context)),
-                  type: "task.progress",
-                  payload: {
-                    ...taskIdentity,
-                    description: title,
-                    summary: progress,
-                    recentThread,
-                    ...(lastToolName ? { lastToolName: nonEmpty(lastToolName, "Pi tool") } : {}),
-                    ...(terminal
-                      ? {}
-                      : {
-                          status:
-                            summary.status === "queued"
-                              ? ("pending" as const)
-                              : summary.status === "running"
-                                ? ("running" as const)
-                                : ("waiting" as const),
-                        }),
-                  },
-                });
-              }
-              if (terminal) {
-                yield* emit({
-                  ...(yield* eventBase(context)),
-                  type: "task.completed",
-                  payload: {
-                    ...taskIdentity,
-                    status:
-                      summary.status === "completed"
-                        ? "completed"
-                        : summary.status === "cancelled"
-                          ? "stopped"
-                          : "failed",
-                    ...(summary.error || result
-                      ? { summary: nonEmpty(summary.error || result, progress) }
-                      : {}),
-                  },
-                });
-              } else if (recentThread.length === 0) {
-                yield* emit({
-                  ...(yield* eventBase(context)),
-                  type: "task.progress",
-                  payload: {
-                    ...taskIdentity,
-                    description: title,
-                    summary: progress,
-                    status:
-                      summary.status === "queued"
-                        ? "pending"
-                        : summary.status === "running"
-                          ? "running"
-                          : "waiting",
-                    ...(lastToolName ? { lastToolName: nonEmpty(lastToolName, "Pi tool") } : {}),
-                  },
-                });
-              }
-              context.gentleTasks.set(summary.id, {
-                status: summary.status,
-                progress,
-                lastToolName,
-                threadVersion: task.thread.version,
-              });
-            }
-          }
+      if (native.method === "setWidget" && native.widgetKey === GENTLE_ACTIVITY_WIDGET_KEY) {
+        for (const event of gentleActivityEvents(native.widgetLines, context.gentleTasks)) {
+          yield* emit({ ...(yield* eventBase(context)), ...event });
+        }
+        return;
+      }
+      // Extension warnings and errors reach the thread; info notices and TUI chrome do not.
+      if (native.method === "notify") {
+        const message = native.message?.trim();
+        if (message && (native.notifyType === "warning" || native.notifyType === "error")) {
+          yield* emit({
+            ...(yield* eventBase(context)),
+            type: "runtime.warning",
+            ...(context.activeTurn ? { turnId: context.activeTurn.turnId } : {}),
+            payload: {
+              message: boundedText(message),
+              detail: { source: "pi-extension", notifyType: native.notifyType },
+            },
+          });
         }
         return;
       }
       if (
-        native.method === "notify" ||
         native.method === "setStatus" ||
         native.method === "setWidget" ||
         native.method === "setTitle" ||
@@ -1952,8 +1308,10 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
               capabilities: Array.from(mcpSession.capabilities).sort(),
             });
           }
-          const extensionArgs = gentleEnabled
-            ? ["--extension", options.mcpExtensionPath]
+          // Gentle threads keep Pi's own extension discovery; plain threads list every
+          // extension except gentle-pi. The T3 MCP bridge loads only for a bound thread.
+          const discoveryArgs = gentleEnabled
+            ? []
             : yield* (
                 options.plainExtensionArgs?.(cwd) ??
                 Effect.fail(
@@ -1972,12 +1330,14 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
                     }),
                 ),
               );
+          const args = [
+            ...discoveryArgs,
+            ...(mcpSession === undefined ? [] : ["--extension", options.mcpExtensionPath]),
+          ];
           const rpc = yield* rpcFactory({
             binaryPath: options.binaryPath,
             cwd,
-            ...(mcpSession === undefined && gentleEnabled
-              ? {}
-              : { args: mcpSession === undefined ? extensionArgs.slice(0, -2) : extensionArgs }),
+            ...(args.length === 0 ? {} : { args }),
             ...(requestedCursor === undefined ? {} : { sessionId: requestedCursor.sessionId }),
             environment,
           }).pipe(
@@ -2018,10 +1378,7 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
             cwd,
             "get_state",
           ).pipe(Effect.onError(() => Scope.close(sessionScope, Exit.void)));
-          const initialModel =
-            state.model === null || state.model === undefined
-              ? "pi/unselected"
-              : `${state.model.provider}/${state.model.id}`;
+          const initialModel = modelSlug(state.model);
           const initialThinking = Option.getOrUndefined(decodeThinkingLevel(state.thinkingLevel));
           const now = DateTime.formatIso(yield* DateTime.now);
           const session: ProviderSession = {
@@ -2061,32 +1418,7 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
       );
 
       return yield* Effect.gen(function* () {
-        const resumedModel =
-          startup.state.model === null || startup.state.model === undefined
-            ? "pi/unselected"
-            : `${startup.state.model.provider}/${startup.state.model.id}`;
-        yield* operationLock.withPermits(1)(
-          Effect.gen(function* () {
-            if (
-              startup.context.stopped ||
-              sessions.get(startup.context.threadId) !== startup.context
-            ) {
-              return yield* new ProviderAdapterSessionNotFoundError({
-                provider: PROVIDER,
-                threadId: startup.context.threadId,
-              });
-            }
-            startup.context.model = resumedModel;
-            startup.context.thinkingLevel = Option.getOrUndefined(
-              decodeThinkingLevel(startup.state.thinkingLevel),
-            );
-            startup.context.session = {
-              ...startup.context.session,
-              model: resumedModel,
-              resumeCursor: startup.resumeCursor,
-            };
-          }),
-        );
+        // The context already holds Pi's resumed model and thinking level from get_state.
         const selection = yield* prepareModelSelection(startup.context, input.modelSelection);
         yield* runModelSelection(startup.context, selection);
         return yield* operationLock.withPermits(1)(
@@ -2864,10 +2196,7 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
             "Pi returned an unexpected active branch after rollback.",
           );
         }
-        const model =
-          state.model === null || state.model === undefined
-            ? "pi/unselected"
-            : `${state.model.provider}/${state.model.id}`;
+        const model = modelSlug(state.model);
         return yield* operationLock.withPermits(1)(
           Effect.gen(function* () {
             if (

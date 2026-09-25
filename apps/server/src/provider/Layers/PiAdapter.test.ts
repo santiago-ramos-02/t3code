@@ -919,13 +919,7 @@ describe("PiAdapter session runtime", () => {
         const harness = makeRpcHarness();
         const adapter = yield* makeAdapter(harness, {
           plainExtensionArgs: () =>
-            Effect.succeed([
-              "--no-extensions",
-              "--extension",
-              "/other-extension",
-              "--extension",
-              "/private/runtime/pi-mcp/t3-mcp-test.mjs",
-            ]),
+            Effect.succeed(["--no-extensions", "--extension", "/other-extension"]),
         });
         yield* startSession(adapter, THREAD_ID, {
           instanceId: INSTANCE_ID,
@@ -1589,7 +1583,7 @@ describe("PiAdapter session runtime", () => {
     ),
   );
 
-  it.effect("ignores nonblocking extension UI and widget updates", () =>
+  it.effect("surfaces extension warnings and ignores other nonblocking UI", () =>
     Effect.scoped(
       Effect.gen(function* () {
         const harness = makeRpcHarness();
@@ -1599,6 +1593,13 @@ describe("PiAdapter session runtime", () => {
         const transport = harness.transports[0]!;
         for (const event of [
           { type: "extension_ui_request", id: "n", method: "notify", message: "notice" },
+          {
+            type: "extension_ui_request",
+            id: "nw",
+            method: "notify",
+            message: "SDD preflight could not read preferences",
+            notifyType: "warning",
+          },
           {
             type: "extension_ui_request",
             id: "s",
@@ -1619,9 +1620,16 @@ describe("PiAdapter session runtime", () => {
           yield* offerNative(transport, event);
         }
         yield* adapter.sendTurn({ threadId: THREAD_ID, input: "next" });
-        const only = yield* takeEvents(adapter, 1);
+        const events = yield* takeEvents(adapter, 2);
 
-        expect(only.map((event) => event.type)).toEqual(["turn.started"]);
+        // Event processing and sendTurn run concurrently, so only the emitted set is stable.
+        expect(events.map((event) => event.type).toSorted()).toEqual([
+          "runtime.warning",
+          "turn.started",
+        ]);
+        expect(events.find((event) => event.type === "runtime.warning")).toMatchObject({
+          payload: { message: "SDD preflight could not read preferences" },
+        });
         expect(transport.notifications).toEqual([]);
       }),
     ),

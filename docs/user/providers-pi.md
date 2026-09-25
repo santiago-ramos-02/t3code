@@ -30,7 +30,9 @@ T3 Code does not discover or import arbitrary standalone Pi sessions.
 
 In the web or desktop app, open **Settings > Providers**, select the environment,
 and enable **Pi**. Pi must be on that environment's `PATH`. If it was installed by
-a version manager or lives elsewhere, set **Binary path** to its executable.
+a version manager or lives elsewhere, set **Binary path** to its executable. While
+Pi is missing or has no model provider yet, the Pi card's **Setup** section shows
+the command to run.
 
 Choose **Refresh provider status** after changing Pi configuration. The provider
 card shows the detected version, available model providers, and status. A refresh
@@ -40,10 +42,10 @@ Pi's binary path and credentials in web or desktop settings.
 
 ## Gentle AI profiles and SDD
 
-Install the latest Gentle AI package on the project environment with
-`pi install npm:gentle-pi`. If it is already installed, run
-`pi update npm:gentle-pi` to upgrade it. T3 Code uses that environment's
-installed package; remote clients do not need their own installation.
+Choose **Install Gentle AI** in **Settings > Providers > Pi**, or **Update** next
+to its version to upgrade. This runs `pi install npm:gentle-pi` or
+`pi update npm:gentle-pi` on the project environment. Remote clients do not need
+their own installation.
 
 With gentle-pi 3.5 or newer installed for Pi, open **Settings > Providers > Pi**
 to choose the global persona and manage model profiles. The active global profile
@@ -58,13 +60,22 @@ outside T3 Code. On mobile, project profile and persona controls are in
 
 For a new Pi thread, open the Gentle AI dropdown and clear **Enable** to run
 without Gentle AI. The choice is stored with the thread when you send its first
-message; other installed Pi extensions remain available.
+message, and the dropdown then shows whether Gentle AI is on for that thread.
+Other installed Pi extensions remain available.
 
-For SDD, save the project's execution mode, artifact store, delivery strategy,
-and review budget in Pi settings. In a Gentle-enabled thread, **Set up SDD**
-runs Gentle's project setup in the background when needed. **View SDD status**
-shows the next phase and any prerequisites after setup. Use the Pi settings to
-edit SDD preferences; on mobile, they are in **Project overview**.
+For SDD, set the project's execution mode, artifact store, delivery strategy,
+and review budget in Pi settings; on mobile, they are in **Project overview**.
+They are saved in the project's `.pi/gentle-ai/sdd-preflight.json`. Commit that
+file so the whole team uses the same choices. A profile pinned for a checkout
+stays on your machine.
+
+In a Pi thread, open the Gentle AI dropdown and choose **Set up SDD** once per
+project. After that, **SDD changes** lists the project's active OpenSpec changes
+with their next phase and task progress. Choose a change's action, such as
+**Implement**, to open a new thread with Gentle AI on and that phase's request
+already written; review it and send. **New change** opens a thread for proposing
+another change. Changes are listed for projects that save SDD artifacts as
+OpenSpec files.
 
 ## T3 Code tools
 

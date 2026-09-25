@@ -8,6 +8,8 @@ import * as Schema from "effect/Schema";
 import * as ChildProcess from "effect/unstable/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
 
+import type { PiGentleComposerState } from "@t3tools/contracts";
+
 import { makePiGentleSettings } from "./PiGentleSettings.ts";
 
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
@@ -32,6 +34,10 @@ it.layer(NodeServices.layer)("Pi Gentle settings", (it) => {
 const fs = require("node:fs");
 const path = require("node:path");
 const home = process.env.PI_CODING_AGENT_DIR;
+if (process.env.FAKE_PI_FAIL) {
+  process.stderr.write("npm ERR! 404 gentle-pi is not in this registry\\n");
+  process.exit(1);
+}
 if (process.argv.includes("/gentle-sdd-init")) {
   const target = path.join(process.cwd(), "openspec", "config.yaml");
   fs.mkdirSync(path.dirname(target), { recursive: true });
@@ -39,7 +45,7 @@ if (process.argv.includes("/gentle-sdd-init")) {
 } else {
   const packageDir = path.join(home, "npm", "node_modules", "gentle-pi");
   fs.mkdirSync(packageDir, { recursive: true });
-  fs.writeFileSync(path.join(packageDir, "package.json"), JSON.stringify({ version: process.argv.includes("update") ? "3.8.0" : "3.7.0" }));
+  fs.writeFileSync(path.join(packageDir, "package.json"), JSON.stringify({ version: process.argv.includes("update") ? "3.8.0" : "3.4.0" }));
   fs.writeFileSync(path.join(home, "settings.json"), JSON.stringify({ packages: ["npm:gentle-pi"] }));
 }
 `,
@@ -51,21 +57,158 @@ if (process.argv.includes("/gentle-sdd-init")) {
             : `#!/bin/sh\nexec '${process.execPath}' '${script}' "$@"\n`,
         );
         if (platform !== "win32") yield* fileSystem.chmod(binary, 0o755);
-        const gentle = makePiGentleSettings({
-          environment: {
-            PI_CODING_AGENT_DIR: agentHome,
-            GENTLE_PI_CONFIG_HOME: path.join(root, "config"),
-          },
+        const environment = {
+          PI_CODING_AGENT_DIR: agentHome,
+          GENTLE_PI_CONFIG_HOME: path.join(root, "config"),
+        };
+        const failing = yield* makePiGentleSettings({
+          environment: { ...environment, FAKE_PI_FAIL: "1" },
           piBinaryPath: binary,
           fileSystem,
           path,
           spawner,
         });
-        expect((yield* gentle.read()).available).toBe(false);
-        expect((yield* gentle.action({ type: "install" })).version).toBe("3.7.0");
-        expect((yield* gentle.action({ type: "update" })).version).toBe("3.8.0");
+        const installFailure = yield* Effect.flip(failing.action({ type: "install" }));
+        expect(installFailure.detail).toContain("Gentle AI install failed.");
+        expect(installFailure.detail).toContain("npm ERR! 404");
+
+        const gentle = yield* makePiGentleSettings({
+          environment,
+          piBinaryPath: binary,
+          fileSystem,
+          path,
+          spawner,
+        });
+        expect(yield* gentle.read()).toMatchObject({ available: false, version: null });
+        // An install older than the supported minimum is reported so it can be updated in place.
+        expect(yield* gentle.action({ type: "install" })).toMatchObject({
+          available: false,
+          version: "3.4.0",
+        });
+        // 3.8 is past the newest tested minor release, so settings carry a warning.
+        expect(yield* gentle.action({ type: "update" })).toMatchObject({
+          available: true,
+          version: "3.8.0",
+          compatibilityWarning: expect.stringContaining("Gentle AI 3.8 is newer"),
+        });
         yield* gentle.initializeSdd(cwd);
         expect(yield* fileSystem.exists(path.join(cwd, "openspec", "config.yaml"))).toBe(true);
+      }),
+    ),
+  );
+
+  it.effect("lists each active SDD change with its own native status", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+        const platform = yield* HostProcessPlatform;
+        const root = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-pi-gentle-sdd-" });
+        const cwd = path.join(root, "project");
+        const agentHome = path.join(root, "agent");
+        const changes = path.join(cwd, "openspec", "changes");
+        yield* fileSystem.makeDirectory(path.join(changes, "archive", "2026-01-01-old"), {
+          recursive: true,
+        });
+        yield* fileSystem.makeDirectory(path.join(changes, "fix-export"));
+        yield* fileSystem.makeDirectory(path.join(changes, "add-login"));
+        yield* fileSystem.writeFileString(path.join(changes, "notes.md"), "not a change\n");
+        yield* fileSystem.writeFileString(path.join(cwd, "openspec", "config.yaml"), "x: 1\n");
+        yield* fileSystem.makeDirectory(path.join(agentHome, "npm", "node_modules", "gentle-pi"), {
+          recursive: true,
+        });
+        yield* fileSystem.writeFileString(
+          path.join(agentHome, "npm", "node_modules", "gentle-pi", "package.json"),
+          encodeJson({ version: "3.7.0" }),
+        );
+        yield* fileSystem.writeFileString(
+          path.join(agentHome, "settings.json"),
+          encodeJson({ packages: ["npm:gentle-pi"] }),
+        );
+        // Mirrors the native `sdd-status [change] --cwd <dir> --json` output shape.
+        const script = path.join(root, "fake-gentle.cjs");
+        yield* fileSystem.writeFileString(
+          script,
+          `
+const path = require("node:path");
+if (process.env.FAKE_GENTLE_BROKEN) {
+  process.stdout.write("not json");
+  process.exit(0);
+}
+const args = process.argv.slice(3);
+const change = args[0] === "--cwd" ? null : args[0];
+const cwd = args[args.indexOf("--cwd") + 1];
+const next = { "add-login": "apply", "fix-export": "spec" };
+const deps = (value) => Object.fromEntries(["proposal", "specs", "design", "tasks", "apply", "verify", "archive"].map((key) => [key, value]));
+process.stdout.write(JSON.stringify({
+  schemaName: "gentle-ai.sdd-status",
+  schemaVersion: 2,
+  changeName: change,
+  artifactStore: "openspec",
+  planningHome: { mode: "repo-local", path: path.join(cwd, "openspec") },
+  nextRecommended: change ? next[change] : "select-change",
+  blockedReasons: [],
+  dependencies: deps(change === "add-login" ? "ready" : "blocked"),
+  actionContext: { mode: "repo-local", allowedEditRoots: [cwd] },
+  taskProgress: change === "add-login" ? { total: 3, completed: 1, pending: 2 } : { total: 0, completed: 0, pending: 0 },
+}));
+`,
+        );
+        const binary = path.join(root, platform === "win32" ? "fake-gentle.cmd" : "fake-gentle");
+        yield* fileSystem.writeFileString(
+          binary,
+          platform === "win32"
+            ? `@echo off\r\n"${process.execPath}" "${script}" %*\r\n`
+            : `#!/bin/sh\nexec '${process.execPath}' '${script}' "$@"\n`,
+        );
+        if (platform !== "win32") yield* fileSystem.chmod(binary, 0o755);
+
+        const gentle = yield* makePiGentleSettings({
+          environment: {
+            PI_CODING_AGENT_DIR: agentHome,
+            GENTLE_PI_CONFIG_HOME: path.join(root, "config"),
+          },
+          binaryPath: binary,
+          fileSystem,
+          path,
+          spawner,
+        });
+        expect(yield* gentle.readComposer(cwd)).toEqual({
+          available: true,
+          projectInitNeeded: false,
+        });
+        const listed: PiGentleComposerState = yield* gentle.readComposer(cwd, {
+          includeChanges: true,
+        });
+        expect(
+          listed.changes?.map((change) => [
+            change.changeName,
+            change.nextRecommended,
+            change.taskProgress.completed,
+          ]),
+        ).toEqual([
+          ["add-login", "apply", 1],
+          ["fix-export", "spec", 0],
+        ]);
+
+        const broken = yield* makePiGentleSettings({
+          environment: {
+            PI_CODING_AGENT_DIR: agentHome,
+            GENTLE_PI_CONFIG_HOME: path.join(root, "config"),
+            FAKE_GENTLE_BROKEN: "1",
+          },
+          binaryPath: binary,
+          fileSystem,
+          path,
+          spawner,
+        });
+        // A listing failure is reported in the payload, not as a failed read.
+        expect(yield* broken.readComposer(cwd, { includeChanges: true })).toEqual({
+          available: true,
+          projectInitNeeded: false,
+          changesError: "Gentle AI could not report SDD status.",
+        });
       }),
     ),
   );
@@ -100,7 +243,7 @@ if (process.argv.includes("/gentle-sdd-init")) {
           }),
         );
 
-        const gentle = makePiGentleSettings({
+        const gentle = yield* makePiGentleSettings({
           environment: {
             PI_CODING_AGENT_DIR: agentHome,
             GENTLE_PI_CONFIG_HOME: configHome,
@@ -144,9 +287,8 @@ if (process.argv.includes("/gentle-sdd-init")) {
           global: "neutral",
           override: null,
         });
-        expect(yield* gentle.readComposer(cwd)).toMatchObject({
+        expect(yield* gentle.readComposer(cwd)).toEqual({
           available: true,
-          sddStatus: null,
           projectInitNeeded: true,
         });
 
@@ -207,7 +349,19 @@ if (process.argv.includes("/gentle-sdd-init")) {
         const storedSdd = yield* fileSystem.readFileString(
           path.join(cwd, ".pi", "gentle-ai", "sdd-preflight.json"),
         );
-        expect(storedSdd).toContain('"prompted":false');
+        // Byte-identical to Gentle AI's own writer, so a committed copy stays clean in git.
+        expect(storedSdd).toBe(
+          [
+            "{",
+            '  "executionMode": "interactive",',
+            '  "artifactStore": "openspec",',
+            '  "chainedPrStrategy": "ask-on-risk",',
+            '  "reviewBudgetLines": 350,',
+            '  "engramAvailable": false,',
+            '  "prompted": false',
+            "}",
+          ].join("\n"),
+        );
 
         yield* fileSystem.writeFileString(
           path.join(cwd, ".pi", "gentle-ai", "sdd-preflight.json"),

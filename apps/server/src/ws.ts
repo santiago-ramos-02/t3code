@@ -570,6 +570,32 @@ const makeWsRpcLayer = (
       const providerMaintenanceRunner = yield* ProviderMaintenanceRunner.ProviderMaintenanceRunner;
       const providerAuth = yield* ProviderAuthService;
       const providerInstances = yield* ProviderInstanceRegistry;
+      type PiGentleService = NonNullable<
+        NonNullable<Effect.Success<ReturnType<typeof providerInstances.getInstance>>>["piGentle"]
+      >;
+      // Runs one Gentle AI operation on a Pi instance; any failure becomes a setup error.
+      const runPiGentle = <A, E extends { readonly message: string }>(
+        instanceId: Parameters<typeof providerInstances.getInstance>[0],
+        operation: string,
+        run: (gentle: PiGentleService) => Effect.Effect<A, E>,
+        options: { readonly requireEnabled?: boolean } = {},
+      ) =>
+        Effect.gen(function* () {
+          const instance = yield* providerInstances.getInstance(instanceId);
+          const gentle = instance?.piGentle;
+          if (!gentle || (options.requireEnabled && !instance.enabled)) {
+            return yield* new ProviderSetupError({
+              instanceId,
+              operation,
+              detail: "This provider is not an available Pi instance.",
+            });
+          }
+          return yield* run(gentle).pipe(
+            Effect.mapError(
+              (cause) => new ProviderSetupError({ instanceId, operation, detail: cause.message }),
+            ),
+          );
+        });
       const providerInstallation = yield* makeProviderInstallation();
       const serverUpdate = yield* ServerSelfUpdate.ServerSelfUpdate;
       const config = yield* ServerConfig.ServerConfig;
@@ -2458,126 +2484,37 @@ const makeWsRpcLayer = (
         [WS_METHODS.providerPiGentleRead]: (input) =>
           observeRpcEffect(
             WS_METHODS.providerPiGentleRead,
-            Effect.gen(function* () {
-              const instance = yield* providerInstances.getInstance(input.instanceId);
-              const gentle = instance?.piGentle;
-              if (!gentle) {
-                return yield* new ProviderSetupError({
-                  instanceId: input.instanceId,
-                  operation: "pi-gentle-read",
-                  detail: "This provider is not a Pi instance.",
-                });
-              }
-              return yield* gentle.read(input.cwd).pipe(
-                Effect.mapError(
-                  (cause) =>
-                    new ProviderSetupError({
-                      instanceId: input.instanceId,
-                      operation: "pi-gentle-read",
-                      detail:
-                        cause instanceof Error
-                          ? cause.message
-                          : "Could not read Gentle AI settings.",
-                    }),
-                ),
-              );
-            }),
+            runPiGentle(input.instanceId, "pi-gentle-read", (gentle) => gentle.read(input.cwd)),
             { "rpc.aggregate": "provider" },
           ),
         [WS_METHODS.providerPiGentleComposerRead]: (input) =>
           observeRpcEffect(
             WS_METHODS.providerPiGentleComposerRead,
-            Effect.gen(function* () {
-              const instance = yield* providerInstances.getInstance(input.instanceId);
-              const gentle = instance?.piGentle;
-              if (!gentle) {
-                return yield* new ProviderSetupError({
-                  instanceId: input.instanceId,
-                  operation: "pi-gentle-composer-read",
-                  detail: "This provider is not a Pi instance.",
-                });
-              }
-              return yield* gentle.readComposer(input.cwd).pipe(
-                Effect.mapError(
-                  (cause) =>
-                    new ProviderSetupError({
-                      instanceId: input.instanceId,
-                      operation: "pi-gentle-composer-read",
-                      detail:
-                        cause instanceof Error ? cause.message : "Could not read Gentle AI status.",
-                    }),
-                ),
-              );
-            }),
+            runPiGentle(input.instanceId, "pi-gentle-composer-read", (gentle) =>
+              gentle.readComposer(input.cwd, { includeChanges: input.includeChanges === true }),
+            ),
             { "rpc.aggregate": "provider" },
           ),
         [WS_METHODS.providerPiGentleAction]: (input) =>
           observeRpcEffect(
             WS_METHODS.providerPiGentleAction,
-            Effect.gen(function* () {
-              const instance = yield* providerInstances.getInstance(input.instanceId);
-              const gentle = instance?.piGentle;
-              if (!gentle) {
-                return yield* new ProviderSetupError({
-                  instanceId: input.instanceId,
-                  operation: "pi-gentle-action",
-                  detail: "This provider is not a Pi instance.",
-                });
-              }
-              return yield* gentle.action(input.action).pipe(
-                Effect.mapError(
-                  (cause) =>
-                    new ProviderSetupError({
-                      instanceId: input.instanceId,
-                      operation: "pi-gentle-action",
-                      detail:
-                        cause instanceof Error
-                          ? cause.message
-                          : "Could not update Gentle AI settings.",
-                    }),
-                ),
-              );
-            }),
+            runPiGentle(input.instanceId, "pi-gentle-action", (gentle) =>
+              gentle.action(input.action),
+            ),
             { "rpc.aggregate": "provider" },
           ),
         [WS_METHODS.providerPiGentleInitialize]: (input) =>
           observeRpcEffect(
             WS_METHODS.providerPiGentleInitialize,
-            Effect.gen(function* () {
-              const instance = yield* providerInstances.getInstance(input.instanceId);
-              const gentle = instance?.piGentle;
-              if (!gentle || !instance.enabled) {
-                return yield* new ProviderSetupError({
-                  instanceId: input.instanceId,
-                  operation: "pi-gentle-initialize",
-                  detail: "This Pi instance is unavailable.",
-                });
-              }
-              yield* gentle.initializeSdd(input.cwd, input.command).pipe(
-                Effect.mapError(
-                  (cause) =>
-                    new ProviderSetupError({
-                      instanceId: input.instanceId,
-                      operation: "pi-gentle-initialize",
-                      detail:
-                        cause instanceof Error ? cause.message : "Could not set up Gentle SDD.",
-                    }),
-                ),
-              );
-              return yield* gentle.readComposer(input.cwd).pipe(
-                Effect.mapError(
-                  (cause) =>
-                    new ProviderSetupError({
-                      instanceId: input.instanceId,
-                      operation: "pi-gentle-initialize",
-                      detail:
-                        cause instanceof Error
-                          ? cause.message
-                          : "Could not read Gentle SDD status.",
-                    }),
-                ),
-              );
-            }),
+            runPiGentle(
+              input.instanceId,
+              "pi-gentle-initialize",
+              (gentle) =>
+                gentle
+                  .initializeSdd(input.cwd, input.command)
+                  .pipe(Effect.andThen(gentle.readComposer(input.cwd))),
+              { requireEnabled: true },
+            ),
             { "rpc.aggregate": "provider" },
           ),
         [WS_METHODS.providerConsumeResetCredit]: (input) =>

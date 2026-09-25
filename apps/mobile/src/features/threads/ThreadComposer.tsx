@@ -1,6 +1,9 @@
 import type { ComposerTextPaste } from "../../native/T3ComposerEditor.types";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
-import { gentleComposerAction } from "@t3tools/client-runtime/piGentleComposer";
+import {
+  gentleSddChangeStep,
+  gentleSddTaskSummary,
+} from "@t3tools/client-runtime/piGentleComposer";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -62,6 +65,9 @@ import { scopedThreadKey } from "../../lib/scopedEntities";
 import {
   composerContextImportsAtom,
   countComposerDraftAttachmentsAfterSelection,
+  createNewTaskDraft,
+  setComposerDraftText,
+  updateComposerDraftSettings,
 } from "../../state/use-composer-drafts";
 import type { ComposerDocumentAttachment } from "../../lib/composerContext";
 import { useProject } from "../../state/entities";
@@ -363,7 +369,12 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     let current = true;
     void readGentle({
       environmentId: props.environmentId,
-      input: { instanceId: currentModelSelection.instanceId, cwd: props.projectCwd },
+      // Native menus cannot load after opening, so mobile reads the change list up front.
+      input: {
+        instanceId: currentModelSelection.instanceId,
+        cwd: props.projectCwd,
+        includeChanges: true,
+      },
     }).then((result) => {
       if (!current) return;
       if (result._tag === "Success") {
@@ -391,53 +402,92 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     props.projectCwd,
     readGentle,
   ]);
-  const gentleStatus = gentleLoaded?.key === gentleKey ? gentleLoaded.value.sddStatus : null;
-  const gentleAvailable = gentleLoaded?.key === gentleKey && gentleLoaded.value.available;
+  const gentleState = gentleLoaded?.key === gentleKey ? gentleLoaded.value : null;
+  const gentleAvailable = gentleState?.available === true;
   const gentleEnabled =
     currentModelSelection.options?.find((option) => option.id === "gentleAi")?.value !== false;
   const canChangeGentle = props.selectedThread.latestTurn === null;
-  const gentleAction =
-    gentleLoaded?.key === gentleKey ? gentleComposerAction(gentleLoaded.value) : null;
+  const gentleChanges = gentleState?.changes ?? [];
+  const gentleChangesError = gentleState?.changesError;
   const showGentleControls =
     isPiThread &&
     props.connectionState === "connected" &&
     (gentleAvailable || gentleError?.key === gentleKey);
-  const showGentleStatus = () => {
-    const details = gentleStatus
-      ? [
-          `Change: ${gentleStatus.changeName ?? "No active change"}`,
-          `Next step: ${gentleAction?.label ?? gentleStatus.nextRecommended}`,
-          ...(gentleAction?.reason ? [gentleAction.reason] : []),
-          ...(gentleStatus.taskProgress.total > 0
-            ? [
-                `Tasks: ${gentleStatus.taskProgress.completed} of ${gentleStatus.taskProgress.total} complete`,
-              ]
-            : []),
-          ...(gentleStatus.nextRecommended === "sdd-new" ||
-          gentleStatus.nextRecommended === "archived"
-            ? []
-            : gentleStatus.blockedReasons),
-        ].join("\n")
-      : gentleError?.key === gentleKey
-        ? gentleError.message
-        : "SDD status is unavailable from this Gentle AI installation.";
-    Alert.alert("Gentle SDD status", details);
+  // Hands an SDD phase to a new task draft in this project with Gentle on; the user sends it.
+  const startGentleSddTask = (prompt: string) => {
+    const draftKey = createNewTaskDraft({
+      environmentId: props.environmentId,
+      projectId: props.selectedThread.projectId,
+    });
+    updateComposerDraftSettings(draftKey, {
+      modelSelection: {
+        ...currentModelSelection,
+        options: [
+          ...(currentModelSelection.options?.filter((option) => option.id !== "gentleAi") ?? []),
+          { id: "gentleAi", value: true },
+        ],
+      },
+    });
+    setComposerDraftText(draftKey, prompt);
+    navigation.navigate("NewTaskSheet", {
+      screen: "NewTaskDraft",
+      params: {
+        environmentId: String(props.environmentId),
+        projectId: String(props.selectedThread.projectId),
+        draftId: draftKey,
+      },
+    });
   };
   const gentleMenuActions: MenuAction[] = [
-    ...(canChangeGentle
+    canChangeGentle
+      ? { id: "enable", title: "Enable", state: gentleEnabled ? "on" : "off" }
+      : {
+          id: "enabled-state",
+          title: gentleEnabled ? "On for this thread" : "Off for this thread",
+          attributes: { disabled: true },
+        },
+    ...(gentleAvailable && gentleState.projectInitNeeded
+      ? [{ id: "setup", title: "Set up SDD", image: "doc.text" }]
+      : []),
+    ...(gentleAvailable && !gentleState.projectInitNeeded
       ? [
           {
-            id: "enable",
-            title: "Enable",
-            state: gentleEnabled ? ("on" as const) : ("off" as const),
+            id: "sdd",
+            title: "SDD changes",
+            image: "doc.text",
+            subactions: [
+              ...gentleChanges.map((change) => {
+                const step = gentleSddChangeStep(change);
+                return {
+                  id: `sdd:${change.changeName}`,
+                  title: change.changeName,
+                  subtitle: [
+                    step.kind === "ready" ? `Next: ${step.label}` : step.label,
+                    gentleSddTaskSummary(change),
+                    step.kind === "blocked" ? step.reason : null,
+                  ]
+                    .filter((part) => part !== null)
+                    .join(" · "),
+                  ...(step.kind === "ready" ? {} : { attributes: { disabled: true } }),
+                };
+              }),
+              ...(gentleChangesError !== undefined
+                ? [
+                    {
+                      id: "sdd-unavailable",
+                      title: "Changes unavailable",
+                      subtitle: gentleChangesError,
+                      attributes: { disabled: true },
+                    },
+                  ]
+                : []),
+              { id: "sdd-new", title: "New change", image: "plus" },
+            ],
           },
         ]
       : []),
-    ...(gentleEnabled && gentleAvailable && gentleLoaded.value.projectInitNeeded
-      ? [{ id: "setup", title: "Set up SDD", image: "doc.text" }]
-      : []),
-    ...(gentleEnabled && gentleStatus && !gentleLoaded?.value.projectInitNeeded
-      ? [{ id: "status", title: "View SDD status", image: "doc.text" }]
+    ...(gentleError?.key === gentleKey
+      ? [{ id: "error", title: "View Gentle AI error", image: "exclamationmark.triangle" }]
       : []),
     { id: "refresh", title: "Refresh status", image: "arrow.clockwise" },
   ];
@@ -818,8 +868,8 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                     },
                   }).then((result) => {
                     if (result._tag === "Success") {
-                      setGentleLoaded({ key: gentleKey, value: result.value });
-                      setGentleError(null);
+                      // Re-read so the menu also gets the (now listable) SDD changes.
+                      setGentleRefresh((value) => value + 1);
                     } else if (!isAtomCommandInterrupted(result)) {
                       const failure = squashAtomCommandFailure(result);
                       Alert.alert(
@@ -829,12 +879,24 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                     }
                   });
                 }
-                if (nativeEvent.event === "status") showGentleStatus();
+                if (nativeEvent.event === "sdd-new") {
+                  startGentleSddTask("Use SDD to propose a new OpenSpec change for: ");
+                }
+                if (nativeEvent.event.startsWith("sdd:")) {
+                  const change = gentleChanges.find(
+                    (entry) => `sdd:${entry.changeName}` === nativeEvent.event,
+                  );
+                  const step = change ? gentleSddChangeStep(change) : null;
+                  if (step?.kind === "ready") startGentleSddTask(step.prompt);
+                }
+                if (nativeEvent.event === "error" && gentleError?.key === gentleKey) {
+                  Alert.alert("Gentle AI", gentleError.message);
+                }
                 if (nativeEvent.event === "refresh") setGentleRefresh((value) => value + 1);
               }}
             >
               <ComposerInlineControl
-                label="Gentle AI"
+                label={gentleEnabled ? "Gentle AI" : "Gentle AI off"}
                 iconNode={<GentleRoseIcon color={materialTheme["--color-foreground"]} />}
                 maxWidth={125}
               />

@@ -605,11 +605,7 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
             .readFile(path)
             .pipe(Effect.mapError((cause) => new PiAdapterAttachmentReadError({ cause }))),
         plainExtensionArgs: (cwd) =>
-          plainPiExtensionArgs({
-            cwd,
-            environment: processEnv,
-            bridgePath: piMcpExtensionPath,
-          }).pipe(
+          plainPiExtensionArgs({ cwd, environment: processEnv }).pipe(
             Effect.provideService(FileSystem.FileSystem, fileSystem),
             Effect.provideService(Path.Path, path),
             Effect.mapError(
@@ -626,7 +622,7 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
         environment: processEnv,
         rpcFactory,
       });
-      const piGentleSettings = makePiGentleSettings({
+      const piGentle = yield* makePiGentleSettings({
         environment: processEnv,
         piBinaryPath: effectiveConfig.binaryPath,
         binaryPath: effectiveConfig.gentleAiBinaryPath,
@@ -634,7 +630,6 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
         path,
         spawner,
       });
-      const piGentle = piGentleSettings;
 
       return {
         instanceId,

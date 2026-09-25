@@ -67,16 +67,28 @@ export const PiGentleSddStatus = Schema.Struct({
 });
 export type PiGentleSddStatus = typeof PiGentleSddStatus.Type;
 
+/** Native SDD status of one active OpenSpec change in a project. */
+export const PiGentleSddChange = Schema.Struct({
+  ...PiGentleSddStatus.fields,
+  changeName: Schema.String,
+});
+export type PiGentleSddChange = typeof PiGentleSddChange.Type;
+
 export const PiGentleComposerState = Schema.Struct({
   available: Schema.Boolean,
-  sddStatus: Schema.NullOr(PiGentleSddStatus),
   projectInitNeeded: Schema.Boolean,
+  // When changes are requested, exactly one of these is present: the project's active changes,
+  // or why Gentle AI could not list them.
+  changes: Schema.optionalKey(Schema.Array(PiGentleSddChange)),
+  changesError: Schema.optionalKey(Schema.String),
 });
 export type PiGentleComposerState = typeof PiGentleComposerState.Type;
 
 export const PiGentleComposerReadInput = Schema.Struct({
   instanceId: ProviderInstanceId,
   cwd: TrimmedNonEmptyString,
+  // Listing changes runs Gentle AI once per change, so clients ask only when showing them.
+  includeChanges: Schema.optionalKey(Schema.Boolean),
 });
 
 export const PiGentleInitializeInput = Schema.Struct({
@@ -88,6 +100,8 @@ export const PiGentleInitializeInput = Schema.Struct({
 export const PiGentleState = Schema.Struct({
   available: Schema.Boolean,
   version: Schema.NullOr(Schema.String),
+  // Set when the installed Gentle AI is newer than the releases T3 Code was tested with.
+  compatibilityWarning: Schema.optionalKey(Schema.String),
   globalPersona: Schema.optionalKey(PiGentlePersona),
   profiles: Schema.Array(Schema.Struct({ name: Schema.String, routing: PiGentleRouting })),
   active: Schema.NullOr(Schema.String),

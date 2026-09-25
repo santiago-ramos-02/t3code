@@ -1,16 +1,32 @@
-import { gentleComposerAction } from "@t3tools/client-runtime/piGentleComposer";
+import {
+  gentleSddChangeStep,
+  gentleSddTaskSummary,
+} from "@t3tools/client-runtime/piGentleComposer";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import type { EnvironmentId, PiGentleComposerState, ProviderInstanceId } from "@t3tools/contracts";
-import { ChevronDownIcon, ClipboardListIcon, RefreshCwIcon } from "lucide-react";
+import type {
+  EnvironmentId,
+  PiGentleComposerState,
+  PiGentleSddChange,
+  ProviderInstanceId,
+} from "@t3tools/contracts";
+import { ChevronDownIcon, ClipboardListIcon, PlusIcon, RefreshCwIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { GentleRoseIcon } from "../GentleRoseIcon";
-import { Dialog, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from "../ui/dialog";
+import { Button } from "../ui/button";
+import {
+  Dialog,
+  DialogDescription,
+  DialogHeader,
+  DialogPanel,
+  DialogPopup,
+  DialogTitle,
+} from "../ui/dialog";
 import {
   Menu,
   MenuCheckboxItem,
@@ -19,9 +35,17 @@ import {
   MenuSeparator,
   MenuTrigger,
 } from "../ui/menu";
+import { Spinner } from "../ui/spinner";
 import { ComposerBanner } from "./ComposerBanner";
 import { useComposerMenuProps } from "./composerEventScope";
 
+// Opens a new change: the user finishes the sentence with the goal.
+const NEW_CHANGE_PROMPT = "Use SDD to propose a new OpenSpec change for: ";
+
+/**
+ * Gentle AI entry point in a Pi thread's composer: the per-thread Enable choice, project SDD
+ * setup, and the project's SDD changes. Each ready change hands its phase to a new thread.
+ */
 export function GentleComposerActions({
   environmentId,
   instanceId,
@@ -29,6 +53,7 @@ export function GentleComposerActions({
   enabled,
   canChange,
   onEnabledChange,
+  onStartSddThread,
 }: {
   readonly environmentId: EnvironmentId;
   readonly instanceId: ProviderInstanceId;
@@ -36,6 +61,7 @@ export function GentleComposerActions({
   readonly enabled: boolean;
   readonly canChange: boolean;
   readonly onEnabledChange: (enabled: boolean) => void;
+  readonly onStartSddThread: (prompt: string) => void;
 }) {
   const read = useAtomCommand(serverEnvironment.readPiGentleComposer, {
     reportFailure: false,
@@ -48,7 +74,12 @@ export function GentleComposerActions({
   const [refresh, setRefresh] = useState(0);
   const [loaded, setLoaded] = useState<PiGentleComposerState | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [statusOpen, setStatusOpen] = useState(false);
+  const [errorOpen, setErrorOpen] = useState(false);
+  const [changesOpen, setChangesOpen] = useState(false);
+  const [changes, setChanges] = useState<{
+    readonly list: ReadonlyArray<PiGentleSddChange>;
+    readonly error: string | null;
+  } | null>(null);
   const [settingUp, setSettingUp] = useState(false);
   const floatingLayer = useComposerMenuProps();
   const requestKey = `${environmentId}:${instanceId}:${cwd}:${refresh}`;
@@ -71,10 +102,38 @@ export function GentleComposerActions({
     };
   }, [cwd, environmentId, instanceId, read, requestKey]);
 
+  // Listing runs Gentle AI once per change, so it happens only while the dialog is open.
+  useEffect(() => {
+    if (!changesOpen) return;
+    let current = true;
+    void read({ environmentId, input: { instanceId, cwd, includeChanges: true } }).then(
+      (result) => {
+        if (!current) return;
+        if (result._tag === "Success") {
+          setChanges({
+            list: result.value.changes ?? [],
+            error: result.value.changesError ?? null,
+          });
+        } else if (!isAtomCommandInterrupted(result)) {
+          const failure = squashAtomCommandFailure(result);
+          setChanges({
+            list: [],
+            error: failure instanceof Error ? failure.message : "Could not read SDD changes.",
+          });
+        }
+      },
+    );
+    return () => {
+      current = false;
+    };
+  }, [changesOpen, cwd, environmentId, instanceId, read]);
+
   if (loaded?.available !== true && error === null) return null;
-  const status = loaded?.sddStatus ?? null;
-  const guidance = loaded ? gentleComposerAction(loaded) : null;
   const needsSetup = loaded?.projectInitNeeded === true;
+  const startThread = (prompt: string) => {
+    setChangesOpen(false);
+    onStartSddThread(prompt);
+  };
 
   return (
     <ComposerBanner.Root
@@ -90,6 +149,7 @@ export function GentleComposerActions({
               <ComposerBanner.Row
                 render={<button type="button" />}
                 aria-label="Gentle AI actions"
+                data-composer-shortcut="composer.gentle"
                 className="text-muted-foreground transition-colors duration-200 hover:text-foreground data-popup-open:text-foreground"
               />
             }
@@ -97,31 +157,23 @@ export function GentleComposerActions({
             <ComposerBanner.Icon className="[&>svg]:size-5">
               <GentleRoseIcon />
             </ComposerBanner.Icon>
-            <ComposerBanner.Content>Gentle AI</ComposerBanner.Content>
+            <ComposerBanner.Content>
+              {enabled ? "Gentle AI" : "Gentle AI off"}
+            </ComposerBanner.Content>
             <ComposerBanner.Actions>
               <ChevronDownIcon className="size-3 opacity-60" aria-hidden />
             </ComposerBanner.Actions>
           </MenuTrigger>
           <MenuPopup align="end" side="top" {...floatingLayer}>
             {canChange ? (
-              <>
-                <MenuCheckboxItem checked={enabled} onCheckedChange={onEnabledChange}>
-                  Enable
-                </MenuCheckboxItem>
-                <MenuSeparator />
-              </>
-            ) : null}
-            {enabled && status && !loaded?.projectInitNeeded ? (
-              <MenuItem onClick={() => setStatusOpen(true)}>
-                <ClipboardListIcon aria-hidden /> View SDD status
-              </MenuItem>
-            ) : null}
-            {enabled && loaded?.available && status === null ? (
-              <MenuItem onClick={() => setStatusOpen(true)}>
-                <ClipboardListIcon aria-hidden /> SDD status unavailable
-              </MenuItem>
-            ) : null}
-            {enabled && needsSetup ? (
+              <MenuCheckboxItem checked={enabled} onCheckedChange={onEnabledChange}>
+                Enable
+              </MenuCheckboxItem>
+            ) : (
+              <MenuItem disabled>{enabled ? "On for this thread" : "Off for this thread"}</MenuItem>
+            )}
+            <MenuSeparator />
+            {loaded?.available && needsSetup ? (
               <MenuItem
                 disabled={settingUp}
                 onClick={() => {
@@ -138,7 +190,7 @@ export function GentleComposerActions({
                       setError(
                         failure instanceof Error ? failure.message : "Could not set up SDD.",
                       );
-                      setStatusOpen(true);
+                      setErrorOpen(true);
                     }
                     setSettingUp(false);
                   });
@@ -147,8 +199,18 @@ export function GentleComposerActions({
                 <ClipboardListIcon aria-hidden /> {settingUp ? "Setting up SDD…" : "Set up SDD"}
               </MenuItem>
             ) : null}
+            {loaded?.available && !needsSetup ? (
+              <MenuItem
+                onClick={() => {
+                  setChanges(null);
+                  setChangesOpen(true);
+                }}
+              >
+                <ClipboardListIcon aria-hidden /> SDD changes
+              </MenuItem>
+            ) : null}
             {error ? (
-              <MenuItem onClick={() => setStatusOpen(true)}>
+              <MenuItem onClick={() => setErrorOpen(true)}>
                 <ClipboardListIcon aria-hidden /> View Gentle AI error
               </MenuItem>
             ) : null}
@@ -157,45 +219,88 @@ export function GentleComposerActions({
             </MenuItem>
           </MenuPopup>
         </Menu>
-        <Dialog open={statusOpen} onOpenChange={setStatusOpen}>
+        <Dialog open={errorOpen} onOpenChange={setErrorOpen}>
           <DialogPopup {...floatingLayer} className="max-w-md">
             <DialogHeader>
-              <DialogTitle>Gentle SDD status</DialogTitle>
+              <DialogTitle>Gentle AI</DialogTitle>
             </DialogHeader>
             <DialogPanel>
-              {error ? <p className="text-sm text-destructive">{error}</p> : null}
-              {status ? (
-                <div className="space-y-2 text-sm">
-                  <p>Change: {status.changeName ?? "No active change"}</p>
-                  <p>Next step: {guidance?.label ?? status.nextRecommended}</p>
-                  {guidance?.reason ? <p>{guidance.reason}</p> : null}
-                  {status.taskProgress.total > 0 ? (
-                    <p>
-                      Tasks: {status.taskProgress.completed} of {status.taskProgress.total} complete
-                    </p>
-                  ) : null}
-                  {status.blockedReasons.length > 0 &&
-                  status.nextRecommended !== "sdd-new" &&
-                  status.nextRecommended !== "archived" ? (
-                    <div>
-                      <p className="font-medium">Status details</p>
-                      <ul className="list-disc space-y-1 pl-5">
-                        {status.blockedReasons.map((reason) => (
-                          <li key={reason}>{reason}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : null}
+              <p className="text-sm text-destructive">{error}</p>
+            </DialogPanel>
+          </DialogPopup>
+        </Dialog>
+        <Dialog open={changesOpen} onOpenChange={setChangesOpen}>
+          <DialogPopup {...floatingLayer} className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>SDD changes</DialogTitle>
+              <DialogDescription>
+                Each phase starts in a new thread with Gentle AI on.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogPanel>
+              <div className="space-y-3">
+                {changes === null ? (
+                  <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Spinner className="size-3.5" /> Reading changes
+                  </p>
+                ) : changes.error !== null ? (
+                  <p className="text-sm text-destructive">{changes.error}</p>
+                ) : changes.list.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No active changes.</p>
+                ) : (
+                  <ul className="divide-y divide-border/60">
+                    {changes.list.map((change) => (
+                      <SddChangeRow key={change.changeName} change={change} onStart={startThread} />
+                    ))}
+                  </ul>
+                )}
+                <div className="flex justify-end">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => startThread(NEW_CHANGE_PROMPT)}
+                  >
+                    <PlusIcon className="size-3" />
+                    New change
+                  </Button>
                 </div>
-              ) : error === null ? (
-                <p className="text-sm text-muted-foreground">
-                  SDD status is unavailable from this Gentle AI installation.
-                </p>
-              ) : null}
+              </div>
             </DialogPanel>
           </DialogPopup>
         </Dialog>
       </div>
     </ComposerBanner.Root>
+  );
+}
+
+function SddChangeRow({
+  change,
+  onStart,
+}: {
+  readonly change: PiGentleSddChange;
+  readonly onStart: (prompt: string) => void;
+}) {
+  const step = gentleSddChangeStep(change);
+  const detail = [
+    step.kind === "ready" ? `Next: ${step.label}` : step.label,
+    gentleSddTaskSummary(change),
+  ]
+    .filter((part) => part !== null)
+    .join(" · ");
+  return (
+    <li className="flex items-center justify-between gap-4 py-2 first:pt-0 last:pb-0">
+      <div className="min-w-0">
+        <p className="truncate font-mono text-sm">{change.changeName}</p>
+        <p className="text-xs text-muted-foreground">{detail}</p>
+        {step.kind === "blocked" ? (
+          <p className="text-xs text-muted-foreground">{step.reason}</p>
+        ) : null}
+      </div>
+      {step.kind === "ready" ? (
+        <Button size="sm" variant="outline" onClick={() => onStart(step.prompt)}>
+          {step.label}
+        </Button>
+      ) : null}
+    </li>
   );
 }

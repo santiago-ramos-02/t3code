@@ -79,6 +79,7 @@ export interface ProviderInstance {
     ) => Effect.Effect<PiGentleState, import("./PiGentleSettings.ts").PiGentleSettingsError>;
     readonly readComposer: (
       cwd: string,
+      options?: { readonly includeChanges?: boolean },
     ) => Effect.Effect<
       PiGentleComposerState,
       import("./PiGentleSettings.ts").PiGentleSettingsError

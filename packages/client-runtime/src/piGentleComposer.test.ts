@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vite-plus/test";
-import type { PiGentleComposerState, PiGentleSddStatus } from "@t3tools/contracts";
+import type { PiGentleSddChange } from "@t3tools/contracts";
 
-import { gentleComposerAction } from "./piGentleComposer.ts";
+import { gentleSddChangeStep, gentleSddTaskSummary } from "./piGentleComposer.ts";
 
-const status = (nextRecommended: PiGentleSddStatus["nextRecommended"]): PiGentleSddStatus => ({
+const change = (
+  nextRecommended: PiGentleSddChange["nextRecommended"],
+  overrides: Partial<PiGentleSddChange> = {},
+): PiGentleSddChange => ({
   changeName: "checkout-flow",
   artifactStore: "openspec",
   nextRecommended,
@@ -20,98 +23,60 @@ const status = (nextRecommended: PiGentleSddStatus["nextRecommended"]): PiGentle
   actionContext: { mode: "repo-local", allowedEditRoots: ["/repo"] },
   remediationState: { required: true, complete: false, failedEvidenceRevision: "rev-1" },
   taskProgress: { total: 2, completed: 1, pending: 1 },
+  ...overrides,
 });
 
-const state = (nextRecommended: PiGentleSddStatus["nextRecommended"]): PiGentleComposerState => ({
-  available: true,
-  projectInitNeeded: false,
-  sddStatus: status(nextRecommended),
-});
-
-describe("Gentle composer action", () => {
-  it("asks for the goal when there is no SDD change", () => {
-    expect(
-      gentleComposerAction({
-        ...state("sdd-new"),
-        sddStatus: { ...status("sdd-new"), changeName: null },
-      }),
-    ).toEqual({
-      kind: "start",
-      label: "Ready for a new SDD change",
+describe("Gentle SDD change step", () => {
+  it("offers the native next phase with an explicit SDD prompt for that change", () => {
+    expect(gentleSddChangeStep(change("apply"))).toEqual({
+      kind: "ready",
+      label: "Implement",
+      prompt:
+        "SDD checkout-flow: run the apply phase. Continue the SDD workflow for the OpenSpec change `checkout-flow`.",
+    });
+    expect(gentleSddChangeStep(change("spec"))).toMatchObject({
+      kind: "ready",
+      label: "Write specs",
     });
   });
 
-  it("uses the native next phase without inferring a route from task progress", () => {
-    expect(gentleComposerAction(state("verify"))).toEqual({
-      kind: "continue",
-      label: "Next: verification",
+  it("gates a phase on its own dependency, reported blockers, and editable scope", () => {
+    const blockedApply = change("apply", {
+      dependencies: { ...change("apply").dependencies, apply: "blocked" },
     });
-  });
-
-  it("does not present a phase when Gentle needs a change choice or reports blockers", () => {
-    expect(gentleComposerAction(state("select-change"))).toEqual({
-      kind: "select-change",
-      label: "Choose an SDD change",
-    });
-    expect(gentleComposerAction(state("resolve-blockers"))?.kind).toBe("blocked");
-    expect(
-      gentleComposerAction({
-        ...state("apply"),
-        sddStatus: { ...status("apply"), changeName: null },
-      })?.kind,
-    ).toBe("blocked");
-  });
-
-  it("offers setup before a new change and hides it when the command is missing", () => {
-    expect(gentleComposerAction({ ...state("sdd-new"), projectInitNeeded: true })).toEqual({
-      kind: "setup",
-      label: "Set up SDD",
+    expect(gentleSddChangeStep(blockedApply)).toMatchObject({
+      kind: "blocked",
+      reason: "Waiting for an earlier phase.",
     });
     expect(
-      gentleComposerAction({ ...state("sdd-new"), projectInitNeeded: true }, false)?.kind,
+      gentleSddChangeStep(change("verify", { blockedReasons: ["Tests are failing."] })),
+    ).toMatchObject({ kind: "blocked", reason: "Tests are failing." });
+    expect(
+      gentleSddChangeStep(
+        change("apply", { actionContext: { mode: "repo-local", allowedEditRoots: [] } }),
+      ).kind,
+    ).toBe("blocked");
+    expect(gentleSddChangeStep(change("resolve-blockers")).kind).toBe("blocked");
+  });
+
+  it("offers remediation only while a failed verification awaits a fix", () => {
+    expect(gentleSddChangeStep(change("remediate")).kind).toBe("ready");
+    expect(
+      gentleSddChangeStep(
+        change("remediate", {
+          remediationState: { required: true, complete: true, failedEvidenceRevision: "rev-1" },
+        }),
+      ).kind,
     ).toBe("blocked");
   });
 
-  it("gates phases on their own dependency, blockers, and editable scope", () => {
-    const blockedApply = {
-      ...status("apply"),
-      dependencies: { ...status("apply").dependencies, apply: "blocked" as const },
-    };
-    expect(gentleComposerAction({ ...state("apply"), sddStatus: blockedApply })?.kind).toBe(
-      "blocked",
-    );
+  it("treats archived changes as done and summarizes task progress", () => {
+    expect(gentleSddChangeStep(change("archived"))).toEqual({ kind: "done", label: "Archived" });
+    expect(gentleSddTaskSummary(change("apply"))).toBe("1 of 2 tasks");
     expect(
-      gentleComposerAction({
-        ...state("spec"),
-        sddStatus: {
-          ...status("spec"),
-          dependencies: { ...status("spec").dependencies, apply: "blocked" },
-        },
-      })?.kind,
-    ).toBe("continue");
-    expect(
-      gentleComposerAction({
-        ...state("verify"),
-        sddStatus: { ...status("verify"), blockedReasons: ["Approval needed"] },
-      })?.kind,
-    ).toBe("blocked");
-    expect(
-      gentleComposerAction({
-        ...state("verify"),
-        sddStatus: {
-          ...status("verify"),
-          actionContext: { mode: "workspace-planning", allowedEditRoots: [] },
-        },
-      })?.kind,
-    ).toBe("blocked");
-    expect(
-      gentleComposerAction({
-        ...state("remediate"),
-        sddStatus: {
-          ...status("remediate"),
-          remediationState: { required: false, complete: false, failedEvidenceRevision: "" },
-        },
-      })?.kind,
-    ).toBe("blocked");
+      gentleSddTaskSummary(
+        change("spec", { taskProgress: { total: 0, completed: 0, pending: 0 } }),
+      ),
+    ).toBeNull();
   });
 });

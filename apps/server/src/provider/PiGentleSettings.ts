@@ -1,6 +1,7 @@
 import * as NodeCrypto from "node:crypto";
 import * as NodeOS from "node:os";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import { compareSemverVersions } from "@t3tools/shared/semver";
 import {
   PiGentleActionInput,
   PiGentlePersona,
@@ -9,8 +10,11 @@ import {
   PiGentleSddPreferences,
   PiGentleSddStatus,
   type PiGentleComposerState,
+  type PiGentleSddChange,
   type PiGentleState,
 } from "@t3tools/contracts";
+import * as Cache from "effect/Cache";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
@@ -19,6 +23,20 @@ import * as ChildProcess from "effect/unstable/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 
+import { spawnAndCollect } from "./providerSnapshot.ts";
+
+// Oldest gentle-pi whose profile, persona, and SDD files T3 Code reads and writes.
+const MINIMUM_GENTLE_VERSION = "3.5.0";
+// Newest gentle-pi minor release T3 Code was verified against. T3 Code writes Gentle AI's own
+// config files, so a newer minor or major release may have changed what they mean.
+const NEWEST_TESTED_GENTLE_MINOR = "3.7";
+
+function gentleCompatibilityWarning(version: string): string | undefined {
+  const [major = "0", minor = "0"] = version.split(".");
+  return compareSemverVersions(`${major}.${minor}.0`, `${NEWEST_TESTED_GENTLE_MINOR}.0`) > 0
+    ? `Gentle AI ${major}.${minor} is newer than the ${NEWEST_TESTED_GENTLE_MINOR} releases T3 Code was tested with. Profile, persona, and SDD settings may not behave as expected.`
+    : undefined;
+}
 const PROFILE_KIND = "gentle-pi.agent_model_profiles";
 const PIN_KIND = "gentle-pi.agent_model_profile_pin";
 const PROFILE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
@@ -65,6 +83,10 @@ const StoredSdd = Schema.Struct({
 });
 const decodeJson = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown));
 const encodeJson = Schema.encodeUnknownEffect(Schema.fromJsonString(Schema.Unknown));
+// Gentle AI's own serialization of sdd-preflight.json (two-space indent, no trailing newline).
+const encodeGentleJson = Schema.encodeUnknownEffect(
+  Schema.fromJsonString(Schema.Unknown, { space: 2 }),
+);
 const decodeManifest = Schema.decodeUnknownEffect(PackageManifest);
 const decodePackageSettings = Schema.decodeUnknownEffect(PiPackageSettings);
 const decodePin = Schema.decodeUnknownEffect(ProfilePin);
@@ -75,8 +97,11 @@ const decodeNativeSddStatus = Schema.decodeUnknownEffect(
     schemaName: Schema.Literal("gentle-ai.sdd-status"),
     schemaVersion: Schema.Literal(2),
     ...PiGentleSddStatus.fields,
+    planningHome: Schema.optionalKey(Schema.Struct({ path: Schema.String })),
   }),
 );
+// OpenSpec change folders are kebab-case names; anything else under `changes/` is not a change.
+const CHANGE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 export class PiGentleSettingsError extends Schema.TaggedError<PiGentleSettingsError>()(
   "PiGentleSettingsError",
@@ -149,7 +174,7 @@ function parseProfiles(value: unknown): ProfileStore {
 
 export type PiGentleAction = typeof PiGentleActionInput.Type.action;
 
-export function makePiGentleSettings(input: {
+export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* (input: {
   readonly environment: NodeJS.ProcessEnv;
   readonly piBinaryPath?: string;
   readonly binaryPath?: string;
@@ -171,32 +196,73 @@ export function makePiGentleSettings(input: {
   const readJson = (filePath: string) =>
     fileSystem.readFileString(filePath).pipe(Effect.flatMap(decodeJson));
 
-  const writeAtomic = (filePath: string, value: unknown) =>
+  const writeAtomicText = (filePath: string, text: string) =>
     Effect.gen(function* () {
       yield* fileSystem.makeDirectory(path.dirname(filePath), { recursive: true });
       const temporary = `${filePath}.${NodeCrypto.randomUUID()}.tmp`;
-      yield* fileSystem.writeFileString(temporary, `${yield* encodeJson(value)}\n`);
+      yield* fileSystem.writeFileString(temporary, text);
       yield* fileSystem
         .rename(temporary, filePath)
         .pipe(Effect.ensuring(fileSystem.remove(temporary, { force: true }).pipe(Effect.ignore)));
     });
+  const writeAtomic = (filePath: string, value: unknown) =>
+    Effect.flatMap(encodeJson(value), (json) => writeAtomicText(filePath, `${json}\n`));
 
-  const installedVersion = Effect.gen(function* () {
+  /** Version of gentle-pi registered with Pi, supported or not; null when it is not installed. */
+  const packageVersion = Effect.gen(function* () {
     const packagePath = path.join(agentHome, "npm", "node_modules", "gentle-pi", "package.json");
     const settingsPath = path.join(agentHome, "settings.json");
     if (!(yield* fileSystem.exists(packagePath)) || !(yield* fileSystem.exists(settingsPath)))
       return null;
     const manifest = yield* decodeManifest(yield* readJson(packagePath));
     const settings = yield* decodePackageSettings(yield* readJson(settingsPath));
-    const parts = manifest.version.split(".").map(Number);
-    const major = parts[0] ?? 0;
-    const minor = parts[1] ?? 0;
-    return (major > 3 || (major === 3 && minor >= 5)) &&
-      settings.packages.some((entry) => /^npm:gentle-pi(?:@|$)/.test(entry))
+    return settings.packages.some((entry) => /^npm:gentle-pi(?:@|$)/.test(entry))
       ? manifest.version
       : null;
   }).pipe(Effect.orElseSucceed(() => null));
-  const installed = installedVersion.pipe(Effect.map((version) => version !== null));
+  const isSupported = (version: string | null): version is string =>
+    version !== null && compareSemverVersions(version, MINIMUM_GENTLE_VERSION) >= 0;
+  const installed = packageVersion.pipe(Effect.map(isSupported));
+
+  /**
+   * Runs Pi to completion and fails with the tail of its output when it exits non-zero, so a
+   * failed install or setup reaches the user instead of looking like success.
+   */
+  const runPi = (
+    args: ReadonlyArray<string>,
+    options: {
+      readonly cwd?: string;
+      readonly env: NodeJS.ProcessEnv;
+      readonly timeout: Duration.Input;
+      readonly failure: string;
+    },
+  ) =>
+    Effect.gen(function* () {
+      const binary = input.piBinaryPath ?? "pi";
+      const resolved = yield* resolveSpawnCommand(binary, args, { env: options.env });
+      const result = yield* spawnAndCollect(
+        binary,
+        ChildProcess.make(resolved.command, resolved.args, {
+          ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+          env: options.env,
+          extendEnv: false,
+          shell: resolved.shell,
+          stdin: "ignore",
+        }),
+      ).pipe(
+        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+        Effect.timeoutOrElse({
+          duration: options.timeout,
+          orElse: () =>
+            Effect.fail(new PiGentleSettingsError({ detail: `${options.failure} Pi timed out.` })),
+        }),
+      );
+      if (result.code === 0) return;
+      const output = (result.stderr.trim() || result.stdout.trim()).split("\n").slice(-3);
+      return yield* new PiGentleSettingsError({
+        detail: `${options.failure} ${output.join(" ").slice(-400) || `Pi exited with code ${result.code}.`}`,
+      });
+    });
 
   const bundledBinaryPath = (version: string) =>
     Effect.gen(function* () {
@@ -220,7 +286,7 @@ export function makePiGentleSettings(input: {
     return yield* Effect.try({ try: () => parseProfiles(value), catch: toGentleError });
   });
 
-  const projectPaths = (cwd: string) =>
+  const resolveProjectPaths = (cwd: string) =>
     Effect.gen(function* () {
       if (!path.isAbsolute(cwd))
         return yield* new PiGentleSettingsError({ detail: "Choose an absolute project folder." });
@@ -245,6 +311,15 @@ export function makePiGentleSettings(input: {
         sdd: path.join(path.resolve(cwd), ".pi", "gentle-ai", "sdd-preflight.json"),
       };
     });
+
+  // Every Gentle read and action needs the project's git layout; composers re-read after each
+  // turn, so the two git lookups are cached briefly instead of spawned every time.
+  const projectPathsCache = yield* Cache.make({
+    lookup: resolveProjectPaths,
+    capacity: 64,
+    timeToLive: "30 seconds",
+  });
+  const projectPaths = (cwd: string) => Cache.get(projectPathsCache, cwd);
 
   const readPin = (filePath: string) =>
     Effect.gen(function* () {
@@ -296,52 +371,112 @@ export function makePiGentleSettings(input: {
       );
     });
 
-  const readSddStatus = (cwd: string) =>
+  const sddBinary = Effect.gen(function* () {
+    if (
+      environment.GENTLE_PI_GENTLE_AI_DEV_BINARY !== undefined ||
+      (yield* fileSystem.exists(path.join(configHome, "dev-binary.json")))
+    ) {
+      return yield* new PiGentleSettingsError({
+        detail: "SDD status is unavailable while a Gentle AI dev binary override is active.",
+      });
+    }
+    if (input.binaryPath) return input.binaryPath;
+    const version = yield* packageVersion;
+    const bundledBinary = version === null ? null : yield* bundledBinaryPath(version);
+    if (bundledBinary === null || !(yield* fileSystem.exists(bundledBinary))) {
+      return yield* new PiGentleSettingsError({
+        detail: "Gentle AI's bundled binary is missing. Update Gentle AI or set its binary path.",
+      });
+    }
+    return bundledBinary;
+  });
+
+  const nativeSddStatus = (binary: string, cwd: string, changeName?: string) =>
     Effect.gen(function* () {
-      if (
-        environment.GENTLE_PI_GENTLE_AI_DEV_BINARY !== undefined ||
-        (yield* fileSystem.exists(path.join(configHome, "dev-binary.json")))
-      ) {
-        return null;
-      }
-      const packageHome = path.join(agentHome, "npm", "node_modules", "gentle-pi");
-      const manifest = yield* decodeManifest(
-        yield* readJson(path.join(packageHome, "package.json")),
+      // Resolved like the Pi executable so a Windows .cmd shim works as a custom binary path.
+      const resolved = yield* resolveSpawnCommand(
+        binary,
+        ["sdd-status", ...(changeName === undefined ? [] : [changeName]), "--cwd", cwd, "--json"],
+        { env: environment },
       );
-      const bundledBinary = yield* bundledBinaryPath(manifest.version);
-      const binary = input.binaryPath || bundledBinary;
-      if (!input.binaryPath && !(yield* fileSystem.exists(binary))) return null;
       const output = yield* spawner
         .string(
-          ChildProcess.make(binary, ["sdd-status", "--cwd", cwd, "--json"], {
+          ChildProcess.make(resolved.command, resolved.args, {
             cwd,
+            // The instance environment, like every other Pi and Gentle process for this provider.
+            env: environment,
+            extendEnv: false,
+            shell: resolved.shell,
             stdin: "ignore",
             stderr: "ignore",
           }),
         )
         .pipe(Effect.timeout("5 seconds"));
-      const status = yield* decodeNativeSddStatus(yield* decodeJson(output));
-      return {
-        changeName: status.changeName,
-        artifactStore: status.artifactStore,
-        nextRecommended: status.nextRecommended,
-        blockedReasons: status.blockedReasons,
-        dependencies: status.dependencies,
-        actionContext: status.actionContext,
-        ...(status.remediationState === undefined
-          ? {}
-          : { remediationState: status.remediationState }),
-        taskProgress: status.taskProgress,
-      } satisfies PiGentleSddStatus;
-    }).pipe(Effect.orElseSucceed(() => null));
+      return yield* decodeNativeSddStatus(yield* decodeJson(output));
+    }).pipe(
+      Effect.mapError(
+        (cause) =>
+          new PiGentleSettingsError({
+            detail: `Gentle AI could not report SDD status${changeName === undefined ? "" : ` for ${changeName}`}.`,
+            cause,
+          }),
+      ),
+    );
+
+  /**
+   * Lists the project's active OpenSpec changes with their native status. Gentle AI reports one
+   * change at a time, so this finds the change folders under its planning home first.
+   */
+  const readSddChanges = (cwd: string) =>
+    Effect.gen(function* () {
+      const binary = yield* sddBinary;
+      const overview = yield* nativeSddStatus(binary, cwd);
+      if (overview.planningHome === undefined) {
+        return yield* new PiGentleSettingsError({
+          detail: "SDD changes are listed only for projects that save artifacts as OpenSpec files.",
+        });
+      }
+      const changesDirectory = path.join(overview.planningHome.path, "changes");
+      if (!(yield* fileSystem.exists(changesDirectory))) return [];
+      const names: Array<string> = [];
+      for (const name of yield* fileSystem.readDirectory(changesDirectory)) {
+        if (name === "archive" || !CHANGE_NAME.test(name)) continue;
+        const info = yield* fileSystem.stat(path.join(changesDirectory, name));
+        if (info.type === "Directory") names.push(name);
+      }
+      names.sort((left, right) => left.localeCompare(right));
+      return yield* Effect.forEach(
+        names,
+        (name) =>
+          nativeSddStatus(binary, cwd, name).pipe(
+            Effect.map(
+              (status) =>
+                ({
+                  changeName: name,
+                  artifactStore: status.artifactStore,
+                  nextRecommended: status.nextRecommended,
+                  blockedReasons: status.blockedReasons,
+                  dependencies: status.dependencies,
+                  actionContext: status.actionContext,
+                  ...(status.remediationState === undefined
+                    ? {}
+                    : { remediationState: status.remediationState }),
+                  taskProgress: status.taskProgress,
+                }) satisfies PiGentleSddChange,
+            ),
+          ),
+        { concurrency: 4 },
+      );
+    });
 
   const read = (cwd?: string) =>
     Effect.gen(function* () {
-      const version = yield* installedVersion;
-      if (version === null)
+      const version = yield* packageVersion;
+      // An outdated install reports its version so clients offer an update rather than an install.
+      if (!isSupported(version))
         return {
           available: false,
-          version: null,
+          version,
           globalPersona: "gentleman",
           profiles: [],
           active: null,
@@ -362,9 +497,11 @@ export function makePiGentleSettings(input: {
       const personaOverride = cwd
         ? yield* readPersona(path.join(path.resolve(cwd), ".pi", "gentle-ai", "persona.json"))
         : null;
+      const compatibilityWarning = gentleCompatibilityWarning(version);
       return {
         available: true,
         version,
+        ...(compatibilityWarning === undefined ? {} : { compatibilityWarning }),
         globalPersona,
         profiles: Object.entries(store.profiles).map(([name, routing]) => ({ name, routing })),
         active: store.active ?? null,
@@ -385,25 +522,32 @@ export function makePiGentleSettings(input: {
       } satisfies PiGentleState;
     }).pipe(Effect.mapError(toGentleError));
 
-  const readComposer = (cwd: string) =>
+  const readComposer = (cwd: string, options?: { readonly includeChanges?: boolean }) =>
     Effect.gen(function* () {
       if (!(yield* installed))
         return {
           available: false,
-          sddStatus: null,
           projectInitNeeded: false,
         } satisfies PiGentleComposerState;
       if (!path.isAbsolute(cwd))
         return yield* new PiGentleSettingsError({ detail: "Choose an absolute project folder." });
-      const sddStatus = yield* readSddStatus(cwd);
       const persistedSdd = yield* readSdd((yield* projectPaths(cwd)).sdd);
       const artifactStore = persistedSdd?.preferences.artifactStore ?? "openspec";
+      const projectInitNeeded =
+        (artifactStore === "openspec" || artifactStore === "hybrid") &&
+        !(yield* fileSystem.exists(path.join(cwd, "openspec", "config.yaml")));
       return {
         available: true,
-        sddStatus,
-        projectInitNeeded:
-          (artifactStore === "openspec" || artifactStore === "hybrid") &&
-          !(yield* fileSystem.exists(path.join(cwd, "openspec", "config.yaml"))),
+        projectInitNeeded,
+        ...(options?.includeChanges
+          ? yield* (projectInitNeeded ? Effect.succeed([]) : readSddChanges(cwd)).pipe(
+              Effect.map((changes) => ({ changes })),
+              // Listing failures stay in the payload so the rest of the Gentle menu still works.
+              Effect.catch((error) =>
+                Effect.succeed({ changesError: toGentleError(error).detail }),
+              ),
+            )
+          : {}),
       } satisfies PiGentleComposerState;
     }).pipe(Effect.mapError(toGentleError));
 
@@ -431,21 +575,12 @@ export function makePiGentleSettings(input: {
         PI_CODING_AGENT_DIR: agentHome,
         GENTLE_PI_CONFIG_HOME: configHome,
       };
-      const resolved = yield* resolveSpawnCommand(input.piBinaryPath ?? "pi", args, {
+      yield* runPi(args, {
+        cwd,
         env: spawnEnv,
+        timeout: "60 seconds",
+        failure: "SDD setup failed.",
       });
-      yield* spawner
-        .string(
-          ChildProcess.make(resolved.command, resolved.args, {
-            cwd,
-            env: spawnEnv,
-            extendEnv: false,
-            shell: resolved.shell,
-            stdin: "ignore",
-            stderr: "ignore",
-          }),
-        )
-        .pipe(Effect.timeout("60 seconds"));
     }).pipe(Effect.mapError(toGentleError));
 
   const applyGlobalProfile = (store: ProfileStore, name: string) =>
@@ -482,24 +617,15 @@ export function makePiGentleSettings(input: {
   const action = (command: PiGentleAction) =>
     Effect.gen(function* () {
       if (command.type === "install" || command.type === "update") {
-        if (command.type === "update" && !(yield* installed))
+        // An outdated gentle-pi still counts as installed here, so it can be updated in place.
+        if (command.type === "update" && (yield* packageVersion) === null)
           return yield* new PiGentleSettingsError({ detail: "Install Gentle AI first." });
-        const spawnEnv = { ...environment, PI_CODING_AGENT_DIR: agentHome };
-        const args = [command.type, "npm:gentle-pi"];
-        const resolved = yield* resolveSpawnCommand(input.piBinaryPath ?? "pi", args, {
-          env: spawnEnv,
+        yield* runPi([command.type, "npm:gentle-pi"], {
+          env: { ...environment, PI_CODING_AGENT_DIR: agentHome },
+          timeout: "2 minutes",
+          failure:
+            command.type === "install" ? "Gentle AI install failed." : "Gentle AI update failed.",
         });
-        yield* spawner
-          .string(
-            ChildProcess.make(resolved.command, resolved.args, {
-              env: spawnEnv,
-              extendEnv: false,
-              shell: resolved.shell,
-              stdin: "ignore",
-              stderr: "pipe",
-            }),
-          )
-          .pipe(Effect.timeout("2 minutes"));
         return yield* read(command.cwd);
       }
       if (!(yield* installed))
@@ -571,10 +697,15 @@ export function makePiGentleSettings(input: {
         const preferences = yield* decodePreferences(command.preferences);
         const paths = yield* projectPaths(command.cwd);
         const engramAvailable = (yield* readSdd(paths.sdd))?.engramAvailable ?? false;
-        yield* writeAtomic(paths.sdd, { ...preferences, engramAvailable, prompted: false });
+        // Gentle AI rewrites this file on every SDD preflight. Matching its exact serialization
+        // keeps a committed copy (the team's shared SDD choices) free of formatting churn.
+        yield* writeAtomicText(
+          paths.sdd,
+          yield* encodeGentleJson({ ...preferences, engramAvailable, prompted: false }),
+        );
       }
       return yield* read(command.cwd);
     }).pipe(Effect.mapError(toGentleError));
 
   return { read, readComposer, action, initializeSdd };
-}
+});

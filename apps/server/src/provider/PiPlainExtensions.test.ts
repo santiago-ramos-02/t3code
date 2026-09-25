@@ -41,7 +41,6 @@ it.layer(NodeServices.layer)("plain Pi extension loading", (it) => {
         const args = yield* plainPiExtensionArgs({
           cwd,
           environment: { PI_CODING_AGENT_DIR: agentHome },
-          bridgePath: path.join(root, "t3-bridge.mjs"),
         });
         expect(args.slice(0, 3)).toEqual([
           "--no-extensions",
@@ -53,7 +52,6 @@ it.layer(NodeServices.layer)("plain Pi extension loading", (it) => {
         expect(args).toContain(localPackage);
         expect(args).toContain(gitPackage);
         expect(args).toContain(loose);
-        expect(args.slice(-2)).toEqual(["--extension", path.join(root, "t3-bridge.mjs")]);
         expect(args.some((arg) => arg.includes("gentle-pi"))).toBe(false);
       }),
     ),

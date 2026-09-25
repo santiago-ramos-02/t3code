@@ -45,16 +45,20 @@ function packagePath(source: string, settingsDir: string, path: Path.Path) {
   return path.resolve(settingsDir, source);
 }
 
-/** Preserve Pi's other extensions when Gentle is disabled for one thread. */
+/**
+ * Pi launch arguments that load every installed extension, skill, and prompt template except
+ * gentle-pi, for threads that run with Gentle AI disabled. Pi offers no per-package opt-out, so
+ * this resolves resources the way Pi's own loader does and passes them explicitly.
+ */
 export const plainPiExtensionArgs = Effect.fn("plainPiExtensionArgs")(function* (input: {
   readonly cwd: string;
   readonly environment: NodeJS.ProcessEnv;
-  readonly bridgePath: string;
 }) {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
+  // Pi's rule: an unset or empty PI_CODING_AGENT_DIR falls back to ~/.pi/agent.
   const agentHome =
-    input.environment.PI_CODING_AGENT_DIR ?? path.join(NodeOS.homedir(), ".pi", "agent");
+    input.environment.PI_CODING_AGENT_DIR || path.join(NodeOS.homedir(), ".pi", "agent");
   const roots = [agentHome, path.join(input.cwd, ".pi")];
   const sources: string[] = [];
   const skills: string[] = [];
@@ -144,15 +148,12 @@ export const plainPiExtensionArgs = Effect.fn("plainPiExtensionArgs")(function* 
   }
   yield* addResource(path.join(NodeOS.homedir(), ".agents", "skills"), skills);
   yield* addResource(path.join(input.cwd, ".agents", "skills"), skills);
-  const unique = [...new Set(sources.filter((source) => source !== input.bridgePath))];
   return [
     "--no-extensions",
     "--no-skills",
     "--no-prompt-templates",
-    ...unique.flatMap((source) => ["--extension", source]),
+    ...[...new Set(sources)].flatMap((source) => ["--extension", source]),
     ...[...new Set(skills)].flatMap((source) => ["--skill", source]),
     ...[...new Set(prompts)].flatMap((source) => ["--prompt-template", source]),
-    "--extension",
-    input.bridgePath,
   ];
 });

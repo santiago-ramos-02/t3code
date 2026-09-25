@@ -2269,6 +2269,22 @@ export default function ChatView(props: ChatViewProps) {
   const handleNewThreadInActiveProject = useCallback(() => {
     startNewThreadForProject(activeProjectRef, handleNewThread);
   }, [activeProjectRef, handleNewThread]);
+  // Hands an SDD phase to a fresh draft in this project: same Pi selection with Gentle on, and the
+  // phase prompt written but not sent, so the user still picks the model and reviews the ask.
+  const startGentleSddThread = useCallback(
+    async (prompt: string, modelSelection: ModelSelection) => {
+      if (!activeProjectRef) return;
+      const created = await handleNewThread(activeProjectRef);
+      if (!created) return;
+      const store = useComposerDraftStore.getState();
+      store.setModelSelection(created.draftId, modelSelection, {
+        explicit: true,
+        replaceOptions: true,
+      });
+      store.setPrompt(created.draftId, prompt);
+    },
+    [activeProjectRef, handleNewThread],
+  );
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
   const activeDraftLogicalProjectKey =
     !isServerThread && activeProject
@@ -6889,7 +6905,8 @@ export default function ChatView(props: ChatViewProps) {
         command === "composer.host" ||
         command === "composer.effort" ||
         command === "composer.mode" ||
-        command === "composer.workspace"
+        command === "composer.workspace" ||
+        command === "composer.gentle"
       ) {
         event.preventDefault();
         event.stopPropagation();
@@ -10165,6 +10182,7 @@ export default function ChatView(props: ChatViewProps) {
                             keybindings={keybindings}
                             terminalOpen={Boolean(terminalUiState.terminalOpen)}
                             gitCwd={gitCwd}
+                            onStartGentleSddThread={startGentleSddThread}
                             pullRequestProjectId={
                               supportsPullRequests ? (activeProject?.id ?? null) : null
                             }

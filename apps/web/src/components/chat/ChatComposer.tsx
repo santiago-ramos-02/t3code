@@ -1414,6 +1414,8 @@ export interface ChatComposerProps {
   keybindings: ResolvedKeybindingsConfig;
   terminalOpen: boolean;
   gitCwd: string | null;
+  /** Opens a new draft in this project for an SDD phase (see GentleComposerActions). */
+  onStartGentleSddThread: (prompt: string, modelSelection: ModelSelection) => void;
   pullRequestProjectId: ProjectId | null;
   pullRequestRepository: string | null;
   restingControlsHost: HTMLDivElement | null;
@@ -1539,6 +1541,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     keybindings,
     terminalOpen,
     gitCwd,
+    onStartGentleSddThread,
     pullRequestProjectId,
     pullRequestRepository,
     restingControlsHost,
@@ -6406,6 +6409,17 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   ?.value !== false
               }
               canChange={_isLocalDraftThread && multipleModelSelections === null}
+              onStartSddThread={(prompt) =>
+                onStartGentleSddThread(
+                  prompt,
+                  createModelSelection(selectedInstanceId, selectedModel, [
+                    ...(selectedModelSelection.options?.filter(
+                      (option) => option.id !== "gentleAi",
+                    ) ?? []),
+                    { id: "gentleAi", value: true },
+                  ]),
+                )
+              }
               onEnabledChange={(enabled) =>
                 setComposerDraftModelSelection(
                   composerDraftTarget,
