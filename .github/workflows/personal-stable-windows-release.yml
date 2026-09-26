@@ -122,11 +122,17 @@ jobs:
             "HEAD:refs/heads/${CANDIDATE_BRANCH}"
 
   build_wsl_runtime:
-    name: Build WSL runtime
+    name: Build JS bundle and WSL runtime
     needs: prepare
     if: needs.prepare.outputs.should_build == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      # Public T3 Connect configuration is compiled into the shared JS bundle.
+      T3CODE_CLERK_PUBLISHABLE_KEY: pk_live_Y2xlcmsudDMuY29kZXMk
+      T3CODE_CLERK_JWT_TEMPLATE: t3-relay
+      T3CODE_CLERK_CLI_OAUTH_CLIENT_ID: hzxSgY2cH10sDU2r
+      T3CODE_RELAY_URL: https://relay.t3.codes
     steps:
       - name: Checkout stable build commit
         uses: actions/checkout@v6
@@ -143,10 +149,25 @@ jobs:
       - name: Align package versions
         run: node scripts/update-release-package-versions.ts "${{ needs.prepare.outputs.version }}"
 
-      - name: Build server bundle
+      - name: Install browser secret helper build libraries
         run: |
-          vp run --filter @t3tools/web build
-          node apps/server/scripts/cli.ts build --verbose
+          sudo apt-get update
+          sudo apt-get install -y libsecret-1-dev pkg-config
+
+      # Match upstream's release flow: build platform-independent JS on Linux
+      # once, then package it on each target without repeating network fetches.
+      - name: Build JS bundle
+        run: vp run build:desktop
+
+      - name: Upload JS bundle
+        uses: actions/upload-artifact@v7
+        with:
+          name: personal-stable-js-bundle
+          path: |
+            apps/server/dist
+            apps/desktop/dist-electron
+          if-no-files-found: error
+          retention-days: 1
 
       - name: Build resource monitor
         shell: bash
@@ -189,18 +210,11 @@ jobs:
   build_desktop:
     name: Build stable ${{ matrix.label }}
     needs: [prepare, build_wsl_runtime]
-    if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.should_build == 'true' }}
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.should_build == 'true' && needs.build_wsl_runtime.result == 'success' }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     env:
       T3CODE_DESKTOP_UPDATE_REPOSITORY: santiago-ramos-02/t3code
-      # Public production T3 Connect configuration compiled into the desktop
-      # client and bundled server. Personal forks cannot read upstream's
-      # production Actions environment, so keep these public values explicit.
-      T3CODE_CLERK_PUBLISHABLE_KEY: pk_live_Y2xlcmsudDMuY29kZXMk
-      T3CODE_CLERK_JWT_TEMPLATE: t3-relay
-      T3CODE_CLERK_CLI_OAUTH_CLIENT_ID: hzxSgY2cH10sDU2r
-      T3CODE_RELAY_URL: https://relay.t3.codes
     strategy:
       fail-fast: false
       matrix:
@@ -237,6 +251,12 @@ jobs:
           node-version-file: package.json
           cache: true
           run-install: true
+
+      - name: Download JS bundle
+        uses: actions/download-artifact@v8
+        with:
+          name: personal-stable-js-bundle
+          path: apps
 
       - name: Download WSL runtime
         if: matrix.platform == 'win'
@@ -289,6 +309,7 @@ jobs:
             --target "${{ matrix.target }}"
             --arch "${{ matrix.arch }}"
             --build-version "${{ needs.prepare.outputs.version }}"
+            --skip-build
             --verbose
           )
           if [[ "${{ matrix.platform }}" == "win" ]]; then
