@@ -28,6 +28,7 @@ import * as Schema from "effect/Schema";
 import {
   GENTLE_ACTIVITY_WIDGET_KEY,
   gentleActivityEvents,
+  gentleTodoPlan,
   type GentleTaskSnapshot,
 } from "../PiGentleActivity.ts";
 import {
@@ -1081,6 +1082,16 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
         data: { isError: native.isError },
       },
     });
+    // Gentle Todo keeps its list in tool results; it becomes the turn plan like other todo tools.
+    const plan = gentleTodoPlan(native.toolName, native.result.details);
+    if (plan !== undefined) {
+      yield* emit({
+        ...(yield* eventBase(context)),
+        type: "turn.plan.updated",
+        turnId: turn.turnId,
+        payload: plan,
+      });
+    }
   });
 
   const processEvents = (context: SessionContext) =>

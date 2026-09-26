@@ -1431,6 +1431,76 @@ describe("PiAdapter session runtime", () => {
     ),
   );
 
+  it.effect("turns each Gentle Todo result into the turn plan", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = makeRpcHarness();
+        const adapter = yield* makeAdapter(harness);
+        yield* startSession(adapter);
+        yield* takeEvents(adapter, SESSION_EVENTS);
+        yield* adapter.sendTurn({ threadId: THREAD_ID, input: "Plan it" });
+        yield* takeEvents(adapter, 1);
+        const transport = harness.transports[0]!;
+        const todoResult = (tasks: ReadonlyArray<{ title: string; status: string }>) => ({
+          content: [{ type: "text", text: "Todo updated" }],
+          details: {
+            gentleTodo: {
+              tasks: tasks.map((task, index) => ({ id: index + 1, ...task })),
+              nextId: tasks.length + 1,
+              updatedTurn: 1,
+            },
+          },
+        });
+
+        yield* offerNative(transport, {
+          type: "tool_execution_end",
+          toolCallId: "todo-1",
+          toolName: "todo",
+          result: todoResult([
+            { title: "Write the parser", status: "done" },
+            { title: "Add tests", status: "in_progress" },
+            { title: " ", status: "pending" },
+          ]),
+          isError: false,
+        });
+        const [, planned] = yield* takeEvents(adapter, 2);
+        expect(planned).toMatchObject({
+          type: "turn.plan.updated",
+          payload: {
+            plan: [
+              { step: "Write the parser", status: "completed" },
+              { step: "Add tests", status: "inProgress" },
+              { step: "Task", status: "pending" },
+            ],
+          },
+        });
+
+        // Clearing the list empties the plan; other tools never touch it.
+        yield* offerNative(transport, {
+          type: "tool_execution_end",
+          toolCallId: "todo-2",
+          toolName: "todo",
+          result: todoResult([]),
+          isError: false,
+        });
+        yield* offerNative(transport, {
+          type: "tool_execution_end",
+          toolCallId: "bash-1",
+          toolName: "bash",
+          result: todoResult([{ title: "Not a plan", status: "pending" }]),
+          isError: false,
+        });
+        const events = yield* takeEvents(adapter, 3);
+        expect(events.map((event) => event.type)).toEqual([
+          "item.completed",
+          "turn.plan.updated",
+          "item.completed",
+        ]);
+        expect(events[1]).toMatchObject({ payload: { plan: [] } });
+      }),
+    ),
+  );
+
   it.effect("routes blocking extension UI requests and exact Pi responses", () =>
     Effect.scoped(
       Effect.gen(function* () {

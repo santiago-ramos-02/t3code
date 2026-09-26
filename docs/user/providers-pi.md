@@ -22,7 +22,8 @@ providers and models in Pi settings. Select any of those models in
 T3 Code's model picker. Models registered by a project-local Pi extension appear
 in that project's picker. T3 Code also reuses Pi's skills and custom commands.
 Installed Pi extensions also run in T3 Code threads. If gentle-pi is installed,
-its subagents appear in the thread's Agents panel with live progress and results.
+its subagents appear in the thread's Agents panel with live progress and results,
+and its todo list appears as the composer's task progress while the turn runs.
 The Agents panel shows their live status and recent transcript. Gentle AI does
 not currently expose direct subagent controls to Pi RPC hosts.
 T3-managed Pi threads use Pi's native persisted sessions for resume behavior;

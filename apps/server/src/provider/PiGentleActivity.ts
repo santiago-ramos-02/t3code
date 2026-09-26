@@ -4,6 +4,7 @@ import {
   type TaskCompletedPayload,
   type TaskProgressPayload,
   type TaskStartedPayload,
+  type TurnPlanUpdatedPayload,
 } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -203,4 +204,43 @@ export function gentleActivityEvents(
     });
   }
   return events;
+}
+
+/**
+ * gentle-pi's `todo` tool returns the complete list in every result's details, so each result
+ * replaces the turn's plan, including an empty list after `clear`.
+ */
+const GENTLE_TODO_TOOL = "todo";
+const decodeGentleTodo = Schema.decodeUnknownOption(
+  Schema.Struct({
+    gentleTodo: Schema.Struct({
+      tasks: Schema.Array(
+        Schema.Struct({
+          title: Schema.String,
+          status: Schema.Literals(["pending", "in_progress", "done"]),
+        }),
+      ),
+    }),
+  }),
+);
+
+/** The plan a gentle-pi todo result sets, or undefined for any other tool result. */
+export function gentleTodoPlan(
+  toolName: string,
+  details: unknown,
+): TurnPlanUpdatedPayload | undefined {
+  if (toolName !== GENTLE_TODO_TOOL) return undefined;
+  const todo = decodeGentleTodo(details);
+  if (Option.isNone(todo)) return undefined;
+  return {
+    plan: todo.value.gentleTodo.tasks.map((task) => ({
+      step: nonEmpty(task.title, "Task"),
+      status:
+        task.status === "done"
+          ? "completed"
+          : task.status === "in_progress"
+            ? "inProgress"
+            : "pending",
+    })),
+  };
 }
