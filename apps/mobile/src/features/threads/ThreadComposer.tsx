@@ -84,6 +84,7 @@ import {
 } from "../../components/ComposerAttachmentStrip";
 import { VideoPreviewModal, type VideoPreviewSource } from "../../components/VideoPreviewModal";
 import { GentleRoseIcon } from "./GentleRoseIcon";
+import { useGentleProfileMenu } from "./useGentleProfileMenu";
 import { GlassSurface } from "../../components/GlassSurface";
 import { ComposerEditor, type ComposerEditorHandle } from "../../components/ComposerEditor";
 import { fileRoutePathSegments } from "../files/filePath";
@@ -438,6 +439,16 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       },
     });
   };
+  const gentleProfiles = useGentleProfileMenu({
+    environmentId: props.environmentId,
+    cwd: props.projectCwd,
+    state: gentleState,
+    enabled: gentleEnabled,
+    selection: currentModelSelection,
+    models: selectedProviderStatus?.models ?? [],
+    onModelSelectionChange: props.onUpdateModelSelection,
+    onApplied: () => setGentleRefresh((value) => value + 1),
+  });
   const gentleMenuActions: MenuAction[] = [
     canChangeGentle
       ? { id: "enable", title: "Enable", state: gentleEnabled ? "on" : "off" }
@@ -446,6 +457,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
           title: gentleEnabled ? "On for this thread" : "Off for this thread",
           attributes: { disabled: true },
         },
+    ...(gentleProfiles.action === null ? [] : [gentleProfiles.action]),
     ...(gentleAvailable && gentleState.projectInitNeeded
       ? [{ id: "setup", title: "Set up SDD", image: "doc.text" }]
       : []),
@@ -847,6 +859,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
             <ControlPillMenu
               actions={gentleMenuActions}
               onPressAction={({ nativeEvent }) => {
+                if (gentleProfiles.handle(nativeEvent.event)) return;
                 if (nativeEvent.event === "enable" && canChangeGentle) {
                   props.onUpdateModelSelection({
                     ...currentModelSelection,

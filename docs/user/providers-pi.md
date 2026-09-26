@@ -51,8 +51,17 @@ With gentle-pi 3.5 or newer installed for Pi, open **Settings > Providers > Pi**
 to choose the global persona and manage model profiles. The active global profile
 applies unless the repository declares one or the local clone has a pin. The
 **Project overrides** section shows which source applies and lets you pin a
-profile or override the persona. The main Pi model stays in T3 Code's composer.
-Changes to routing and persona take effect when a Pi session starts or reloads.
+profile or override the persona. As in Pi, activating a profile also makes its
+`orchestrator` entry Pi's default model. Changes to routing and persona take
+effect when a Pi session starts or reloads.
+
+To switch profiles from a Pi thread, open the Gentle AI dropdown and choose one
+under **Profile**. This applies it the way Pi's `/gentle:profiles` does: it
+becomes the active profile, or, if the project has a pin, the pin moves to it.
+The thread also switches to the profile's orchestrator model and thinking level
+for its next message. You can still pick a different model for the thread
+afterward. Choosing the current profile again moves the thread back to its
+orchestrator. A profile without an orchestrator keeps the thread's model.
 The optional **Gentle AI binary path** uses the copy bundled with gentle-pi when
 left empty. Refreshing Providers also reloads Gentle AI settings changed
 outside T3 Code. On mobile, project profile and persona controls are in

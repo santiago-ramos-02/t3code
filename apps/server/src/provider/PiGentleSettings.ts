@@ -3,6 +3,7 @@ import * as NodeOS from "node:os";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { compareSemverVersions } from "@t3tools/shared/semver";
 import {
+  PI_GENTLE_ORCHESTRATOR,
   PiGentleActionInput,
   PiGentlePersona,
   PiGentleRouting,
@@ -64,6 +65,7 @@ const ProfilePin = Schema.Struct({
   profile: Schema.String,
 });
 const PersonaFile = Schema.Struct({ mode: PiGentlePersona });
+const PiSettingsFile = Schema.Record(Schema.String, Schema.Unknown);
 const StoredSdd = Schema.Struct({
   executionMode: PiGentleSddPreferences.fields.executionMode,
   artifactStore: Schema.Literals(["openspec", "engram", "hybrid", "none", "both"]),
@@ -90,6 +92,7 @@ const encodeGentleJson = Schema.encodeUnknownEffect(
 const decodeManifest = Schema.decodeUnknownEffect(PackageManifest);
 const decodePackageSettings = Schema.decodeUnknownEffect(PiPackageSettings);
 const decodePin = Schema.decodeUnknownEffect(ProfilePin);
+const decodePiSettings = Schema.decodeUnknownEffect(PiSettingsFile);
 const decodeSdd = Schema.decodeUnknownEffect(StoredSdd);
 const decodePreferences = Schema.decodeUnknownEffect(PiGentleSddPreferences);
 const decodeNativeSddStatus = Schema.decodeUnknownEffect(
@@ -138,7 +141,7 @@ function validProfileName(name: string): boolean {
 
 function parseRouting(value: unknown): GentleRouting {
   const decoded = decodeRawRouting(value);
-  const routing: Record<string, typeof PiGentleRoutingEntry.Type> = {};
+  const routing: Record<string, PiGentleRoutingEntry> = {};
   for (const [agent, rawEntry] of Object.entries(decoded)) {
     if (!AGENT_NAME.test(agent))
       throw new PiGentleSettingsError({ detail: `Invalid Gentle agent name: ${agent}.` });
@@ -192,6 +195,8 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
   const profilesPath = path.join(configHome, "profiles.json");
   const modelsPath = path.join(configHome, "models.json");
   const globalPersonaPath = path.join(configHome, "persona.json");
+  // Pi's own settings, where a profile's orchestrator entry becomes the default model.
+  const piSettingsPath = path.join(agentHome, "settings.json");
 
   const readJson = (filePath: string) =>
     fileSystem.readFileString(filePath).pipe(Effect.flatMap(decodeJson));
@@ -329,6 +334,25 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
         Effect.map((pin) => (validProfileName(pin.profile) ? pin.profile : null)),
         Effect.orElseSucceed(() => null),
       );
+    });
+
+  /** The profile a project's pin selects: the checkout pin, then the repository declaration. */
+  const resolvePin = (store: ProfileStore, cwd: string) =>
+    Effect.gen(function* () {
+      const paths = yield* projectPaths(cwd);
+      const local = paths.localPin ? yield* readPin(paths.localPin) : null;
+      const repo = paths.repoPin ? yield* readPin(paths.repoPin) : null;
+      const pinned =
+        local && Object.hasOwn(store.profiles, local)
+          ? local
+          : repo && Object.hasOwn(store.profiles, repo)
+            ? repo
+            : null;
+      return {
+        paths,
+        pinned,
+        source: pinned === null ? null : pinned === local ? ("local" as const) : ("repo" as const),
+      };
     });
 
   const readPersona = (filePath: string) =>
@@ -483,15 +507,8 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
           project: null,
         } satisfies PiGentleState;
       const store = yield* loadProfiles;
-      const paths = cwd ? yield* projectPaths(cwd) : null;
-      const local = paths?.localPin ? yield* readPin(paths.localPin) : null;
-      const repo = paths?.repoPin ? yield* readPin(paths.repoPin) : null;
-      const pinned =
-        local && Object.hasOwn(store.profiles, local)
-          ? local
-          : repo && Object.hasOwn(store.profiles, repo)
-            ? repo
-            : null;
+      const pin = cwd ? yield* resolvePin(store, cwd) : null;
+      const paths = pin?.paths ?? null;
       const storedSdd = paths ? yield* readSdd(paths.sdd) : null;
       const globalPersona = (yield* readPersona(globalPersonaPath)) ?? "gentleman";
       const personaOverride = cwd
@@ -508,9 +525,8 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
         project: paths
           ? {
               pinAvailable: paths.localPin !== null,
-              pinned,
-              pinSource:
-                pinned === null ? null : pinned === local ? ("local" as const) : ("repo" as const),
+              pinned: pin?.pinned ?? null,
+              pinSource: pin?.source ?? null,
               sdd: storedSdd?.preferences ?? null,
               persona: {
                 effective: personaOverride ?? globalPersona,
@@ -536,9 +552,30 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
       const projectInitNeeded =
         (artifactStore === "openspec" || artifactStore === "hybrid") &&
         !(yield* fileSystem.exists(path.join(cwd, "openspec", "config.yaml")));
+      // A broken profiles.json hides only the profile list; SDD actions stay usable.
+      const profiles = yield* loadProfiles.pipe(
+        Effect.flatMap((store) =>
+          resolvePin(store, cwd).pipe(
+            Effect.map((pin) => ({
+              profiles: Object.entries(store.profiles).map(([name, routing]) => {
+                const orchestrator = routing[PI_GENTLE_ORCHESTRATOR];
+                return orchestrator === undefined ? { name } : { name, orchestrator };
+              }),
+              effectiveProfile:
+                pin.pinned !== null
+                  ? { name: pin.pinned, pinned: true }
+                  : store.active === undefined
+                    ? null
+                    : { name: store.active, pinned: false },
+            })),
+          ),
+        ),
+        Effect.orElseSucceed(() => ({})),
+      );
       return {
         available: true,
         projectInitNeeded,
+        ...profiles,
         ...(options?.includeChanges
           ? yield* (projectInitNeeded ? Effect.succeed([]) : readSddChanges(cwd)).pipe(
               Effect.map((changes) => ({ changes })),
@@ -583,7 +620,46 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
       });
     }).pipe(Effect.mapError(toGentleError));
 
-  const applyGlobalProfile = (store: ProfileStore, name: string) =>
+  /**
+   * Makes a profile's orchestrator entry Pi's default model, as Gentle AI's own apply does. A
+   * profile without an orchestrator model leaves Pi's settings untouched.
+   */
+  const applyOrchestrator = (entry: PiGentleRoutingEntry | undefined) =>
+    Effect.gen(function* () {
+      const model = entry?.model;
+      if (model === undefined) return;
+      const separator = model.indexOf("/");
+      if (separator <= 0 || separator === model.length - 1)
+        return yield* new PiGentleSettingsError({
+          detail: `The orchestrator model ${model} is not a provider/model pair.`,
+        });
+      // An unreadable settings file is refused rather than replaced, like Gentle AI does.
+      const settings: Record<string, unknown> = (yield* fileSystem.exists(piSettingsPath))
+        ? { ...(yield* readJson(piSettingsPath).pipe(Effect.flatMap(decodePiSettings))) }
+        : {};
+      settings.defaultProvider = model.slice(0, separator);
+      settings.defaultModel = model.slice(separator + 1);
+      if (entry?.thinking === undefined) delete settings.defaultThinkingLevel;
+      else settings.defaultThinkingLevel = entry.thinking;
+      // Gentle AI's serialization of Pi settings: two-space indent and a trailing newline.
+      yield* writeAtomicText(piSettingsPath, `${yield* encodeGentleJson(settings)}\n`);
+    }).pipe(
+      Effect.mapError((cause) =>
+        isPiGentleSettingsError(cause)
+          ? cause
+          : new PiGentleSettingsError({
+              detail: `The orchestrator could not be set in ${piSettingsPath}.`,
+              cause,
+            }),
+      ),
+    );
+
+  /**
+   * Activates `name` everywhere Gentle AI reads it: subagent routing in models.json, the active
+   * marker, and the orchestrator in Pi's settings. A failure puts back models.json and restores
+   * `previous` as the profile store.
+   */
+  const applyGlobalProfile = (store: ProfileStore, name: string, previous: ProfileStore = store) =>
     Effect.gen(function* () {
       const selected = store.profiles[name];
       if (!Object.hasOwn(store.profiles, name) || selected === undefined)
@@ -603,13 +679,16 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
       const nextModels = Object.fromEntries(
         [...knownAgents].map((agent) => [agent, selected[agent] ?? {}]),
       );
+      const restoreModels = hadModels
+        ? writeAtomic(modelsPath, previousModels)
+        : fileSystem.remove(modelsPath, { force: true });
       yield* writeAtomic(modelsPath, nextModels);
       yield* writeAtomic(profilesPath, { ...store, active: name }).pipe(
+        Effect.onError(() => restoreModels.pipe(Effect.ignore)),
+      );
+      yield* applyOrchestrator(selected[PI_GENTLE_ORCHESTRATOR]).pipe(
         Effect.onError(() =>
-          (hadModels
-            ? writeAtomic(modelsPath, previousModels)
-            : fileSystem.remove(modelsPath, { force: true })
-          ).pipe(Effect.ignore),
+          Effect.all([restoreModels, writeAtomic(profilesPath, previous)]).pipe(Effect.ignore),
         ),
       );
     });
@@ -657,10 +736,25 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
           ...store,
           profiles: { ...store.profiles, [command.name]: routing },
         };
-        if (store.active === command.name) yield* applyGlobalProfile(updated, command.name);
+        if (store.active === command.name) yield* applyGlobalProfile(updated, command.name, store);
         else yield* writeAtomic(profilesPath, updated);
       } else if (command.type === "activate") {
         yield* applyGlobalProfile(store, command.name);
+      } else if (command.type === "apply") {
+        if (!Object.hasOwn(store.profiles, command.name))
+          return yield* new PiGentleSettingsError({ detail: "The profile no longer exists." });
+        const pin = yield* resolvePin(store, command.cwd);
+        // A pin governs this project's subagents, so applying moves the checkout pin and leaves
+        // global routing and the orchestrator default to the projects that read them.
+        if (pin.pinned !== null && pin.paths.localPin !== null) {
+          yield* writeAtomic(pin.paths.localPin, {
+            kind: PIN_KIND,
+            version: 1,
+            profile: command.name,
+          });
+        } else {
+          yield* applyGlobalProfile(store, command.name);
+        }
       } else if (command.type === "pin") {
         if (!Object.hasOwn(store.profiles, command.name))
           return yield* new PiGentleSettingsError({ detail: "The profile no longer exists." });

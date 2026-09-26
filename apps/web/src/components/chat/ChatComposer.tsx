@@ -1751,6 +1751,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       : null);
   const setComposerDraftPrompt = useComposerDraftStore((store) => store.setPrompt);
   const setComposerDraftModelSelection = useComposerDraftStore((store) => store.setModelSelection);
+  const setStickyComposerModelSelection = useComposerDraftStore(
+    (store) => store.setStickyModelSelection,
+  );
   const addComposerDraftImages = useComposerDraftStore((store) => store.addImages);
   const removeComposerDraftImage = useComposerDraftStore((store) => store.removeImage);
   const addComposerDraftFiles = useComposerDraftStore((store) => store.addFiles);
@@ -6411,6 +6414,17 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   ?.value !== false
               }
               canChange={_isLocalDraftThread && multipleModelSelections === null}
+              modelSelection={selectedModelSelection}
+              models={selectedProviderModels}
+              modelLocked={providerCatalogPending || isSendBusy || multipleModelSelections !== null}
+              onModelSelectionChange={(selection) => {
+                // A complete selection: the profile's thinking level replaces the thread's.
+                setComposerDraftModelSelection(composerDraftTarget, selection, {
+                  explicit: true,
+                  replaceOptions: true,
+                });
+                setStickyComposerModelSelection(selection);
+              }}
               onStartSddThread={(prompt) =>
                 onStartGentleSddThread(
                   prompt,

@@ -1,4 +1,5 @@
 import {
+  PI_GENTLE_ORCHESTRATOR,
   PiGentleActionInput,
   type EnvironmentId,
   type PiGentleRouting,
@@ -551,7 +552,8 @@ export function PiGentleSettingsSection({
           {profile && !customizing ? (
             <div className="mt-1 flex items-center justify-between gap-2 pb-2">
               <span className="text-xs text-muted-foreground">
-                {Object.keys(routing).length} subagents routed
+                {Object.keys(routing).filter((agent) => agent !== PI_GENTLE_ORCHESTRATOR).length}{" "}
+                subagents routed
               </span>
               <Button size="xs" variant="ghost" onClick={() => setCustomizing(true)}>
                 Customize

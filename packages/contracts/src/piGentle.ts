@@ -8,8 +8,11 @@ export const PiGentleRoutingEntry = Schema.Struct({
     Schema.Literals(["off", "minimal", "low", "medium", "high", "xhigh", "max"]),
   ),
 });
+export type PiGentleRoutingEntry = typeof PiGentleRoutingEntry.Type;
 export const PiGentleRouting = Schema.Record(Schema.String, PiGentleRoutingEntry);
 export type PiGentleRouting = typeof PiGentleRouting.Type;
+/** Routing key a profile uses for the main Pi model rather than a subagent. */
+export const PI_GENTLE_ORCHESTRATOR = "orchestrator";
 
 export const PiGentleSddPreferences = Schema.Struct({
   executionMode: Schema.Literals(["interactive", "auto"]),
@@ -77,6 +80,19 @@ export type PiGentleSddChange = typeof PiGentleSddChange.Type;
 export const PiGentleComposerState = Schema.Struct({
   available: Schema.Boolean,
   projectInitNeeded: Schema.Boolean,
+  // Profiles a thread can apply, with the orchestrator entry that moves the thread's model.
+  profiles: Schema.optionalKey(
+    Schema.Array(
+      Schema.Struct({
+        name: Schema.String,
+        orchestrator: Schema.optionalKey(PiGentleRoutingEntry),
+      }),
+    ),
+  ),
+  // The profile subagent launches in this project resolve: its pin, else the active profile.
+  effectiveProfile: Schema.optionalKey(
+    Schema.NullOr(Schema.Struct({ name: Schema.String, pinned: Schema.Boolean })),
+  ),
   // When changes are requested, exactly one of these is present: the project's active changes,
   // or why Gentle AI could not list them.
   changes: Schema.optionalKey(Schema.Array(PiGentleSddChange)),
@@ -151,6 +167,13 @@ export const PiGentleActionInput = Schema.Struct({
       type: Schema.Literal("activate"),
       name: Schema.String,
       cwd: Schema.optionalKey(TrimmedNonEmptyString),
+    }),
+    // Gentle AI's own apply from inside a project: re-pins the checkout when a pin governs it,
+    // otherwise activates the profile globally.
+    Schema.Struct({
+      type: Schema.Literal("apply"),
+      name: Schema.String,
+      cwd: TrimmedNonEmptyString,
     }),
     Schema.Struct({ type: Schema.Literal("pin"), name: Schema.String, cwd: TrimmedNonEmptyString }),
     Schema.Struct({ type: Schema.Literal("clearPin"), cwd: TrimmedNonEmptyString }),

@@ -13,6 +13,7 @@ import type { PiGentleComposerState } from "@t3tools/contracts";
 import { makePiGentleSettings } from "./PiGentleSettings.ts";
 
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
+const decodeJson = Schema.decodeSync(Schema.fromJsonString(Schema.Unknown));
 
 it.layer(NodeServices.layer)("Pi Gentle settings", (it) => {
   it.effect("installs, updates, and sets up SDD through an isolated Pi executable", () =>
@@ -174,7 +175,7 @@ process.stdout.write(JSON.stringify({
           path,
           spawner,
         });
-        expect(yield* gentle.readComposer(cwd)).toEqual({
+        expect(yield* gentle.readComposer(cwd)).toMatchObject({
           available: true,
           projectInitNeeded: false,
         });
@@ -204,7 +205,7 @@ process.stdout.write(JSON.stringify({
           spawner,
         });
         // A listing failure is reported in the payload, not as a failed read.
-        expect(yield* broken.readComposer(cwd, { includeChanges: true })).toEqual({
+        expect(yield* broken.readComposer(cwd, { includeChanges: true })).toMatchObject({
           available: true,
           projectInitNeeded: false,
           changesError: "Gentle AI could not report SDD status.",
@@ -290,6 +291,8 @@ process.stdout.write(JSON.stringify({
         expect(yield* gentle.readComposer(cwd)).toEqual({
           available: true,
           projectInitNeeded: true,
+          profiles: [],
+          effectiveProfile: null,
         });
 
         const created = yield* gentle.action({ type: "create", name: "review-fast", cwd });
@@ -381,6 +384,117 @@ process.stdout.write(JSON.stringify({
         const cleared = yield* gentle.action({ type: "clearPin", cwd });
         expect(cleared.project?.pinned).toBeNull();
         expect(cleared.profiles[0]?.name).toBe("review-fast");
+      }),
+    ),
+  );
+
+  it.effect("applies a profile's orchestrator the way Gentle AI does", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+        const root = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-pi-gentle-orch-" });
+        const cwd = path.join(root, "project");
+        const agentHome = path.join(root, "agent");
+        const configHome = path.join(root, "gentle-config");
+        const piSettingsPath = path.join(agentHome, "settings.json");
+        yield* fileSystem.makeDirectory(cwd);
+        yield* fileSystem.makeDirectory(path.join(agentHome, "npm", "node_modules", "gentle-pi"), {
+          recursive: true,
+        });
+        yield* fileSystem.writeFileString(
+          path.join(agentHome, "npm", "node_modules", "gentle-pi", "package.json"),
+          encodeJson({ version: "3.7.0" }),
+        );
+        yield* fileSystem.writeFileString(
+          piSettingsPath,
+          encodeJson({ packages: ["npm:gentle-pi"], theme: "dark" }),
+        );
+        yield* fileSystem.makeDirectory(configHome);
+        yield* fileSystem.writeFileString(
+          path.join(configHome, "profiles.json"),
+          encodeJson({
+            kind: "gentle-pi.agent_model_profiles",
+            version: 1,
+            profiles: {
+              deep: {
+                orchestrator: { model: "anthropic/claude-opus-5-5", thinking: "xhigh" },
+                "sdd-apply": { model: "anthropic/claude-opus-5-5", thinking: "high" },
+              },
+              cheap: { orchestrator: { model: "openai-codex/gpt-6-luna" } },
+              plain: { "sdd-apply": { model: "openai-codex/gpt-6-sol" } },
+              broken: { orchestrator: { model: "gpt-6" } },
+            },
+          }),
+        );
+        yield* spawner.string(
+          ChildProcess.make("git", ["init", "-q"], { cwd, stdin: "ignore", stderr: "ignore" }),
+        );
+        const gentle = yield* makePiGentleSettings({
+          environment: { PI_CODING_AGENT_DIR: agentHome, GENTLE_PI_CONFIG_HOME: configHome },
+          fileSystem,
+          path,
+          spawner,
+        });
+        const readPiSettings = fileSystem
+          .readFileString(piSettingsPath)
+          .pipe(Effect.map(decodeJson));
+
+        expect(yield* gentle.readComposer(cwd)).toMatchObject({
+          profiles: [
+            {
+              name: "deep",
+              orchestrator: { model: "anthropic/claude-opus-5-5", thinking: "xhigh" },
+            },
+            { name: "cheap", orchestrator: { model: "openai-codex/gpt-6-luna" } },
+            { name: "plain" },
+            { name: "broken", orchestrator: { model: "gpt-6" } },
+          ],
+          effectiveProfile: null,
+        });
+
+        // Without a pin, applying activates globally and moves Pi's default model with it.
+        expect((yield* gentle.action({ type: "apply", name: "deep", cwd })).active).toBe("deep");
+        expect(yield* readPiSettings).toEqual({
+          packages: ["npm:gentle-pi"],
+          theme: "dark",
+          defaultProvider: "anthropic",
+          defaultModel: "claude-opus-5-5",
+          defaultThinkingLevel: "xhigh",
+        });
+        expect(yield* gentle.readComposer(cwd)).toMatchObject({
+          effectiveProfile: { name: "deep", pinned: false },
+        });
+        // An orchestrator without a thinking level clears the previous one.
+        yield* gentle.action({ type: "apply", name: "cheap", cwd });
+        expect(yield* readPiSettings).toEqual({
+          packages: ["npm:gentle-pi"],
+          theme: "dark",
+          defaultProvider: "openai-codex",
+          defaultModel: "gpt-6-luna",
+        });
+        // A profile that names no orchestrator never moves it.
+        expect((yield* gentle.action({ type: "apply", name: "plain", cwd })).active).toBe("plain");
+        expect(yield* readPiSettings).toMatchObject({ defaultModel: "gpt-6-luna" });
+
+        // An invalid orchestrator fails the whole apply and restores the previous profile.
+        const failure = yield* Effect.flip(gentle.action({ type: "activate", name: "broken" }));
+        expect(failure.detail).toContain("not a provider/model pair");
+        expect((yield* gentle.read(cwd)).active).toBe("plain");
+        expect(yield* fileSystem.readFileString(path.join(configHome, "models.json"))).toContain(
+          "openai-codex/gpt-6-sol",
+        );
+
+        // With a pin, applying moves only the pin, as Gentle AI's repo-scoped apply does.
+        yield* gentle.action({ type: "pin", name: "deep", cwd });
+        expect(yield* gentle.readComposer(cwd)).toMatchObject({
+          effectiveProfile: { name: "deep", pinned: true },
+        });
+        const pinnedApply = yield* gentle.action({ type: "apply", name: "cheap", cwd });
+        expect(pinnedApply.active).toBe("plain");
+        expect(pinnedApply.project).toMatchObject({ pinned: "cheap", pinSource: "local" });
+        expect(yield* readPiSettings).toMatchObject({ defaultModel: "gpt-6-luna" });
       }),
     ),
   );

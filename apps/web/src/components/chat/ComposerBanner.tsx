@@ -131,12 +131,16 @@ function Dock({ className, ...props }: ComponentProps<"div">) {
   );
 }
 
-/** Attachments share a column while neighboring tabs keep their own surface. */
+/**
+ * Attachments share a column while neighboring tabs keep their own surface. Notices truncate
+ * beside the tabs; only a top drawer (approval, question, plan) takes the full narrow width.
+ */
 function Column({ className, ...props }: ComponentProps<"div">) {
   return (
     <div
       className={cn(
-        "flex min-w-0 flex-1 flex-col empty:hidden @max-[560px]:w-full @max-[560px]:flex-none",
+        "flex min-w-0 flex-1 flex-col empty:hidden",
+        "@max-[560px]:has-data-[chat-composer-top-drawer]:w-full @max-[560px]:has-data-[chat-composer-top-drawer]:flex-none",
         "[&>[data-slot=composer-banner-attachment]]:w-full [&>[data-slot=composer-banner-attachment]:last-child]:mb-0",
         className,
       )}

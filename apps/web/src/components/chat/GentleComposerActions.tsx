@@ -1,6 +1,9 @@
 import {
+  gentleProfileModelChange,
+  gentleProfileModelLabel,
   gentleSddChangeStep,
   gentleSddTaskSummary,
+  type GentleProfileOption,
 } from "@t3tools/client-runtime/piGentleComposer";
 import {
   isAtomCommandInterrupted,
@@ -8,9 +11,11 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import type {
   EnvironmentId,
+  ModelSelection,
   PiGentleComposerState,
   PiGentleSddChange,
   ProviderInstanceId,
+  ServerProviderModel,
 } from "@t3tools/contracts";
 import { ChevronDownIcon, ClipboardListIcon, PlusIcon, RefreshCwIcon } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -30,12 +35,17 @@ import {
 import {
   Menu,
   MenuCheckboxItem,
+  MenuGroup,
+  MenuGroupLabel,
   MenuItem,
   MenuPopup,
+  MenuRadioGroup,
+  MenuRadioItem,
   MenuSeparator,
   MenuTrigger,
 } from "../ui/menu";
 import { Spinner } from "../ui/spinner";
+import { toastManager } from "../ui/toast";
 import { ComposerBanner } from "./ComposerBanner";
 import { useComposerMenuProps } from "./composerEventScope";
 
@@ -43,8 +53,9 @@ import { useComposerMenuProps } from "./composerEventScope";
 const NEW_CHANGE_PROMPT = "Use SDD to propose a new OpenSpec change for: ";
 
 /**
- * Gentle AI entry point in a Pi thread's composer: the per-thread Enable choice, project SDD
- * setup, and the project's SDD changes. Each ready change hands its phase to a new thread.
+ * Gentle AI entry point in a Pi thread's composer: the per-thread Enable choice, the Gentle
+ * profile, project SDD setup, and the project's SDD changes. Applying a profile moves the
+ * thread onto its orchestrator model; each ready change hands its phase to a new thread.
  */
 export function GentleComposerActions({
   environmentId,
@@ -52,7 +63,11 @@ export function GentleComposerActions({
   cwd,
   enabled,
   canChange,
+  modelSelection,
+  models,
+  modelLocked,
   onEnabledChange,
+  onModelSelectionChange,
   onStartSddThread,
 }: {
   readonly environmentId: EnvironmentId;
@@ -60,7 +75,12 @@ export function GentleComposerActions({
   readonly cwd: string;
   readonly enabled: boolean;
   readonly canChange: boolean;
+  readonly modelSelection: ModelSelection;
+  readonly models: ReadonlyArray<ServerProviderModel>;
+  /** True while the thread's model cannot change, as when the model picker is disabled. */
+  readonly modelLocked: boolean;
   readonly onEnabledChange: (enabled: boolean) => void;
+  readonly onModelSelectionChange: (selection: ModelSelection) => void;
   readonly onStartSddThread: (prompt: string) => void;
 }) {
   const read = useAtomCommand(serverEnvironment.readPiGentleComposer, {
@@ -71,6 +91,11 @@ export function GentleComposerActions({
     reportFailure: false,
     reportDefect: false,
   });
+  const update = useAtomCommand(serverEnvironment.updatePiGentle, {
+    reportFailure: false,
+    reportDefect: false,
+  });
+  const [applying, setApplying] = useState<string | null>(null);
   const [refresh, setRefresh] = useState(0);
   const [loaded, setLoaded] = useState<PiGentleComposerState | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -134,6 +159,35 @@ export function GentleComposerActions({
     setChangesOpen(false);
     onStartSddThread(prompt);
   };
+  const profiles = enabled ? (loaded?.profiles ?? []) : [];
+  const effectiveProfile = loaded?.effectiveProfile ?? null;
+  const applyProfile = (profile: GentleProfileOption) => {
+    setApplying(profile.name);
+    void update({
+      environmentId,
+      input: { instanceId, action: { type: "apply", name: profile.name, cwd } },
+    }).then((result) => {
+      setApplying(null);
+      if (result._tag !== "Success") {
+        if (!isAtomCommandInterrupted(result)) {
+          const failure = squashAtomCommandFailure(result);
+          setError(failure instanceof Error ? failure.message : "Could not apply the profile.");
+          setErrorOpen(true);
+        }
+        return;
+      }
+      setRefresh((value) => value + 1);
+      const change = gentleProfileModelChange(modelSelection, profile, models);
+      if (change.kind === "switch") onModelSelectionChange(change.selection);
+      if (change.kind === "unavailable") {
+        toastManager.add({
+          type: "warning",
+          title: `Applied ${profile.name}`,
+          description: `${change.model} is not in Pi's model list, so this thread keeps its model.`,
+        });
+      }
+    });
+  };
 
   return (
     <ComposerBanner.Root
@@ -173,6 +227,37 @@ export function GentleComposerActions({
               <MenuItem disabled>{enabled ? "On for this thread" : "Off for this thread"}</MenuItem>
             )}
             <MenuSeparator />
+            {profiles.length > 0 ? (
+              <>
+                <MenuGroup>
+                  <MenuGroupLabel>
+                    {effectiveProfile?.pinned ? "Profile pinned for this checkout" : "Profile"}
+                  </MenuGroupLabel>
+                  <MenuRadioGroup value={effectiveProfile?.name ?? ""}>
+                    {profiles.map((profile) => (
+                      <MenuRadioItem
+                        key={profile.name}
+                        value={profile.name}
+                        disabled={modelLocked || applying !== null}
+                        closeOnClick
+                        // Reapplying the current profile also moves the thread back to its model.
+                        onClick={() => applyProfile(profile)}
+                      >
+                        <span className="flex min-w-0 items-center justify-between gap-4">
+                          <span className="truncate">{profile.name}</span>
+                          <span className="truncate text-muted-foreground text-xs">
+                            {applying === profile.name
+                              ? "Applying…"
+                              : gentleProfileModelLabel(modelSelection, profile, models)}
+                          </span>
+                        </span>
+                      </MenuRadioItem>
+                    ))}
+                  </MenuRadioGroup>
+                </MenuGroup>
+                <MenuSeparator />
+              </>
+            ) : null}
             {loaded?.available && needsSetup ? (
               <MenuItem
                 disabled={settingUp}

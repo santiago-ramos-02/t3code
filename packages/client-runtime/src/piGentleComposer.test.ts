@@ -1,7 +1,16 @@
 import { describe, expect, it } from "vite-plus/test";
-import type { PiGentleSddChange } from "@t3tools/contracts";
+import {
+  ProviderInstanceId,
+  type ModelSelection,
+  type PiGentleSddChange,
+  type ServerProviderModel,
+} from "@t3tools/contracts";
 
-import { gentleSddChangeStep, gentleSddTaskSummary } from "./piGentleComposer.ts";
+import {
+  gentleProfileModelChange,
+  gentleSddChangeStep,
+  gentleSddTaskSummary,
+} from "./piGentleComposer.ts";
 
 const change = (
   nextRecommended: PiGentleSddChange["nextRecommended"],
@@ -78,5 +87,77 @@ describe("Gentle SDD change step", () => {
         change("spec", { taskProgress: { total: 0, completed: 0, pending: 0 } }),
       ),
     ).toBeNull();
+  });
+});
+
+describe("Gentle profile model change", () => {
+  const opus: ServerProviderModel = {
+    slug: "anthropic/claude-opus-5-5",
+    name: "Claude Opus 5.5",
+    isCustom: false,
+    capabilities: {
+      optionDescriptors: [
+        {
+          id: "thinkingLevel",
+          label: "Thinking level",
+          type: "select",
+          options: [
+            { id: "medium", label: "Medium", isDefault: true },
+            { id: "high", label: "High" },
+          ],
+        },
+      ],
+    },
+  };
+  const current: ModelSelection = {
+    instanceId: ProviderInstanceId.make("pi"),
+    model: "openai-codex/gpt-6-luna",
+    options: [
+      { id: "thinkingLevel", value: "low" },
+      { id: "gentleAi", value: true },
+    ],
+  };
+
+  it("moves the thread to the orchestrator and its thinking level, keeping thread options", () => {
+    expect(
+      gentleProfileModelChange(
+        current,
+        { name: "deep", orchestrator: { model: opus.slug, thinking: "high" } },
+        [opus],
+      ),
+    ).toEqual({
+      kind: "switch",
+      selection: {
+        instanceId: current.instanceId,
+        model: opus.slug,
+        options: [
+          { id: "gentleAi", value: true },
+          { id: "thinkingLevel", value: "high" },
+        ],
+      },
+      label: "Claude Opus 5.5 · High",
+    });
+  });
+
+  it("uses the model's default thinking when the profile names a level it lacks", () => {
+    const change = gentleProfileModelChange(
+      current,
+      { name: "deep", orchestrator: { model: opus.slug, thinking: "max" } },
+      [opus],
+    );
+    expect(change.kind === "switch" && change.selection.options).toEqual([
+      { id: "gentleAi", value: true },
+    ]);
+  });
+
+  it("keeps the model without an orchestrator and reports one Pi does not list", () => {
+    expect(gentleProfileModelChange(current, { name: "plain" }, [opus])).toEqual({ kind: "keep" });
+    expect(
+      gentleProfileModelChange(
+        current,
+        { name: "gone", orchestrator: { model: "anthropic/retired" } },
+        [opus],
+      ),
+    ).toEqual({ kind: "unavailable", model: "anthropic/retired" });
   });
 });

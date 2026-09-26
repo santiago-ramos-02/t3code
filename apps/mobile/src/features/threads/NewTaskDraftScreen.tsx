@@ -33,6 +33,7 @@ import {
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
   resolveEnvironmentMachineKind,
+  type PiGentleComposerState,
 } from "@t3tools/contracts";
 
 import {
@@ -70,6 +71,7 @@ import { AppText as Text } from "../../components/AppText";
 import { hasProviderUsageLimits, isUsageLimitsCommand } from "@t3tools/shared/usageLimits";
 import { COMPOSER_LAYOUT_TRANSITION, ComposerSurface } from "./ThreadComposer";
 import { GentleRoseIcon } from "./GentleRoseIcon";
+import { useGentleProfileMenu } from "./useGentleProfileMenu";
 import { ComposerCommandPopover } from "./ComposerCommandPopover";
 import { useComposerCommandMenu } from "./use-composer-command-menu";
 import {
@@ -458,10 +460,11 @@ export function NewTaskDraftScreen(props: {
     reportFailure: false,
     reportDefect: false,
   });
-  const [gentleDraftAvailability, setGentleDraftAvailability] = useState<{
+  const [gentleDraftState, setGentleDraftState] = useState<{
     key: string;
-    available: boolean;
+    value: PiGentleComposerState | null;
   } | null>(null);
+  const [gentleDraftRefresh, setGentleDraftRefresh] = useState(0);
   useEffect(() => {
     if (
       flow.selectedProviderStatus?.driver !== "pi" ||
@@ -477,9 +480,9 @@ export function NewTaskDraftScreen(props: {
       input: { instanceId: gentleDraftSelection.instanceId, cwd: composerWorkspaceCwd },
     }).then((result) => {
       if (!current || isAtomCommandInterrupted(result)) return;
-      setGentleDraftAvailability({
+      setGentleDraftState({
         key: gentleDraftKey,
-        available: result._tag === "Success" && result.value.available,
+        value: result._tag === "Success" ? result.value : null,
       });
     });
     return () => {
@@ -490,18 +493,37 @@ export function NewTaskDraftScreen(props: {
     environmentConnected,
     flow.selectedProviderStatus?.driver,
     gentleDraftKey,
+    gentleDraftRefresh,
     gentleDraftSelection?.instanceId,
     readGentleDraft,
     selectedProject,
   ]);
   const gentleDraftEnabled =
     gentleDraftSelection?.options?.find((option) => option.id === "gentleAi")?.value !== false;
+  const gentleDraftProfiles = useGentleProfileMenu({
+    environmentId: selectedProject?.environmentId ?? null,
+    cwd: composerWorkspaceCwd,
+    state: gentleDraftState?.key === gentleDraftKey ? gentleDraftState.value : null,
+    enabled: gentleDraftEnabled,
+    selection: gentleDraftSelection,
+    models: flow.selectedProviderStatus?.models ?? [],
+    onModelSelectionChange: (selection) => {
+      const option = flow.modelOptions.find(
+        (candidate) =>
+          candidate.selection.instanceId === selection.instanceId &&
+          candidate.selection.model === selection.model,
+      );
+      if (option) flow.setSelectedModelKey(option.key, selection.options ?? []);
+    },
+    onApplied: () => setGentleDraftRefresh((value) => value + 1),
+  });
   const gentleDraftActions: MenuAction[] = [
     {
       id: "enable",
       title: "Enable",
       state: gentleDraftEnabled ? "on" : "off",
     },
+    ...(gentleDraftProfiles.action === null ? [] : [gentleDraftProfiles.action]),
   ];
   // Media needs its thumbnail; every other file already reads as its inline chip.
   const stripAttachments = useMemo(
@@ -1666,13 +1688,14 @@ export function NewTaskDraftScreen(props: {
         </Pressable>
       ) : null}
 
-      {gentleDraftAvailability?.key === gentleDraftKey &&
-      gentleDraftAvailability.available &&
+      {gentleDraftState?.key === gentleDraftKey &&
+      gentleDraftState.value?.available === true &&
       gentleDraftSelection ? (
         <View className="flex-row items-center justify-end px-2 pb-1">
           <ControlPillMenu
             actions={gentleDraftActions}
             onPressAction={({ nativeEvent }) => {
+              if (gentleDraftProfiles.handle(nativeEvent.event)) return;
               if (nativeEvent.event !== "enable") return;
               flow.setSelectedModelOptions([
                 ...(gentleDraftSelection.options?.filter((option) => option.id !== "gentleAi") ??
