@@ -61,6 +61,13 @@ export function gentleProfileModelLabel(
   return change.kind === "unavailable" ? `${change.model} unavailable` : "Keeps model";
 }
 
+// Gentle AI runs SDD phases back to back in auto mode. Planning stops after tasks so only the
+// user starts apply, from their own message or the change's Implement action.
+const STOP_BEFORE_APPLY = "Stop after tasks; do not start apply until I say so.";
+
+/** Draft for a new SDD change; the user finishes the sentence with the goal. */
+export const GENTLE_SDD_NEW_CHANGE_PROMPT = `Use SDD to propose a new OpenSpec change and plan it through tasks. ${STOP_BEFORE_APPLY} The change is: `;
+
 /**
  * What a client can do next with one SDD change: start the ready phase in a Gentle-enabled Pi
  * thread, wait on a blocker, or nothing because the change is archived.
@@ -81,20 +88,26 @@ type SddPhase = Extract<
 >;
 
 const PHASES = {
-  propose: { name: "proposal", action: "Write proposal", dependency: "proposal" },
-  spec: { name: "spec", action: "Write specs", dependency: "specs" },
-  design: { name: "design", action: "Write design", dependency: "design" },
-  tasks: { name: "tasks", action: "Plan tasks", dependency: "tasks" },
-  apply: { name: "apply", action: "Implement", dependency: "apply" },
-  verify: { name: "verify", action: "Verify", dependency: "verify" },
-  remediate: { name: "remediate", action: "Fix verification findings", dependency: null },
-  archive: { name: "archive", action: "Archive", dependency: "archive" },
+  propose: { name: "proposal", action: "Write proposal", dependency: "proposal", planning: true },
+  spec: { name: "spec", action: "Write specs", dependency: "specs", planning: true },
+  design: { name: "design", action: "Write design", dependency: "design", planning: true },
+  tasks: { name: "tasks", action: "Plan tasks", dependency: "tasks", planning: true },
+  apply: { name: "apply", action: "Implement", dependency: "apply", planning: false },
+  verify: { name: "verify", action: "Verify", dependency: "verify", planning: false },
+  remediate: {
+    name: "remediate",
+    action: "Fix verification findings",
+    dependency: null,
+    planning: false,
+  },
+  archive: { name: "archive", action: "Archive", dependency: "archive", planning: false },
 } as const satisfies Record<
   SddPhase,
   {
     name: string;
     action: string;
     dependency: keyof PiGentleSddChange["dependencies"] | null;
+    planning: boolean;
   }
 >;
 
@@ -134,7 +147,9 @@ export function gentleSddChangeStep(change: PiGentleSddChange): GentleSddChangeS
     label: phase.action,
     // SDD only starts from an explicit request, so the prompt names the workflow, change, and
     // phase. It leads with them because the thread title is seeded from the first message.
-    prompt: `SDD ${change.changeName}: run the ${phase.name} phase. Continue the SDD workflow for the OpenSpec change \`${change.changeName}\`.`,
+    prompt: phase.planning
+      ? `SDD ${change.changeName}: run the ${phase.name} phase. Continue planning the OpenSpec change \`${change.changeName}\` through tasks. ${STOP_BEFORE_APPLY}`
+      : `SDD ${change.changeName}: run the ${phase.name} phase. Continue the SDD workflow for the OpenSpec change \`${change.changeName}\`.`,
   };
 }
 

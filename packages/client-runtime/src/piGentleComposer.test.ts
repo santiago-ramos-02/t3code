@@ -7,6 +7,7 @@ import {
 } from "@t3tools/contracts";
 
 import {
+  GENTLE_SDD_NEW_CHANGE_PROMPT,
   gentleProfileModelChange,
   gentleSddChangeStep,
   gentleSddTaskSummary,
@@ -43,10 +44,22 @@ describe("Gentle SDD change step", () => {
       prompt:
         "SDD checkout-flow: run the apply phase. Continue the SDD workflow for the OpenSpec change `checkout-flow`.",
     });
-    expect(gentleSddChangeStep(change("spec"))).toMatchObject({
+    expect(gentleSddChangeStep(change("spec"))).toEqual({
       kind: "ready",
       label: "Write specs",
+      prompt:
+        "SDD checkout-flow: run the spec phase. Continue planning the OpenSpec change `checkout-flow` through tasks. Stop after tasks; do not start apply until I say so.",
     });
+  });
+
+  it("stops every planning handoff before apply, leaving apply to the user", () => {
+    for (const phase of ["propose", "spec", "design", "tasks"] as const) {
+      const step = gentleSddChangeStep(change(phase));
+      expect(step.kind === "ready" && step.prompt).toContain("do not start apply until I say so");
+    }
+    expect(GENTLE_SDD_NEW_CHANGE_PROMPT).toContain("do not start apply until I say so");
+    const apply = gentleSddChangeStep(change("apply"));
+    expect(apply.kind === "ready" && apply.prompt).not.toContain("do not start apply");
   });
 
   it("gates a phase on its own dependency, reported blockers, and editable scope", () => {

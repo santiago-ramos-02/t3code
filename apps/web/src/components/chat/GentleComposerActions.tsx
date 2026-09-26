@@ -1,4 +1,5 @@
 import {
+  GENTLE_SDD_NEW_CHANGE_PROMPT,
   gentleProfileModelChange,
   gentleProfileModelLabel,
   gentleSddChangeStep,
@@ -48,9 +49,6 @@ import { Spinner } from "../ui/spinner";
 import { toastManager } from "../ui/toast";
 import { ComposerBanner } from "./ComposerBanner";
 import { useComposerMenuProps } from "./composerEventScope";
-
-// Opens a new change: the user finishes the sentence with the goal.
-const NEW_CHANGE_PROMPT = "Use SDD to propose a new OpenSpec change for: ";
 
 /**
  * Gentle AI entry point in a Pi thread's composer: the per-thread Enable choice, the Gentle
@@ -343,7 +341,7 @@ export function GentleComposerActions({
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => startThread(NEW_CHANGE_PROMPT)}
+                    onClick={() => startThread(GENTLE_SDD_NEW_CHANGE_PROMPT)}
                   >
                     <PlusIcon className="size-3" />
                     New change

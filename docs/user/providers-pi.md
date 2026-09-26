@@ -84,7 +84,9 @@ project. After that, **SDD changes** lists the project's active OpenSpec changes
 with their next phase and task progress. Choose a change's action, such as
 **Implement**, to open a new thread with Gentle AI on and that phase's request
 already written; review it and send. **New change** opens a thread for proposing
-another change. Changes are listed for projects that save SDD artifacts as
+another change. Planning requests stop once the tasks are written, even in
+automatic mode; implementation starts only when you choose **Implement** or ask
+for it. Changes are listed for projects that save SDD artifacts as
 OpenSpec files.
 
 ## T3 Code tools

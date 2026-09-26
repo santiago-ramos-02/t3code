@@ -1,6 +1,7 @@
 import type { ComposerTextPaste } from "../../native/T3ComposerEditor.types";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import {
+  GENTLE_SDD_NEW_CHANGE_PROMPT,
   gentleSddChangeStep,
   gentleSddTaskSummary,
 } from "@t3tools/client-runtime/piGentleComposer";
@@ -893,7 +894,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                   });
                 }
                 if (nativeEvent.event === "sdd-new") {
-                  startGentleSddTask("Use SDD to propose a new OpenSpec change for: ");
+                  startGentleSddTask(GENTLE_SDD_NEW_CHANGE_PROMPT);
                 }
                 if (nativeEvent.event.startsWith("sdd:")) {
                   const change = gentleChanges.find(
