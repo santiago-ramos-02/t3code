@@ -40,6 +40,7 @@ export interface ProjectThreadAwarenessInput {
     | "updatedAt"
     | "hasPendingApprovals"
     | "hasPendingUserInput"
+    | "backgroundLiveness"
   >;
 }
 
@@ -90,6 +91,12 @@ function resolveThreadAwarenessPhase(
     return "starting";
   }
   if (thread.session?.status === "running" || thread.latestTurn?.state === "running") {
+    return "running";
+  }
+  // Agents working in the background (subagent fleets, gentle-pi subagents) keep the thread
+  // running after its turn ends; the main agent is done only when they are. This mirrors the
+  // sidebar status, so a turn that only hands off to a subagent never reads as finished.
+  if (thread.backgroundLiveness === "working") {
     return "running";
   }
   if (thread.latestTurn?.state === "completed") {

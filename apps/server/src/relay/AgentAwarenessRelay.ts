@@ -90,7 +90,11 @@ export function shouldPublishAgentAwarenessEvent(event: OrchestrationEvent): boo
         event.payload.activity.kind === "provider.approval.respond.failed" ||
         event.payload.activity.kind === "user-input.requested" ||
         event.payload.activity.kind === "user-input.resolved" ||
-        event.payload.activity.kind === "runtime.error"
+        event.payload.activity.kind === "runtime.error" ||
+        // Background agents keep a thread running past its turn, so their start and end can
+        // change the phase without any turn event. Progress never does.
+        event.payload.activity.kind === "task.started" ||
+        event.payload.activity.kind === "task.completed"
       );
     default:
       return true;

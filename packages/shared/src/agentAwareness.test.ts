@@ -29,6 +29,7 @@ function thread(
   | "updatedAt"
   | "hasPendingApprovals"
   | "hasPendingUserInput"
+  | "backgroundLiveness"
 > {
   return {
     id: "thread-1" as ThreadId,
@@ -100,6 +101,29 @@ describe("projectThreadAwareness", () => {
       modelTitle: "gpt-5.4",
       deepLink: "/threads/env-1/thread-1",
     });
+  });
+
+  it("keeps a finished turn running while background agents still work", () => {
+    const handoffTurn = {
+      turnId: "turn-1" as TurnId,
+      state: "completed" as const,
+      requestedAt: NOW,
+      startedAt: NOW,
+      completedAt: NOW,
+      assistantMessageId: null,
+    };
+    const phaseWith = (backgroundLiveness: "working" | "monitoring" | null) =>
+      projectThreadAwareness({
+        environmentId: "env-1" as EnvironmentId,
+        project,
+        thread: thread({ latestTurn: handoffTurn, backgroundLiveness }),
+      })?.phase;
+
+    // A turn that only handed work to a subagent is not the main agent finishing.
+    expect(phaseWith("working")).toBe("running");
+    expect(phaseWith(null)).toBe("completed");
+    // Watch loops alone do not hold the thread open.
+    expect(phaseWith("monitoring")).toBe("completed");
   });
 
   it("projects completed turns as completed even when teardown settled them as interrupted", () => {

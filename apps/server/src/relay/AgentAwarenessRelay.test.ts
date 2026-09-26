@@ -185,6 +185,15 @@ describe.sequential("signRelayAgentActivityPublishProof", () => {
         },
       } as unknown as OrchestrationEvent),
     ).toBe(true);
+    for (const kind of ["task.started", "task.completed"]) {
+      expect(
+        AgentAwarenessRelay.shouldPublishAgentAwarenessEvent({
+          ...base,
+          type: "thread.activity-appended",
+          payload: { threadId: "thread-1" as ThreadId, activity: { kind } },
+        } as unknown as OrchestrationEvent),
+      ).toBe(true);
+    }
     expect(
       AgentAwarenessRelay.shouldPublishAgentAwarenessEvent({
         ...base,
