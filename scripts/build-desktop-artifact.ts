@@ -3295,7 +3295,7 @@ export const validateWindowsPackagedPayload = Effect.fn(
       `${stem}/t3`,
       `${stem}/client`,
       `${stem}/node_modules`,
-      `${stem}/node_modules/node-pty/build/Release/pty.node`,
+      `${stem}/node_modules/node-pty/prebuilds/linux-${input.targetArch}/pty.node`,
     ];
     const missingMembers = requiredMembers.filter((member) => !members.includes(member));
     if (missingMembers.length > 0) {

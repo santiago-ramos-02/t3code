@@ -96,7 +96,7 @@ import { symlinksSupported } from "@t3tools/shared/testing/symlinks";
 
 // A minimal stand-in for the Linux CLI release archive: one top-level
 // directory named after the archive stem holding the executable, the web
-// client, and the runtime externals with node-pty built from source.
+// client, and the runtime externals with the Linux node-pty prebuild.
 const makeLinuxCliArchiveFixture = Effect.fn("test.makeLinuxCliArchiveFixture")(function* (input: {
   readonly root: string;
   readonly stem: string;
@@ -111,7 +111,7 @@ const makeLinuxCliArchiveFixture = Effect.fn("test.makeLinuxCliArchiveFixture")(
     `${input.stem}/t3`,
     `${input.stem}/client/index.html`,
     `${input.stem}/node_modules/node-pty/package.json`,
-    `${input.stem}/node_modules/node-pty/build/Release/pty.node`,
+    `${input.stem}/node_modules/node-pty/prebuilds/linux-x64/pty.node`,
     ...(input.extraMembers ?? []),
   ].filter((member) => !(input.omitMembers ?? []).includes(member));
   for (const member of members) {
@@ -227,7 +227,7 @@ const makeWindowsPayloadFixture = Effect.fn("test.makeWindowsPayloadFixture")(fu
             root: path.join(tempDir, "wsl-runtime"),
             stem,
             ...(input.wslRuntime === "missing-pty"
-              ? { omitMembers: [`${stem}/node_modules/node-pty/build/Release/pty.node`] }
+              ? { omitMembers: [`${stem}/node_modules/node-pty/prebuilds/linux-x64/pty.node`] }
               : {}),
           });
     const archivePath = path.join(resourcesDir, WSL_RUNTIME_ARCHIVE_NAME);
@@ -1284,7 +1284,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         assert.instanceOf(error, WindowsPackagedPayloadValidationError);
         assert.equal(error.reason, "wsl-runtime-invalid");
         assert.deepStrictEqual(error.missingFiles, [
-          `${wslRuntimeArchiveStem(WINDOWS_PAYLOAD_FIXTURE_VERSION, "x64")}/node_modules/node-pty/build/Release/pty.node`,
+          `${wslRuntimeArchiveStem(WINDOWS_PAYLOAD_FIXTURE_VERSION, "x64")}/node_modules/node-pty/prebuilds/linux-x64/pty.node`,
         ]);
       }),
     ),
