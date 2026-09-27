@@ -1,8 +1,7 @@
 # Gentle AI
 
 [Gentle AI](https://github.com/Gentleman-Programming/gentle-ai) adds a
-spec-driven development (SDD) workflow, subagents, skills, and review to coding
-agents. It installs into each agent's own configuration, so threads get it
+development workflow, subagents, skills, memory, and review to coding agents. It installs into each agent's own configuration, so threads get it
 through whichever provider runs them: Claude, Codex, Cursor, OpenCode,
 Antigravity, or Pi.
 
@@ -13,18 +12,37 @@ agents you use, following its own instructions. Pi gets it through the gentle-pi
 package instead; see [Pi](./providers-pi.md#gentle-ai). Remote clients do not
 need their own installation.
 
-T3 Code shows Gentle AI only for the providers it is set up for. When it is set
-up for at least one, **Settings > Gentle AI** shows its version, the providers
-that run with it, and its preset, persona, and components. From there you can:
+**Settings > Gentle AI** appears once gentle-ai is installed on a connected
+environment, or a provider runs with it. What it offers depends on the gentle-ai
+version.
 
-- **Sync** the agents' Gentle AI files after upgrading it, when settings show a
-  sync is needed.
-- Check for updates, **Upgrade**, and **Run doctor**.
-- Set **Binary path** when `gentle-ai` is not on the environment's `PATH`. Left
-  empty, T3 Code also finds the copy gentle-pi bundles.
+With a gentle-ai that has the headless API, the page manages Gentle AI the way
+its own menu does, on the environment it runs on:
 
-On mobile, **Settings > Gentle AI** offers sync, update checks, and doctor. Set
-the binary path and upgrade from web or desktop settings.
+- **Setup** chooses the agents, persona, preset, components, and the options
+  gentle-ai asks for, then installs.
+- **Updates** checks for new versions and upgrades, with or without a sync.
+  **Sync** rewrites Gentle AI's files in every agent it set up.
+- **Models** picks a preset or each role's model for Claude Code, Codex, Kiro,
+  and OpenCode.
+- **Custom agents** has an installed agent write a new one from your
+  description, then installs it.
+- **Community tools**, **OpenCode plugins**, **Receipt-driven development**,
+  and the **Review store** match gentle-ai's own options.
+- **Backups** restores, renames, pins, or deletes the snapshots gentle-ai takes
+  before changing files. **Uninstall** removes what it set up.
+
+Long tasks run on the environment and show their progress on the page, so you
+can leave and come back, or follow them from another device. Setting up and
+other multi-step tasks open in place of the page; the back arrow returns to it.
+
+With an older gentle-ai, the page offers sync, update checks, upgrade, and
+doctor. Set **Binary path** when `gentle-ai` is not on the environment's `PATH`.
+Left empty, T3 Code also finds the copy gentle-pi bundles.
+
+On mobile, **Settings > Gentle AI** shows task progress and offers updates,
+sync, model presets, and backups. Set up Gentle AI, customize models, and
+create agents from web or desktop.
 
 ## Turn Gentle AI off for a thread
 
@@ -44,6 +62,10 @@ In a Claude thread with Gentle AI off, your own skills and commands are
 available under the `user:` prefix, for example `/user:deploy`.
 
 ## SDD changes
+
+Gentle AI 3.7 and earlier offer spec-driven development (SDD). Newer releases
+replace it with Organic Driven Development (ODD), which needs no setup, so the
+items below appear only with a Gentle AI that still has SDD.
 
 Open the Gentle AI dropdown and choose **SDD changes** to see the project's
 active changes with their next phase and task progress. Choose a change's
