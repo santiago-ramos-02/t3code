@@ -16,6 +16,7 @@ export * from "./provider.ts";
 export * from "./providerInstance.ts";
 export * from "./providerSetup.ts";
 export * from "./gentleAi.ts";
+export * from "./gentleAiApi.ts";
 export * from "./piGentle.ts";
 export * from "./providerRuntime.ts";
 export * from "./providerUsageLimits.ts";

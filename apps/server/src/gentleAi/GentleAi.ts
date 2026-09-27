@@ -13,9 +13,13 @@ import * as NodeOS from "node:os";
 import {
   GENTLE_AI_AGENT_DRIVERS,
   GENTLE_AI_PACKAGE,
+  GENTLE_AI_METHODS,
   GentleAiError,
   GentleAiSddStatus,
   ProviderDriverKind,
+  type GentleAiJob,
+  type GentleAiJobMethod,
+  type GentleAiQueryMethod,
   type GentleAiActionInput,
   type GentleAiActionResult,
   type GentleAiSddChange,
@@ -26,11 +30,15 @@ import {
 import { HostProcessEnvironment, HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { resolveCommandPath, resolveSpawnCommand } from "@t3tools/shared/shell";
 import * as Context from "effect/Context";
+import * as Crypto from "effect/Crypto";
+import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Equal from "effect/Equal";
+import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as PubSub from "effect/PubSub";
 import * as Ref from "effect/Ref";
@@ -42,6 +50,7 @@ import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawne
 
 import { piPackages } from "../provider/PiPlainExtensions.ts";
 import { isGentleAiResource } from "./GentleAiFootprint.ts";
+import { DescribeResult, runGentleAiApi, type GentleAiApiEvent } from "./GentleAiApi.ts";
 import { spawnAndCollect } from "../provider/providerSnapshot.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 
@@ -62,6 +71,18 @@ export class GentleAi extends Context.Service<
     ) => Effect.Effect<GentleAiActionResult, GentleAiError>;
     /** A project's active SDD changes with gentle-ai's native status for each. */
     readonly sddChanges: (cwd: string) => Effect.Effect<GentleAiSddChanges, GentleAiError>;
+    /** Answers a read-only API method; the result is validated and encoded for the wire. */
+    readonly query: (
+      method: GentleAiQueryMethod,
+      params: unknown,
+    ) => Effect.Effect<unknown, GentleAiError>;
+    /** Starts an API job; fails while another job runs. */
+    readonly startJob: (
+      method: GentleAiJobMethod,
+      params: unknown,
+    ) => Effect.Effect<GentleAiJob, GentleAiError>;
+    /** The current or last job, then every change. */
+    readonly streamJob: Stream.Stream<GentleAiJob | null>;
   }
 >()("t3/gentleAi/GentleAi") {}
 
@@ -90,6 +111,8 @@ const CHANGE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 /** Status when no gentle-ai binary is available. */
 export const NOT_INSTALLED: GentleAiStatus = {
+  apiVersion: null,
+  sdd: false,
   installed: false,
   version: null,
   binaryPath: null,
@@ -170,6 +193,7 @@ export const make = Effect.gen(function* () {
   const settingsService = yield* ServerSettingsService;
   const hostPlatform = yield* HostProcessPlatform;
   const environment = yield* HostProcessEnvironment;
+  const crypto = yield* Crypto.Crypto;
   const stateRef = yield* Ref.make<GentleAiStatus>(NOT_INSTALLED);
   const changes = yield* Effect.acquireRelease(PubSub.unbounded<GentleAiStatus>(), PubSub.shutdown);
 
@@ -261,7 +285,23 @@ export const make = Effect.gen(function* () {
         )
       : null;
     const agents = state?.installed_agents ?? [];
+    const describe = yield* runGentleAiApi({
+      binaryPath,
+      method: "describe",
+      params: {},
+      environment,
+      timeout: "15 seconds",
+    }).pipe(
+      Effect.flatMap(Schema.decodeUnknownEffect(DescribeResult)),
+      provide,
+      Effect.orElseSucceed(() => null),
+    );
+    const help = yield* run(binaryPath, ["help"], "15 seconds").pipe(
+      Effect.orElseSucceed(() => null),
+    );
     return {
+      apiVersion: describe?.apiVersion ?? null,
+      sdd: help?.output.includes("sdd-status") === true,
       installed: true,
       version,
       binaryPath,
@@ -345,9 +385,14 @@ export const make = Effect.gen(function* () {
     Effect.gen(function* () {
       if (!path.isAbsolute(cwd))
         return yield* new GentleAiError({ detail: "Choose an absolute project folder." });
-      const binaryPath = yield* binary;
-      if (binaryPath === null)
+      const status = yield* Ref.get(stateRef);
+      if (status.binaryPath === null)
         return yield* new GentleAiError({ detail: "Gentle AI is not installed." });
+      if (!status.sdd)
+        return yield* new GentleAiError({
+          detail: "This Gentle AI uses ODD instead of SDD, so there are no SDD changes to list.",
+        });
+      const binaryPath = status.binaryPath;
       const overview = yield* sddStatus(binaryPath, cwd);
       const names: Array<string> = [];
       if (overview.planningHome !== undefined) {
@@ -378,6 +423,132 @@ export const make = Effect.gen(function* () {
       return { artifactStore: overview.artifactStore, changes } satisfies GentleAiSddChanges;
     });
 
+  const apiBinary = Effect.gen(function* () {
+    const status = yield* Ref.get(stateRef);
+    if (status.binaryPath === null || status.apiVersion === null)
+      return yield* new GentleAiError({
+        detail: "This gentle-ai has no headless API. Update it to manage Gentle AI from T3 Code.",
+      });
+    return status.binaryPath;
+  });
+
+  /** Validates a method's params, runs it, and validates what gentle-ai answers. */
+  const callMethod = (
+    method: GentleAiQueryMethod | GentleAiJobMethod,
+    params: unknown,
+    timeout: Duration.Input,
+    onEvent?: (event: GentleAiApiEvent) => Effect.Effect<void>,
+  ) =>
+    Effect.gen(function* () {
+      const spec = GENTLE_AI_METHODS[method];
+      const binaryPath = yield* apiBinary;
+      const invalid = () => new GentleAiError({ detail: `Invalid parameters for ${method}.` });
+      const encodedParams = yield* spec
+        .decodeParams(params)
+        .pipe(Effect.flatMap(spec.encodeParams), Effect.mapError(invalid));
+      const data = yield* runGentleAiApi({
+        binaryPath,
+        method,
+        params: encodedParams,
+        environment,
+        timeout,
+        ...(onEvent ? { onEvent } : {}),
+      }).pipe(provide);
+      // Decoding checks gentle-ai's answer against the contract; the wire gets it re-encoded.
+      return yield* spec.decodeResult(data).pipe(
+        Effect.flatMap(spec.encodeResult),
+        Effect.mapError(
+          () =>
+            new GentleAiError({
+              detail: `gentle-ai answered ${method} in a form this T3 Code does not understand.`,
+            }),
+        ),
+      );
+    });
+
+  // Model discovery asks the agents' own CLIs, which can take a while.
+  const query = (method: GentleAiQueryMethod, params: unknown) =>
+    callMethod(method, params, method === "models.get" ? "2 minutes" : "30 seconds");
+
+  const serviceScope = yield* Effect.scope;
+  const jobRef = yield* Ref.make<GentleAiJob | null>(null);
+  const jobChanges = yield* Effect.acquireRelease(
+    PubSub.unbounded<GentleAiJob | null>(),
+    PubSub.shutdown,
+  );
+  const JOB_LOG_LINES = 500;
+  const updateJob = (update: (job: GentleAiJob) => GentleAiJob) =>
+    Ref.updateAndGet(jobRef, (job) => (job === null ? job : update(job))).pipe(
+      Effect.flatMap((job) => PubSub.publish(jobChanges, job)),
+    );
+  const onJobEvent = (event: GentleAiApiEvent) =>
+    updateJob((job) => {
+      if (event.type === "log") {
+        return { ...job, log: [...job.log, event.message].slice(-JOB_LOG_LINES) };
+      }
+      const step = {
+        id: event.step,
+        status: event.status,
+        ...(event.error === undefined ? {} : { error: event.error }),
+      };
+      const index = job.steps.findIndex((existing) => existing.id === event.step);
+      return {
+        ...job,
+        steps: index === -1 ? [...job.steps, step] : job.steps.with(index, step),
+      };
+    });
+
+  const startJob = (method: GentleAiJobMethod, params: unknown) =>
+    Effect.gen(function* () {
+      yield* apiBinary;
+      const started: GentleAiJob = {
+        id: yield* crypto.randomUUIDv4.pipe(
+          Effect.mapError(
+            () => new GentleAiError({ detail: "Could not start the Gentle AI task." }),
+          ),
+        ),
+        method,
+        phase: "running",
+        startedAt: DateTime.formatIso(yield* DateTime.now),
+        finishedAt: null,
+        steps: [],
+        log: [],
+      };
+      const claimed = yield* Ref.modify(jobRef, (job) =>
+        job?.phase === "running" ? [false, job] : [true, started],
+      );
+      if (!claimed)
+        return yield* new GentleAiError({
+          detail: "Another Gentle AI task is running. Wait for it to finish.",
+        });
+      yield* PubSub.publish(jobChanges, started);
+      yield* callMethod(method, params, "30 minutes", onJobEvent).pipe(
+        Effect.exit,
+        Effect.flatMap((exit) =>
+          Effect.gen(function* () {
+            const finishedAt = DateTime.formatIso(yield* DateTime.now);
+            const failure = Exit.findErrorOption(exit);
+            yield* updateJob((job) =>
+              Exit.isSuccess(exit)
+                ? { ...job, phase: "succeeded", finishedAt, result: exit.value }
+                : {
+                    ...job,
+                    phase: "failed",
+                    finishedAt,
+                    error: Option.isSome(failure)
+                      ? failure.value.detail
+                      : "The Gentle AI task stopped unexpectedly.",
+                  },
+            );
+            // Jobs change what gentle-ai set up, which providers and settings reflect.
+            yield* refresh;
+          }),
+        ),
+        Effect.forkIn(serviceScope),
+      );
+      return started;
+    });
+
   // A changed binary path points at another gentle-ai, so status re-reads straight away.
   yield* settingsService.streamChanges.pipe(
     Stream.map((settings) => settings.gentleAiBinaryPath),
@@ -393,6 +564,17 @@ export const make = Effect.gen(function* () {
     binary,
     action,
     sddChanges,
+    query,
+    startJob,
+    get streamJob() {
+      return Stream.unwrap(
+        Effect.gen(function* () {
+          const subscription = yield* PubSub.subscribe(jobChanges);
+          const snapshot = yield* Ref.get(jobRef);
+          return Stream.concat(Stream.make(snapshot), Stream.fromSubscription(subscription));
+        }),
+      );
+    },
     get streamChanges() {
       return Stream.unwrap(
         Effect.gen(function* () {

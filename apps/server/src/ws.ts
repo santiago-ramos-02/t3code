@@ -2491,6 +2491,28 @@ const makeWsRpcLayer = (
           observeRpcEffect(WS_METHODS.gentleAiAction, gentleAi.action(input), {
             "rpc.aggregate": "gentle-ai",
           }),
+        [WS_METHODS.gentleAiQuery]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.gentleAiQuery,
+            gentleAi.query(input.method, input.params).pipe(Effect.map((data) => ({ data }))),
+            { "rpc.aggregate": "gentle-ai" },
+          ),
+        [WS_METHODS.gentleAiStartJob]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.gentleAiStartJob,
+            gentleAi.startJob(input.method, input.params),
+            {
+              "rpc.aggregate": "gentle-ai",
+            },
+          ),
+        [WS_METHODS.gentleAiSubscribeStatus]: () =>
+          observeRpcStream(WS_METHODS.gentleAiSubscribeStatus, gentleAi.streamChanges, {
+            "rpc.aggregate": "gentle-ai",
+          }),
+        [WS_METHODS.gentleAiSubscribeJob]: () =>
+          observeRpcStream(WS_METHODS.gentleAiSubscribeJob, gentleAi.streamJob, {
+            "rpc.aggregate": "gentle-ai",
+          }),
         [WS_METHODS.gentleAiSddChanges]: (input) =>
           observeRpcEffect(WS_METHODS.gentleAiSddChanges, gentleAi.sddChanges(input.cwd), {
             "rpc.aggregate": "gentle-ai",

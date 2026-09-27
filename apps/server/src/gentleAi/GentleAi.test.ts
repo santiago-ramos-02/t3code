@@ -1,12 +1,16 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { ProviderDriverKind, type ServerProvider } from "@t3tools/contracts";
+import { ProviderDriverKind, type GentleAiJob, type ServerProvider } from "@t3tools/contracts";
 import { HostProcessEnvironment, HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { expect, it } from "@effect/vitest";
+import * as Context from "effect/Context";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
+import * as Stream from "effect/Stream";
 
 import * as ServerSettings from "../serverSettings.ts";
 import { GentleAi, gentleAiDrivers, layer, NOT_INSTALLED, withGentleAi } from "./GentleAi.ts";
@@ -94,6 +98,7 @@ if (command === "sdd-status") {
   }));
 }
 else if (command === "version") process.stdout.write("gentle-ai 3.7.0\\n");
+else if (command === "help") process.stdout.write("  sdd-status [change]\\n");
 else if (command === "doctor") { process.stdout.write("Summary: 7 passed, 0 failed\\n"); process.exit(1); }
 else if (command === "sync") process.stdout.write("synced\\n");
 else process.exit(3);
@@ -135,6 +140,9 @@ else process.exit(3);
         );
 
         expect(yield* service.current).toEqual({
+          // This gentle-ai predates the headless API and still has SDD.
+          apiVersion: null,
+          sdd: true,
           installed: true,
           version: "3.7.0",
           binaryPath: binary,
@@ -184,6 +192,141 @@ else process.exit(3);
         expect((yield* Effect.flip(service.sddChanges(cwd))).detail).toBe(
           "Gentle AI could not report SDD status for broken.",
         );
+      }),
+    ),
+  );
+
+  it.effect("answers API queries and runs one job at a time, streaming its progress", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const platform = yield* HostProcessPlatform;
+        const home = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-gentle-ai-api-" });
+        const release = path.join(home, "release-sync");
+        const script = path.join(home, "fake-gentle-ai.cjs");
+        // Speaks the headless API: JSON params on stdin, NDJSON events and one final line out.
+        yield* fileSystem.writeFileString(
+          script,
+          `const fs = require("node:fs");
+const [command, method] = process.argv.slice(2);
+if (command === "version") { process.stdout.write("gentle-ai 3.8.0\\n"); process.exit(0); }
+if (command !== "api") process.exit(3);
+const params = JSON.parse(fs.readFileSync(0, "utf8") || "{}");
+const line = (value) => process.stdout.write(JSON.stringify({ schema: "gentle-ai.api/v1", ...value }) + "\\n");
+if (method === "describe") line({ type: "result", data: { version: "3.8.0", apiVersion: 1, methods: ["describe"] } });
+else if (method === "backups.list") line({ type: "result", data: { backups: [{ id: "b1", createdAt: "2026-09-01T00:00:00Z", source: "install", description: params.note ?? "Before install", fileCount: 3, createdByVersion: "3.8.0", pinned: false }] } });
+else if (method === "doctor") line({ type: "result", data: { checks: "not a list" } });
+else if (method === "sync") {
+  line({ type: "progress", step: "agent:codex", stage: "apply", status: "running" });
+  line({ type: "log", message: "writing AGENTS.md" });
+  // Waits for the test to observe the running job before finishing.
+  const wait = () => fs.existsSync(${encodeJson(release)}) ? finish() : setTimeout(wait, 20);
+  const finish = () => {
+    line({ type: "progress", step: "agent:codex", stage: "apply", status: "succeeded" });
+    line({ type: "result", data: { files: ["AGENTS.md"] } });
+  };
+  wait();
+}
+else if (method === "backups.delete") line({ type: "error", error: { code: "not_found", message: "No backup b9." } });
+else line({ type: "error", error: { code: "unsupported", message: "unknown method" } });
+`,
+        );
+        const binary = path.join(home, platform === "win32" ? "gentle-ai.cmd" : "gentle-ai");
+        yield* fileSystem.writeFileString(
+          binary,
+          platform === "win32"
+            ? `@echo off\r\n"${process.execPath}" "${script}" %*\r\n`
+            : `#!/bin/sh\nexec '${process.execPath}' '${script}' "$@"\n`,
+        );
+        if (platform !== "win32") yield* fileSystem.chmod(binary, 0o755);
+
+        // Built into the test's scope: jobs run in the service's scope, which must stay open.
+        const context = yield* Layer.build(
+          layer.pipe(Layer.provide(ServerSettings.layerTest({ gentleAiBinaryPath: binary }))),
+        ).pipe(
+          Effect.provideService(HostProcessEnvironment, {
+            ...process.env,
+            HOME: home,
+            USERPROFILE: home,
+          }),
+        );
+        const service = Context.get(context, GentleAi);
+        yield* service.refresh;
+        // A gentle-ai with the API and without SDD (it moved to ODD) lists no SDD changes.
+        expect(yield* service.current).toMatchObject({ apiVersion: 1, sdd: false });
+        expect((yield* Effect.flip(service.sddChanges(home))).detail).toContain("uses ODD");
+
+        expect(yield* service.query("backups.list", {})).toEqual({
+          backups: [
+            {
+              id: "b1",
+              createdAt: "2026-09-01T00:00:00Z",
+              source: "install",
+              description: "Before install",
+              fileCount: 3,
+              createdByVersion: "3.8.0",
+              pinned: false,
+            },
+          ],
+        });
+        // An answer that breaks the contract fails instead of reaching clients.
+        expect(
+          (yield* service.query("doctor", {}).pipe(Effect.asVoid, Effect.flip)).detail,
+        ).toContain("does not understand");
+        // Params are checked before gentle-ai runs.
+        expect(
+          (yield* service.query("models.get", {}).pipe(Effect.asVoid, Effect.flip)).detail,
+        ).toBe("Invalid parameters for models.get.");
+
+        const updates: Array<GentleAiJob | null> = [];
+        const logged = yield* Deferred.make<void>();
+        const watching = yield* service.streamJob.pipe(
+          Stream.tap((job) =>
+            Effect.gen(function* () {
+              updates.push(job);
+              if (job?.log.length === 1) yield* Deferred.succeed(logged, undefined);
+            }),
+          ),
+          Stream.takeUntil((job) => job !== null && job.phase !== "running"),
+          Stream.runDrain,
+          Effect.forkScoped,
+        );
+        const started = yield* service.startJob("sync", {});
+        expect(started.phase).toBe("running");
+        // While it runs, a second job is refused.
+        expect(
+          (yield* Effect.flip(service.startJob("backups.delete", { id: "b9" }))).detail,
+        ).toContain("Another Gentle AI task is running");
+        // Progress reaches subscribers while the job runs.
+        yield* Deferred.await(logged);
+        expect(updates.at(-1)).toMatchObject({
+          phase: "running",
+          steps: [{ id: "agent:codex", status: "running" }],
+        });
+        yield* fileSystem.writeFileString(release, "");
+        yield* Fiber.join(watching);
+        const finished = updates.at(-1);
+        expect(finished).toMatchObject({
+          phase: "succeeded",
+          steps: [{ id: "agent:codex", status: "succeeded" }],
+          log: ["writing AGENTS.md"],
+          result: { files: ["AGENTS.md"] },
+        });
+
+        // A failed job carries gentle-ai's own message, and the next one can start.
+        const failures: Array<GentleAiJob | null> = [];
+        const watchingFailure = yield* service.streamJob.pipe(
+          Stream.tap((job) => Effect.sync(() => failures.push(job))),
+          Stream.takeUntil(
+            (job) => job !== null && job.method === "backups.delete" && job.phase !== "running",
+          ),
+          Stream.runDrain,
+          Effect.forkScoped,
+        );
+        yield* service.startJob("backups.delete", { id: "b9" });
+        yield* Fiber.join(watchingFailure);
+        expect(failures.at(-1)).toMatchObject({ phase: "failed", error: "No backup b9." });
       }),
     ),
   );

@@ -22,6 +22,12 @@ import {
   PiGentleState,
 } from "./piGentle.ts";
 import {
+  GentleAiJob,
+  GentleAiJobInput,
+  GentleAiQueryInput,
+  GentleAiQueryResult,
+} from "./gentleAiApi.ts";
+import {
   GentleAiActionInput,
   GentleAiActionResult,
   GentleAiSddChanges,
@@ -332,6 +338,10 @@ export const WS_METHODS = {
   gentleAiRead: "gentleAi.read",
   gentleAiAction: "gentleAi.action",
   gentleAiSddChanges: "gentleAi.sddChanges",
+  gentleAiQuery: "gentleAi.query",
+  gentleAiStartJob: "gentleAi.startJob",
+  gentleAiSubscribeJob: "gentleAi.subscribeJob",
+  gentleAiSubscribeStatus: "gentleAi.subscribeStatus",
 
   // VCS methods
   vcsPull: "vcs.pull",
@@ -551,6 +561,35 @@ const WsGentleAiSddChangesRpc = Rpc.make(WS_METHODS.gentleAiSddChanges, {
   payload: GentleAiSddChangesInput,
   success: GentleAiSddChanges,
   error: Schema.Union([GentleAiError, EnvironmentAuthorizationError]),
+});
+
+const WsGentleAiQueryRpc = Rpc.make(WS_METHODS.gentleAiQuery, {
+  payload: GentleAiQueryInput,
+  success: GentleAiQueryResult,
+  error: Schema.Union([GentleAiError, EnvironmentAuthorizationError]),
+});
+
+// Starting fails while another Gentle AI job runs; the job itself streams from subscribeJob.
+const WsGentleAiStartJobRpc = Rpc.make(WS_METHODS.gentleAiStartJob, {
+  payload: GentleAiJobInput,
+  success: GentleAiJob,
+  error: Schema.Union([GentleAiError, EnvironmentAuthorizationError]),
+});
+
+// Gentle AI on the environment now, then every change.
+const WsGentleAiSubscribeStatusRpc = Rpc.make(WS_METHODS.gentleAiSubscribeStatus, {
+  payload: Schema.Struct({}),
+  success: GentleAiStatus,
+  error: EnvironmentAuthorizationError,
+  stream: true,
+});
+
+// The environment's current or most recent job, then every change; null before the first.
+const WsGentleAiSubscribeJobRpc = Rpc.make(WS_METHODS.gentleAiSubscribeJob, {
+  payload: Schema.Struct({}),
+  success: Schema.NullOr(GentleAiJob),
+  error: EnvironmentAuthorizationError,
+  stream: true,
 });
 
 const WsGentleAiActionRpc = Rpc.make(WS_METHODS.gentleAiAction, {
@@ -1469,6 +1508,10 @@ export const WsRpcGroup = RpcGroup.make(
   WsGentleAiReadRpc,
   WsGentleAiActionRpc,
   WsGentleAiSddChangesRpc,
+  WsGentleAiQueryRpc,
+  WsGentleAiStartJobRpc,
+  WsGentleAiSubscribeJobRpc,
+  WsGentleAiSubscribeStatusRpc,
   WsProviderConsumeResetCreditRpc,
   WsProviderAuthStartRpc,
   WsProviderAuthCompleteRpc,

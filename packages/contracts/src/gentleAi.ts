@@ -51,6 +51,12 @@ export const GentleAiStatus = Schema.Struct({
   components: Schema.Array(Schema.String),
   // gentle-ai changed since it last synced the agents' assets; `gentle-ai sync` refreshes them.
   syncNeeded: Schema.Boolean,
+  // The headless API version this gentle-ai offers (`gentle-ai api`), or null without one.
+  // Clients offer the full Gentle AI GUI only when it is present.
+  apiVersion: Schema.NullOr(Schema.Number),
+  // Whether this gentle-ai still offers SDD (`sdd-status`); releases after 3.7 replaced it
+  // with ODD.
+  sdd: Schema.Boolean,
 });
 export type GentleAiStatus = typeof GentleAiStatus.Type;
 
