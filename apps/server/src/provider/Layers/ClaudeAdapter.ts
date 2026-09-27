@@ -63,6 +63,7 @@ import {
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import * as Scope from "effect/Scope";
 import { claudeGentleOffOptions } from "../../gentleAi/GentleAiOff.ts";
+import { gentleAiFootprintLookup } from "../../gentleAi/GentleAiFootprints.ts";
 import {
   applyClaudePromptEffortPrefix,
   getModelSelectionBooleanOptionValue,
@@ -2088,6 +2089,8 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
   const crypto = yield* Crypto.Crypto;
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const hostPlatform = yield* HostProcessPlatform;
+  // What gentle-ai added to each agent, for threads with Gentle AI off.
+  const gentleAiFootprints = yield* gentleAiFootprintLookup;
   const claudeEnvironment = yield* makeClaudeEnvironment(claudeSettings, options?.environment).pipe(
     Effect.provideService(Path.Path, path),
   );
@@ -4915,6 +4918,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
               environment: claudeEnvironment,
               platform: hostPlatform,
               cwd: input.cwd,
+              footprint: yield* gentleAiFootprints(["claude-code"]),
             });
           }).pipe(
             Effect.provideService(FileSystem.FileSystem, fileSystem),

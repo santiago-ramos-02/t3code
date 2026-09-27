@@ -162,6 +162,7 @@ import * as ResourceMonitorBinary from "./resourceTelemetry/ResourceMonitorBinar
 import * as ResourceTelemetry from "./resourceTelemetry/ResourceTelemetry.ts";
 import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
 import * as GentleAi from "./gentleAi/GentleAi.ts";
+import * as GentleAiFootprints from "./gentleAi/GentleAiFootprints.ts";
 import * as UsageService from "./usage/UsageService.ts";
 import { OrchestrationLayerLive } from "./orchestration/runtimeLayer.ts";
 import {
@@ -546,9 +547,15 @@ const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
   // logger instances.
   // `ModelManifest.layer` is the legacy-model classification data, refreshed
   // from the repo's `model-manifest.json` on `main` and applied by the
-  // Codex/Claude drivers.
+  // Codex/Claude drivers. `GentleAiFootprints.layer` tells the drivers what
+  // gentle-ai added to their agent, for threads with Gentle AI off.
   Layer.provideMerge(
-    Layer.mergeAll(ProviderEventLoggers.layer, ModelManifest.layer, ResetCreditCoordinator.layer),
+    Layer.mergeAll(
+      ProviderEventLoggers.layer,
+      ModelManifest.layer,
+      ResetCreditCoordinator.layer,
+      GentleAiFootprints.layer,
+    ),
   ),
   // `OpenCodeDriver.create()` yields `OpenCodeRuntime`; previously the old
   // `ProviderRegistryLive` pulled `OpenCodeRuntimeLive` in for itself, but

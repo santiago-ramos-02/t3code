@@ -16,6 +16,7 @@ import {
   gentleAiEnabled,
 } from "@t3tools/contracts";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import { gentleAiFootprintLookup } from "../../gentleAi/GentleAiFootprints.ts";
 import { openCodeGentleOffEnvironment } from "../../gentleAi/GentleAiOff.ts";
 import * as Cause from "effect/Cause";
 import * as Crypto from "effect/Crypto";
@@ -953,6 +954,8 @@ export function makeOpenCodeAdapter(
     const fileSystem = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
     const hostPlatform = yield* HostProcessPlatform;
+    // What gentle-ai added to each agent, for threads with Gentle AI off.
+    const gentleAiFootprints = yield* gentleAiFootprintLookup;
     const sameDirectory = (left: string, right: string) =>
       isSameOpenCodeDirectory(fileSystem, path, left, right);
     const nativeEventLogger =
@@ -2875,6 +2878,7 @@ export function makeOpenCodeAdapter(
                 ? yield* openCodeGentleOffEnvironment({
                     environment: baseEnvironment,
                     platform: hostPlatform,
+                    footprint: yield* gentleAiFootprints(["opencode"]),
                   }).pipe(
                     Effect.provideService(FileSystem.FileSystem, fileSystem),
                     Effect.provideService(Path.Path, path),

@@ -23,6 +23,7 @@ import {
   gentleAiEnabled,
 } from "@t3tools/contracts";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import { gentleAiFootprintLookup } from "../../gentleAi/GentleAiFootprints.ts";
 import { cursorGentleOffEnvironment } from "../../gentleAi/GentleAiOff.ts";
 import * as DateTime from "effect/DateTime";
 import * as Crypto from "effect/Crypto";
@@ -335,6 +336,8 @@ export function makeCursorAdapter(
     const fileSystem = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
     const hostPlatform = yield* HostProcessPlatform;
+    // What gentle-ai added to each agent, for threads with Gentle AI off.
+    const gentleAiFootprints = yield* gentleAiFootprintLookup;
     const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     const serverConfig = yield* Effect.service(ServerConfig);
     const crypto = yield* Crypto.Crypto;
@@ -562,6 +565,8 @@ export function makeCursorAdapter(
             : yield* cursorGentleOffEnvironment({
                 environment: baseEnvironment ?? process.env,
                 platform: hostPlatform,
+                // Cursor also reads the Claude and Codex folders, so every set-up agent counts.
+                footprint: yield* gentleAiFootprints("set-up"),
               }).pipe(
                 Effect.provideService(FileSystem.FileSystem, fileSystem),
                 Effect.provideService(Path.Path, path),

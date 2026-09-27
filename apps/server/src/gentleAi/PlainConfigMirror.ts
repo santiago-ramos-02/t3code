@@ -12,7 +12,9 @@ export type PlainEntry =
   | { readonly kind: "omit" }
   | { readonly kind: "write"; readonly content: string }
   // A real directory holding links to the children that pass `keep`.
-  | { readonly kind: "filter"; readonly keep: (name: string) => boolean };
+  | { readonly kind: "filter"; readonly keep: (name: string) => boolean }
+  // A real directory whose children are planned in turn, for changes deeper down.
+  | { readonly kind: "mirror"; readonly plan: (name: string, directory: boolean) => PlainEntry };
 
 export class PlainConfigMirrorError extends Schema.TaggedError<PlainConfigMirrorError>()(
   "PlainConfigMirrorError",
@@ -79,42 +81,54 @@ export const materializePlainMirror = Effect.fn("materializePlainMirror")(functi
   yield* fileSystem
     .makeDirectory(input.target, { recursive: true })
     .pipe(Effect.mapError(fail(`Could not create ${input.target}.`)));
-  if (!(yield* fileSystem.exists(input.source).pipe(Effect.orElseSucceed(() => false)))) return;
-  const names = yield* fileSystem
-    .readDirectory(input.source)
-    .pipe(Effect.mapError(fail(`Could not read ${input.source}.`)));
-  for (const name of names) {
-    const source = path.join(input.source, name);
-    const target = path.join(input.target, name);
-    const directory = yield* isDirectory(source);
-    const entry = input.plan(name, directory);
-    if (entry.kind === "omit") continue;
-    if (entry.kind === "link") {
-      yield* linkEntry(source, target, directory, input.platform).pipe(
-        input.skipUnlinkable ? Effect.ignore : (effect) => effect,
-      );
-    } else if (entry.kind === "write") {
-      yield* fileSystem
-        .writeFileString(target, entry.content)
-        .pipe(Effect.mapError(fail(`Could not write ${target}.`)));
-    } else {
-      yield* fileSystem
-        .makeDirectory(target, { recursive: true })
-        .pipe(Effect.mapError(fail(`Could not create ${target}.`)));
-      if (!directory) continue;
-      const children = yield* fileSystem
+  const mirror = (
+    source: string,
+    target: string,
+    plan: (name: string, directory: boolean) => PlainEntry,
+  ): Effect.Effect<void, PlainConfigMirrorError> =>
+    Effect.gen(function* () {
+      if (!(yield* fileSystem.exists(source).pipe(Effect.orElseSucceed(() => false)))) return;
+      const names = yield* fileSystem
         .readDirectory(source)
         .pipe(Effect.mapError(fail(`Could not read ${source}.`)));
-      for (const child of children) {
-        if (!entry.keep(child)) continue;
-        const childSource = path.join(source, child);
-        yield* linkEntry(
-          childSource,
-          path.join(target, child),
-          yield* isDirectory(childSource),
-          input.platform,
-        );
+      for (const name of names) {
+        const childSource = path.join(source, name);
+        const childTarget = path.join(target, name);
+        const directory = yield* isDirectory(childSource);
+        const entry = plan(name, directory);
+        if (entry.kind === "omit") continue;
+        if (entry.kind === "link") {
+          yield* linkEntry(childSource, childTarget, directory, input.platform).pipe(
+            input.skipUnlinkable ? Effect.ignore : (effect) => effect,
+          );
+        } else if (entry.kind === "write") {
+          yield* fileSystem
+            .writeFileString(childTarget, entry.content)
+            .pipe(Effect.mapError(fail(`Could not write ${childTarget}.`)));
+        } else {
+          yield* fileSystem
+            .makeDirectory(childTarget, { recursive: true })
+            .pipe(Effect.mapError(fail(`Could not create ${childTarget}.`)));
+          if (!directory) continue;
+          if (entry.kind === "mirror") {
+            yield* mirror(childSource, childTarget, entry.plan);
+            continue;
+          }
+          const children = yield* fileSystem
+            .readDirectory(childSource)
+            .pipe(Effect.mapError(fail(`Could not read ${childSource}.`)));
+          for (const child of children) {
+            if (!entry.keep(child)) continue;
+            const grandchild = path.join(childSource, child);
+            yield* linkEntry(
+              grandchild,
+              path.join(childTarget, child),
+              yield* isDirectory(grandchild),
+              input.platform,
+            );
+          }
+        }
       }
-    }
-  }
+    });
+  yield* mirror(input.source, input.target, input.plan);
 });

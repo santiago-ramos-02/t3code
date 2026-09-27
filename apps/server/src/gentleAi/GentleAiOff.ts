@@ -29,6 +29,7 @@ import {
   PlainConfigMirrorError,
   type PlainEntry,
 } from "./PlainConfigMirror.ts";
+import { footprintPlan, plainContent, type GentleAiPlainFootprint } from "./PlainFootprint.ts";
 
 const decodeJson = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown));
 const encodeJson = Schema.encodeUnknownEffect(Schema.fromJsonString(Schema.Unknown, { space: 2 }));
@@ -105,14 +106,26 @@ export const gentleAiOffDirectory = (agent: string) =>
       }),
   );
 
-/** A plain CODEX_HOME: no gentle-ai instructions, skills, hooks, MCP servers, or profiles. */
+/**
+ * A plain CODEX_HOME: no gentle-ai instructions, skills, hooks, MCP servers, or profiles. A
+ * `footprint` from gentle-ai decides exactly what that is; without one, the built-in lists do.
+ */
 export const materializeCodexPlainHome = Effect.fn("materializeCodexPlainHome")(function* (input: {
   readonly source: string;
   readonly target: string;
   readonly platform: NodeJS.Platform;
   readonly userHome: string;
+  readonly footprint?: GentleAiPlainFootprint | null;
 }) {
   const path = yield* Path.Path;
+  if (input.footprint) {
+    return yield* materializePlainMirror({
+      source: input.source,
+      target: input.target,
+      platform: input.platform,
+      plan: footprintPlan(input.footprint, input.source, path, input.platform),
+    });
+  }
   const mcpServers = gentleAiMcpServers(yield* installedComponents(input.userHome));
   const agents = yield* readText(path.join(input.source, "AGENTS.md"));
   const config = yield* readText(path.join(input.source, "config.toml"));
@@ -157,8 +170,17 @@ export const materializeOpenCodePlainConfig = Effect.fn("materializeOpenCodePlai
     readonly target: string;
     readonly platform: NodeJS.Platform;
     readonly userHome: string;
+    readonly footprint?: GentleAiPlainFootprint | null;
   }) {
     const path = yield* Path.Path;
+    if (input.footprint) {
+      return yield* materializePlainMirror({
+        source: input.source,
+        target: input.target,
+        platform: input.platform,
+        plan: footprintPlan(input.footprint, input.source, path, input.platform),
+      });
+    }
     const mcpServers = gentleAiMcpServers(yield* installedComponents(input.userHome));
     const settingsFiles = ["opencode.json", "opencode.jsonc", "config.json"];
     const settings = new Map<string, string>();
@@ -220,6 +242,7 @@ export const openCodeGentleOffEnvironment = Effect.fn("openCodeGentleOffEnvironm
   function* (input: {
     readonly environment: NodeJS.ProcessEnv;
     readonly platform: NodeJS.Platform;
+    readonly footprint?: GentleAiPlainFootprint | null;
   }) {
     const path = yield* Path.Path;
     const userHome = gentleAiUserHome(input.environment, input.platform);
@@ -230,6 +253,7 @@ export const openCodeGentleOffEnvironment = Effect.fn("openCodeGentleOffEnvironm
       target: path.join(plainConfigHome, "opencode"),
       platform: input.platform,
       userHome,
+      footprint: input.footprint ?? null,
     });
     const claudeCode = (yield* installState(userHome)).installed_agents?.includes("claude-code");
     return {
@@ -363,39 +387,76 @@ export const claudeGentleOffOptions = Effect.fn("claudeGentleOffOptions")(functi
   readonly environment: NodeJS.ProcessEnv;
   readonly platform: NodeJS.Platform;
   readonly cwd: string | undefined;
+  /** gentle-ai's own account of what it added; without one, the built-in lists decide. */
+  readonly footprint?: GentleAiPlainFootprint | null;
 }) {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
+  const footprint = input.footprint ?? null;
   const userHome = gentleAiUserHome(input.environment, input.platform);
-  const mcpNames = gentleAiMcpServers(yield* installedComponents(userHome));
+  // Legacy only: with a footprint, gentle-ai's rewrites already leave its MCP servers out.
+  const mcpNames = footprint
+    ? new Set<string>()
+    : gentleAiMcpServers(yield* installedComponents(userHome));
+  /** A file's text as gentle-ai's uninstall would leave it; null when it would be gone. */
+  const plainText = (filePath: string) =>
+    readText(filePath).pipe(
+      Effect.map((text) =>
+        text === null || footprint === null
+          ? text
+          : plainContent(footprint, filePath, text, path, input.platform),
+      ),
+    );
+  const ownedByGentleAi = (filePath: string) =>
+    footprint !== null &&
+    footprintPlan(
+      footprint,
+      path.dirname(filePath),
+      path,
+      input.platform,
+    )(path.basename(filePath), false).kind === "omit";
 
-  const claudeMd = yield* readText(path.join(input.claudeHome, "CLAUDE.md"));
-  const instructions = claudeMd === null ? null : withoutGentleAiInstructions(claudeMd) || null;
+  const claudeMd = yield* plainText(path.join(input.claudeHome, "CLAUDE.md"));
+  const instructions =
+    claudeMd === null
+      ? null
+      : (footprint ? claudeMd : withoutGentleAiInstructions(claudeMd)) || null;
 
-  const settings = yield* readJsonRecord(path.join(input.claudeHome, "settings.json"));
-  const hooks = withoutGentleAiHooks(settings.hooks);
-  delete settings.hooks;
-  if (hooks) settings.hooks = hooks;
-  if (
-    typeof settings.outputStyle === "string" &&
-    /^(?:gentleman|neutral)$/i.test(settings.outputStyle)
-  )
-    delete settings.outputStyle;
-  if (typeof settings.theme === "string" && settings.theme.startsWith("gentleman"))
-    delete settings.theme;
-  const plugins = withoutKeys(
-    settings.enabledPlugins,
-    (key) => mcpNames.has("engram") && key.startsWith("engram@"),
-  );
-  delete settings.enabledPlugins;
-  if (plugins) settings.enabledPlugins = plugins;
+  const settingsText = yield* plainText(path.join(input.claudeHome, "settings.json"));
+  const settings =
+    settingsText === null
+      ? {}
+      : yield* decodeJson(settingsText).pipe(
+          Effect.map(asRecord),
+          Effect.orElseSucceed((): Record<string, unknown> => ({})),
+        );
+  if (!footprint) {
+    const hooks = withoutGentleAiHooks(settings.hooks);
+    delete settings.hooks;
+    if (hooks) settings.hooks = hooks;
+    if (
+      typeof settings.outputStyle === "string" &&
+      /^(?:gentleman|neutral)$/i.test(settings.outputStyle)
+    )
+      delete settings.outputStyle;
+    if (typeof settings.theme === "string" && settings.theme.startsWith("gentleman"))
+      delete settings.theme;
+    const plugins = withoutKeys(
+      settings.enabledPlugins,
+      (key) => mcpNames.has("engram") && key.startsWith("engram@"),
+    );
+    delete settings.enabledPlugins;
+    if (plugins) settings.enabledPlugins = plugins;
+  }
 
   const agents: Record<string, ClaudePlainAgent> = {};
   const agentsDirectory = path.join(input.claudeHome, "agents");
   for (const file of yield* readDirectoryNames(agentsDirectory)) {
     const name = file.replace(/\.md$/, "");
-    if (!file.endsWith(".md") || isGentleAiAgent(name)) continue;
-    const text = yield* readText(path.join(agentsDirectory, file));
+    const agentPath = path.join(agentsDirectory, file);
+    if (!file.endsWith(".md")) continue;
+    if (footprint ? ownedByGentleAi(agentPath) : isGentleAiAgent(name)) continue;
+    const text = yield* readText(agentPath);
     const agent = text === null ? null : parseAgentFile(text);
     if (agent) agents[name] = agent;
   }
@@ -403,11 +464,17 @@ export const claudeGentleOffOptions = Effect.fn("claudeGentleOffOptions")(functi
   // Skills and commands have no programmatic SDK channel, so they return as a local plugin.
   const skillsDirectory = path.join(input.claudeHome, "skills");
   const commandsDirectory = path.join(input.claudeHome, "commands");
+  const skillsPlan: (name: string, directory: boolean) => PlainEntry = footprint
+    ? footprintPlan(footprint, skillsDirectory, path, input.platform)
+    : (skill) => (GENTLE_AI_SKILLS.has(skill) ? { kind: "omit" } : { kind: "link" });
+  const commandsPlan: (name: string, directory: boolean) => PlainEntry = footprint
+    ? footprintPlan(footprint, commandsDirectory, path, input.platform)
+    : (command) => (GENTLE_AI_COMMAND_FILES.has(command) ? { kind: "omit" } : { kind: "link" });
   const userSkills = (yield* readDirectoryNames(skillsDirectory)).filter(
-    (skill) => !GENTLE_AI_SKILLS.has(skill),
+    (skill) => skillsPlan(skill, true).kind !== "omit",
   );
   const userCommands = (yield* readDirectoryNames(commandsDirectory)).filter(
-    (command) => command.endsWith(".md") && !GENTLE_AI_COMMAND_FILES.has(command),
+    (command) => command.endsWith(".md") && commandsPlan(command, false).kind !== "omit",
   );
   let pluginPath: string | null = null;
   if (userSkills.length > 0 || userCommands.length > 0) {
@@ -421,23 +488,29 @@ export const claudeGentleOffOptions = Effect.fn("claudeGentleOffOptions")(functi
       source: skillsDirectory,
       target: path.join(pluginPath, "skills"),
       platform: input.platform,
-      plan: (skill) => (GENTLE_AI_SKILLS.has(skill) ? { kind: "omit" } : { kind: "link" }),
+      plan: skillsPlan,
     });
     yield* materializePlainMirror({
       source: commandsDirectory,
       target: path.join(pluginPath, "commands"),
       platform: input.platform,
-      plan: (command) =>
-        GENTLE_AI_COMMAND_FILES.has(command) ? { kind: "omit" } : { kind: "link" },
+      plan: commandsPlan,
     });
   }
 
   // User MCP servers live in .claude.json: inside a custom config directory, else in the home.
-  const userConfig = yield* readJsonRecord(
+  const userConfigText = yield* plainText(
     input.environment.CLAUDE_CONFIG_DIR?.trim()
       ? path.join(input.claudeHome, ".claude.json")
       : path.join(userHome, ".claude.json"),
   );
+  const userConfig =
+    userConfigText === null
+      ? {}
+      : yield* decodeJson(userConfigText).pipe(
+          Effect.map(asRecord),
+          Effect.orElseSucceed((): Record<string, unknown> => ({})),
+        );
   const project = input.cwd ? asRecord(asRecord(userConfig.projects)[input.cwd]) : {};
   const mcpServers: Record<string, unknown> = {
     ...asRecord(userConfig.mcpServers),
@@ -515,6 +588,8 @@ export const cursorGentleOffEnvironment = Effect.fn("cursorGentleOffEnvironment"
   function* (input: {
     readonly environment: NodeJS.ProcessEnv;
     readonly platform: NodeJS.Platform;
+    /** Every set-up agent's footprint: Cursor also reads the Claude and Codex folders. */
+    readonly footprint?: GentleAiPlainFootprint | null;
   }) {
     const path = yield* Path.Path;
     if (input.platform === "darwin") {
@@ -524,6 +599,28 @@ export const cursorGentleOffEnvironment = Effect.fn("cursorGentleOffEnvironment"
       });
     }
     const userHome = gentleAiUserHome(input.environment, input.platform);
+    const plainEnvironment = (home: string) =>
+      ({
+        ...input.environment,
+        HOME: home,
+        ...(input.platform === "win32"
+          ? { USERPROFILE: home }
+          : {
+              XDG_CONFIG_HOME:
+                input.environment.XDG_CONFIG_HOME?.trim() || path.join(userHome, ".config"),
+            }),
+      }) satisfies NodeJS.ProcessEnv;
+    if (input.footprint) {
+      const home = yield* gentleAiOffDirectory("cursor");
+      yield* materializePlainMirror({
+        source: userHome,
+        target: home,
+        platform: input.platform,
+        plan: footprintPlan(input.footprint, userHome, path, input.platform),
+        skipUnlinkable: true,
+      });
+      return plainEnvironment(home);
+    }
     const mcpServers = gentleAiMcpServers(yield* installedComponents(userHome));
     const mcpText = yield* readText(path.join(userHome, ".cursor", "mcp.json"));
     const mcp =
@@ -563,15 +660,6 @@ export const cursorGentleOffEnvironment = Effect.fn("cursorGentleOffEnvironment"
         },
       });
     }
-    return {
-      ...input.environment,
-      HOME: home,
-      ...(input.platform === "win32"
-        ? { USERPROFILE: home }
-        : {
-            XDG_CONFIG_HOME:
-              input.environment.XDG_CONFIG_HOME?.trim() || path.join(userHome, ".config"),
-          }),
-    } satisfies NodeJS.ProcessEnv;
+    return plainEnvironment(home);
   },
 );

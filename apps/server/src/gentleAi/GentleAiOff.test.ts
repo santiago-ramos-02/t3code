@@ -12,6 +12,7 @@ import {
   materializeCodexPlainHome,
   materializeOpenCodePlainConfig,
 } from "./GentleAiOff.ts";
+import { footprintKey, type GentleAiPlainFootprint } from "./PlainFootprint.ts";
 
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 const decodeJson = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Unknown));
@@ -158,6 +159,97 @@ it.layer(NodeServices.layer)("Gentle AI off", (it) => {
         const plugin = options.pluginPath ?? "";
         expect(yield* fileSystem.readDirectory(path.join(plugin, "skills"))).toEqual(["mine"]);
         expect(yield* fileSystem.readDirectory(path.join(plugin, "commands"))).toEqual(["ship.md"]);
+      }),
+    ),
+  );
+
+  it.effect("follows gentle-ai's footprint over the built-in lists, down to nested files", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { home, write, path, fileSystem } = yield* makeHome;
+        const platform = yield* HostProcessPlatform;
+        const codex = path.join(home, ".codex");
+        yield* write(".codex/AGENTS.md", "Use tabs.\n\ngentle-ai's part\n");
+        yield* write(".codex/auth.json", '{"token":"x"}');
+        yield* write(".codex/skills/_shared/gentle.md", "gentle");
+        yield* write(".codex/skills/_shared/mine.md", "mine");
+        yield* write(".codex/skills/judgment-day/SKILL.md", "gentle");
+        // A gentle-ai name the footprint does not claim stays: gentle-ai decides, not the name.
+        yield* write(".codex/skills/sdd-apply/SKILL.md", "kept");
+        const key = (relative: string) => footprintKey(path, path.join(codex, relative), platform);
+        const footprint: GentleAiPlainFootprint = {
+          removed: new Set([key("skills/_shared/gentle.md"), key("skills/judgment-day")]),
+          rewritten: new Map([[key("AGENTS.md"), "Use tabs."]]),
+        };
+        const target = path.join(home, "plain-codex");
+        yield* materializeCodexPlainHome({
+          source: codex,
+          target,
+          platform,
+          userHome: home,
+          footprint,
+        });
+
+        expect(yield* fileSystem.readFileString(path.join(target, "AGENTS.md"))).toBe("Use tabs.");
+        expect(yield* fileSystem.readFileString(path.join(target, "auth.json"))).toBe(
+          '{"token":"x"}',
+        );
+        expect((yield* fileSystem.readDirectory(path.join(target, "skills"))).toSorted()).toEqual([
+          "_shared",
+          "sdd-apply",
+        ]);
+        expect(yield* fileSystem.readDirectory(path.join(target, "skills", "_shared"))).toEqual([
+          "mine.md",
+        ]);
+      }),
+    ),
+  );
+
+  it.effect("builds Claude's plain options from gentle-ai's footprint", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { home, write, path, fileSystem } = yield* makeHome;
+        const platform = yield* HostProcessPlatform;
+        const claudeHome = path.join(home, ".claude");
+        yield* write(".claude/CLAUDE.md", "Be brief.\n\norchestrator\n");
+        yield* write(".claude/settings.json", encodeJson({ model: "opus", theme: "dark" }));
+        yield* write(".claude/agents/review-risk.md", "---\ndescription: gentle\n---\nx");
+        yield* write(".claude/agents/review-refuter.md", "---\ndescription: Mine now\n---\ny");
+        yield* write(".claude/skills/judgment-day/SKILL.md", "gentle");
+        yield* write(".claude/skills/mine/SKILL.md", "mine");
+        yield* write(
+          ".claude.json",
+          encodeJson({ mcpServers: { context7: { command: "c7" }, github: { command: "gh" } } }),
+        );
+        const key = (file: string) => footprintKey(path, file, platform);
+        const footprint: GentleAiPlainFootprint = {
+          removed: new Set([
+            key(path.join(claudeHome, "agents", "review-risk.md")),
+            key(path.join(claudeHome, "skills", "judgment-day")),
+          ]),
+          rewritten: new Map([
+            [key(path.join(claudeHome, "CLAUDE.md")), "Be brief.\n"],
+            [key(path.join(claudeHome, "settings.json")), encodeJson({ model: "opus" })],
+            [
+              key(path.join(home, ".claude.json")),
+              encodeJson({ mcpServers: { github: { command: "gh" } } }),
+            ],
+          ]),
+        };
+
+        const options = yield* claudeGentleOffOptions({
+          claudeHome,
+          environment: { HOME: home, USERPROFILE: home },
+          platform,
+          cwd: undefined,
+          footprint,
+        });
+        expect(options.instructions).toBe("Be brief.\n");
+        expect(options.settings).toEqual({ model: "opus" });
+        expect(Object.keys(options.agents)).toEqual(["review-refuter"]);
+        expect(options.mcpServers).toEqual({ github: { command: "gh" } });
+        const plugin = options.pluginPath ?? "";
+        expect(yield* fileSystem.readDirectory(path.join(plugin, "skills"))).toEqual(["mine"]);
       }),
     ),
   );

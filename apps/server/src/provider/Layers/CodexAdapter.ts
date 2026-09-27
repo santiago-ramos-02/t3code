@@ -36,6 +36,7 @@ import {
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
+import { gentleAiFootprintLookup } from "../../gentleAi/GentleAiFootprints.ts";
 import {
   gentleAiOffDirectory,
   gentleAiUserHome,
@@ -2255,6 +2256,8 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const hostPlatform = yield* HostProcessPlatform;
+  // What gentle-ai added to each agent, for threads with Gentle AI off.
+  const gentleAiFootprints = yield* gentleAiFootprintLookup;
   const nativeEventLogger =
     options?.nativeEventLogger ??
     (options?.nativeEventLogPath !== undefined
@@ -2308,6 +2311,7 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
                 target,
                 platform: hostPlatform,
                 userHome,
+                footprint: yield* gentleAiFootprints(["codex"]),
               });
               return target;
             }).pipe(

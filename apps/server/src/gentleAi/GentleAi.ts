@@ -28,7 +28,7 @@ import {
   type ServerProvider,
 } from "@t3tools/contracts";
 import { HostProcessEnvironment, HostProcessPlatform } from "@t3tools/shared/hostProcess";
-import { resolveCommandPath, resolveSpawnCommand } from "@t3tools/shared/shell";
+import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
@@ -48,9 +48,9 @@ import * as Stream from "effect/Stream";
 import * as ChildProcess from "effect/unstable/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
 
-import { piPackages } from "../provider/PiPlainExtensions.ts";
 import { isGentleAiResource } from "./GentleAiFootprint.ts";
 import { DescribeResult, runGentleAiApi, type GentleAiApiEvent } from "./GentleAiApi.ts";
+import { resolveGentleAiBinary } from "./GentleAiBinary.ts";
 import { spawnAndCollect } from "../provider/providerSnapshot.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 
@@ -207,29 +207,12 @@ export const make = Effect.gen(function* () {
     );
 
   /** The configured binary, else gentle-ai on PATH, else the copy gentle-pi bundles. */
-  const binary = Effect.gen(function* () {
-    const configured = (yield* settingsService.getSettings.pipe(
-      Effect.map((settings) => settings.gentleAiBinaryPath),
-      Effect.orElseSucceed(() => ""),
-    )).trim();
-    if (configured) return configured;
-    const onPath = yield* resolveCommandPath("gentle-ai").pipe(Effect.orElseSucceed(() => null));
-    if (onPath) return onPath;
-    const gentlePi = (yield* piPackages({ environment }).pipe(
-      Effect.orElseSucceed(() => []),
-    )).findLast((entry) => entry.manifest?.name === "gentle-pi");
-    const version = gentlePi?.manifest?.version;
-    if (gentlePi === undefined || version === undefined) return null;
-    const bundled = path.join(
-      gentlePi.directory,
-      ".gentle-ai",
-      `v${version}`,
-      hostPlatform === "win32" ? "gentle-ai.exe" : "gentle-ai",
-    );
-    return (yield* fileSystem.exists(bundled).pipe(Effect.orElseSucceed(() => false)))
-      ? bundled
-      : null;
-  }).pipe(provide);
+  const binary = settingsService.getSettings.pipe(
+    Effect.map((settings) => settings.gentleAiBinaryPath),
+    Effect.orElseSucceed(() => ""),
+    Effect.flatMap(resolveGentleAiBinary),
+    provide,
+  );
 
   /** Runs gentle-ai to completion; `output` is stdout and stderr together, as reports use both. */
   const run = (

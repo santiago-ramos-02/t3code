@@ -57,7 +57,9 @@ In a new thread, open the Gentle AI dropdown in the composer and clear
 anything Gentle AI added: its instructions, subagents, skills, commands, hooks,
 and MCP servers. Your own settings, sign-in, and history are unchanged, and
 Gentle AI stays on for your other threads. The choice is stored with the thread
-when you send its first message.
+when you send its first message. What gets left out is exactly what removing
+Gentle AI from that agent would take out, so an agent Gentle AI has not set up
+runs as it always does.
 
 A few setups cannot run without Gentle AI:
 

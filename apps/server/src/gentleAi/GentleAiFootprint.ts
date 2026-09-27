@@ -3,10 +3,10 @@
  * without it. A thread with Gentle AI off runs its agent on the user's own configuration minus
  * this footprint.
  *
- * gentle-ai keeps no manifest of the files it manages; its own uninstall recognises them the
- * same way, from asset names, markdown markers, and hook commands (gentle-ai v3.7
- * `internal/components/uninstall`). These rules follow that release; T3 Code supports
- * gentle-ai 3.5 through 3.7.
+ * A gentle-ai that answers `api footprint` reports this itself, by simulating its own uninstall
+ * (see GentleAiFootprints.ts), and that answer wins. These built-in rules are the fallback for
+ * older releases: they follow gentle-ai v3.7's uninstall, which recognises its files from asset
+ * names, markdown markers, and hook commands, and go stale as gentle-ai changes.
  *
  * @module gentleAi/GentleAiFootprint
  */
