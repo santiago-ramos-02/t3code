@@ -74,6 +74,7 @@ import {
 } from "../../state/use-composer-drafts";
 import type { ComposerDocumentAttachment } from "../../lib/composerContext";
 import { useProject } from "../../state/entities";
+import { useEnvironmentQuery } from "../../state/query";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
@@ -364,6 +365,11 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     value: PiGentleComposerState;
   } | null>(null);
   const [gentleError, setGentleError] = useState<{ key: string; message: string } | null>(null);
+  // Changes are listed by gentle-ai's `sdd-status`; releases that replaced SDD with ODD have none.
+  const gentleAiSdd =
+    useEnvironmentQuery(
+      serverEnvironment.gentleAiStatus({ environmentId: props.environmentId, input: {} }),
+    ).data?.sdd === true;
   const readGentleChanges = useAtomCommand(serverEnvironment.readGentleAiSddChanges, {
     reportFailure: false,
     reportDefect: false,
@@ -417,7 +423,12 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   ]);
   // Native menus cannot load after opening, so mobile reads the change list up front.
   useEffect(() => {
-    if (!gentleProvider || props.connectionState !== "connected" || props.projectCwd === null)
+    if (
+      !gentleProvider ||
+      !gentleAiSdd ||
+      props.connectionState !== "connected" ||
+      props.projectCwd === null
+    )
       return;
     let current = true;
     void readGentleChanges({
@@ -441,6 +452,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       current = false;
     };
   }, [
+    gentleAiSdd,
     gentleKey,
     gentleProvider,
     gentleRefresh,
@@ -524,7 +536,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
           attributes: { disabled: true },
         },
     ...(gentleProfiles.action === null ? [] : [gentleProfiles.action]),
-    ...(!gentleNeedsSetup
+    ...(gentleAiSdd && !gentleNeedsSetup
       ? [
           {
             id: "sdd",

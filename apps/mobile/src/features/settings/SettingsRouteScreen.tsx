@@ -1,5 +1,5 @@
 import { ScreenScrollView as ScrollView } from "../../components/ScreenScrollView";
-import { environmentRunsGentleAi } from "./SettingsGentleAiRouteScreen";
+import { environmentRunsGentleAi, useGentleAiInstalledOnAny } from "./SettingsGentleAiRouteScreen";
 import { useAuth, useUser } from "@clerk/expo";
 import { useNavigation } from "@react-navigation/native";
 import { Platform, View } from "react-native";
@@ -131,6 +131,9 @@ function LocalSettingsRouteScreen() {
 function SettingsIndexSections() {
   const { selectedTargets, projectGroups, selectedProjectKey } = useSettingsEnvironmentFilter();
   const noServerTargets = selectedTargets.length === 0;
+  const gentleAiInstalled = useGentleAiInstalledOnAny(
+    selectedTargets.map((target) => target.environmentId),
+  );
   const selectedProject = projectGroups.find((group) => group.key === selectedProjectKey);
   const scopedProjectMembers =
     selectedProject?.members
@@ -193,8 +196,8 @@ function SettingsIndexSections() {
           target="SettingsEnvironmentMaintenance"
           disabled={noServerTargets}
         />
-        {/* Gentle AI is optional; its row appears once a selected environment runs it. */}
-        {selectedTargets.some(environmentRunsGentleAi) ? (
+        {/* Gentle AI is optional; its row appears once a selected environment has or runs it. */}
+        {gentleAiInstalled || selectedTargets.some(environmentRunsGentleAi) ? (
           <SettingsRow icon="slider.horizontal.3" label="Gentle AI" target="SettingsGentleAi" />
         ) : null}
       </SettingsSection>

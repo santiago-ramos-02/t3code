@@ -32,6 +32,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { useEnvironmentQuery } from "../../state/query";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { GentleRoseIcon } from "../GentleRoseIcon";
@@ -115,6 +116,9 @@ export function GentleComposerActions({
   const [error, setError] = useState<string | null>(null);
   const [errorOpen, setErrorOpen] = useState(false);
   const [changesOpen, setChangesOpen] = useState(false);
+  const gentleAiStatus = useEnvironmentQuery(
+    serverEnvironment.gentleAiStatus({ environmentId, input: {} }),
+  ).data;
   const readChanges = useAtomCommand(serverEnvironment.readGentleAiSddChanges, {
     reportFailure: false,
     reportDefect: false,
@@ -174,6 +178,8 @@ export function GentleComposerActions({
   if (pi && loaded?.available !== true) return null;
   // Only gentle-pi needs T3 Code to set up SDD; other agents run its preflight in the thread.
   const needsSetup = pi && loaded?.projectInitNeeded === true;
+  // Changes are listed by gentle-ai's `sdd-status`; releases that replaced SDD with ODD have none.
+  const sddListed = gentleAiStatus?.sdd === true;
   // gentle-ai's status does not read gentle-pi's saved store yet, so Pi's own choice wins.
   const artifactStore =
     loaded?.sdd?.artifactStore ?? (changes?._tag === "Loaded" ? changes.value.artifactStore : null);
@@ -298,7 +304,7 @@ export function GentleComposerActions({
                 <MenuSeparator />
               </>
             ) : null}
-            {!needsSetup ? (
+            {sddListed && !needsSetup ? (
               <MenuItem
                 onClick={() => {
                   setChanges(null);

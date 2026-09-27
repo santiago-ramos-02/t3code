@@ -2,6 +2,10 @@ import { createFileRoute } from "@tanstack/react-router";
 
 import { useEnvironmentOperateAccess } from "../components/settings/EnvironmentIconPicker";
 import { GentleAiSettingsPanel } from "../components/settings/GentleAiSettings";
+import {
+  gentleAiFlowKey,
+  parseGentleAiFlow,
+} from "../components/settings/gentle-ai/gentleAiFlow.logic";
 import { useSettingsScope } from "../components/settings/SettingsScopeContext";
 
 /** Gentle AI is machine state, so the page shows the representative environment. */
@@ -22,6 +26,7 @@ function SettingsGentleAiRoute() {
       environmentId={environment.environmentId}
       serverConfig={environment.serverConfig}
       projectCwd={target.projectCwd}
+      flow={parseGentleAiFlow(target.flow)}
     />
   );
 }
@@ -36,9 +41,15 @@ function GentleAiEnvironmentRoute(
 }
 
 export const Route = createFileRoute("/settings/gentle-ai")({
-  validateSearch: (raw: Record<string, unknown>) =>
-    typeof raw.projectCwd === "string" && raw.projectCwd.trim()
-      ? { projectCwd: raw.projectCwd }
-      : {},
+  // `flow` names a Gentle AI flow open in place of the page, so back and links return to it.
+  validateSearch: (raw: Record<string, unknown>): { projectCwd?: string; flow?: string } => {
+    const flow = parseGentleAiFlow(raw.flow);
+    return {
+      ...(typeof raw.projectCwd === "string" && raw.projectCwd.trim()
+        ? { projectCwd: raw.projectCwd }
+        : {}),
+      ...(flow === null ? {} : { flow: gentleAiFlowKey(flow) }),
+    };
+  },
   component: SettingsGentleAiRoute,
 });
