@@ -1662,7 +1662,6 @@ describe("PiAdapter session runtime", () => {
         yield* takeEvents(adapter, SESSION_EVENTS);
         const transport = harness.transports[0]!;
         for (const event of [
-          { type: "extension_ui_request", id: "n", method: "notify", message: "notice" },
           {
             type: "extension_ui_request",
             id: "nw",
@@ -1701,6 +1700,35 @@ describe("PiAdapter session runtime", () => {
           payload: { message: "SDD preflight could not read preferences" },
         });
         expect(transport.notifications).toEqual([]);
+      }),
+    ),
+  );
+
+  it.effect("shows an extension command's info notices in its turn", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = makeRpcHarness();
+        const adapter = yield* makeAdapter(harness);
+        yield* startSession(adapter);
+        yield* takeEvents(adapter, SESSION_EVENTS);
+        const transport = harness.transports[0]!;
+        yield* adapter.sendTurn({ threadId: THREAD_ID, input: "/gentle:status" });
+        const [started] = yield* takeEvents(adapter, 1);
+        expect(started).toMatchObject({ type: "turn.started" });
+        yield* offerNative(transport, {
+          type: "extension_ui_request",
+          id: "status",
+          method: "notify",
+          message: "Gentle AI status · persona: neutral",
+          notifyType: "info",
+        });
+        expect(yield* takeEvents(adapter, 1)).toMatchObject([
+          {
+            type: "runtime.notice",
+            turnId: started?.turnId,
+            payload: { message: "Gentle AI status · persona: neutral" },
+          },
+        ]);
       }),
     ),
   );

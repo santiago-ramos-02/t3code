@@ -35,6 +35,8 @@ import type {
   SnapShotSource,
 } from "@t3tools/contracts";
 import {
+  PI_GENTLE_OPTION_ID,
+  piGentleEnabled,
   ProviderDriverKind,
   ProviderInstanceId,
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
@@ -42,6 +44,7 @@ import {
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
 } from "@t3tools/contracts";
 import type { EnvironmentConnectionPresentation } from "@t3tools/client-runtime/connection";
+import { piResourcesForGentle } from "@t3tools/client-runtime/piGentleComposer";
 import {
   isPasteAsTextShortcut,
   nextPastedTextFileName,
@@ -1964,12 +1967,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     [selectedProviderEntry],
   );
   const compactCommandAvailable = providerSupportsManualCompaction(selectedProviderEntry);
-  const selectedProviderSkills = selectedProviderStatus
-    ? resolveProviderSkillsForCwd(selectedProviderStatus, gitCwd)
-    : [];
-  const selectedProviderSlashCommands = selectedProviderStatus
-    ? resolveProviderSlashCommandsForCwd(selectedProviderStatus, gitCwd)
-    : [];
   const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders, {
     reportFailure: false,
   });
@@ -2095,6 +2092,20 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     () => createModelSelection(selectedInstanceId, selectedModel, selectedModelOptionsForDispatch),
     [selectedInstanceId, selectedModel, selectedModelOptionsForDispatch],
   );
+  const selectedGentleEnabled = piGentleEnabled(selectedModelSelection.options);
+  // A Pi thread with Gentle AI off loads none of its packages, so their commands are not offered.
+  const selectedProviderSkills = selectedProviderStatus
+    ? piResourcesForGentle(
+        resolveProviderSkillsForCwd(selectedProviderStatus, gitCwd),
+        selectedGentleEnabled,
+      )
+    : [];
+  const selectedProviderSlashCommands = selectedProviderStatus
+    ? piResourcesForGentle(
+        resolveProviderSlashCommandsForCwd(selectedProviderStatus, gitCwd),
+        selectedGentleEnabled,
+      )
+    : [];
   const selectedModelForPicker = selectedModel;
   // Instance-keyed option list so the picker can show each configured
   // instance (built-in + custom) as a first-class sidebar entry. The
@@ -6409,10 +6420,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               environmentId={environmentId}
               instanceId={selectedInstanceId}
               cwd={gitCwd}
-              enabled={
-                selectedModelSelection.options?.find((option) => option.id === "gentleAi")
-                  ?.value !== false
-              }
+              enabled={selectedGentleEnabled}
               canChange={_isLocalDraftThread && multipleModelSelections === null}
               modelSelection={selectedModelSelection}
               models={selectedProviderModels}
@@ -6430,9 +6438,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   prompt,
                   createModelSelection(selectedInstanceId, selectedModel, [
                     ...(selectedModelSelection.options?.filter(
-                      (option) => option.id !== "gentleAi",
+                      (option) => option.id !== PI_GENTLE_OPTION_ID,
                     ) ?? []),
-                    { id: "gentleAi", value: true },
+                    { id: PI_GENTLE_OPTION_ID, value: true },
                   ]),
                 )
               }
@@ -6441,9 +6449,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   composerDraftTarget,
                   createModelSelection(selectedInstanceId, selectedModel, [
                     ...(selectedModelSelection.options?.filter(
-                      (option) => option.id !== "gentleAi",
+                      (option) => option.id !== PI_GENTLE_OPTION_ID,
                     ) ?? []),
-                    { id: "gentleAi", value: enabled },
+                    { id: PI_GENTLE_OPTION_ID, value: enabled },
                   ]),
                 )
               }

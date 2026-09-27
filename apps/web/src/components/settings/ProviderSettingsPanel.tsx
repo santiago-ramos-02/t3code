@@ -1052,34 +1052,37 @@ export function EnvironmentProviderSettings({
           mode === "editor" && row.driver === "pi" ? (
             <>
               <PiModelProvidersSection provider={liveProvider} />
-              <PiGentleSettingsSection
-                environmentId={environmentId}
-                instanceId={row.instanceId}
-                binaryPathValue={configuredGentleAiBinaryPath(row.instance.config)}
-                onBinaryPathChange={(gentleAiBinaryPath) =>
-                  updateProviderInstance(row, {
-                    ...row.instance,
-                    config: {
-                      ...(row.instance.config !== null && typeof row.instance.config === "object"
-                        ? row.instance.config
-                        : {}),
-                      gentleAiBinaryPath,
-                    },
-                  })
-                }
-                refreshKey={gentleRefreshKey}
-                models={liveProvider?.models ?? []}
-                initialProjectCwd={projectCwd}
-                projects={projectGroups.flatMap((group) =>
-                  group.memberProjects
-                    .filter((project) => project.environmentId === environmentId)
-                    .map((project) => ({
-                      title: group.displayName,
-                      workspaceRoot: project.workspaceRoot,
-                    })),
-                )}
-                readOnly={readOnly}
-              />
+              {/* Gentle AI is an optional Pi package; the section hides itself without it. */}
+              {liveProvider?.installed ? (
+                <PiGentleSettingsSection
+                  environmentId={environmentId}
+                  instanceId={row.instanceId}
+                  binaryPathValue={configuredGentleAiBinaryPath(row.instance.config)}
+                  onBinaryPathChange={(gentleAiBinaryPath) =>
+                    updateProviderInstance(row, {
+                      ...row.instance,
+                      config: {
+                        ...(row.instance.config !== null && typeof row.instance.config === "object"
+                          ? row.instance.config
+                          : {}),
+                        gentleAiBinaryPath,
+                      },
+                    })
+                  }
+                  refreshKey={gentleRefreshKey}
+                  models={liveProvider?.models ?? []}
+                  initialProjectCwd={projectCwd}
+                  projects={projectGroups.flatMap((group) =>
+                    group.memberProjects
+                      .filter((project) => project.environmentId === environmentId)
+                      .map((project) => ({
+                        title: group.displayName,
+                        workspaceRoot: project.workspaceRoot,
+                      })),
+                  )}
+                  readOnly={readOnly}
+                />
+              ) : null}
             </>
           ) : null
         }

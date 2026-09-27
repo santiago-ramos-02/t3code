@@ -32,7 +32,6 @@ import {
 import { DraftInput } from "../ui/draft-input";
 import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
-import { Spinner } from "../ui/spinner";
 import { SettingsRow, SettingsSection } from "./settingsLayout";
 
 type GentleAction = typeof PiGentleActionInput.Type.action;
@@ -290,7 +289,6 @@ export function PiGentleSettingsSection({
           ? "project"
           : action.type === "setGlobalPersona" ||
               action.type === "activate" ||
-              action.type === "install" ||
               action.type === "update"
             ? "global"
             : "profiles";
@@ -333,69 +331,49 @@ export function PiGentleSettingsSection({
       </span>
     ) : null;
 
+  // Gentle AI is an optional Pi package: nothing about it shows until the server confirms Pi
+  // loads it. The server only fails a read once gentle-pi is installed, so a failure is shown.
   if (state === null) {
-    return (
+    return error ? (
       <SettingsSection title="Gentle AI" icon={sectionIcon} {...readOnlyProps}>
         <SettingsRow
-          title={error ? "Gentle AI is unavailable" : "Checking Gentle AI"}
+          title="Gentle AI settings could not be read"
           status={errorFor("project")}
           control={
-            error ? (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => {
-                  setErrorState(null);
-                  setRefresh((value) => value + 1);
-                }}
-              >
-                Retry
-              </Button>
-            ) : (
-              <Spinner className="size-3.5" />
-            )
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setErrorState(null);
+                setRefresh((value) => value + 1);
+              }}
+            >
+              Retry
+            </Button>
           }
         />
       </SettingsSection>
-    );
+    ) : null;
   }
 
   if (!state.available) {
-    return (
+    return state.version === null ? null : (
       <SettingsSection title="Gentle AI" icon={sectionIcon} {...readOnlyProps}>
-        {state.version === null ? (
-          <SettingsRow
-            title="Install for Pi"
-            description="Add profiles, personas, and SDD to this Pi environment."
-            status={errorFor("global")}
-            control={
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={!canEdit}
-                onClick={() => void runAction({ type: "install", ...cwdInput })}
-              >
-                {pending ? "Working…" : "Install Gentle AI"}
-              </Button>
-            }
-          />
-        ) : (
-          <SettingsRow
-            title="Update for Pi"
-            description={`Gentle AI ${state.version} is installed. T3 Code needs 3.5 or newer.`}
-            status={errorFor("global")}
-            control={
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={!canEdit}
-                onClick={() => void runAction({ type: "update", ...cwdInput })}
-              >
-                {pending ? "Working…" : "Update Gentle AI"}
-              </Button>
-            }
-          />
-        )}
+        <SettingsRow
+          title="Update for Pi"
+          description={`Gentle AI ${state.version} is installed. T3 Code supports 3.5 or newer.`}
+          status={errorFor("global")}
+          control={
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!canEdit}
+              onClick={() => void runAction({ type: "update", ...cwdInput })}
+            >
+              {pending ? "Working…" : "Update Gentle AI"}
+            </Button>
+          }
+        />
       </SettingsSection>
     );
   }

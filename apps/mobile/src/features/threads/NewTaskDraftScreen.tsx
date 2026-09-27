@@ -1,3 +1,4 @@
+import { PI_GENTLE_OPTION_ID, piGentleEnabled } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
 import type { MenuAction } from "@react-native-menu/menu";
 import { isAtomCommandInterrupted } from "@t3tools/client-runtime/state/runtime";
@@ -498,8 +499,7 @@ export function NewTaskDraftScreen(props: {
     readGentleDraft,
     selectedProject,
   ]);
-  const gentleDraftEnabled =
-    gentleDraftSelection?.options?.find((option) => option.id === "gentleAi")?.value !== false;
+  const gentleDraftEnabled = piGentleEnabled(gentleDraftSelection?.options);
   const gentleDraftProfiles = useGentleProfileMenu({
     environmentId: selectedProject?.environmentId ?? null,
     cwd: composerWorkspaceCwd,
@@ -540,6 +540,7 @@ export function NewTaskDraftScreen(props: {
     pullRequestRepository: selectedProject?.repositoryIdentity?.displayName ?? null,
     projectCwd: composerWorkspaceCwd,
     selectedProviderStatus: flow.selectedProviderStatus,
+    gentleEnabled: gentleDraftEnabled,
     hasThread: false,
     hasCompactableConversation: false,
     offersUsageLimits: offersUsageLimits,
@@ -1698,14 +1699,15 @@ export function NewTaskDraftScreen(props: {
               if (gentleDraftProfiles.handle(nativeEvent.event)) return;
               if (nativeEvent.event !== "enable") return;
               flow.setSelectedModelOptions([
-                ...(gentleDraftSelection.options?.filter((option) => option.id !== "gentleAi") ??
-                  []),
-                { id: "gentleAi", value: !gentleDraftEnabled },
+                ...(gentleDraftSelection.options?.filter(
+                  (option) => option.id !== PI_GENTLE_OPTION_ID,
+                ) ?? []),
+                { id: PI_GENTLE_OPTION_ID, value: !gentleDraftEnabled },
               ]);
             }}
           >
             <ComposerInlineControl
-              label="Gentle AI"
+              label={gentleDraftEnabled ? "Gentle AI" : "Gentle AI off"}
               renderIcon={(size) => <GentleRoseIcon color={foregroundColor} size={size} />}
               maxWidth={125}
             />

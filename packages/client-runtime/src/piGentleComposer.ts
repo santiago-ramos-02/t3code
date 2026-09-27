@@ -1,10 +1,26 @@
-import type {
-  ModelSelection,
-  PiGentleComposerState,
-  PiGentleSddChange,
-  PiGentleSddPreferences,
-  ServerProviderModel,
+import {
+  PI_GENTLE_PACKAGES,
+  type ModelSelection,
+  type PiGentleComposerState,
+  type PiGentleSddChange,
+  type PiGentleSddPreferences,
+  type ServerProviderModel,
 } from "@t3tools/contracts";
+
+/**
+ * The commands or skills a Pi thread can use. With Gentle AI off the thread loads none of its
+ * packages, so what those packages provide is not offered.
+ */
+export function piResourcesForGentle<T extends { readonly package?: string | undefined }>(
+  items: ReadonlyArray<T>,
+  gentleEnabled: boolean,
+): ReadonlyArray<T> {
+  return gentleEnabled
+    ? items
+    : items.filter(
+        (item) => item.package === undefined || !PI_GENTLE_PACKAGES.includes(item.package),
+      );
+}
 
 export type GentleProfileOption = NonNullable<PiGentleComposerState["profiles"]>[number];
 

@@ -164,7 +164,8 @@ export function GentleComposerActions({
     };
   }, [changesOpen, cwd, environmentId, instanceId, read]);
 
-  if (loaded?.available !== true && error === null) return null;
+  // Nothing Gentle-related shows unless the server confirms Pi loads gentle-pi here.
+  if (loaded?.available !== true) return null;
   const needsSetup = loaded?.projectInitNeeded === true;
   const unlistedReason = loaded?.sdd ? gentleSddUnlistedReason(loaded.sdd.artifactStore) : null;
   const setUpSdd = (preferences: PiGentleSddPreferences) => {

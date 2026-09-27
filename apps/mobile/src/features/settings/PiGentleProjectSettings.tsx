@@ -12,7 +12,7 @@ import {
 import { GENTLE_SDD_DEFAULTS } from "@t3tools/client-runtime/piGentleComposer";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Pressable, View } from "react-native";
+import { Pressable, View } from "react-native";
 
 import { AppText as Text, AppTextInput } from "../../components/AppText";
 import { serverEnvironment } from "../../state/server";
@@ -101,7 +101,9 @@ function PiGentleInstanceSettings(props: {
     };
   }, [instanceId, props.environmentId, props.workspaceRoot, read, refresh]);
 
-  if (state?.available === false) return null;
+  // Gentle AI is an optional Pi package: nothing shows until the server confirms Pi loads it.
+  // The server only fails a read once gentle-pi is installed, so a failure is shown.
+  if (state === null ? error === null : !state.available) return null;
 
   // Every choice saves as soon as it changes, like the web Pi settings.
   const sdd = state?.project?.sdd ?? GENTLE_SDD_DEFAULTS;
@@ -142,24 +144,17 @@ function PiGentleInstanceSettings(props: {
     >
       <View className="gap-3 p-4">
         {state === null ? (
-          error ? (
-            <View className="gap-2">
-              <Text className="text-sm text-danger-foreground">{error}</Text>
-              <Action
-                label="Retry"
-                disabled={false}
-                onPress={() => {
-                  setError(null);
-                  setRefresh((value) => value + 1);
-                }}
-              />
-            </View>
-          ) : (
-            <View className="flex-row items-center gap-2">
-              <ActivityIndicator />
-              <Text className="text-sm text-foreground-muted">Checking Gentle AI</Text>
-            </View>
-          )
+          <View className="gap-2">
+            <Text className="text-sm text-danger-foreground">{error}</Text>
+            <Action
+              label="Retry"
+              disabled={false}
+              onPress={() => {
+                setError(null);
+                setRefresh((value) => value + 1);
+              }}
+            />
+          </View>
         ) : (
           <>
             {state.compatibilityWarning ? (

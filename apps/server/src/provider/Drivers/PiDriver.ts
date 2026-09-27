@@ -32,7 +32,7 @@ import { makePiAdapter, PiAdapterAttachmentReadError } from "../Layers/PiAdapter
 import { materializePiMcpExtension } from "../pi-mcp/PiMcpBridgeMaterializer.ts";
 import { mergeProviderInstanceEnvironment } from "../ProviderInstanceEnvironment.ts";
 import { makePiGentleSettings } from "../PiGentleSettings.ts";
-import { PiPlainExtensionError, plainPiExtensionArgs } from "../PiPlainExtensions.ts";
+import { PiPlainExtensionError, piPackages, plainPiExtensionArgs } from "../PiPlainExtensions.ts";
 import {
   makePiRpc,
   PI_STARTUP_REQUEST_TIMEOUT,
@@ -192,7 +192,50 @@ function skillName(command: PiCommand): string {
   return name.startsWith("skill:") ? name.slice("skill:".length) : name;
 }
 
-function workspaceInventory(commands: ReadonlyArray<PiCommand>): {
+/**
+ * gentle-pi commands that only drive its terminal UI: panels Pi cannot show over RPC, and
+ * preferences for its TUI chrome. T3 Code offers native equivalents for profiles, model routing,
+ * and subagents, so these stay out of the composer.
+ */
+const GENTLE_TUI_ONLY_COMMANDS = new Set([
+  "gentle:models",
+  "gentle:profiles",
+  "gentle:agents",
+  "gentle:usage",
+  "gentle:changes",
+  "gentle:commands",
+  "gentle:animations",
+  "gentle:double-esc-cancel",
+  "gentle:banner",
+  "gentle:banner-color",
+  "gentle:toggle-rose",
+  "gentle:toggle-text-logo",
+]);
+
+function isGentleTuiOnlyCommand(command: PiCommand): boolean {
+  return (
+    GENTLE_TUI_ONLY_COMMANDS.has(commandName(command)) &&
+    [command.sourceInfo.source, command.sourceInfo.path].some((location) =>
+      /(?:^|[:/\\])gentle-pi(?:$|[@/\\])/.test(location),
+    )
+  );
+}
+
+/** The package a command or skill comes from, by its manifest name when Pi installed it. */
+function commandPackage(
+  command: PiCommand,
+  packageNames: ReadonlyMap<string, string>,
+): { readonly package?: string } {
+  if (command.sourceInfo.origin !== "package") return {};
+  const source = command.sourceInfo.source;
+  const npmName = /^npm:((?:@[^/@]+\/)?[^/@]+)/.exec(source)?.[1];
+  return { package: packageNames.get(source) ?? npmName ?? source };
+}
+
+function workspaceInventory(
+  commands: ReadonlyArray<PiCommand>,
+  packageNames: ReadonlyMap<string, string>,
+): {
   readonly slashCommands: ReadonlyArray<ServerProviderSlashCommand>;
   readonly skills: ReadonlyArray<ServerProviderSkill>;
 } {
@@ -200,12 +243,13 @@ function workspaceInventory(commands: ReadonlyArray<PiCommand>): {
     slashCommands: dedupeSlashCommands(
       commands.flatMap((command) => {
         const name = commandName(command);
-        return command.source === "skill" || name.length === 0
+        return command.source === "skill" || name.length === 0 || isGentleTuiOnlyCommand(command)
           ? []
           : [
               {
                 name,
                 ...(command.description === undefined ? {} : { description: command.description }),
+                ...commandPackage(command, packageNames),
               },
             ];
       }),
@@ -221,6 +265,7 @@ function workspaceInventory(commands: ReadonlyArray<PiCommand>): {
               path: command.sourceInfo.path,
               scope: command.sourceInfo.scope,
               enabled: true,
+              ...commandPackage(command, packageNames),
             },
           ];
     }),
@@ -562,7 +607,16 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
                   { timeout: PI_STARTUP_REQUEST_TIMEOUT },
                 );
                 const { data: modelsData } = yield* decodeModelsResponse(modelsResponse);
-                const inventory = workspaceInventory(data.commands);
+                const packageNames = new Map(
+                  (yield* piPackages({ cwd, environment: processEnv }).pipe(
+                    Effect.provideService(FileSystem.FileSystem, fileSystem),
+                    Effect.provideService(Path.Path, path),
+                    Effect.orElseSucceed(() => []),
+                  )).flatMap((entry) =>
+                    entry.manifest?.name === undefined ? [] : [[entry.source, entry.manifest.name]],
+                  ),
+                );
+                const inventory = workspaceInventory(data.commands, packageNames);
                 const base = yield* snapshot.getSnapshot;
                 return {
                   ...base,

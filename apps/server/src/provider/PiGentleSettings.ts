@@ -24,6 +24,7 @@ import * as ChildProcess from "effect/unstable/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 
+import { piPackages } from "./PiPlainExtensions.ts";
 import { spawnAndCollect } from "./providerSnapshot.ts";
 
 // Oldest gentle-pi whose profile, persona, and SDD files T3 Code reads and writes.
@@ -57,8 +58,6 @@ const ProfilesFile = Schema.Struct({
   active: Schema.optionalKey(Schema.String),
   profiles: Schema.Record(Schema.String, RawRouting),
 });
-const PackageManifest = Schema.Struct({ version: Schema.String });
-const PiPackageSettings = Schema.Struct({ packages: Schema.Array(Schema.String) });
 const ProfilePin = Schema.Struct({
   kind: Schema.Literal(PIN_KIND),
   version: Schema.Literal(1),
@@ -89,8 +88,6 @@ const encodeJson = Schema.encodeUnknownEffect(Schema.fromJsonString(Schema.Unkno
 const encodeGentleJson = Schema.encodeUnknownEffect(
   Schema.fromJsonString(Schema.Unknown, { space: 2 }),
 );
-const decodeManifest = Schema.decodeUnknownEffect(PackageManifest);
-const decodePackageSettings = Schema.decodeUnknownEffect(PiPackageSettings);
 const decodePin = Schema.decodeUnknownEffect(ProfilePin);
 const decodePiSettings = Schema.decodeUnknownEffect(PiSettingsFile);
 const decodeSdd = Schema.decodeUnknownEffect(StoredSdd);
@@ -213,21 +210,27 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
   const writeAtomic = (filePath: string, value: unknown) =>
     Effect.flatMap(encodeJson(value), (json) => writeAtomicText(filePath, `${json}\n`));
 
-  /** Version of gentle-pi registered with Pi, supported or not; null when it is not installed. */
-  const packageVersion = Effect.gen(function* () {
-    const packagePath = path.join(agentHome, "npm", "node_modules", "gentle-pi", "package.json");
-    const settingsPath = path.join(agentHome, "settings.json");
-    if (!(yield* fileSystem.exists(packagePath)) || !(yield* fileSystem.exists(settingsPath)))
-      return null;
-    const manifest = yield* decodeManifest(yield* readJson(packagePath));
-    const settings = yield* decodePackageSettings(yield* readJson(settingsPath));
-    return settings.packages.some((entry) => /^npm:gentle-pi(?:@|$)/.test(entry))
-      ? manifest.version
-      : null;
-  }).pipe(Effect.orElseSucceed(() => null));
-  const isSupported = (version: string | null): version is string =>
-    version !== null && compareSemverVersions(version, MINIMUM_GENTLE_VERSION) >= 0;
-  const installed = packageVersion.pipe(Effect.map(isSupported));
+  /**
+   * The gentle-pi package Pi loads, from any source or scope Pi supports, supported or not;
+   * null when Pi does not load it. A project's own install wins over the global one, as in Pi.
+   */
+  const gentlePackage = (cwd?: string) =>
+    piPackages({ environment, ...(cwd === undefined ? {} : { cwd }) }).pipe(
+      Effect.provideService(FileSystem.FileSystem, fileSystem),
+      Effect.provideService(Path.Path, path),
+      Effect.map((packages) => {
+        const found = packages.findLast((entry) => entry.manifest?.name === "gentle-pi");
+        const version = found?.manifest?.version;
+        return found === undefined || version === undefined
+          ? null
+          : { source: found.source, directory: found.directory, version };
+      }),
+      Effect.orElseSucceed(() => null),
+    );
+  const isSupported = (version: string | null | undefined): version is string =>
+    typeof version === "string" && compareSemverVersions(version, MINIMUM_GENTLE_VERSION) >= 0;
+  const installed = (cwd?: string) =>
+    gentlePackage(cwd).pipe(Effect.map((found) => isSupported(found?.version)));
 
   /**
    * Runs Pi to completion and fails with the tail of its output when it exits non-zero, so a
@@ -269,16 +272,14 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
       });
     });
 
-  const bundledBinaryPath = (version: string) =>
+  /** Where gentle-pi's install step places its pinned gentle-ai binary. */
+  const bundledBinaryPath = (found: { readonly directory: string; readonly version: string }) =>
     Effect.gen(function* () {
       const platform = yield* HostProcessPlatform;
       return path.join(
-        agentHome,
-        "npm",
-        "node_modules",
-        "gentle-pi",
+        found.directory,
         ".gentle-ai",
-        `v${version}`,
+        `v${found.version}`,
         platform === "win32" ? "gentle-ai.exe" : "gentle-ai",
       );
     });
@@ -409,25 +410,26 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
       );
     });
 
-  const sddBinary = Effect.gen(function* () {
-    if (
-      environment.GENTLE_PI_GENTLE_AI_DEV_BINARY !== undefined ||
-      (yield* fileSystem.exists(path.join(configHome, "dev-binary.json")))
-    ) {
-      return yield* new PiGentleSettingsError({
-        detail: "SDD status is unavailable while a Gentle AI dev binary override is active.",
-      });
-    }
-    if (input.binaryPath) return input.binaryPath;
-    const version = yield* packageVersion;
-    const bundledBinary = version === null ? null : yield* bundledBinaryPath(version);
-    if (bundledBinary === null || !(yield* fileSystem.exists(bundledBinary))) {
-      return yield* new PiGentleSettingsError({
-        detail: "Gentle AI's bundled binary is missing. Update Gentle AI or set its binary path.",
-      });
-    }
-    return bundledBinary;
-  });
+  const sddBinary = (cwd: string) =>
+    Effect.gen(function* () {
+      if (
+        environment.GENTLE_PI_GENTLE_AI_DEV_BINARY !== undefined ||
+        (yield* fileSystem.exists(path.join(configHome, "dev-binary.json")))
+      ) {
+        return yield* new PiGentleSettingsError({
+          detail: "SDD status is unavailable while a Gentle AI dev binary override is active.",
+        });
+      }
+      if (input.binaryPath) return input.binaryPath;
+      const found = yield* gentlePackage(cwd);
+      const bundledBinary = found === null ? null : yield* bundledBinaryPath(found);
+      if (bundledBinary === null || !(yield* fileSystem.exists(bundledBinary))) {
+        return yield* new PiGentleSettingsError({
+          detail: "Gentle AI's bundled binary is missing. Update Gentle AI or set its binary path.",
+        });
+      }
+      return bundledBinary;
+    });
 
   const nativeSddStatus = (binary: string, cwd: string, changeName?: string) =>
     Effect.gen(function* () {
@@ -467,7 +469,7 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
    */
   const readSddChanges = (cwd: string) =>
     Effect.gen(function* () {
-      const binary = yield* sddBinary;
+      const binary = yield* sddBinary(cwd);
       const overview = yield* nativeSddStatus(binary, cwd);
       if (overview.planningHome === undefined) {
         return yield* new PiGentleSettingsError({
@@ -509,8 +511,9 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
 
   const read = (cwd?: string) =>
     Effect.gen(function* () {
-      const version = yield* packageVersion;
-      // An outdated install reports its version so clients offer an update rather than an install.
+      const version = (yield* gentlePackage(cwd))?.version ?? null;
+      // An outdated install reports its version so clients offer an update; clients show nothing
+      // Gentle-related when there is no version at all.
       if (!isSupported(version))
         return {
           available: false,
@@ -554,7 +557,7 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
 
   const readComposer = (cwd: string, options?: { readonly includeChanges?: boolean }) =>
     Effect.gen(function* () {
-      if (!(yield* installed))
+      if (!(yield* installed(cwd)))
         return {
           available: false,
           projectInitNeeded: false,
@@ -617,7 +620,7 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
     Effect.gen(function* () {
       if (!path.isAbsolute(cwd))
         return yield* new PiGentleSettingsError({ detail: "Choose an absolute project folder." });
-      if (!(yield* installed))
+      if (!(yield* installed(cwd)))
         return yield* new PiGentleSettingsError({ detail: "Gentle AI is not installed for Pi." });
       if (preferences !== undefined) yield* writeSdd(cwd, preferences);
       const spawnEnv = {
@@ -708,19 +711,21 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
 
   const action = (command: PiGentleAction) =>
     Effect.gen(function* () {
-      if (command.type === "install" || command.type === "update") {
-        // An outdated gentle-pi still counts as installed here, so it can be updated in place.
-        if (command.type === "update" && (yield* packageVersion) === null)
-          return yield* new PiGentleSettingsError({ detail: "Install Gentle AI first." });
-        yield* runPi([command.type, "npm:gentle-pi"], {
-          env: { ...environment, PI_CODING_AGENT_DIR: agentHome },
+      if (command.type === "update") {
+        // An outdated gentle-pi still counts as installed here, so it can be updated in place
+        // from the same source and scope Pi installed it with.
+        const found = yield* gentlePackage(command.cwd);
+        if (found === null)
+          return yield* new PiGentleSettingsError({ detail: "Gentle AI is not installed for Pi." });
+        yield* runPi(["update", found.source], {
+          ...(command.cwd === undefined ? {} : { cwd: command.cwd }),
+          env: environment,
           timeout: "2 minutes",
-          failure:
-            command.type === "install" ? "Gentle AI install failed." : "Gentle AI update failed.",
+          failure: "Gentle AI update failed.",
         });
         return yield* read(command.cwd);
       }
-      if (!(yield* installed))
+      if (!(yield* installed("cwd" in command ? command.cwd : undefined)))
         return yield* new PiGentleSettingsError({
           detail: "Gentle AI 3.5 or newer is not installed for this Pi instance.",
         });

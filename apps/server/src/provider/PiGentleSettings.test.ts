@@ -16,7 +16,7 @@ const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 const decodeJson = Schema.decodeSync(Schema.fromJsonString(Schema.Unknown));
 
 it.layer(NodeServices.layer)("Pi Gentle settings", (it) => {
-  it.effect("installs, updates, and sets up SDD through an isolated Pi executable", () =>
+  it.effect("detects, updates, and sets up SDD through an isolated Pi executable", () =>
     Effect.scoped(
       Effect.gen(function* () {
         const fileSystem = yield* FileSystem.FileSystem;
@@ -55,11 +55,11 @@ if (process.argv.includes("/gentle-sdd-init")) {
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.writeFileSync(target, "project: test\\n");
   }
-} else {
+} else if (process.argv[2] === "update" && process.argv[3] === "npm:gentle-pi") {
   const packageDir = path.join(home, "npm", "node_modules", "gentle-pi");
-  fs.mkdirSync(packageDir, { recursive: true });
-  fs.writeFileSync(path.join(packageDir, "package.json"), JSON.stringify({ version: process.argv.includes("update") ? "3.8.0" : "3.4.0" }));
-  fs.writeFileSync(path.join(home, "settings.json"), JSON.stringify({ packages: ["npm:gentle-pi"] }));
+  fs.writeFileSync(path.join(packageDir, "package.json"), JSON.stringify({ name: "gentle-pi", version: "3.8.0" }));
+} else {
+  process.exit(2);
 }
 `,
         );
@@ -74,17 +74,6 @@ if (process.argv.includes("/gentle-sdd-init")) {
           PI_CODING_AGENT_DIR: agentHome,
           GENTLE_PI_CONFIG_HOME: path.join(root, "config"),
         };
-        const failing = yield* makePiGentleSettings({
-          environment: { ...environment, FAKE_PI_FAIL: "1" },
-          piBinaryPath: binary,
-          fileSystem,
-          path,
-          spawner,
-        });
-        const installFailure = yield* Effect.flip(failing.action({ type: "install" }));
-        expect(installFailure.detail).toContain("Gentle AI install failed.");
-        expect(installFailure.detail).toContain("npm ERR! 404");
-
         const gentle = yield* makePiGentleSettings({
           environment,
           piBinaryPath: binary,
@@ -92,12 +81,34 @@ if (process.argv.includes("/gentle-sdd-init")) {
           path,
           spawner,
         });
+        // Without gentle-pi, clients show nothing Gentle-related, so updating is refused too.
         expect(yield* gentle.read()).toMatchObject({ available: false, version: null });
+        expect((yield* Effect.flip(gentle.action({ type: "update" }))).detail).toBe(
+          "Gentle AI is not installed for Pi.",
+        );
+        // Users install gentle-pi with Pi; an object-form entry counts like a plain source.
+        const packageDir = path.join(agentHome, "npm", "node_modules", "gentle-pi");
+        yield* fileSystem.makeDirectory(packageDir, { recursive: true });
+        yield* fileSystem.writeFileString(
+          path.join(packageDir, "package.json"),
+          encodeJson({ name: "gentle-pi", version: "3.4.0" }),
+        );
+        yield* fileSystem.writeFileString(
+          path.join(agentHome, "settings.json"),
+          encodeJson({ packages: [{ source: "npm:gentle-pi" }] }),
+        );
         // An install older than the supported minimum is reported so it can be updated in place.
-        expect(yield* gentle.action({ type: "install" })).toMatchObject({
-          available: false,
-          version: "3.4.0",
+        expect(yield* gentle.read()).toMatchObject({ available: false, version: "3.4.0" });
+        const failing = yield* makePiGentleSettings({
+          environment: { ...environment, FAKE_PI_FAIL: "1" },
+          piBinaryPath: binary,
+          fileSystem,
+          path,
+          spawner,
         });
+        const updateFailure = yield* Effect.flip(failing.action({ type: "update" }));
+        expect(updateFailure.detail).toContain("Gentle AI update failed.");
+        expect(updateFailure.detail).toContain("npm ERR! 404");
         // 3.8 is past the newest tested minor release, so settings carry a warning.
         expect(yield* gentle.action({ type: "update" })).toMatchObject({
           available: true,
@@ -132,6 +143,41 @@ if (process.argv.includes("/gentle-sdd-init")) {
           sdd: openspec,
         });
         expect(yield* fileSystem.exists(path.join(cwd, "openspec", "config.yaml"))).toBe(true);
+      }),
+    ),
+  );
+
+  it.effect("finds gentle-pi wherever Pi loads it, including a project-scoped install", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+        const root = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-pi-gentle-scope-" });
+        const cwd = path.join(root, "project");
+        const vendored = path.join(cwd, ".pi", "vendor", "gentle");
+        yield* fileSystem.makeDirectory(vendored, { recursive: true });
+        yield* fileSystem.writeFileString(
+          path.join(vendored, "package.json"),
+          encodeJson({ name: "gentle-pi", version: "3.7.0" }),
+        );
+        yield* fileSystem.writeFileString(
+          path.join(cwd, ".pi", "settings.json"),
+          encodeJson({ packages: ["./vendor/gentle"] }),
+        );
+        const gentle = yield* makePiGentleSettings({
+          environment: {
+            PI_CODING_AGENT_DIR: path.join(root, "agent"),
+            GENTLE_PI_CONFIG_HOME: path.join(root, "config"),
+          },
+          fileSystem,
+          path,
+          spawner,
+        });
+        // Only the project loads it, so it counts there and nowhere else.
+        expect(yield* gentle.read()).toMatchObject({ available: false, version: null });
+        expect(yield* gentle.read(cwd)).toMatchObject({ available: true, version: "3.7.0" });
+        expect(yield* gentle.readComposer(cwd)).toMatchObject({ available: true });
       }),
     ),
   );
@@ -171,7 +217,7 @@ if (process.argv.includes("/gentle-sdd-init")) {
         });
         yield* fileSystem.writeFileString(
           path.join(agentHome, "npm", "node_modules", "gentle-pi", "package.json"),
-          encodeJson({ version: "3.7.0" }),
+          encodeJson({ name: "gentle-pi", version: "3.7.0" }),
         );
         yield* fileSystem.writeFileString(
           path.join(agentHome, "settings.json"),
@@ -280,7 +326,7 @@ process.stdout.write(JSON.stringify({
         });
         yield* fileSystem.writeFileString(
           path.join(agentHome, "npm", "node_modules", "gentle-pi", "package.json"),
-          encodeJson({ version: "3.7.0" }),
+          encodeJson({ name: "gentle-pi", version: "3.7.0" }),
         );
         yield* fileSystem.writeFileString(
           path.join(agentHome, "settings.json"),
@@ -455,7 +501,7 @@ process.stdout.write(JSON.stringify({
         });
         yield* fileSystem.writeFileString(
           path.join(agentHome, "npm", "node_modules", "gentle-pi", "package.json"),
-          encodeJson({ version: "3.7.0" }),
+          encodeJson({ name: "gentle-pi", version: "3.7.0" }),
         );
         yield* fileSystem.writeFileString(
           piSettingsPath,

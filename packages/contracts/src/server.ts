@@ -88,6 +88,8 @@ export type ServerProviderSlashCommandInput = typeof ServerProviderSlashCommandI
 export const ServerProviderSlashCommand = Schema.Struct({
   name: TrimmedNonEmptyString,
   description: Schema.optional(TrimmedNonEmptyString),
+  // Name of the provider package that supplies it, such as a Pi package; absent for built-ins.
+  package: Schema.optional(TrimmedNonEmptyString),
   input: Schema.optional(ServerProviderSlashCommandInput),
 });
 export type ServerProviderSlashCommand = typeof ServerProviderSlashCommand.Type;
@@ -96,6 +98,8 @@ export const ServerProviderSkill = Schema.Struct({
   name: TrimmedNonEmptyString,
   description: Schema.optional(TrimmedNonEmptyString),
   path: TrimmedNonEmptyString,
+  // Name of the provider package that supplies it, such as a Pi package; absent for built-ins.
+  package: Schema.optional(TrimmedNonEmptyString),
   scope: Schema.optional(TrimmedNonEmptyString),
   enabled: Schema.Boolean,
   displayName: Schema.optional(TrimmedNonEmptyString),

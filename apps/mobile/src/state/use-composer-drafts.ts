@@ -1,3 +1,4 @@
+import { PI_GENTLE_OPTION_ID } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
 import {
   EnvironmentId as EnvironmentIdSchema,
@@ -1247,7 +1248,7 @@ function updateComposerDrafts(
 }
 
 export function setStickyComposerModelSelection(modelSelection: ModelSelection): void {
-  const options = modelSelection.options?.filter((option) => option.id !== "gentleAi");
+  const options = modelSelection.options?.filter((option) => option.id !== PI_GENTLE_OPTION_ID);
   appAtomRegistry.set(stickyComposerModelSelectionAtom, {
     ...modelSelection,
     ...(options && options.length > 0 ? { options } : { options: undefined }),

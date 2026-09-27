@@ -21,11 +21,8 @@ Environment**. T3 Code reuses Pi's configuration and shows its available model
 providers and models in Pi settings. Select any of those models in
 T3 Code's model picker. Models registered by a project-local Pi extension appear
 in that project's picker. T3 Code also reuses Pi's skills and custom commands.
-Installed Pi extensions also run in T3 Code threads. If gentle-pi is installed,
-its subagents appear in the thread's Agents panel with live progress and results,
-and its todo list appears as the composer's task progress while the turn runs.
-The Agents panel shows their live status and recent transcript. Gentle AI does
-not currently expose direct subagent controls to Pi RPC hosts.
+Installed Pi extensions also run in T3 Code threads, and their questions and
+confirmations appear in the thread.
 T3-managed Pi threads use Pi's native persisted sessions for resume behavior;
 T3 Code does not discover or import arbitrary standalone Pi sessions.
 
@@ -41,14 +38,23 @@ reloads Pi's current available model catalog after changing credentials.
 Mobile uses the same provider and models from the connected environment. Set
 Pi's binary path and credentials in web or desktop settings.
 
-## Gentle AI profiles and SDD
+## Gentle AI
 
-Choose **Install Gentle AI** in **Settings > Providers > Pi**, or **Update** next
-to its version to upgrade. This runs `pi install npm:gentle-pi` or
-`pi update npm:gentle-pi` on the project environment. Remote clients do not need
-their own installation.
+[Gentle AI](https://github.com/Gentleman-Programming/gentle-shell) is an
+optional Pi package. T3 Code shows its controls only when Pi on the project
+environment loads it, globally or for that project. Install it with Pi, for
+example `pi install npm:gentle-pi`, then choose **Refresh provider status**.
+Remote clients do not need their own installation. When an installed copy is
+older than 3.5, **Settings > Providers > Pi** offers to update it.
 
-With gentle-pi 3.5 or newer installed for Pi, open **Settings > Providers > Pi**
+Its subagents appear in the thread's Agents panel with live progress and
+results, and its todo list appears as the composer's task progress while the
+turn runs. Its slash commands work in threads; commands that report a result,
+such as `/gentle:status` or `/gentle:doctor`, show it in the thread. Commands
+that only drive Pi's terminal interface, such as `/gentle:profiles`, are not
+offered; T3 Code's own profile and model routing settings replace them.
+
+Open **Settings > Providers > Pi**
 to choose the global persona and manage model profiles. The active global profile
 applies unless the repository declares one or the local clone has a pin. The
 **Project overrides** section shows which source applies and lets you pin a
@@ -69,9 +75,10 @@ outside T3 Code. On mobile, project profile and persona controls are in
 **Project overview**.
 
 For a new Pi thread, open the Gentle AI dropdown and clear **Enable** to run
-without Gentle AI. The choice is stored with the thread when you send its first
-message, and the dropdown then shows whether Gentle AI is on for that thread.
-Other installed Pi extensions remain available.
+standalone Pi without Gentle AI. The choice is stored with the thread when you
+send its first message, and the dropdown then shows whether Gentle AI is on for
+that thread. Other installed Pi extensions, skills, and prompts remain
+available; Gentle AI's own commands and skills are not offered in that thread.
 
 In a Pi thread, open the Gentle AI dropdown and choose **Set up SDD** once per
 project, including a new empty folder. Setup asks for the project's execution

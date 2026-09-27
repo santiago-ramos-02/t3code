@@ -1,4 +1,5 @@
 import * as NodeOS from "node:os";
+import { PI_GENTLE_PACKAGES } from "@t3tools/contracts";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -15,6 +16,7 @@ const PiResourceSettings = Schema.Struct({
 const decodeSettings = Schema.decodeUnknownEffect(Schema.fromJsonString(PiResourceSettings));
 const ExtensionPackage = Schema.Struct({
   name: Schema.optional(Schema.String),
+  version: Schema.optional(Schema.String),
   pi: Schema.optional(Schema.Struct({ extensions: Schema.optional(Schema.Array(Schema.String)) })),
 });
 const decodePackage = Schema.decodeUnknownEffect(Schema.fromJsonString(ExtensionPackage));
@@ -45,6 +47,57 @@ function packagePath(source: string, settingsDir: string, path: Path.Path) {
   return path.resolve(settingsDir, source);
 }
 
+/** Pi's agent home: an unset or empty PI_CODING_AGENT_DIR falls back to ~/.pi/agent. */
+export function piAgentHome(environment: NodeJS.ProcessEnv, path: Path.Path): string {
+  return environment.PI_CODING_AGENT_DIR || path.join(NodeOS.homedir(), ".pi", "agent");
+}
+
+/** One entry of Pi's `packages` settings, resolved to where Pi installs it. */
+export interface PiPackage {
+  readonly source: string;
+  /** The settings directory that declares it: Pi's agent home, or a project's `.pi`. */
+  readonly root: string;
+  readonly directory: string;
+  /** Null when the package is declared but not installed, or its source is unsupported. */
+  readonly manifest: typeof ExtensionPackage.Type | null;
+}
+
+/**
+ * Packages Pi loads for a workspace, global first then project, resolved the way Pi's own
+ * package manager lays them out. Without a cwd only global packages are listed.
+ */
+export const piPackages = Effect.fn("piPackages")(function* (input: {
+  readonly cwd?: string;
+  readonly environment: NodeJS.ProcessEnv;
+}) {
+  const fileSystem = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const roots = [
+    piAgentHome(input.environment, path),
+    ...(input.cwd === undefined ? [] : [path.join(input.cwd, ".pi")]),
+  ];
+  const packages: PiPackage[] = [];
+  for (const root of roots) {
+    const settingsPath = path.join(root, "settings.json");
+    if (!(yield* fileSystem.exists(settingsPath))) continue;
+    const settings = yield* decodeSettings(yield* fileSystem.readFileString(settingsPath));
+    for (const item of settings.packages ?? []) {
+      const source = typeof item === "string" ? item : item.source;
+      const directory = yield* Effect.try({
+        try: () => packagePath(source, root, path),
+        catch: () => null,
+      }).pipe(Effect.orElseSucceed(() => null));
+      const manifestPath = directory === null ? null : path.join(directory, "package.json");
+      const manifest =
+        manifestPath !== null && (yield* fileSystem.exists(manifestPath))
+          ? yield* decodePackage(yield* fileSystem.readFileString(manifestPath))
+          : null;
+      packages.push({ source, root, directory: directory ?? "", manifest });
+    }
+  }
+  return packages;
+});
+
 /**
  * Pi launch arguments that load every installed extension, skill, and prompt template except
  * gentle-pi, for threads that run with Gentle AI disabled. Pi offers no per-package opt-out, so
@@ -56,10 +109,7 @@ export const plainPiExtensionArgs = Effect.fn("plainPiExtensionArgs")(function* 
 }) {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  // Pi's rule: an unset or empty PI_CODING_AGENT_DIR falls back to ~/.pi/agent.
-  const agentHome =
-    input.environment.PI_CODING_AGENT_DIR || path.join(NodeOS.homedir(), ".pi", "agent");
-  const roots = [agentHome, path.join(input.cwd, ".pi")];
+  const roots = [piAgentHome(input.environment, path), path.join(input.cwd, ".pi")];
   const sources: string[] = [];
   const skills: string[] = [];
   const prompts: string[] = [];
@@ -99,32 +149,19 @@ export const plainPiExtensionArgs = Effect.fn("plainPiExtensionArgs")(function* 
       }
       return entries;
     });
+  for (const item of yield* piPackages(input)) {
+    // A declared package that is not installed cannot load in Pi either.
+    if (item.manifest === null) continue;
+    if (item.manifest.name !== undefined && PI_GENTLE_PACKAGES.includes(item.manifest.name))
+      continue;
+    sources.push(item.directory);
+    yield* addResource(path.join(item.directory, "skills"), skills);
+    yield* addResource(path.join(item.directory, "prompts"), prompts);
+  }
   for (const root of roots) {
     const settingsPath = path.join(root, "settings.json");
     if (yield* fileSystem.exists(settingsPath)) {
       const settings = yield* decodeSettings(yield* fileSystem.readFileString(settingsPath));
-      for (const item of settings.packages ?? []) {
-        const source = typeof item === "string" ? item : item.source;
-        if (/^npm:(?:gentle-pi|gentle-engram)(?:@|$)/.test(source)) continue;
-        const resolved = yield* Effect.try({
-          try: () => packagePath(source, root, path),
-          catch: (cause) =>
-            new PiPlainExtensionError({ detail: "Unsupported Pi package source.", cause }),
-        });
-        const manifestPath = path.join(resolved, "package.json");
-        if (!(yield* fileSystem.exists(manifestPath))) {
-          return yield* Effect.fail(
-            new PiPlainExtensionError({
-              detail: `Pi package is unavailable for a plain thread: ${source}`,
-            }),
-          );
-        }
-        const manifest = yield* decodePackage(yield* fileSystem.readFileString(manifestPath));
-        if (manifest.name === "gentle-pi" || manifest.name === "gentle-engram") continue;
-        sources.push(resolved);
-        yield* addResource(path.join(resolved, "skills"), skills);
-        yield* addResource(path.join(resolved, "prompts"), prompts);
-      }
       for (const extension of settings.extensions ?? []) {
         const candidate = extension.startsWith("~")
           ? path.join(NodeOS.homedir(), extension.slice(1))

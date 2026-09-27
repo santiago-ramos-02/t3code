@@ -1,3 +1,4 @@
+import { PI_GENTLE_OPTION_ID } from "@t3tools/contracts";
 import { elementContextToPreviewAnnotation } from "./lib/elementContext";
 import {
   ElementContextDetails,
@@ -2934,7 +2935,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
                 : createModelSelection(normalized.instanceId, normalized.model, current?.options);
             // Gentle's Enable choice belongs to the thread, not the next draft.
             const stickyOptions = nextSelection.options?.filter(
-              (option) => option.id !== "gentleAi",
+              (option) => option.id !== PI_GENTLE_OPTION_ID,
             );
             const stickySelection = createModelSelection(
               nextSelection.instanceId,

@@ -571,7 +571,12 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   if (isTaskActivity && typeof payload?.error === "string" && payload.error.trim()) {
     entry.detail = payload.error;
   }
-  if (!entry.detail && (activity.kind === "runtime.error" || activity.kind === "runtime.warning")) {
+  if (
+    !entry.detail &&
+    (activity.kind === "runtime.error" ||
+      activity.kind === "runtime.warning" ||
+      activity.kind === "runtime.notice")
+  ) {
     const message = asTrimmedString(payload?.message);
     if (message) entry.detail = message;
   }

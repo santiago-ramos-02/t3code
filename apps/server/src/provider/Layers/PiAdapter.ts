@@ -6,6 +6,7 @@ import {
   RuntimeRequestId,
   TurnId,
   isProviderSendTurnSupportedImageMimeType,
+  piGentleEnabled,
   type ProviderInstanceId,
   type ProviderRuntimeEvent,
   type ProviderSendTurnInput,
@@ -963,10 +964,23 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
         }
         return;
       }
-      // Extension warnings and errors reach the thread; info notices and TUI chrome do not.
+      // Extension warnings and errors always reach the thread. Info notices reach it during a
+      // turn, which is how extension commands such as /gentle:status report their result;
+      // startup chatter outside a turn and TUI chrome do not.
       if (native.method === "notify") {
         const message = native.message?.trim();
-        if (message && (native.notifyType === "warning" || native.notifyType === "error")) {
+        if (message && native.notifyType !== "warning" && native.notifyType !== "error") {
+          if (context.activeTurn !== undefined) {
+            yield* emit({
+              ...(yield* eventBase(context)),
+              type: "runtime.notice",
+              turnId: context.activeTurn.turnId,
+              payload: { message: boundedText(message) },
+            });
+          }
+          return;
+        }
+        if (message) {
           yield* emit({
             ...(yield* eventBase(context)),
             type: "runtime.warning",
@@ -1291,9 +1305,7 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
             });
           }
           const sessionScope = yield* Scope.make("sequential");
-          const gentleEnabled =
-            input.modelSelection?.options?.find((option) => option.id === "gentleAi")?.value !==
-            false;
+          const gentleEnabled = piGentleEnabled(input.modelSelection?.options);
           const environment = {
             ...McpProviderSession.withAgentDeviceEnvironment(
               options.environment ?? process.env,

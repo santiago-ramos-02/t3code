@@ -740,6 +740,29 @@ describe("PiDriver explicit discovery", () => {
                       },
                     },
                     {
+                      name: "gentle:status",
+                      description: "Show Gentle AI status",
+                      source: "extension",
+                      sourceInfo: {
+                        path: "/home/dev/.pi/agent/npm/node_modules/gentle-pi/extensions/gentle-ai.ts",
+                        source: "npm:gentle-pi",
+                        scope: "user",
+                        origin: "package",
+                      },
+                    },
+                    {
+                      // Drives gentle-pi's terminal UI, which Pi cannot show over RPC.
+                      name: "gentle:profiles",
+                      description: "Manage profiles",
+                      source: "extension",
+                      sourceInfo: {
+                        path: "/home/dev/.pi/agent/npm/node_modules/gentle-pi/extensions/gentle-ai.ts",
+                        source: "npm:gentle-pi",
+                        scope: "user",
+                        origin: "package",
+                      },
+                    },
+                    {
                       name: "skill:deploy",
                       description: "Deploy the app",
                       source: "skill",
@@ -789,6 +812,7 @@ describe("PiDriver explicit discovery", () => {
             description: "Summarize the conversation and reduce context usage",
           },
           { name: "review", description: "Review changes" },
+          { name: "gentle:status", description: "Show Gentle AI status", package: "gentle-pi" },
         ]);
         expect(scoped.skills).toEqual([
           {

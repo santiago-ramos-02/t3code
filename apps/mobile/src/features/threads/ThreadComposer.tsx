@@ -1,3 +1,4 @@
+import { PI_GENTLE_OPTION_ID, piGentleEnabled } from "@t3tools/contracts";
 import type { ComposerTextPaste } from "../../native/T3ComposerEditor.types";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import {
@@ -412,8 +413,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   ]);
   const gentleState = gentleLoaded?.key === gentleKey ? gentleLoaded.value : null;
   const gentleAvailable = gentleState?.available === true;
-  const gentleEnabled =
-    currentModelSelection.options?.find((option) => option.id === "gentleAi")?.value !== false;
+  const gentleEnabled = piGentleEnabled(currentModelSelection.options);
   const canChangeGentle = props.selectedThread.latestTurn === null;
   const gentleChanges = gentleState?.changes ?? [];
   const gentleChangesError = gentleState?.changesError;
@@ -423,7 +423,8 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   const showGentleControls =
     isPiThread &&
     props.connectionState === "connected" &&
-    (gentleAvailable || gentleError?.key === gentleKey);
+    // Nothing Gentle-related shows unless the server confirms Pi loads gentle-pi here.
+    gentleAvailable;
   // Hands an SDD phase to a new task draft in this project with Gentle on; the user sends it.
   const startGentleSddTask = (prompt: string) => {
     const draftKey = createNewTaskDraft({
@@ -434,8 +435,10 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       modelSelection: {
         ...currentModelSelection,
         options: [
-          ...(currentModelSelection.options?.filter((option) => option.id !== "gentleAi") ?? []),
-          { id: "gentleAi", value: true },
+          ...(currentModelSelection.options?.filter(
+            (option) => option.id !== PI_GENTLE_OPTION_ID,
+          ) ?? []),
+          { id: PI_GENTLE_OPTION_ID, value: true },
         ],
       },
     });
@@ -576,6 +579,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       : null,
     pullRequestRepository: project?.repositoryIdentity?.displayName ?? null,
     selectedProviderStatus,
+    gentleEnabled,
     hasThread: true,
     hasCompactableConversation: props.hasCompactableConversation,
     onChangeDraftMessage: props.onChangeDraftMessage,
@@ -890,9 +894,9 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                     ...currentModelSelection,
                     options: [
                       ...(currentModelSelection.options?.filter(
-                        (option) => option.id !== "gentleAi",
+                        (option) => option.id !== PI_GENTLE_OPTION_ID,
                       ) ?? []),
-                      { id: "gentleAi", value: !gentleEnabled },
+                      { id: PI_GENTLE_OPTION_ID, value: !gentleEnabled },
                     ],
                   });
                 }

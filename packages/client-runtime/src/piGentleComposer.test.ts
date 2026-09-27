@@ -11,6 +11,7 @@ import {
   gentleProfileModelChange,
   gentleSddChangeStep,
   gentleSddTaskSummary,
+  piResourcesForGentle,
 } from "./piGentleComposer.ts";
 
 const change = (
@@ -172,5 +173,25 @@ describe("Gentle profile model change", () => {
         [opus],
       ),
     ).toEqual({ kind: "unavailable", model: "anthropic/retired" });
+  });
+});
+
+describe("Pi resources with Gentle AI off", () => {
+  const commands = [
+    { name: "review" },
+    { name: "gentle:status", package: "gentle-pi" },
+    { name: "mem-search", package: "gentle-engram" },
+    { name: "web-search", package: "pi-web-access" },
+  ];
+
+  it("offers everything while Gentle AI is on", () => {
+    expect(piResourcesForGentle(commands, true)).toEqual(commands);
+  });
+
+  it("drops only what Gentle AI's packages provide once it is off", () => {
+    expect(piResourcesForGentle(commands, false).map((command) => command.name)).toEqual([
+      "review",
+      "web-search",
+    ]);
   });
 });

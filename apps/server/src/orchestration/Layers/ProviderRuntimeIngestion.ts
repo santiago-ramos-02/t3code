@@ -619,6 +619,21 @@ export function runtimeEventToActivities(
       ];
     }
 
+    case "runtime.notice": {
+      return [
+        {
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: "info",
+          kind: "runtime.notice",
+          summary: truncateDetail(event.payload.message, 120),
+          payload: { message: truncateDetail(event.payload.message) },
+          turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
+        },
+      ];
+    }
+
     case "turn.plan.updated": {
       return [
         {

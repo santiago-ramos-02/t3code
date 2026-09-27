@@ -1,6 +1,23 @@
 import * as Schema from "effect/Schema";
 import { TrimmedNonEmptyString } from "./baseSchemas.ts";
+import type { ProviderOptionSelection } from "./model.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
+
+/**
+ * Pi packages that make up Gentle AI. A Pi thread with Gentle AI off loads none of them, and
+ * clients hide the commands and skills they provide.
+ */
+export const PI_GENTLE_PACKAGES: ReadonlyArray<string> = ["gentle-pi", "gentle-engram"];
+
+/** Model option a Pi thread stores its Gentle AI choice in; absent means on. */
+export const PI_GENTLE_OPTION_ID = "gentleAi";
+
+/** Whether a Pi thread's model options leave Gentle AI on. */
+export function piGentleEnabled(
+  options: ReadonlyArray<ProviderOptionSelection> | undefined,
+): boolean {
+  return options?.find((option) => option.id === PI_GENTLE_OPTION_ID)?.value !== false;
+}
 
 export const PiGentleRoutingEntry = Schema.Struct({
   model: Schema.optionalKey(Schema.String),
@@ -148,10 +165,8 @@ export const PiGentleReadInput = Schema.Struct({
 export const PiGentleActionInput = Schema.Struct({
   instanceId: ProviderInstanceId,
   action: Schema.Union([
-    Schema.Struct({
-      type: Schema.Literal("install"),
-      cwd: Schema.optionalKey(TrimmedNonEmptyString),
-    }),
+    // Updates an installed gentle-pi in place. T3 Code never installs it: users opt into
+    // Gentle AI with Pi's own package manager.
     Schema.Struct({
       type: Schema.Literal("update"),
       cwd: Schema.optionalKey(TrimmedNonEmptyString),
