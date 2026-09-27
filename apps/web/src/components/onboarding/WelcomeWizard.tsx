@@ -116,7 +116,7 @@ export function WelcomeWizard({
 }: {
   /** Whether this client is authenticated to the server serving the app. */
   readonly localAvailable: boolean;
-  readonly onDone: (projectRef?: ScopedProjectRef) => void;
+  readonly onDone: (projectRef?: ScopedProjectRef) => void | Promise<void>;
 }) {
   const completeOnboarding = useCompleteOnboarding();
   const navigate = useNavigate();
@@ -198,7 +198,23 @@ export function WelcomeWizard({
     [completeOnboarding],
   );
   const finish = useCallback(
-    (projectRef?: ScopedProjectRef) => finishWith(() => onDone(projectRef)),
+    (projectRef?: ScopedProjectRef, importWarning?: string, importedThreadCount = 0) =>
+      finishWith(async () => {
+        await onDone(projectRef);
+        if (importWarning) {
+          toastManager.add({
+            type: "warning",
+            title: "Some history was not imported",
+            description: importWarning,
+            timeout: 0,
+          });
+        } else if (importedThreadCount > 0) {
+          toastManager.add({
+            type: "success",
+            title: `Imported ${importedThreadCount} ${importedThreadCount === 1 ? "thread" : "threads"}`,
+          });
+        }
+      }),
     [finishWith, onDone],
   );
   const openProviderSettings = useCallback(
@@ -1038,14 +1054,19 @@ function ImportStep({
   readonly scans: ReturnType<typeof useProjectScans>;
   readonly isImporting: boolean;
   readonly setIsImporting: (value: boolean) => void;
-  readonly onDone: (projectRef?: ScopedProjectRef) => Promise<boolean>;
+  readonly onDone: (
+    projectRef?: ScopedProjectRef,
+    importWarning?: string,
+    importedThreadCount?: number,
+  ) => Promise<boolean>;
 }) {
   const { environments } = useEnvironments();
   const createProject = useAtomCommand(projectEnvironment.create, { reportFailure: false });
   const importThreads = useAtomCommand(agentSessionImport, { reportFailure: false });
   const projects = useProjects();
   const [selectedPaths, setSelectedPaths] = useState<ReadonlySet<string> | null>(null);
-  const [importError, setImportError] = useState("");
+  const importWarningRef = useRef("");
+  const importedThreadCountRef = useRef(0);
   const [landingProject, setLandingProject] = useState<ScopedProjectRef | null>(null);
   // Keep project creation attempts separate from completed history imports so both can retry.
   const importedProjectsRef = useRef(new Map<string, ScopedProjectRef>());
@@ -1074,9 +1095,11 @@ function ImportStep({
       )
     ) {
       setLandingProject(null);
-      void onDone(landingProject).then((completed) => {
-        if (!completed) setIsImporting(false);
-      });
+      void onDone(landingProject, importWarningRef.current, importedThreadCountRef.current).then(
+        (completed) => {
+          if (!completed) setIsImporting(false);
+        },
+      );
     }
   }, [landingProject, onDone, projects, setIsImporting]);
 
@@ -1106,7 +1129,7 @@ function ImportStep({
       importedProjectsRef.current,
     );
     if (projectRef === undefined) {
-      void onDone();
+      void onDone(undefined, importWarningRef.current, importedThreadCountRef.current);
       return;
     }
     setIsImporting(true);
@@ -1120,7 +1143,8 @@ function ImportStep({
       return;
     }
     setIsImporting(true);
-    setImportError("");
+    importWarningRef.current = "";
+    importedThreadCountRef.current = 0;
     lastImportSelectionRef.current = selection.map((candidate) => candidate.key);
     const importGeneration = importGenerationRef.current;
     const importedProjects = importedProjectsRef.current;
@@ -1216,23 +1240,17 @@ function ImportStep({
       if (refreshEnvironments.has(scan.environmentId)) scan.refresh();
     }
     setIsImporting(false);
+    importedThreadCountRef.current = importedThreadCount;
     if (importedProjectsCount < selection.length) {
       if (importedThreadCount > 0 && skippedThreadCount > 0) {
-        setImportError(
-          `Imported ${importedThreadCount} ${importedThreadCount === 1 ? "thread" : "threads"}. ${skippedThreadCount} ${skippedThreadCount === 1 ? "thread" : "threads"} could not be imported.`,
-        );
+        importWarningRef.current = `Imported ${importedThreadCount} ${importedThreadCount === 1 ? "thread" : "threads"}. ${skippedThreadCount} ${skippedThreadCount === 1 ? "thread" : "threads"} could not be imported.`;
       } else if (skippedThreadCount > 0) {
-        setImportError(
-          `${skippedThreadCount} ${skippedThreadCount === 1 ? "thread could" : "threads could"} not be imported.`,
-        );
+        importWarningRef.current = `${skippedThreadCount} ${skippedThreadCount === 1 ? "thread could" : "threads could"} not be imported.`;
       } else if (importedThreadCount > 0) {
-        setImportError(
-          `Imported ${importedThreadCount} ${importedThreadCount === 1 ? "thread" : "threads"}. Some thread history could not be imported.`,
-        );
+        importWarningRef.current = `Imported ${importedThreadCount} ${importedThreadCount === 1 ? "thread" : "threads"}. Some thread history could not be imported.`;
       } else {
-        setImportError("Could not import thread history.");
+        importWarningRef.current = "Could not import thread history.";
       }
-      return;
     }
     finishAfterImport();
   };
@@ -1339,14 +1357,9 @@ function ImportStep({
           })}
         </div>
       </ScrollArea>
-      {importError ? <p className="mt-3 text-sm text-destructive">{importError}</p> : null}
       <div className="mt-6 flex flex-wrap items-center justify-end gap-3">
-        <Button
-          variant="ghost-muted"
-          disabled={isImporting}
-          onClick={importError ? finishAfterImport : () => void onDone()}
-        >
-          {importError ? "Continue without the rest" : "Do not import projects"}
+        <Button variant="ghost-muted" disabled={isImporting} onClick={finishAfterImport}>
+          Do not import projects
         </Button>
         <Button
           autoFocus

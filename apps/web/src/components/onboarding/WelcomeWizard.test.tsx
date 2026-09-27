@@ -1,135 +1,209 @@
-import { ProviderDriverKind, ProviderInstanceId, type ServerProvider } from "@t3tools/contracts";
-import { describe, expect, it, vi } from "vite-plus/test";
+// @vitest-environment jsdom
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { EnvironmentId, ProjectId } from "@t3tools/contracts";
+import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
 
-import { visitElements } from "../../test/reactElementTree";
-import { completeOnboardingBeforeAction, OnboardingAgentCard } from "./WelcomeWizard";
-
-const piProvider: ServerProvider = {
-  instanceId: ProviderInstanceId.make("pi"),
-  driver: ProviderDriverKind.make("pi"),
-  displayName: "Pi",
-  enabled: true,
-  installed: true,
-  version: "0.86.1",
-  status: "ready",
-  auth: { status: "unknown" },
-  checkedAt: "2026-09-03T00:00:00.000Z",
-  models: [
+const mocks = vi.hoisted(() => ({
+  importThreads: vi.fn(),
+  createProject: vi.fn(),
+  complete: vi.fn(),
+  refresh: vi.fn(),
+  toast: vi.fn(),
+  projects: [] as Array<{ id: string; environmentId: string; workspaceRoot: string }>,
+}));
+vi.mock("../../state/agentSessions", () => ({ agentSessionImport: "import" }));
+vi.mock("../../state/projects", () => ({ projectEnvironment: { create: "create" } }));
+vi.mock("../../state/use-atom-command", () => ({
+  useAtomCommand: (command: string) =>
+    command === "import"
+      ? mocks.importThreads
+      : command === "create"
+        ? mocks.createProject
+        : mocks.refresh,
+}));
+vi.mock("../../onboarding/firstRun", () => ({ useCompleteOnboarding: () => mocks.complete }));
+vi.mock("../../state/entities", () => ({
+  useProjects: () => mocks.projects,
+  readProjects: () => mocks.projects,
+}));
+vi.mock("../../state/environments", () => {
+  const environment = {
+    environmentId: "test-env",
+    label: "Computer",
+    connection: { phase: "connected" },
+  };
+  return {
+    useEnvironments: () => ({ environments: [environment] }),
+    usePrimaryEnvironment: () => environment,
+  };
+});
+vi.mock("../../state/server", () => ({
+  serverEnvironment: {
+    providersValueAtom: () => [],
+    configValueAtom: () => null,
+    refreshProviders: "refresh",
+  },
+}));
+vi.mock("@effect/atom-react", () => ({ useAtomValue: (value: unknown) => value }));
+vi.mock("../../onboarding/useProjectScans", () => ({
+  useProjectScans: () => [
     {
-      slug: "openrouter/anthropic/claude-sonnet-4",
-      name: "Claude Sonnet 4",
-      isCustom: false,
-      capabilities: null,
-    },
-    {
-      slug: "openai/gpt-5",
-      name: "GPT-5",
-      isCustom: false,
-      capabilities: null,
+      environmentId: "test-env",
+      isPending: false,
+      error: null,
+      refresh: mocks.refresh,
+      data: {
+        truncated: false,
+        candidates: [
+          {
+            path: "/project",
+            title: "project",
+            projectId: "test-project",
+            threadCount: 29,
+            lastActiveAt: new Date().toISOString(),
+            sources: ["codex"],
+          },
+        ],
+      },
     },
   ],
-  slashCommands: [],
-  skills: [],
-};
+}));
+vi.mock("../../connection/onboarding", () => ({ connectPairing: vi.fn() }));
+vi.mock("../../state/terminal", () => ({ terminalEnvironment: {} }));
+vi.mock("../clerk/useT3ConnectAuthPrompt", () => ({ useT3ConnectAuthPrompt: vi.fn() }));
+vi.mock("../../cloud/publicConfig", () => ({ hasCloudPublicConfig: () => false }));
+vi.mock("../ThreadTerminalDrawer", () => ({ TerminalViewport: () => null }));
+vi.mock("../cloud/CloudEnvironmentConnectList", () => ({
+  CloudEnvironmentConnectRows: () => null,
+}));
+vi.mock("../ui/toast", () => ({
+  toastManager: { add: mocks.toast, close: vi.fn(), update: vi.fn() },
+}));
 
-function elementWithText(view: unknown, text: string) {
-  return visitElements(view, (element) => {
-    const children = element.props.children;
-    return (
-      children === text || (Array.isArray(children) && children.some((child) => child === text))
-    );
+import { WelcomeWizard } from "./WelcomeWizard";
+
+let root: Root;
+let container: HTMLDivElement;
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+  );
+  Object.defineProperty(Element.prototype, "getAnimations", {
+    configurable: true,
+    value: () => [],
   });
-}
-
-describe("first-run completion sequencing", () => {
-  it("persists onboarding completion before opening provider settings", async () => {
-    let resolveCompletion: () => void = () => {
-      throw new Error("Completion resolver was not initialized.");
-    };
-    const completion = new Promise<void>((resolve) => {
-      resolveCompletion = resolve;
-    });
-    const events: string[] = [];
-    const running = completeOnboardingBeforeAction({
-      completeOnboarding: () => {
-        events.push("completion-started");
-        return completion;
-      },
-      action: () => {
-        events.push("settings-opened");
-      },
-    });
-
-    expect(events).toEqual(["completion-started"]);
-    resolveCompletion();
-    await running;
-    expect(events).toEqual(["completion-started", "settings-opened"]);
+  mocks.projects = [{ id: "test-project", environmentId: "test-env", workspaceRoot: "/project" }];
+  mocks.complete.mockResolvedValue(undefined);
+  mocks.refresh.mockResolvedValue(undefined);
+  mocks.importThreads.mockResolvedValue({
+    _tag: "Success",
+    value: { importedCount: 28, skippedCount: 1 },
   });
-
-  it("does not navigate when onboarding completion fails", async () => {
-    const failure = new Error("settings unavailable");
-    const action = vi.fn();
-    const running = completeOnboardingBeforeAction({
-      completeOnboarding: () => Promise.reject(failure),
-      action,
-    });
-
-    await expect(running).rejects.toBe(failure);
-    expect(action).not.toHaveBeenCalled();
-  });
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  container = document.createElement("div");
+  document.body.append(container);
+  root = createRoot(container);
+});
+afterEach(async () => {
+  await act(async () => root.unmount());
+  container.remove();
 });
 
-describe("Pi onboarding card", () => {
-  it("shows detected Pi readiness, version, and model count", () => {
-    const view = OnboardingAgentCard({
-      driver: "pi",
-      setup: "settings",
-      provider: piProvider,
-      terminalOpen: false,
-      terminalAvailable: true,
-      onOpenTerminal: vi.fn(),
-      onOpenSettings: vi.fn(),
-    });
+async function click(label: string) {
+  const button = [...document.querySelectorAll("button")].find(
+    (element) => element.textContent?.trim() === label,
+  );
+  expect(button, `button ${label}`).toBeDefined();
+  await act(async () => button!.click());
+}
 
-    expect(elementWithText(view, "Pi")).not.toBeNull();
-    expect(elementWithText(view, "Ready")).not.toBeNull();
-    const detail = visitElements(
-      view,
-      (element) =>
-        typeof element.props.className === "string" &&
-        element.props.className.includes("break-words"),
-    );
-    expect(detail?.props.children).toContain(" · v0.86.1 · 2 models");
-    expect(elementWithText(view, "Set up in Settings")).toBeNull();
+it("enters the workspace after a partial import and warns after navigation finishes", async () => {
+  let finishNavigation = () => {};
+  const navigation = new Promise<void>((resolve) => {
+    finishNavigation = resolve;
   });
-
-  it("routes unavailable Pi setup to provider settings without a terminal action", () => {
-    const onOpenSettings = vi.fn();
-    const onOpenTerminal = vi.fn();
-    const view = OnboardingAgentCard({
-      driver: "pi",
-      setup: "settings",
-      provider: {
-        ...piProvider,
-        installed: false,
-        version: null,
-        status: "error",
-        models: [],
-        message: "Pi 0.86.1 or newer was not found on this environment.",
-      },
-      terminalOpen: false,
-      terminalAvailable: true,
-      onOpenTerminal,
-      onOpenSettings,
-    });
-
-    const settingsAction = elementWithText(view, "Set up in Settings");
-    expect(settingsAction).not.toBeNull();
-    (settingsAction?.props.onClick as (() => void) | undefined)?.();
-
-    expect(onOpenSettings).toHaveBeenCalledOnce();
-    expect(onOpenTerminal).not.toHaveBeenCalled();
-    expect(elementWithText(view, "Install")).toBeNull();
-    expect(elementWithText(view, "Sign in")).toBeNull();
+  const onDone = vi.fn(() => navigation);
+  await act(async () => root.render(<WelcomeWizard localAvailable onDone={onDone} />));
+  await click("Continue");
+  await click("Continue");
+  await click("Import 1 project");
+  expect(onDone).toHaveBeenCalledWith({
+    environmentId: EnvironmentId.make("test-env"),
+    projectId: ProjectId.make("test-project"),
   });
+  expect(mocks.toast).not.toHaveBeenCalled();
+  await act(async () => finishNavigation());
+  expect(mocks.toast).toHaveBeenCalledWith(
+    expect.objectContaining({
+      type: "warning",
+      description: "Imported 28 threads. 1 thread could not be imported.",
+    }),
+  );
+  expect(mocks.toast.mock.invocationCallOrder[0]).toBeGreaterThan(
+    onDone.mock.invocationCallOrder[0]!,
+  );
+});
+
+it.each([
+  [0, 0, null],
+  [29, 0, null],
+  [1, 0, null],
+  [0, 1, "1 thread could not be imported."],
+  [0, 2, "2 threads could not be imported."],
+] as const)(
+  "finishes setup with %i imported and %i skipped threads",
+  async (importedCount, skippedCount, warning) => {
+    mocks.importThreads.mockResolvedValue({
+      _tag: "Success",
+      value: { importedCount, skippedCount },
+    });
+    const onDone = vi.fn();
+    await act(async () => root.render(<WelcomeWizard localAvailable onDone={onDone} />));
+    await click("Continue");
+    await click("Continue");
+    await click("Import 1 project");
+    expect(onDone).toHaveBeenCalledOnce();
+    if (warning === null && importedCount > 0) {
+      expect(mocks.toast).toHaveBeenCalledWith({
+        type: "success",
+        title: `Imported ${importedCount} ${importedCount === 1 ? "thread" : "threads"}`,
+      });
+    } else if (warning === null) {
+      expect(mocks.toast).not.toHaveBeenCalled();
+    } else {
+      expect(mocks.toast).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "warning", description: warning }),
+      );
+    }
+  },
+);
+
+it("keeps setup open when saving completion fails and preserves the import warning on retry", async () => {
+  mocks.complete.mockRejectedValueOnce(new Error("settings unavailable"));
+  const onDone = vi.fn();
+  await act(async () => root.render(<WelcomeWizard localAvailable onDone={onDone} />));
+  await click("Continue");
+  await click("Continue");
+  await click("Import 1 project");
+  expect(onDone).not.toHaveBeenCalled();
+  expect(mocks.toast).toHaveBeenCalledWith(
+    expect.objectContaining({ type: "error", title: "Could not finish setup" }),
+  );
+  await click("Do not import projects");
+  expect(onDone).toHaveBeenCalledOnce();
+  expect(mocks.importThreads).toHaveBeenCalledOnce();
+  expect(mocks.toast).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      type: "warning",
+      description: "Imported 28 threads. 1 thread could not be imported.",
+    }),
+  );
 });
