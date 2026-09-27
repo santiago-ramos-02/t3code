@@ -156,6 +156,7 @@ import * as ResourceTelemetry from "./resourceTelemetry/ResourceTelemetry.ts";
 import * as HostResources from "./resourceTelemetry/HostResources.ts";
 import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
 import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
+import * as GentleAi from "./gentleAi/GentleAi.ts";
 import * as UsageService from "./usage/UsageService.ts";
 import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
@@ -550,6 +551,7 @@ const makeWsRpcLayer = (
       const keybindings = yield* Keybindings.Keybindings;
       const environmentTheme = yield* EnvironmentTheme.EnvironmentThemeService;
       const usageLimitSources = yield* UsageLimitSources.UsageLimitSources;
+      const gentleAi = yield* GentleAi.GentleAi;
       const externalLauncher = yield* ExternalLauncher.ExternalLauncher;
       const remoteOpenTargets = yield* RemoteOpenTargets.RemoteOpenTargets;
       const gitWorkflow = yield* GitWorkflowService.GitWorkflowService;
@@ -1833,7 +1835,10 @@ const makeWsRpcLayer = (
       const loadServerConfig = (options: { readonly usageLimitsCommand: boolean }) =>
         Effect.gen(function* () {
           const keybindingsConfig = yield* keybindings.loadConfigState;
-          const currentProviders = yield* providerRegistry.getProviders;
+          const currentProviders = GentleAi.withGentleAi(
+            yield* providerRegistry.getProviders,
+            yield* gentleAi.current,
+          );
           const providers = options.usageLimitsCommand
             ? withUsageLimitsCommands(currentProviders, yield* usageLimitSources.current)
             : currentProviders;
@@ -2415,6 +2420,7 @@ const makeWsRpcLayer = (
               // interrupt a fork before the hub answered.
               if (input.instanceId === undefined) {
                 yield* usageLimitSources.refresh;
+                yield* gentleAi.refresh;
               }
               let providers = yield* input.cwd !== undefined && input.instanceId !== undefined
                 ? providerRegistry.refreshWorkspaceSnapshot({
@@ -2451,7 +2457,7 @@ const makeWsRpcLayer = (
                   providers = yield* providerRegistry.refreshInstance(instance.instanceId);
                 }
               }
-              return { providers };
+              return { providers: GentleAi.withGentleAi(providers, yield* gentleAi.current) };
             }),
             { "rpc.aggregate": "server" },
           ),
@@ -2477,6 +2483,14 @@ const makeWsRpcLayer = (
               "rpc.aggregate": "server",
             },
           ),
+        [WS_METHODS.gentleAiRead]: () =>
+          observeRpcEffect(WS_METHODS.gentleAiRead, gentleAi.current, {
+            "rpc.aggregate": "gentle-ai",
+          }),
+        [WS_METHODS.gentleAiAction]: (input) =>
+          observeRpcEffect(WS_METHODS.gentleAiAction, gentleAi.action(input), {
+            "rpc.aggregate": "gentle-ai",
+          }),
         [WS_METHODS.providerPiGentleRead]: (input) =>
           observeRpcEffect(
             WS_METHODS.providerPiGentleRead,
@@ -3699,6 +3713,9 @@ const makeWsRpcLayer = (
                 (providers, sources) =>
                   usageLimitsCommand ? withUsageLimitsCommands(providers, sources) : providers,
               ).pipe(
+                // Gentle AI marks which providers run with it; its status changes on its own.
+                (updates) =>
+                  Stream.zipLatestWith(updates, gentleAi.streamChanges, GentleAi.withGentleAi),
                 // Both sides replay their current value, so the first pairing normally
                 // repeats the snapshot the client already holds. Compare against that
                 // snapshot rather than dropping blindly: a refresh that landed between

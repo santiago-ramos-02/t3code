@@ -21,6 +21,12 @@ import {
   PiGentleReadInput,
   PiGentleState,
 } from "./piGentle.ts";
+import {
+  GentleAiActionInput,
+  GentleAiActionResult,
+  GentleAiError,
+  GentleAiStatus,
+} from "./gentleAi.ts";
 
 import { ExternalLauncherError, LaunchEditorInput } from "./editor.ts";
 import {
@@ -321,6 +327,8 @@ export const WS_METHODS = {
   providerPiGentleComposerRead: "provider.piGentle.composerRead",
   providerPiGentleAction: "provider.piGentle.action",
   providerPiGentleInitialize: "provider.piGentle.initialize",
+  gentleAiRead: "gentleAi.read",
+  gentleAiAction: "gentleAi.action",
 
   // VCS methods
   vcsPull: "vcs.pull",
@@ -527,6 +535,18 @@ const WsProviderPiGentleInitializeRpc = Rpc.make(WS_METHODS.providerPiGentleInit
   payload: PiGentleInitializeInput,
   success: PiGentleComposerState,
   error: Schema.Union([ProviderSetupError, EnvironmentAuthorizationError]),
+});
+
+const WsGentleAiReadRpc = Rpc.make(WS_METHODS.gentleAiRead, {
+  payload: Schema.Struct({}),
+  success: GentleAiStatus,
+  error: EnvironmentAuthorizationError,
+});
+
+const WsGentleAiActionRpc = Rpc.make(WS_METHODS.gentleAiAction, {
+  payload: GentleAiActionInput,
+  success: GentleAiActionResult,
+  error: Schema.Union([GentleAiError, EnvironmentAuthorizationError]),
 });
 
 const ProviderSetupRpcError = Schema.Union([ProviderSetupError, EnvironmentAuthorizationError]);
@@ -1436,6 +1456,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsProviderPiGentleComposerReadRpc,
   WsProviderPiGentleActionRpc,
   WsProviderPiGentleInitializeRpc,
+  WsGentleAiReadRpc,
+  WsGentleAiActionRpc,
   WsProviderConsumeResetCreditRpc,
   WsProviderAuthStartRpc,
   WsProviderAuthCompleteRpc,

@@ -1,3 +1,4 @@
+import * as NodeOS from "node:os";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ProviderInstanceId, ThreadId, type ServerProvider } from "@t3tools/contracts";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
@@ -28,6 +29,8 @@ const PiDriverTestLayer = Layer.mergeAll(
   }).pipe(Layer.provide(NodeServices.layer)),
   NodeServices.layer,
 );
+
+const TEST_AGENT_HOME = `${NodeOS.tmpdir()}/t3-pi-driver-test-agent-home`;
 
 function processHandle(input: {
   readonly stdout?: Stream.Stream<Uint8Array, PlatformError.PlatformError>;
@@ -111,12 +114,15 @@ function makeInstance(
     instanceId: ProviderInstanceId.make("pi-test"),
     displayName: "Pi Test",
     accentColor: "#123456",
-    environment: [{ name: "PI_TEST", value: "configured", sensitive: false }],
+    environment: [
+      { name: "PI_TEST", value: "configured", sensitive: false },
+      // An agent home with no packages, so the host's own Pi setup never leaks in.
+      { name: "PI_CODING_AGENT_DIR", value: TEST_AGENT_HOME, sensitive: false },
+    ],
     enabled: input.enabled ?? true,
     config: {
       enabled: input.enabled ?? true,
       binaryPath: input.binaryPath ?? "pi-test",
-      gentleAiBinaryPath: "",
       customModels: input.customModels ?? [],
     },
   }).pipe(

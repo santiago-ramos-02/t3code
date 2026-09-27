@@ -80,13 +80,11 @@ import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { AddProviderInstanceDialog } from "./AddProviderInstanceDialog";
-import { PiGentleSettingsSection } from "./PiGentleSettingsSection";
 import { PiModelProvidersSection } from "./PiModelProvidersSection";
 import { PiSetupSection, piSetupSteps } from "./PiSetupSection";
 import { ExpandableText } from "./ExpandableText";
 import { ProviderInstanceCard } from "./ProviderInstanceCard";
 import { UsageProviderSettings } from "./UsageProviderSettings";
-import { useSettingsProjectGroups } from "./useSettingsProjectGroups";
 import { ProviderSetupSection, readAntigravityAuthMethod } from "./ProviderSetupSection";
 import { DRIVER_OPTIONS, getDriverOption } from "./providerDriverMeta";
 import { searchableSetting } from "./settingsSearch";
@@ -140,11 +138,6 @@ const PROVIDER_SETTINGS = DRIVER_OPTIONS.map((definition) => ({
 function configuredBinaryPath(config: unknown): string {
   if (config === null || typeof config !== "object" || !("binaryPath" in config)) return "";
   return typeof config.binaryPath === "string" ? config.binaryPath.trim() : "";
-}
-
-function configuredGentleAiBinaryPath(config: unknown): string {
-  if (config === null || typeof config !== "object" || !("gentleAiBinaryPath" in config)) return "";
-  return typeof config.gentleAiBinaryPath === "string" ? config.gentleAiBinaryPath : "";
 }
 
 function ProviderLastChecked({ lastCheckedAt }: { lastCheckedAt: string | null }) {
@@ -616,7 +609,6 @@ export function EnvironmentProviderSettings({
   readonly readOnly?: boolean;
 }) {
   const settings = useEnvironmentSettings(environmentId);
-  const projectGroups = useSettingsProjectGroups();
   // Provider instances hold per-machine credentials and binaries, so this
   // page always edits exactly the environment it displays.
   const updateSettings = useUpdateEnvironmentSettings(environmentId);
@@ -630,7 +622,6 @@ export function EnvironmentProviderSettings({
     reportFailure: false,
   });
   const [isRefreshingProviders, setIsRefreshingProviders] = useState(false);
-  const [gentleRefreshKey, setGentleRefreshKey] = useState(0);
   // Instances with an explicit scoped status refresh in flight, keyed by
   // environment+instance so a stale completion for a previous environment
   // can never mark the new card Checking. Local pending state only: the
@@ -705,7 +696,6 @@ export function EnvironmentProviderSettings({
       });
       refreshingRef.current = false;
       setIsRefreshingProviders(false);
-      if (result._tag === "Success") setGentleRefreshKey((key) => key + 1);
       if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
         console.warn("Failed to refresh providers", {
           operation: "refresh-providers",
@@ -738,7 +728,6 @@ export function EnvironmentProviderSettings({
         // the old environment must not clear new state, toast, or mark a
         // new card Checking.
         if (!mountedRef.current || activeEnvironmentRef.current !== environmentId) return;
-        if (result._tag === "Success") setGentleRefreshKey((value) => value + 1);
         setRefreshingKeys((previous) => {
           if (!previous.has(key)) return previous;
           const next = new Set(previous);
@@ -1052,37 +1041,6 @@ export function EnvironmentProviderSettings({
           mode === "editor" && row.driver === "pi" ? (
             <>
               <PiModelProvidersSection provider={liveProvider} />
-              {/* Gentle AI is an optional Pi package; the section hides itself without it. */}
-              {liveProvider?.installed ? (
-                <PiGentleSettingsSection
-                  environmentId={environmentId}
-                  instanceId={row.instanceId}
-                  binaryPathValue={configuredGentleAiBinaryPath(row.instance.config)}
-                  onBinaryPathChange={(gentleAiBinaryPath) =>
-                    updateProviderInstance(row, {
-                      ...row.instance,
-                      config: {
-                        ...(row.instance.config !== null && typeof row.instance.config === "object"
-                          ? row.instance.config
-                          : {}),
-                        gentleAiBinaryPath,
-                      },
-                    })
-                  }
-                  refreshKey={gentleRefreshKey}
-                  models={liveProvider?.models ?? []}
-                  initialProjectCwd={projectCwd}
-                  projects={projectGroups.flatMap((group) =>
-                    group.memberProjects
-                      .filter((project) => project.environmentId === environmentId)
-                      .map((project) => ({
-                        title: group.displayName,
-                        workspaceRoot: project.workspaceRoot,
-                      })),
-                  )}
-                  readOnly={readOnly}
-                />
-              ) : null}
             </>
           ) : null
         }

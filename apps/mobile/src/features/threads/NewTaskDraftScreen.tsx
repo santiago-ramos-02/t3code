@@ -1,4 +1,4 @@
-import { PI_GENTLE_OPTION_ID, piGentleEnabled } from "@t3tools/contracts";
+import { GENTLE_AI_OPTION_ID, gentleAiEnabled } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
 import type { MenuAction } from "@react-native-menu/menu";
 import { isAtomCommandInterrupted } from "@t3tools/client-runtime/state/runtime";
@@ -499,7 +499,7 @@ export function NewTaskDraftScreen(props: {
     readGentleDraft,
     selectedProject,
   ]);
-  const gentleDraftEnabled = piGentleEnabled(gentleDraftSelection?.options);
+  const gentleDraftEnabled = gentleAiEnabled(gentleDraftSelection?.options);
   const gentleDraftProfiles = useGentleProfileMenu({
     environmentId: selectedProject?.environmentId ?? null,
     cwd: composerWorkspaceCwd,
@@ -1700,9 +1700,9 @@ export function NewTaskDraftScreen(props: {
               if (nativeEvent.event !== "enable") return;
               flow.setSelectedModelOptions([
                 ...(gentleDraftSelection.options?.filter(
-                  (option) => option.id !== PI_GENTLE_OPTION_ID,
+                  (option) => option.id !== GENTLE_AI_OPTION_ID,
                 ) ?? []),
-                { id: PI_GENTLE_OPTION_ID, value: !gentleDraftEnabled },
+                { id: GENTLE_AI_OPTION_ID, value: !gentleDraftEnabled },
               ]);
             }}
           >

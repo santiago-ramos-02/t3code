@@ -35,8 +35,8 @@ import type {
   SnapShotSource,
 } from "@t3tools/contracts";
 import {
-  PI_GENTLE_OPTION_ID,
-  piGentleEnabled,
+  GENTLE_AI_OPTION_ID,
+  gentleAiEnabled,
   ProviderDriverKind,
   ProviderInstanceId,
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
@@ -2092,7 +2092,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     () => createModelSelection(selectedInstanceId, selectedModel, selectedModelOptionsForDispatch),
     [selectedInstanceId, selectedModel, selectedModelOptionsForDispatch],
   );
-  const selectedGentleEnabled = piGentleEnabled(selectedModelSelection.options);
+  const selectedGentleEnabled = gentleAiEnabled(selectedModelSelection.options);
   // A Pi thread with Gentle AI off loads none of its packages, so their commands are not offered.
   const selectedProviderSkills = selectedProviderStatus
     ? piResourcesForGentle(
@@ -6438,9 +6438,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   prompt,
                   createModelSelection(selectedInstanceId, selectedModel, [
                     ...(selectedModelSelection.options?.filter(
-                      (option) => option.id !== PI_GENTLE_OPTION_ID,
+                      (option) => option.id !== GENTLE_AI_OPTION_ID,
                     ) ?? []),
-                    { id: PI_GENTLE_OPTION_ID, value: true },
+                    { id: GENTLE_AI_OPTION_ID, value: true },
                   ]),
                 )
               }
@@ -6449,9 +6449,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   composerDraftTarget,
                   createModelSelection(selectedInstanceId, selectedModel, [
                     ...(selectedModelSelection.options?.filter(
-                      (option) => option.id !== PI_GENTLE_OPTION_ID,
+                      (option) => option.id !== GENTLE_AI_OPTION_ID,
                     ) ?? []),
-                    { id: PI_GENTLE_OPTION_ID, value: enabled },
+                    { id: GENTLE_AI_OPTION_ID, value: enabled },
                   ]),
                 )
               }

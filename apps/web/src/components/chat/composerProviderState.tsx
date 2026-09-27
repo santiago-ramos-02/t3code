@@ -1,4 +1,4 @@
-import { PI_GENTLE_OPTION_ID } from "@t3tools/contracts";
+import { GENTLE_AI_OPTION_ID } from "@t3tools/contracts";
 import {
   type ModelCapabilities,
   type ProviderDriverKind,
@@ -148,7 +148,7 @@ export function getComposerProviderState(input: ComposerProviderStateInput): Com
   );
   const gentleSelection =
     provider === "pi"
-      ? selections?.find((selection) => selection.id === PI_GENTLE_OPTION_ID)
+      ? selections?.find((selection) => selection.id === GENTLE_AI_OPTION_ID)
       : undefined;
   return {
     provider,

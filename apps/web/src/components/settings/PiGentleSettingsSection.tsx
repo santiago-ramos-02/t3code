@@ -189,15 +189,14 @@ function GentleSelect<T extends string>({
 }
 
 /**
- * Gentle AI controls for a Pi provider instance, rendered as extra sections of its settings card.
- * Every change is written to the environment's Gentle AI config immediately, like other provider
- * settings.
+ * What gentle-pi adds to Gentle AI for one Pi provider instance: model profiles, persona, and
+ * project SDD choices. Rendered on the Gentle AI settings page. Every change is written to
+ * gentle-pi's config immediately, like other settings.
  */
 export function PiGentleSettingsSection({
   environmentId,
   instanceId,
-  binaryPathValue,
-  onBinaryPathChange,
+  title,
   refreshKey,
   models,
   projects,
@@ -206,8 +205,8 @@ export function PiGentleSettingsSection({
 }: {
   readonly environmentId: EnvironmentId;
   readonly instanceId: ProviderInstanceId;
-  readonly binaryPathValue: string;
-  readonly onBinaryPathChange: (value: string) => void;
+  // Names the Pi instance, since an environment can run several.
+  readonly title: string;
   readonly refreshKey: number;
   readonly models: ReadonlyArray<ServerProviderModel>;
   readonly projects: ReadonlyArray<ProjectOption>;
@@ -335,7 +334,7 @@ export function PiGentleSettingsSection({
   // loads it. The server only fails a read once gentle-pi is installed, so a failure is shown.
   if (state === null) {
     return error ? (
-      <SettingsSection title="Gentle AI" icon={sectionIcon} {...readOnlyProps}>
+      <SettingsSection title={title} icon={sectionIcon} {...readOnlyProps}>
         <SettingsRow
           title="Gentle AI settings could not be read"
           status={errorFor("project")}
@@ -358,7 +357,7 @@ export function PiGentleSettingsSection({
 
   if (!state.available) {
     return state.version === null ? null : (
-      <SettingsSection title="Gentle AI" icon={sectionIcon} {...readOnlyProps}>
+      <SettingsSection title={title} icon={sectionIcon} {...readOnlyProps}>
         <SettingsRow
           title="Update for Pi"
           description={`Gentle AI ${state.version} is installed. T3 Code supports 3.5 or newer.`}
@@ -419,7 +418,7 @@ export function PiGentleSettingsSection({
   return (
     <>
       <SettingsSection
-        title="Gentle AI"
+        title={title}
         icon={sectionIcon}
         headerAction={
           state.version ? (
@@ -441,22 +440,6 @@ export function PiGentleSettingsSection({
         {state.compatibilityWarning ? (
           <SettingsRow title="Untested version" description={state.compatibilityWarning} />
         ) : null}
-        <SettingsRow
-          title="Binary path"
-          description="Leave blank to use Gentle AI bundled with this Pi installation."
-          control={
-            <DraftInput
-              size="sm"
-              className={ROW_CONTROL}
-              aria-label="Gentle AI binary path"
-              value={binaryPathValue}
-              onCommit={onBinaryPathChange}
-              placeholder="gentle-ai"
-              disabled={!canEdit}
-              spellCheck={false}
-            />
-          }
-        />
         <SettingsRow
           title="Persona"
           description="Default persona for every project."

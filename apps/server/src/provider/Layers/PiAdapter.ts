@@ -6,7 +6,7 @@ import {
   RuntimeRequestId,
   TurnId,
   isProviderSendTurnSupportedImageMimeType,
-  piGentleEnabled,
+  gentleAiEnabled,
   type ProviderInstanceId,
   type ProviderRuntimeEvent,
   type ProviderSendTurnInput,
@@ -1305,7 +1305,7 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
             });
           }
           const sessionScope = yield* Scope.make("sequential");
-          const gentleEnabled = piGentleEnabled(input.modelSelection?.options);
+          const gentleEnabled = gentleAiEnabled(input.modelSelection?.options);
           const environment = {
             ...McpProviderSession.withAgentDeviceEnvironment(
               options.environment ?? process.env,

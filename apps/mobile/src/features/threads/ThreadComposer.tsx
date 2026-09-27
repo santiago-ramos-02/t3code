@@ -1,4 +1,4 @@
-import { PI_GENTLE_OPTION_ID, piGentleEnabled } from "@t3tools/contracts";
+import { GENTLE_AI_OPTION_ID, gentleAiEnabled } from "@t3tools/contracts";
 import type { ComposerTextPaste } from "../../native/T3ComposerEditor.types";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import {
@@ -413,7 +413,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   ]);
   const gentleState = gentleLoaded?.key === gentleKey ? gentleLoaded.value : null;
   const gentleAvailable = gentleState?.available === true;
-  const gentleEnabled = piGentleEnabled(currentModelSelection.options);
+  const gentleEnabled = gentleAiEnabled(currentModelSelection.options);
   const canChangeGentle = props.selectedThread.latestTurn === null;
   const gentleChanges = gentleState?.changes ?? [];
   const gentleChangesError = gentleState?.changesError;
@@ -436,9 +436,9 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
         ...currentModelSelection,
         options: [
           ...(currentModelSelection.options?.filter(
-            (option) => option.id !== PI_GENTLE_OPTION_ID,
+            (option) => option.id !== GENTLE_AI_OPTION_ID,
           ) ?? []),
-          { id: PI_GENTLE_OPTION_ID, value: true },
+          { id: GENTLE_AI_OPTION_ID, value: true },
         ],
       },
     });
@@ -894,9 +894,9 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                     ...currentModelSelection,
                     options: [
                       ...(currentModelSelection.options?.filter(
-                        (option) => option.id !== PI_GENTLE_OPTION_ID,
+                        (option) => option.id !== GENTLE_AI_OPTION_ID,
                       ) ?? []),
-                      { id: PI_GENTLE_OPTION_ID, value: !gentleEnabled },
+                      { id: GENTLE_AI_OPTION_ID, value: !gentleEnabled },
                     ],
                   });
                 }

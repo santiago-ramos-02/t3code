@@ -1087,6 +1087,14 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:provider:pi-gentle-action",
       tag: WS_METHODS.providerPiGentleAction,
     }),
+    readGentleAi: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:gentle-ai:read",
+      tag: WS_METHODS.gentleAiRead,
+    }),
+    runGentleAiAction: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:gentle-ai:action",
+      tag: WS_METHODS.gentleAiAction,
+    }),
     refreshProviders: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:refresh-providers",
       tag: WS_METHODS.serverRefreshProviders,

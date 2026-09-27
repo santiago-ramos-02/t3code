@@ -344,6 +344,8 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
       );
       const discoverySemaphore = yield* Semaphore.make(1);
 
+      // Whether Pi loads gentle-pi, from its last successful version check; null until then.
+      const gentleAiRef = yield* Ref.make<boolean | null>(null);
       const makeSnapshot = Effect.fn("PiDriver.makeSnapshot")(function* (input: {
         readonly installed: boolean;
         readonly version: string | null;
@@ -353,7 +355,8 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
         readonly auth?: ServerProvider["auth"];
       }) {
         const checkedAt = DateTime.formatIso(yield* DateTime.now);
-        return stampIdentity(
+        const gentleAi = yield* Ref.get(gentleAiRef);
+        const provider = stampIdentity(
           buildServerProvider({
             presentation: { displayName: "Pi", showInteractionModeToggle: false },
             enabled: effectiveConfig.enabled,
@@ -370,6 +373,8 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
             },
           }),
         );
+        // Pi answers either way, so gentle-ai's own record never speaks for it.
+        return gentleAi === null || !input.installed ? provider : { ...provider, gentleAi };
       });
 
       const initialModels = providerModelsFromSettings([], effectiveConfig.customModels, {});
@@ -463,6 +468,18 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
               models: current.models,
             });
           }
+          // Pi gets Gentle AI through the gentle-pi package, so Pi's own packages decide.
+          yield* Ref.set(
+            gentleAiRef,
+            yield* piPackages({ environment: processEnv }).pipe(
+              Effect.provideService(FileSystem.FileSystem, fileSystem),
+              Effect.provideService(Path.Path, path),
+              Effect.map((packages) =>
+                packages.some((entry) => entry.manifest?.name === "gentle-pi"),
+              ),
+              Effect.orElseSucceed(() => false),
+            ),
+          );
           return yield* makeSnapshot({
             installed: true,
             version,
@@ -679,7 +696,6 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
       const piGentle = yield* makePiGentleSettings({
         environment: processEnv,
         piBinaryPath: effectiveConfig.binaryPath,
-        binaryPath: effectiveConfig.gentleAiBinaryPath,
         fileSystem,
         path,
         spawner,

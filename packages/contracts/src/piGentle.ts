@@ -1,6 +1,5 @@
 import * as Schema from "effect/Schema";
 import { TrimmedNonEmptyString } from "./baseSchemas.ts";
-import type { ProviderOptionSelection } from "./model.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
 
 /**
@@ -8,16 +7,6 @@ import { ProviderInstanceId } from "./providerInstance.ts";
  * clients hide the commands and skills they provide.
  */
 export const PI_GENTLE_PACKAGES: ReadonlyArray<string> = ["gentle-pi", "gentle-engram"];
-
-/** Model option a Pi thread stores its Gentle AI choice in; absent means on. */
-export const PI_GENTLE_OPTION_ID = "gentleAi";
-
-/** Whether a Pi thread's model options leave Gentle AI on. */
-export function piGentleEnabled(
-  options: ReadonlyArray<ProviderOptionSelection> | undefined,
-): boolean {
-  return options?.find((option) => option.id === PI_GENTLE_OPTION_ID)?.value !== false;
-}
 
 export const PiGentleRoutingEntry = Schema.Struct({
   model: Schema.optionalKey(Schema.String),
