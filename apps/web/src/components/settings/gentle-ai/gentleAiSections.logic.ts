@@ -122,15 +122,17 @@ export interface GentleAiUninstallDraft {
 
 /**
  * What to ask gentle-ai to plan for a draft, or null while a partial uninstall is missing its
- * agents or components. Full modes cover everything, so they send no lists.
+ * agents or components. Full modes cover everything, so they send no lists. A project only
+ * adds project cleanup.
  */
 export function gentleAiUninstallPlanParams(
   draft: GentleAiUninstallDraft,
-  cwd: string,
+  cwd: string | null,
 ): GentleAiUninstallParams | null {
-  if (draft.mode !== "partial") return { mode: draft.mode, cwd };
+  const project = cwd === null ? {} : { cwd };
+  if (draft.mode !== "partial") return { mode: draft.mode, ...project };
   if (draft.agents.length === 0 || draft.components.length === 0) return null;
-  return { mode: draft.mode, agents: draft.agents, components: draft.components, cwd };
+  return { mode: draft.mode, agents: draft.agents, components: draft.components, ...project };
 }
 
 /** The run request: the planned request plus the choices the plan offered. */

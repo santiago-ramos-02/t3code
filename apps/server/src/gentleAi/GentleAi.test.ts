@@ -13,7 +13,14 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
 import * as ServerSettings from "../serverSettings.ts";
-import { GentleAi, gentleAiDrivers, layer, NOT_INSTALLED, withGentleAi } from "./GentleAi.ts";
+import {
+  GentleAi,
+  gentleAiDrivers,
+  gentleAiResourceNames,
+  layer,
+  NOT_INSTALLED,
+  withGentleAi,
+} from "./GentleAi.ts";
 
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
@@ -339,4 +346,38 @@ else line({ type: "error", error: { code: "unsupported", message: "unknown metho
       }),
     ),
   );
+});
+
+it("names the skills and commands in a footprint", () => {
+  expect(
+    gentleAiResourceNames([
+      "C:\\Users\\me\\.claude\\skills\\judgment-day",
+      "/home/me/.config/opencode/commands/skill-registry.md",
+      "/home/me/.config/opencode/skills/_shared/README.md",
+      "/home/me/.claude/settings.json",
+    ]),
+  ).toEqual(["judgment-day", "skill-registry"]);
+});
+
+it("tags only what gentle-ai's footprint names, when it has one", () => {
+  const skills: ServerProvider["skills"] = ["judgment-day", "sdd-apply", "mine"].map((name) => ({
+    name,
+    path: name,
+    enabled: true,
+  }));
+  const status = { ...NOT_INSTALLED, installed: true, drivers: gentleAiDrivers(["claude-code"]) };
+  const claude = {
+    ...provider("claudeAgent"),
+    skills,
+  };
+  // Without a footprint the built-in list decides; with one, only its names count.
+  const [fromList] = withGentleAi([claude], status);
+  const [fromFootprint] = withGentleAi([claude], { ...status, resources: ["judgment-day"] });
+  expect(fromList?.skills?.filter((skill) => skill.package).map((skill) => skill.name)).toEqual([
+    "judgment-day",
+    "sdd-apply",
+  ]);
+  expect(
+    fromFootprint?.skills?.filter((skill) => skill.package).map((skill) => skill.name),
+  ).toEqual(["judgment-day"]);
 });

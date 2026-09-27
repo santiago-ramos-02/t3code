@@ -19,6 +19,14 @@ function syncOutcome(job: GentleAiJob) {
   return { files: result.files.length, manualActions: result.manualActions ?? [] };
 }
 
+/** gentle-ai's name for a step, or one made from its id for builds that give none. */
+function stepName(
+  step: { readonly id: string; readonly label?: string },
+  names: ReadonlyMap<string, string>,
+): string {
+  return step.label ?? gentleAiStepLabel(step.id, names);
+}
+
 /** Readable names for pipeline steps such as `agent:claude-code` or `component:engram`. */
 export function gentleAiStepLabel(id: string, names: ReadonlyMap<string, string>): string {
   const [kind, rest] = id.includes(":")
@@ -47,7 +55,7 @@ function jobProgress(job: GentleAiJob, names: ReadonlyMap<string, string>): stri
     const current = job.steps.findLast((step) => step.status === "running");
     return current === undefined
       ? `${done} of ${total} steps`
-      : `Step ${done + 1} of ${total}: ${gentleAiStepLabel(current.id, names)}`;
+      : `Step ${done + 1} of ${total}: ${stepName(current, names)}`;
   }
   const failed = job.steps.filter((step) => step.status === "failed").length;
   const skipped = job.steps.filter((step) => step.status === "skipped").length;
@@ -108,9 +116,7 @@ export function GentleAiJobPanel({
           job.error || failedSteps.length > 0 ? (
             <span role="alert" className="text-destructive">
               {job.error ??
-                failedSteps
-                  .map((step) => `${gentleAiStepLabel(step.id, names)}: ${step.error}`)
-                  .join(" · ")}
+                failedSteps.map((step) => `${stepName(step, names)}: ${step.error}`).join(" · ")}
             </span>
           ) : null
         }
@@ -146,7 +152,7 @@ export function GentleAiJobPanel({
                 {job.steps.map((step) => (
                   <li key={step.id} className="flex min-w-0 items-center gap-2">
                     <StepIcon status={step.status} />
-                    <span className="truncate">{gentleAiStepLabel(step.id, names)}</span>
+                    <span className="truncate">{stepName(step, names)}</span>
                   </li>
                 ))}
               </ul>

@@ -22,8 +22,9 @@ import { useGentleAiQuery } from "./useGentleAi";
 const STEPS = ["Choose", "Review"] as const;
 
 /**
- * The uninstall flow, in place of the page; project-scoped cleanup uses the chosen project. With
- * an `agent` it removes Gentle AI from that agent alone, so it opens on the review.
+ * The uninstall flow, in place of the page. A chosen project only adds project cleanup, such as
+ * Engram data kept in it. With an `agent` it removes Gentle AI from that agent alone, so it
+ * opens on the review.
  */
 export function GentleAiUninstallFlow(
   props: GentleAiSectionProps & { readonly agent?: string; readonly onClose: () => void },
@@ -39,24 +40,13 @@ export function GentleAiUninstallFlow(
   );
   const agentName = props.status.agents.find((entry) => entry.id === props.agent)?.name;
   const title = agentName === undefined ? "Remove Gentle AI" : `Remove Gentle AI from ${agentName}`;
-  if (cwd === null)
-    return (
-      <section className="space-y-4">
-        <GentleAiFlowHeader title={title} onBack={props.onClose} />
-        <GentleAiFlowPanel>
-          <p className="text-muted-foreground text-sm">
-            gentle-ai uninstalls from a project folder. Add a project to this environment first.
-          </p>
-        </GentleAiFlowPanel>
-      </section>
-    );
   return (
     <UninstallWizard
       // A different project starts a fresh choice.
-      key={cwd}
+      key={cwd ?? ""}
       {...props}
       cwd={cwd}
-      projectTitle={project?.title ?? cwd}
+      projectTitle={project?.title ?? cwd ?? ""}
       picker={picker}
       title={title}
     />
@@ -76,7 +66,7 @@ function UninstallWizard({
   title,
 }: GentleAiSectionProps & {
   readonly agent?: string;
-  readonly cwd: string;
+  readonly cwd: string | null;
   readonly projectTitle: string;
   readonly onClose: () => void;
   readonly picker: ReactNode;
@@ -100,7 +90,7 @@ function UninstallWizard({
   const [starting, setStarting] = useState(false);
 
   const planParams = gentleAiUninstallPlanParams({ mode, agents, components }, cwd);
-  const plan = useGentleAiQuery(environmentId, "uninstall.plan", planParams ?? { mode, cwd }, {
+  const plan = useGentleAiQuery(environmentId, "uninstall.plan", planParams ?? { mode }, {
     enabled: step === 1 && planParams !== null,
   });
   const modeInfo = GENTLE_AI_UNINSTALL_MODES.find((entry) => entry.mode === mode);

@@ -57,6 +57,9 @@ export const GentleAiStatus = Schema.Struct({
   // Whether this gentle-ai still offers SDD (`sdd-status`); releases after 3.7 replaced it
   // with ODD.
   sdd: Schema.Boolean,
+  // Names of the skills and slash commands gentle-ai installed into the agents it set up, from
+  // its own footprint. Absent without one (older releases), when a built-in list decides.
+  resources: Schema.optional(Schema.Array(Schema.String)),
 });
 export type GentleAiStatus = typeof GentleAiStatus.Type;
 

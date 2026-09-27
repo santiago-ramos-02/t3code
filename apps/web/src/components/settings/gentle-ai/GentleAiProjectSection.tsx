@@ -30,39 +30,20 @@ function count(value: number, one: string, many: string): string {
   return `${value} ${value === 1 ? one : many}`;
 }
 
-/**
- * The switch for reviewing agents' changes before delivery, everywhere. gentle-ai reads it through
- * a project folder, so it uses the first project; each project can still opt out below.
- */
+/** The switch for reviewing agents' changes before delivery, everywhere; projects can opt out. */
 export function GentleAiReviewRow({
   environmentId,
   disabled,
-  projects,
   startJob,
   onError,
 }: GentleAiSectionProps) {
-  const cwd = projects[0]?.cwd ?? null;
-  const mode = useGentleAiQuery(
-    environmentId,
-    "review.status",
-    { cwd: cwd ?? "" },
-    {
-      enabled: cwd !== null,
-    },
-  );
-  const description =
-    "An independent review checks agents' code changes before they hand them off.";
-  if (cwd === null)
-    return (
-      <SettingsRow
-        title="Review before delivery"
-        description={`${description} Add a project to this environment to change it.`}
-      />
-    );
+  const mode = useGentleAiQuery(environmentId, "review.status", {});
   return (
     <SettingsRow
       title="Review before delivery"
-      description={mode.error ?? description}
+      description={
+        mode.error ?? "An independent review checks agents' code changes before they hand them off."
+      }
       control={
         mode.data === null ? (
           mode.error ? null : (
@@ -74,8 +55,8 @@ export function GentleAiReviewRow({
             checked={gentleAiReviewGlobalEnabled(mode.data)}
             disabled={disabled}
             onCheckedChange={(checked) =>
-              void startJob("review.set", { cwd, enabled: checked, scope: "global" }).then(
-                (error) => (error ? onError(error) : undefined),
+              void startJob("review.set", { enabled: checked, scope: "global" }).then((error) =>
+                error ? onError(error) : undefined,
               )
             }
           />

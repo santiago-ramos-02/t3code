@@ -132,6 +132,15 @@ describe("uninstall params", () => {
     ).toEqual({ mode: "partial", agents: ["codex"], components: ["sdd"], cwd: "/a" });
   });
 
+  it("works without a project, which only scopes project cleanup", () => {
+    expect(
+      gentleAiUninstallPlanParams(
+        { mode: "partial", agents: ["codex"], components: ["sdd"] },
+        null,
+      ),
+    ).toEqual({ mode: "partial", agents: ["codex"], components: ["sdd"] });
+  });
+
   it("adds the plan's choices to the run", () => {
     expect(gentleAiUninstallRunParams({ mode: "full", cwd: "/a" }, { engramScope: null })).toEqual({
       mode: "full",

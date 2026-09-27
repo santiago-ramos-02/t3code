@@ -388,7 +388,8 @@ export const GentleAiUninstallParams = Schema.Struct({
   agents: Opt(Ids),
   components: Opt(Ids),
   engramScope: Opt(Schema.Literals(["global", "project"])),
-  cwd: Cwd,
+  // Only scopes project cleanup; without one, Gentle AI is removed from the agents alone.
+  cwd: Opt(Cwd),
 });
 export type GentleAiUninstallParams = typeof GentleAiUninstallParams.Type;
 
@@ -465,7 +466,8 @@ export const GENTLE_AI_METHODS = {
       ),
     }),
   ),
-  "review.status": query(Schema.Struct({ cwd: Cwd }), GentleAiReviewMode),
+  // Without a cwd, the global setting read from the home directory.
+  "review.status": query(Schema.Struct({ cwd: Opt(Cwd) }), GentleAiReviewMode),
   "reviewStore.survey": query(Schema.Struct({ cwd: Cwd }), GentleAiReviewStore),
   "uninstall.plan": query(
     GentleAiUninstallParams,
@@ -515,7 +517,8 @@ export const GENTLE_AI_METHODS = {
   ),
   "review.set": job(
     Schema.Struct({
-      cwd: Cwd,
+      // Needed for a clone override; the global switch works without one.
+      cwd: Opt(Cwd),
       enabled: Schema.Boolean,
       scope: Opt(Schema.Literals(["global", "clone"])),
     }),
@@ -604,7 +607,13 @@ export const GentleAiJob = Schema.Struct({
   startedAt: Schema.String,
   finishedAt: Schema.NullOr(Schema.String),
   steps: Schema.Array(
-    Schema.Struct({ id: Schema.String, status: GentleAiStepStatus, error: Opt(Schema.String) }),
+    Schema.Struct({
+      id: Schema.String,
+      // gentle-ai's name for the step, when it gives one.
+      label: Opt(Schema.String),
+      status: GentleAiStepStatus,
+      error: Opt(Schema.String),
+    }),
   ),
   // Command output, capped to the most recent lines.
   log: Schema.Array(Schema.String),

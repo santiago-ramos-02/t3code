@@ -145,16 +145,12 @@ function AgentPanel({
             )}
             <SettingsRow
               title="Remove Gentle AI"
-              description={
-                props.projects.length === 0
-                  ? "Removing needs a project on this environment. Add one first."
-                  : `Removes what Gentle AI added to ${agent.name}. Other agents keep their setup.`
-              }
+              description={`Removes what Gentle AI added to ${agent.name}. Other agents keep their setup.`}
               control={
                 <Button
                   size="sm"
                   variant="destructive-outline"
-                  disabled={props.disabled || props.projects.length === 0}
+                  disabled={props.disabled}
                   onClick={() => props.openFlow({ kind: "uninstall", agent: agent.id })}
                 >
                   Remove

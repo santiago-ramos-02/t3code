@@ -18,6 +18,8 @@ const ApiLine = Schema.Union([
   Schema.Struct({
     type: Schema.Literal("progress"),
     step: Schema.String,
+    // How gentle-ai names the step for people; absent from builds before it did.
+    label: Schema.optionalKey(Schema.String),
     status: Schema.Literals(["running", "succeeded", "failed", "skipped"]),
     error: Schema.optionalKey(Schema.String),
   }),
@@ -36,6 +38,7 @@ export type GentleAiApiEvent =
   | {
       readonly type: "progress";
       readonly step: string;
+      readonly label?: string;
       readonly status: "running" | "succeeded" | "failed" | "skipped";
       readonly error?: string;
     }

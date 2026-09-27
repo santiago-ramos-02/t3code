@@ -55,6 +55,7 @@ import { spawnAndCollect } from "../provider/providerSnapshot.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 
 const isGentleAiError = Schema.is(GentleAiError);
+const FootprintRemoved = Schema.Struct({ removed: Schema.Array(Schema.String) });
 
 export class GentleAi extends Context.Service<
   GentleAi,
@@ -134,15 +135,35 @@ export function gentleAiDrivers(agents: ReadonlyArray<string>): ReadonlyArray<Pr
   });
 }
 
-/** Tags the skills or slash commands gentle-ai installed with its package name. */
+/**
+ * Tags the skills or slash commands gentle-ai installed with its package name: the ones its
+ * footprint names, or, from an older gentle-ai, the ones the built-in list knows.
+ */
 function tagGentleAiResources<
   T extends { readonly name: string; readonly package?: string | undefined },
->(items: ReadonlyArray<T>): ReadonlyArray<T> {
+>(items: ReadonlyArray<T>, resources: ReadonlyArray<string> | undefined): ReadonlyArray<T> {
+  const owned = (name: string) =>
+    resources === undefined ? isGentleAiResource(name) : resources.includes(name);
   return items.map((item) =>
-    item.package === undefined && isGentleAiResource(item.name)
-      ? { ...item, package: GENTLE_AI_PACKAGE }
-      : item,
+    item.package === undefined && owned(item.name) ? { ...item, package: GENTLE_AI_PACKAGE } : item,
   );
+}
+
+/**
+ * The skill and command names in a footprint's removed paths: the entries of a `skills` folder,
+ * and the `.md` files of a `commands` one.
+ */
+export function gentleAiResourceNames(removed: ReadonlyArray<string>): ReadonlyArray<string> {
+  const names = new Set<string>();
+  for (const entry of removed) {
+    const parts = entry.split(/[\\/]/);
+    const name = parts.at(-1) ?? "";
+    const parent = parts.at(-2) ?? "";
+    if (parent === "skills" || parent === "skill") names.add(name);
+    else if ((parent === "commands" || parent === "command") && name.endsWith(".md"))
+      names.add(name.slice(0, -".md".length));
+  }
+  return [...names].toSorted();
 }
 
 type GentleAiProvider = Pick<ServerProvider, "driver" | "installed" | "gentleAi"> &
@@ -168,17 +189,17 @@ export function withGentleAi<P extends GentleAiProvider>(
           gentleAi: true,
           ...(provider.skills === undefined
             ? {}
-            : { skills: tagGentleAiResources(provider.skills) }),
+            : { skills: tagGentleAiResources(provider.skills, status.resources) }),
           ...(provider.slashCommands === undefined
             ? {}
-            : { slashCommands: tagGentleAiResources(provider.slashCommands) }),
+            : { slashCommands: tagGentleAiResources(provider.slashCommands, status.resources) }),
           ...(provider.workspaceSnapshots === undefined
             ? {}
             : {
                 workspaceSnapshots: provider.workspaceSnapshots.map((snapshot) => ({
                   ...snapshot,
-                  skills: tagGentleAiResources(snapshot.skills),
-                  slashCommands: tagGentleAiResources(snapshot.slashCommands),
+                  skills: tagGentleAiResources(snapshot.skills, status.resources),
+                  slashCommands: tagGentleAiResources(snapshot.slashCommands, status.resources),
                 })),
               }),
         },
@@ -285,6 +306,20 @@ export const make = Effect.gen(function* () {
           );
     if (describe !== null && api !== null) {
       const agents = api.agents.filter((agent) => agent.installed).map((agent) => agent.id);
+      // What gentle-ai installed into the agents it set up, to tag their skills and commands.
+      const footprint = describe.methods.includes("footprint")
+        ? yield* runGentleAiApi({
+            binaryPath,
+            method: "footprint",
+            params: {},
+            environment,
+            timeout: "30 seconds",
+          }).pipe(
+            Effect.flatMap(Schema.decodeUnknownEffect(FootprintRemoved)),
+            provide,
+            Effect.orElseSucceed(() => null),
+          )
+        : null;
       return {
         apiVersion: describe.apiVersion,
         sdd: describe.features?.includes("sdd") === true,
@@ -299,6 +334,7 @@ export const make = Effect.gen(function* () {
           .filter((component) => component.installed)
           .map((component) => component.id),
         syncNeeded: api.state.syncNeeded ?? api.state.pendingSync,
+        ...(footprint === null ? {} : { resources: gentleAiResourceNames(footprint.removed) }),
       } satisfies GentleAiStatus;
     }
     // Older gentle-ai: read its state file, and tell SDD from its commands.
@@ -504,6 +540,7 @@ export const make = Effect.gen(function* () {
       }
       const step = {
         id: event.step,
+        ...(event.label === undefined ? {} : { label: event.label }),
         status: event.status,
         ...(event.error === undefined ? {} : { error: event.error }),
       };

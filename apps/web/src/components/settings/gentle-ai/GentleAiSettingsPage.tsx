@@ -311,7 +311,7 @@ function GentleAiSetupSection(props: GentleAiSectionProps) {
 }
 
 /** Backups, the health check, and removing Gentle AI, each opening in place of the page. */
-function GentleAiMaintenanceSection({ disabled, projects, openFlow }: GentleAiSectionProps) {
+function GentleAiMaintenanceSection({ disabled, openFlow }: GentleAiSectionProps) {
   return (
     <SettingsSection title="Maintenance">
       <SettingsRow
@@ -336,16 +336,12 @@ function GentleAiMaintenanceSection({ disabled, projects, openFlow }: GentleAiSe
       />
       <SettingsRow
         title="Remove Gentle AI"
-        description={
-          projects.length === 0
-            ? "Removing needs a project on this environment. Add one first."
-            : "Remove it from some or all agents, or start over with a clean setup."
-        }
+        description="Remove it from some or all agents, or start over with a clean setup."
         control={
           <Button
             size="sm"
             variant="destructive-outline"
-            disabled={disabled || projects.length === 0}
+            disabled={disabled}
             onClick={() => openFlow({ kind: "uninstall" })}
           >
             Remove
