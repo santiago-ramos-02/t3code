@@ -58,7 +58,11 @@ import {
   ThreadId,
   TurnId,
   type UserInputQuestion,
+  gentleAiEnabled,
 } from "@t3tools/contracts";
+import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as Scope from "effect/Scope";
+import { claudeGentleOffOptions } from "../../gentleAi/GentleAiOff.ts";
 import {
   applyClaudePromptEffortPrefix,
   getModelSelectionBooleanOptionValue,
@@ -90,7 +94,11 @@ import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import { resolveClaudeSdkExecutablePath } from "../Drivers/ClaudeExecutable.ts";
-import { claudeSignedOutMessage, makeClaudeEnvironment } from "../Drivers/ClaudeHome.ts";
+import {
+  claudeSignedOutMessage,
+  makeClaudeEnvironment,
+  resolveClaudeHomePath,
+} from "../Drivers/ClaudeHome.ts";
 import { planClaudeSkillDispatch } from "../Drivers/ClaudeSkillDispatch.ts";
 import { discoverClaudeSkills } from "../Drivers/ClaudeSkills.ts";
 import { buildRuntimeInstructions } from "../RuntimeInstructions.ts";
@@ -413,6 +421,8 @@ interface ClaudeSessionContext {
   readonly query: ClaudeQueryRuntime;
   streamFiber: Fiber.Fiber<void, Error> | undefined;
   readonly startedAt: string;
+  // Holds what a session with Gentle AI off loads in place of the user's settings.
+  readonly gentleOffScope: Scope.Closeable | undefined;
   readonly basePermissionMode: PermissionMode | undefined;
   currentApiModelId: string | undefined;
   /** Effective effort for the session's turns; subagents without an explicit
@@ -2077,6 +2087,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
   const serverConfig = yield* ServerConfig;
   const crypto = yield* Crypto.Crypto;
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+  const hostPlatform = yield* HostProcessPlatform;
   const claudeEnvironment = yield* makeClaudeEnvironment(claudeSettings, options?.environment).pipe(
     Effect.provideService(Path.Path, path),
   );
@@ -4267,6 +4278,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     });
 
     context.stopped = true;
+    if (context.gentleOffScope) yield* Scope.close(context.gentleOffScope, Exit.void);
 
     for (const taskId of Array.from(context.liveTaskIds)) {
       if (!context.liveTaskIds.delete(taskId)) {
@@ -4890,6 +4902,35 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         extraArgs["thinking-display"] = "summarized";
       }
       const mcpSession = McpProviderSession.readMcpProviderSession(input.threadId);
+      // With Gentle AI off, Claude loads the user's settings without gentle-ai's footprint in
+      // place of the user settings source; its config directory, sign-in, and history stay put.
+      const gentleOffScope = gentleAiEnabled(input.modelSelection?.options)
+        ? undefined
+        : yield* Scope.make();
+      const gentleOff = gentleOffScope
+        ? yield* Effect.gen(function* () {
+            const claudeHome = yield* resolveClaudeHomePath(claudeSettings, claudeEnvironment);
+            return yield* claudeGentleOffOptions({
+              claudeHome,
+              environment: claudeEnvironment,
+              platform: hostPlatform,
+              cwd: input.cwd,
+            });
+          }).pipe(
+            Effect.provideService(FileSystem.FileSystem, fileSystem),
+            Effect.provideService(Path.Path, path),
+            Effect.provideService(Scope.Scope, gentleOffScope),
+            Effect.mapError(
+              (cause) =>
+                new ProviderAdapterProcessError({
+                  provider: PROVIDER,
+                  threadId,
+                  detail: "Claude could not start with Gentle AI off.",
+                  cause,
+                }),
+            ),
+          )
+        : undefined;
       // The attachments dir grant lets the agent Read/copy pasted images at
       // the paths ProviderService injects into the turn text, without an
       // approval prompt. It is a leaf directory holding only attachment
@@ -4906,9 +4947,22 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           type: "preset",
           preset: "claude_code",
           // Model and effort can change after this session-level prompt is set.
-          append: buildRuntimeInstructions({ harness: "Claude Code" }),
+          append: gentleOff?.instructions
+            ? `${buildRuntimeInstructions({ harness: "Claude Code" })}
+
+# User instructions
+
+${gentleOff.instructions}`
+            : buildRuntimeInstructions({ harness: "Claude Code" }),
         },
-        settingSources: [...CLAUDE_SETTING_SOURCES],
+        settingSources: gentleOff ? ["project", "local"] : [...CLAUDE_SETTING_SOURCES],
+        ...(gentleOff && Object.keys(gentleOff.agents).length > 0
+          ? { agents: gentleOff.agents }
+          : {}),
+        ...(gentleOff?.pluginPath
+          ? { plugins: [{ type: "local" as const, path: gentleOff.pluginPath }] }
+          : {}),
+        ...(gentleOff ? { strictMcpConfig: true } : {}),
         // `ultracode` is a Claude Code setting, not an API effort level. It is
         // normalized to `xhigh` above and paired with `settings.ultracode`.
         ...(effectiveEffort
@@ -4928,7 +4982,11 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         ...(permissionMode === "bypassPermissions"
           ? { allowDangerouslySkipPermissions: true }
           : {}),
-        ...(Object.keys(settings).length > 0 ? { settings } : {}),
+        ...(gentleOff
+          ? { settings: { ...gentleOff.settings, ...settings } }
+          : Object.keys(settings).length > 0
+            ? { settings }
+            : {}),
         ...(existingResumeSessionId ? { resume: existingResumeSessionId } : {}),
         ...(newSessionId ? { sessionId: newSessionId } : {}),
         includePartialMessages: true,
@@ -4938,16 +4996,21 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         env: McpProviderSession.withAgentDeviceEnvironment(claudeEnvironment, mcpSession),
         additionalDirectories,
         ...(Object.keys(extraArgs).length > 0 ? { extraArgs } : {}),
-        ...(mcpSession
+        ...(mcpSession || gentleOff
           ? {
               mcpServers: {
-                "t3-code": {
-                  type: "http",
-                  url: mcpSession.endpoint,
-                  headers: {
-                    Authorization: mcpSession.authorizationHeader,
-                  },
-                },
+                ...gentleOff?.mcpServers,
+                ...(mcpSession
+                  ? {
+                      "t3-code": {
+                        type: "http" as const,
+                        url: mcpSession.endpoint,
+                        headers: {
+                          Authorization: mcpSession.authorizationHeader,
+                        },
+                      },
+                    }
+                  : {}),
               },
             }
           : {}),
@@ -5025,6 +5088,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         query: queryRuntime,
         streamFiber: undefined,
         startedAt,
+        gentleOffScope,
         basePermissionMode: permissionMode,
         currentApiModelId: apiModelId,
         currentEffort: effectiveEffort ?? undefined,

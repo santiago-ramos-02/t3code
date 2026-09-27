@@ -15,6 +15,7 @@ import {
   type RuntimeTaskStatus,
   type ThreadId,
   type TurnCompletedPayload,
+  gentleAiEnabled,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Crypto from "effect/Crypto";
@@ -126,7 +127,13 @@ function mapAntigravityError(threadId: ThreadId, method: string, cause: EffectAc
 export interface AntigravityAdapterOptions {
   readonly instanceId: ProviderInstanceId;
   readonly makeRuntime: (
-    input: Omit<AntigravityAcpRuntimeInput, "spawn" | "childProcessSpawner" | "onAuthorizationUrl">,
+    input: Omit<
+      AntigravityAcpRuntimeInput,
+      "spawn" | "childProcessSpawner" | "onAuthorizationUrl"
+    > & {
+      // The thread runs without Gentle AI's skills.
+      readonly gentleAiOff?: boolean;
+    },
   ) => Effect.Effect<Runtime, EffectAcpErrors.AcpError | ProviderSetupError, Scope.Scope>;
   readonly withProcess: AntigravityAuth["withProcess"];
   readonly onSessionStarted?: (
@@ -791,6 +798,7 @@ export const makeAntigravityAdapter = Effect.fn("makeAntigravityAdapter")(functi
               // a leaf directory holding only uploads.
               const runtime = yield* options.makeRuntime({
                 cwd,
+                ...(gentleAiEnabled(input.modelSelection?.options) ? {} : { gentleAiOff: true }),
                 clientInfo: { name: "t3-code", version: "0.0.0" },
                 clientFileSystem: true,
                 ...(mcp?.agentDeviceEnvironment

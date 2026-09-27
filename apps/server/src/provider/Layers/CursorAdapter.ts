@@ -20,7 +20,10 @@ import {
   type RuntimeMode,
   type ThreadId,
   TurnId,
+  gentleAiEnabled,
 } from "@t3tools/contracts";
+import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import { cursorGentleOffEnvironment } from "../../gentleAi/GentleAiOff.ts";
 import * as DateTime from "effect/DateTime";
 import * as Crypto from "effect/Crypto";
 import * as Deferred from "effect/Deferred";
@@ -331,6 +334,7 @@ export function makeCursorAdapter(
     const boundInstanceId = options?.instanceId ?? ProviderInstanceId.make("cursor");
     const fileSystem = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
+    const hostPlatform = yield* HostProcessPlatform;
     const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     const serverConfig = yield* Effect.service(ServerConfig);
     const crypto = yield* Crypto.Crypto;
@@ -545,16 +549,36 @@ export function makeCursorAdapter(
             : cursorSettings;
 
           const mcpSession = McpProviderSession.readMcpProviderSession(input.threadId);
+          const baseEnvironment =
+            options?.environment || mcpSession?.agentDeviceEnvironment
+              ? McpProviderSession.withAgentDeviceEnvironment(
+                  options?.environment ?? process.env,
+                  mcpSession,
+                )
+              : undefined;
+          // With Gentle AI off, the agent runs with a filtered mirror of the home as HOME.
+          const environment = gentleAiEnabled(input.modelSelection?.options)
+            ? baseEnvironment
+            : yield* cursorGentleOffEnvironment({
+                environment: baseEnvironment ?? process.env,
+                platform: hostPlatform,
+              }).pipe(
+                Effect.provideService(FileSystem.FileSystem, fileSystem),
+                Effect.provideService(Path.Path, path),
+                Effect.provideService(Scope.Scope, sessionScope),
+                Effect.mapError(
+                  (cause) =>
+                    new ProviderAdapterProcessError({
+                      provider: PROVIDER,
+                      threadId: input.threadId,
+                      detail: cause.detail,
+                      cause,
+                    }),
+                ),
+              );
           const acp = yield* makeCursorAcpRuntime({
             cursorSettings: effectiveCursorSettings,
-            ...(options?.environment || mcpSession?.agentDeviceEnvironment
-              ? {
-                  environment: McpProviderSession.withAgentDeviceEnvironment(
-                    options?.environment ?? process.env,
-                    mcpSession,
-                  ),
-                }
-              : {}),
+            ...(environment ? { environment } : {}),
             childProcessSpawner,
             cwd,
             runtimeMode: input.runtimeMode,
