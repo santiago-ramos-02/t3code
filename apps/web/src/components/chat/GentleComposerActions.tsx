@@ -1,9 +1,12 @@
 import {
+  GENTLE_SDD_DEFAULTS,
   GENTLE_SDD_NEW_CHANGE_PROMPT,
   gentleProfileModelChange,
   gentleProfileModelLabel,
   gentleSddChangeStep,
+  gentleSddSetupNotice,
   gentleSddTaskSummary,
+  gentleSddUnlistedReason,
   type GentleProfileOption,
 } from "@t3tools/client-runtime/piGentleComposer";
 import {
@@ -15,10 +18,17 @@ import type {
   ModelSelection,
   PiGentleComposerState,
   PiGentleSddChange,
+  PiGentleSddPreferences,
   ProviderInstanceId,
   ServerProviderModel,
 } from "@t3tools/contracts";
-import { ChevronDownIcon, ClipboardListIcon, PlusIcon, RefreshCwIcon } from "lucide-react";
+import {
+  ChevronDownIcon,
+  ClipboardListIcon,
+  PlusIcon,
+  RefreshCwIcon,
+  SlidersHorizontalIcon,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { serverEnvironment } from "../../state/server";
@@ -49,11 +59,12 @@ import { Spinner } from "../ui/spinner";
 import { toastManager } from "../ui/toast";
 import { ComposerBanner } from "./ComposerBanner";
 import { useComposerMenuProps } from "./composerEventScope";
+import { GentleSddSetupDialog } from "./GentleSddSetupDialog";
 
 /**
  * Gentle AI entry point in a Pi thread's composer: the per-thread Enable choice, the Gentle
- * profile, project SDD setup, and the project's SDD changes. Applying a profile moves the
- * thread onto its orchestrator model; each ready change hands its phase to a new thread.
+ * profile, project SDD setup and preferences, and the project's SDD changes. Applying a profile
+ * moves the thread onto its orchestrator model; each ready change hands its phase to a new thread.
  */
 export function GentleComposerActions({
   environmentId,
@@ -103,7 +114,9 @@ export function GentleComposerActions({
     readonly list: ReadonlyArray<PiGentleSddChange>;
     readonly error: string | null;
   } | null>(null);
+  const [setupOpen, setSetupOpen] = useState(false);
   const [settingUp, setSettingUp] = useState(false);
+  const [setupError, setSetupError] = useState<string | null>(null);
   const floatingLayer = useComposerMenuProps();
   const requestKey = `${environmentId}:${instanceId}:${cwd}:${refresh}`;
 
@@ -153,6 +166,24 @@ export function GentleComposerActions({
 
   if (loaded?.available !== true && error === null) return null;
   const needsSetup = loaded?.projectInitNeeded === true;
+  const unlistedReason = loaded?.sdd ? gentleSddUnlistedReason(loaded.sdd.artifactStore) : null;
+  const setUpSdd = (preferences: PiGentleSddPreferences) => {
+    setSettingUp(true);
+    setSetupError(null);
+    void initialize({ environmentId, input: { instanceId, cwd, preferences } }).then((result) => {
+      setSettingUp(false);
+      if (result._tag === "Success") {
+        setLoaded(result.value);
+        setError(null);
+        setSetupOpen(false);
+        const notice = gentleSddSetupNotice(preferences, result.value.sdd);
+        if (notice) toastManager.add({ type: "warning", title: "SDD set up", description: notice });
+      } else if (!isAtomCommandInterrupted(result)) {
+        const failure = squashAtomCommandFailure(result);
+        setSetupError(failure instanceof Error ? failure.message : "Could not set up SDD.");
+      }
+    });
+  };
   const startThread = (prompt: string) => {
     setChangesOpen(false);
     onStartSddThread(prompt);
@@ -256,32 +287,6 @@ export function GentleComposerActions({
                 <MenuSeparator />
               </>
             ) : null}
-            {loaded?.available && needsSetup ? (
-              <MenuItem
-                disabled={settingUp}
-                onClick={() => {
-                  setSettingUp(true);
-                  void initialize({
-                    environmentId,
-                    input: { instanceId, cwd, command: "setup" },
-                  }).then((result) => {
-                    if (result._tag === "Success") {
-                      setLoaded(result.value);
-                      setError(null);
-                    } else if (!isAtomCommandInterrupted(result)) {
-                      const failure = squashAtomCommandFailure(result);
-                      setError(
-                        failure instanceof Error ? failure.message : "Could not set up SDD.",
-                      );
-                      setErrorOpen(true);
-                    }
-                    setSettingUp(false);
-                  });
-                }}
-              >
-                <ClipboardListIcon aria-hidden /> {settingUp ? "Setting up SDD…" : "Set up SDD"}
-              </MenuItem>
-            ) : null}
             {loaded?.available && !needsSetup ? (
               <MenuItem
                 onClick={() => {
@@ -290,6 +295,17 @@ export function GentleComposerActions({
                 }}
               >
                 <ClipboardListIcon aria-hidden /> SDD changes
+              </MenuItem>
+            ) : null}
+            {loaded?.available ? (
+              <MenuItem
+                onClick={() => {
+                  setSetupError(null);
+                  setSetupOpen(true);
+                }}
+              >
+                <SlidersHorizontalIcon aria-hidden />
+                {needsSetup ? "Set up SDD" : "SDD preferences"}
               </MenuItem>
             ) : null}
             {error ? (
@@ -329,7 +345,9 @@ export function GentleComposerActions({
                 ) : changes.error !== null ? (
                   <p className="text-sm text-destructive">{changes.error}</p>
                 ) : changes.list.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No active changes.</p>
+                  <p className="text-sm text-muted-foreground">
+                    {unlistedReason ?? "No active changes."}
+                  </p>
                 ) : (
                   <ul className="divide-y divide-border/60">
                     {changes.list.map((change) => (
@@ -351,6 +369,15 @@ export function GentleComposerActions({
             </DialogPanel>
           </DialogPopup>
         </Dialog>
+        <GentleSddSetupDialog
+          open={setupOpen}
+          setUp={!needsSetup}
+          initial={loaded?.sdd ?? GENTLE_SDD_DEFAULTS}
+          pending={settingUp}
+          error={setupError}
+          onOpenChange={setSetupOpen}
+          onSubmit={setUpSdd}
+        />
       </div>
     </ComposerBanner.Root>
   );

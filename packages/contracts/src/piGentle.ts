@@ -79,7 +79,10 @@ export type PiGentleSddChange = typeof PiGentleSddChange.Type;
 
 export const PiGentleComposerState = Schema.Struct({
   available: Schema.Boolean,
+  // True until the project has saved SDD choices and the project context their store needs.
   projectInitNeeded: Schema.Boolean,
+  // The project's saved SDD choices; absent until SDD is set up.
+  sdd: Schema.optionalKey(PiGentleSddPreferences),
   // Profiles a thread can apply, with the orchestrator entry that moves the thread's model.
   profiles: Schema.optionalKey(
     Schema.Array(
@@ -110,7 +113,8 @@ export const PiGentleComposerReadInput = Schema.Struct({
 export const PiGentleInitializeInput = Schema.Struct({
   instanceId: ProviderInstanceId,
   cwd: TrimmedNonEmptyString,
-  command: Schema.optionalKey(Schema.Literals(["setup", "review"])),
+  // The choices the user confirmed for setup; without them the saved choices or defaults apply.
+  preferences: Schema.optionalKey(PiGentleSddPreferences),
 });
 
 export const PiGentleState = Schema.Struct({

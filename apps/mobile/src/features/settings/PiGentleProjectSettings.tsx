@@ -9,26 +9,21 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
+import { GENTLE_SDD_DEFAULTS } from "@t3tools/client-runtime/piGentleComposer";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, View } from "react-native";
 
 import { AppText as Text, AppTextInput } from "../../components/AppText";
-import { ControlPillMenu } from "../../components/ControlPill";
 import { serverEnvironment } from "../../state/server";
 import { environmentSession } from "../../state/session";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { SettingsSection } from "./components/SettingsSection";
 import { canMaintainEnvironment } from "./environment-maintenance";
+import { ChoiceMenu, GentleSddChoices } from "./GentleSddChoices";
 
 // Choice value for "no checkout pin": the repository declaration or the active profile applies.
 const PROJECT_DEFAULT_PROFILE = "__default__";
-const DEFAULT_SDD: PiGentleSddPreferences = {
-  executionMode: "auto",
-  artifactStore: "openspec",
-  chainedPrStrategy: "ask-on-risk",
-  reviewBudgetLines: 400,
-};
 
 type ProjectAction =
   | { readonly type: "create" | "pin"; readonly name: string }
@@ -36,45 +31,6 @@ type ProjectAction =
   | { readonly type: "clearPin" }
   | { readonly type: "setPersona"; readonly mode: "gentleman" | "neutral" | null }
   | { readonly type: "saveSdd"; readonly preferences: PiGentleSddPreferences };
-
-function ChoiceMenu<Value extends string>(props: {
-  readonly label: string;
-  readonly value: Value;
-  readonly choices: ReadonlyArray<{ value: Value; label: string }>;
-  readonly disabled: boolean;
-  readonly onChange: (value: Value) => void;
-}) {
-  const selected = props.choices.find((choice) => choice.value === props.value);
-  return (
-    <ControlPillMenu
-      accessible
-      accessibilityRole="button"
-      accessibilityLabel={props.label}
-      title={props.label}
-      actions={props.choices.map((choice) => ({
-        id: choice.value,
-        title: choice.label,
-        state: choice.value === props.value ? ("on" as const) : ("off" as const),
-      }))}
-      onPressAction={({ nativeEvent }) => {
-        const choice = props.choices.find((entry) => entry.value === nativeEvent.event);
-        if (choice) props.onChange(choice.value);
-      }}
-    >
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={`${props.label}: ${selected?.label ?? props.value}`}
-        disabled={props.disabled}
-        className="min-h-11 flex-row items-center justify-between gap-3 border-b border-border-subtle py-2 disabled:opacity-40"
-      >
-        <Text className="text-sm text-foreground-muted">{props.label}</Text>
-        <Text className="min-w-0 flex-1 text-right text-sm text-foreground" numberOfLines={2}>
-          {selected?.label ?? (props.value || "None")}
-        </Text>
-      </Pressable>
-    </ControlPillMenu>
-  );
-}
 
 export function PiGentleProjectSettings(props: {
   readonly environmentId: EnvironmentId;
@@ -118,7 +74,6 @@ function PiGentleInstanceSettings(props: {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [newName, setNewName] = useState("");
-  const [budgetDraft, setBudgetDraft] = useState<string | null>(null);
 
   useEffect(() => {
     const requestKey = JSON.stringify([
@@ -149,7 +104,7 @@ function PiGentleInstanceSettings(props: {
   if (state?.available === false) return null;
 
   // Every choice saves as soon as it changes, like the web Pi settings.
-  const sdd = state?.project?.sdd ?? DEFAULT_SDD;
+  const sdd = state?.project?.sdd ?? GENTLE_SDD_DEFAULTS;
   const localPin = state?.project?.pinSource === "local" ? state.project.pinned : null;
   const editable = canEdit && !pending;
   const saveSdd = (patch: Partial<PiGentleSddPreferences>) =>
@@ -292,57 +247,7 @@ function PiGentleInstanceSettings(props: {
                 Saved in .pi/gentle-ai/sdd-preflight.json; commit it to share them with your team.
               </Text>
             </View>
-            <ChoiceMenu
-              label="Execution mode"
-              value={sdd.executionMode}
-              choices={[
-                { value: "auto", label: "Automatic" },
-                { value: "interactive", label: "Confirm each phase" },
-              ]}
-              disabled={!editable}
-              onChange={(executionMode) => saveSdd({ executionMode })}
-            />
-            <ChoiceMenu
-              label="Artifact store"
-              value={sdd.artifactStore}
-              choices={[
-                { value: "openspec", label: "OpenSpec project files" },
-                { value: "engram", label: "Engram memory" },
-                { value: "hybrid", label: "Project files + Engram" },
-                { value: "none", label: "No saved artifacts" },
-              ]}
-              disabled={!editable}
-              onChange={(artifactStore) => saveSdd({ artifactStore })}
-            />
-            <ChoiceMenu
-              label="Delivery strategy"
-              value={sdd.chainedPrStrategy}
-              choices={[
-                { value: "ask-on-risk", label: "Ask when over budget" },
-                { value: "auto-chain", label: "Chain large changes" },
-                { value: "single-pr", label: "One pull request" },
-              ]}
-              disabled={!editable}
-              onChange={(chainedPrStrategy) => saveSdd({ chainedPrStrategy })}
-            />
-            <View className="flex-row items-center gap-3">
-              <Text className="flex-1 text-sm text-foreground-muted">Review budget (lines)</Text>
-              <AppTextInput
-                accessibilityLabel="Review budget in lines"
-                keyboardType="number-pad"
-                value={budgetDraft ?? String(sdd.reviewBudgetLines)}
-                editable={editable}
-                onChangeText={setBudgetDraft}
-                onEndEditing={() => {
-                  const lines = Number(budgetDraft);
-                  setBudgetDraft(null);
-                  if (Number.isInteger(lines) && lines > 0 && lines !== sdd.reviewBudgetLines) {
-                    saveSdd({ reviewBudgetLines: lines });
-                  }
-                }}
-                className="min-h-11 w-24 rounded-xl border-continuous bg-card px-3 text-base text-foreground"
-              />
-            </View>
+            <GentleSddChoices value={sdd} disabled={!editable} onChange={saveSdd} />
             {error ? <Text className="text-sm text-danger-foreground">{error}</Text> : null}
           </>
         )}

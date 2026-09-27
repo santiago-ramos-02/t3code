@@ -46,6 +46,7 @@ import { DevicePreviewRouteScreen } from "./features/devices/DevicePreviewRouteS
 import { GitBranchesSheet } from "./features/threads/git/GitBranchesSheet";
 import { GitCommitSheet } from "./features/threads/git/GitCommitSheet";
 import { GitConfirmSheet } from "./features/threads/git/GitConfirmSheet";
+import { GentleSddSetupSheet } from "./features/threads/GentleSddSetupSheet";
 import { GitOverviewSheet } from "./features/threads/git/GitOverviewSheet";
 import { ThreadRouteScreen } from "./features/threads/ThreadRouteScreen";
 import { ConnectionsRouteScreen } from "./features/connection/ConnectionsRouteScreen";
@@ -724,6 +725,16 @@ const RootStackConfig = createNativeStackNavigator({
       options: {
         ...FORM_SHEET_PRESENTATION_OPTIONS,
         sheetAllowedDetents: [0.45, 0.7],
+        sheetGrabberVisible: true,
+      },
+    }),
+    // No `linking:` path: its params include an absolute project folder, and the sheet is one
+    // tap away from the thread's Gentle AI menu.
+    GentleSddSetup: createNativeStackScreen({
+      screen: GentleSddSetupSheet,
+      options: {
+        ...FORM_SHEET_PRESENTATION_OPTIONS,
+        sheetAllowedDetents: [0.7, 0.92],
         sheetGrabberVisible: true,
       },
     }),

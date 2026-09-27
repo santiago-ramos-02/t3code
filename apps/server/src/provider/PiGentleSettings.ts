@@ -395,6 +395,20 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
       );
     });
 
+  /** Saves a project's SDD choices where Gentle AI's preflight reads them. */
+  const writeSdd = (cwd: string, preferences: GentleSddPreferences) =>
+    Effect.gen(function* () {
+      const decoded = yield* decodePreferences(preferences);
+      const paths = yield* projectPaths(cwd);
+      const engramAvailable = (yield* readSdd(paths.sdd))?.engramAvailable ?? false;
+      // Gentle AI rewrites this file on every SDD preflight. Matching its exact serialization
+      // keeps a committed copy (the team's shared SDD choices) free of formatting churn.
+      yield* writeAtomicText(
+        paths.sdd,
+        yield* encodeGentleJson({ ...decoded, engramAvailable, prompted: false }),
+      );
+    });
+
   const sddBinary = Effect.gen(function* () {
     if (
       environment.GENTLE_PI_GENTLE_AI_DEV_BINARY !== undefined ||
@@ -549,9 +563,14 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
         return yield* new PiGentleSettingsError({ detail: "Choose an absolute project folder." });
       const persistedSdd = yield* readSdd((yield* projectPaths(cwd)).sdd);
       const artifactStore = persistedSdd?.preferences.artifactStore ?? "openspec";
+      // Setup is how the user first chooses SDD preferences, so a project without saved choices
+      // still needs it. File-backed stores also need the OpenSpec project context it writes.
       const projectInitNeeded =
-        (artifactStore === "openspec" || artifactStore === "hybrid") &&
-        !(yield* fileSystem.exists(path.join(cwd, "openspec", "config.yaml")));
+        persistedSdd === null ||
+        ((artifactStore === "openspec" || artifactStore === "hybrid") &&
+          !(yield* fileSystem.exists(path.join(cwd, "openspec", "config.yaml"))));
+      // Engram and artifact-free projects have no change folders to list.
+      const listable = artifactStore === "openspec" || artifactStore === "hybrid";
       // A broken profiles.json hides only the profile list; SDD actions stay usable.
       const profiles = yield* loadProfiles.pipe(
         Effect.flatMap((store) =>
@@ -575,9 +594,10 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
       return {
         available: true,
         projectInitNeeded,
+        ...(persistedSdd === null ? {} : { sdd: persistedSdd.preferences }),
         ...profiles,
         ...(options?.includeChanges
-          ? yield* (projectInitNeeded ? Effect.succeed([]) : readSddChanges(cwd)).pipe(
+          ? yield* (projectInitNeeded || !listable ? Effect.succeed([]) : readSddChanges(cwd)).pipe(
               Effect.map((changes) => ({ changes })),
               // Listing failures stay in the payload so the rest of the Gentle menu still works.
               Effect.catch((error) =>
@@ -588,31 +608,24 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
       } satisfies PiGentleComposerState;
     }).pipe(Effect.mapError(toGentleError));
 
-  const initializeSdd = (cwd: string, command: "setup" | "review" = "setup") =>
+  /**
+   * Saves the user's SDD choices, then runs Gentle AI's own project setup. Setup loads the same
+   * Pi extensions a Gentle thread does, so Gentle AI records whether Engram is available and
+   * keeps a store Pi cannot use from being saved.
+   */
+  const initializeSdd = (cwd: string, preferences?: GentleSddPreferences) =>
     Effect.gen(function* () {
       if (!path.isAbsolute(cwd))
         return yield* new PiGentleSettingsError({ detail: "Choose an absolute project folder." });
-      if (command === "review")
-        return yield* new PiGentleSettingsError({
-          detail: "Edit SDD preferences in Pi provider settings, then run setup again.",
-        });
       if (!(yield* installed))
         return yield* new PiGentleSettingsError({ detail: "Gentle AI is not installed for Pi." });
-      const packageHome = path.join(agentHome, "npm", "node_modules", "gentle-pi");
-      const args = [
-        "--no-extensions",
-        "--extension",
-        packageHome,
-        "--no-session",
-        "-p",
-        "/gentle-sdd-init",
-      ];
+      if (preferences !== undefined) yield* writeSdd(cwd, preferences);
       const spawnEnv = {
         ...environment,
         PI_CODING_AGENT_DIR: agentHome,
         GENTLE_PI_CONFIG_HOME: configHome,
       };
-      yield* runPi(args, {
+      yield* runPi(["--no-session", "-p", "/gentle-sdd-init"], {
         cwd,
         env: spawnEnv,
         timeout: "60 seconds",
@@ -788,15 +801,7 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
           yield* writeAtomic(personaPath, { mode: command.mode });
         }
       } else {
-        const preferences = yield* decodePreferences(command.preferences);
-        const paths = yield* projectPaths(command.cwd);
-        const engramAvailable = (yield* readSdd(paths.sdd))?.engramAvailable ?? false;
-        // Gentle AI rewrites this file on every SDD preflight. Matching its exact serialization
-        // keeps a committed copy (the team's shared SDD choices) free of formatting churn.
-        yield* writeAtomicText(
-          paths.sdd,
-          yield* encodeGentleJson({ ...preferences, engramAvailable, prompted: false }),
-        );
+        yield* writeSdd(command.cwd, command.preferences);
       }
       return yield* read(command.cwd);
     }).pipe(Effect.mapError(toGentleError));

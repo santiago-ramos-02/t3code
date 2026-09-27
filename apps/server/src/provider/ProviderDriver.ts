@@ -89,7 +89,7 @@ export interface ProviderInstance {
     ) => Effect.Effect<PiGentleState, import("./PiGentleSettings.ts").PiGentleSettingsError>;
     readonly initializeSdd: (
       cwd: string,
-      command?: "setup" | "review",
+      preferences?: import("./PiGentleSettings.ts").GentleSddPreferences,
     ) => Effect.Effect<void, import("./PiGentleSettings.ts").PiGentleSettingsError>;
   };
   readonly snapshot: ServerProviderShape;

@@ -4,6 +4,7 @@ import {
   GENTLE_SDD_NEW_CHANGE_PROMPT,
   gentleSddChangeStep,
   gentleSddTaskSummary,
+  gentleSddUnlistedReason,
 } from "@t3tools/client-runtime/piGentleComposer";
 import {
   isAtomCommandInterrupted,
@@ -356,16 +357,21 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     reportFailure: false,
     reportDefect: false,
   });
-  const initializeGentleSdd = useAtomCommand(serverEnvironment.initializePiGentleSdd, {
-    reportFailure: false,
-    reportDefect: false,
-  });
   const [gentleLoaded, setGentleLoaded] = useState<{
     key: string;
     value: PiGentleComposerState;
   } | null>(null);
   const [gentleError, setGentleError] = useState<{ key: string; message: string } | null>(null);
   const [gentleRefresh, setGentleRefresh] = useState(0);
+  // SDD setup runs in its own sheet; returning from it re-reads the project's SDD state.
+  const gentleSetupPresentedRef = useRef(false);
+  useFocusEffect(
+    useCallback(() => {
+      if (!gentleSetupPresentedRef.current) return;
+      gentleSetupPresentedRef.current = false;
+      setGentleRefresh((value) => value + 1);
+    }, []),
+  );
   useEffect(() => {
     if (!isPiThread || props.connectionState !== "connected" || props.projectCwd === null) return;
     let current = true;
@@ -411,6 +417,9 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   const canChangeGentle = props.selectedThread.latestTurn === null;
   const gentleChanges = gentleState?.changes ?? [];
   const gentleChangesError = gentleState?.changesError;
+  const gentleUnlistedReason = gentleState?.sdd
+    ? gentleSddUnlistedReason(gentleState.sdd.artifactStore)
+    : null;
   const showGentleControls =
     isPiThread &&
     props.connectionState === "connected" &&
@@ -459,9 +468,6 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
           attributes: { disabled: true },
         },
     ...(gentleProfiles.action === null ? [] : [gentleProfiles.action]),
-    ...(gentleAvailable && gentleState.projectInitNeeded
-      ? [{ id: "setup", title: "Set up SDD", image: "doc.text" }]
-      : []),
     ...(gentleAvailable && !gentleState.projectInitNeeded
       ? [
           {
@@ -493,9 +499,27 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                       attributes: { disabled: true },
                     },
                   ]
-                : []),
+                : gentleChanges.length === 0 && gentleUnlistedReason !== null
+                  ? [
+                      {
+                        id: "sdd-unlisted",
+                        title: "Changes not listed",
+                        subtitle: gentleUnlistedReason,
+                        attributes: { disabled: true },
+                      },
+                    ]
+                  : []),
               { id: "sdd-new", title: "New change", image: "plus" },
             ],
+          },
+        ]
+      : []),
+    ...(gentleAvailable
+      ? [
+          {
+            id: "setup",
+            title: gentleState.projectInitNeeded ? "Set up SDD" : "SDD preferences",
+            image: "slider.horizontal.3",
           },
         ]
       : []),
@@ -873,24 +897,11 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                   });
                 }
                 if (nativeEvent.event === "setup" && props.projectCwd) {
-                  void initializeGentleSdd({
-                    environmentId: props.environmentId,
-                    input: {
-                      instanceId: currentModelSelection.instanceId,
-                      cwd: props.projectCwd,
-                      command: "setup",
-                    },
-                  }).then((result) => {
-                    if (result._tag === "Success") {
-                      // Re-read so the menu also gets the (now listable) SDD changes.
-                      setGentleRefresh((value) => value + 1);
-                    } else if (!isAtomCommandInterrupted(result)) {
-                      const failure = squashAtomCommandFailure(result);
-                      Alert.alert(
-                        "Could not set up SDD",
-                        failure instanceof Error ? failure.message : "Try again.",
-                      );
-                    }
+                  gentleSetupPresentedRef.current = true;
+                  navigation.navigate("GentleSddSetup", {
+                    environmentId: String(props.environmentId),
+                    instanceId: String(currentModelSelection.instanceId),
+                    cwd: props.projectCwd,
                   });
                 }
                 if (nativeEvent.event === "sdd-new") {

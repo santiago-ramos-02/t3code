@@ -2,6 +2,7 @@ import type {
   ModelSelection,
   PiGentleComposerState,
   PiGentleSddChange,
+  PiGentleSddPreferences,
   ServerProviderModel,
 } from "@t3tools/contracts";
 
@@ -61,12 +62,75 @@ export function gentleProfileModelLabel(
   return change.kind === "unavailable" ? `${change.model} unavailable` : "Keeps model";
 }
 
+/** Gentle AI's own preflight defaults, suggested until a project saves its choices. */
+export const GENTLE_SDD_DEFAULTS: PiGentleSddPreferences = {
+  executionMode: "auto",
+  artifactStore: "openspec",
+  chainedPrStrategy: "ask-on-risk",
+  reviewBudgetLines: 400,
+};
+
+type SddChoice = Exclude<keyof PiGentleSddPreferences, "reviewBudgetLines">;
+
+/** How every client names the SDD choices. */
+export const GENTLE_SDD_LABELS = {
+  executionMode: { auto: "Automatic", interactive: "Confirm each phase" },
+  artifactStore: {
+    openspec: "OpenSpec project files",
+    engram: "Engram memory",
+    hybrid: "Project files + Engram",
+    none: "No saved artifacts",
+  },
+  chainedPrStrategy: {
+    "ask-on-risk": "Ask when over budget",
+    "auto-chain": "Chain large changes",
+    "single-pr": "One pull request",
+  },
+} as const satisfies { [K in SddChoice]: Record<PiGentleSddPreferences[K], string> };
+
+/** One line naming every SDD choice, for confirmations that do not show each control. */
+export function gentleSddSummary(preferences: PiGentleSddPreferences): string {
+  return [
+    GENTLE_SDD_LABELS.executionMode[preferences.executionMode],
+    GENTLE_SDD_LABELS.artifactStore[preferences.artifactStore],
+    GENTLE_SDD_LABELS.chainedPrStrategy[preferences.chainedPrStrategy],
+    `${preferences.reviewBudgetLines}-line review budget`,
+  ].join(" · ");
+}
+
+/**
+ * Setup saves the store Gentle AI will actually use. Without Engram in Pi, Gentle AI keeps
+ * artifacts in OpenSpec files instead; this explains that replacement, or returns null.
+ */
+export function gentleSddSetupNotice(
+  requested: PiGentleSddPreferences,
+  saved: PiGentleSddPreferences | undefined,
+): string | null {
+  if (saved === undefined || saved.artifactStore === requested.artifactStore) return null;
+  return `Engram memory is not available to Pi in this project, so SDD uses ${GENTLE_SDD_LABELS.artifactStore[saved.artifactStore]}.`;
+}
+
+/** Why a project's changes cannot be listed from its artifact store, or null when they can. */
+export function gentleSddUnlistedReason(
+  store: PiGentleSddPreferences["artifactStore"],
+): string | null {
+  if (store === "engram") {
+    return "Changes saved in Engram memory are not listed here. Ask Gentle AI about them in a thread.";
+  }
+  return store === "none"
+    ? "This project does not save SDD artifacts, so no changes are listed."
+    : null;
+}
+
 // Gentle AI runs SDD phases back to back in auto mode. Planning stops after tasks so only the
 // user starts apply, from their own message or the change's Implement action.
 const STOP_BEFORE_APPLY = "Stop after tasks; do not start apply until I say so.";
 
-/** Draft for a new SDD change; the user finishes the sentence with the goal. */
-export const GENTLE_SDD_NEW_CHANGE_PROMPT = `Use SDD to propose a new OpenSpec change and plan it through tasks. ${STOP_BEFORE_APPLY} The change is: `;
+/**
+ * Draft for a new SDD change; the user finishes the sentence with the goal. Gentle AI's session
+ * preflight carries the project's artifact store, so the request names no store.
+ */
+export const GENTLE_SDD_NEW_CHANGE_PROMPT = `Use SDD to propose a new change and plan it through tasks. ${STOP_BEFORE_APPLY} The change is: `;
 
 /**
  * What a client can do next with one SDD change: start the ready phase in a Gentle-enabled Pi
@@ -148,8 +212,8 @@ export function gentleSddChangeStep(change: PiGentleSddChange): GentleSddChangeS
     // SDD only starts from an explicit request, so the prompt names the workflow, change, and
     // phase. It leads with them because the thread title is seeded from the first message.
     prompt: phase.planning
-      ? `SDD ${change.changeName}: run the ${phase.name} phase. Continue planning the OpenSpec change \`${change.changeName}\` through tasks. ${STOP_BEFORE_APPLY}`
-      : `SDD ${change.changeName}: run the ${phase.name} phase. Continue the SDD workflow for the OpenSpec change \`${change.changeName}\`.`,
+      ? `SDD ${change.changeName}: run the ${phase.name} phase. Continue planning the SDD change \`${change.changeName}\` through tasks. ${STOP_BEFORE_APPLY}`
+      : `SDD ${change.changeName}: run the ${phase.name} phase. Continue the SDD workflow for the change \`${change.changeName}\`.`,
   };
 }
 

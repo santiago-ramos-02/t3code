@@ -40,9 +40,21 @@ if (process.env.FAKE_PI_FAIL) {
   process.exit(1);
 }
 if (process.argv.includes("/gentle-sdd-init")) {
-  const target = path.join(process.cwd(), "openspec", "config.yaml");
-  fs.mkdirSync(path.dirname(target), { recursive: true });
-  fs.writeFileSync(target, "project: test\\n");
+  // Like Gentle AI's init: Engram counts only when Pi's extensions load (gentle-engram provides
+  // it), an unavailable store falls back to OpenSpec, and only file stores get project context.
+  const preflight = path.join(process.cwd(), ".pi", "gentle-ai", "sdd-preflight.json");
+  const engramAvailable = !process.argv.includes("--no-extensions");
+  const saved = fs.existsSync(preflight) ? JSON.parse(fs.readFileSync(preflight, "utf8")) : {};
+  const requested = saved.artifactStore ?? "openspec";
+  const artifactStore = engramAvailable || requested === "none" ? requested : "openspec";
+  const prefs = { executionMode: "auto", chainedPrStrategy: "ask-on-risk", reviewBudgetLines: 400, ...saved, artifactStore, engramAvailable, prompted: false };
+  fs.mkdirSync(path.dirname(preflight), { recursive: true });
+  fs.writeFileSync(preflight, JSON.stringify(prefs, null, 2));
+  if (artifactStore === "openspec" || artifactStore === "hybrid") {
+    const target = path.join(process.cwd(), "openspec", "config.yaml");
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, "project: test\\n");
+  }
 } else {
   const packageDir = path.join(home, "npm", "node_modules", "gentle-pi");
   fs.mkdirSync(packageDir, { recursive: true });
@@ -92,7 +104,33 @@ if (process.argv.includes("/gentle-sdd-init")) {
           version: "3.8.0",
           compatibilityWarning: expect.stringContaining("Gentle AI 3.8 is newer"),
         });
-        yield* gentle.initializeSdd(cwd);
+        // A project without saved choices needs setup, where the user first makes them.
+        expect(yield* gentle.readComposer(cwd)).toMatchObject({
+          available: true,
+          projectInitNeeded: true,
+        });
+        const engram = {
+          executionMode: "interactive",
+          artifactStore: "engram",
+          chainedPrStrategy: "single-pr",
+          reviewBudgetLines: 250,
+        } as const;
+        yield* gentle.initializeSdd(cwd, engram);
+        // Setup loads Pi's extensions, so the confirmed Engram store survives Gentle AI's init.
+        expect(yield* gentle.readComposer(cwd, { includeChanges: true })).toMatchObject({
+          available: true,
+          projectInitNeeded: false,
+          sdd: engram,
+          changes: [],
+        });
+        expect(yield* fileSystem.exists(path.join(cwd, "openspec", "config.yaml"))).toBe(false);
+
+        const openspec = { ...engram, artifactStore: "openspec" } as const;
+        yield* gentle.initializeSdd(cwd, openspec);
+        expect(yield* gentle.readComposer(cwd)).toMatchObject({
+          projectInitNeeded: false,
+          sdd: openspec,
+        });
         expect(yield* fileSystem.exists(path.join(cwd, "openspec", "config.yaml"))).toBe(true);
       }),
     ),
@@ -116,6 +154,18 @@ if (process.argv.includes("/gentle-sdd-init")) {
         yield* fileSystem.makeDirectory(path.join(changes, "add-login"));
         yield* fileSystem.writeFileString(path.join(changes, "notes.md"), "not a change\n");
         yield* fileSystem.writeFileString(path.join(cwd, "openspec", "config.yaml"), "x: 1\n");
+        yield* fileSystem.makeDirectory(path.join(cwd, ".pi", "gentle-ai"), { recursive: true });
+        yield* fileSystem.writeFileString(
+          path.join(cwd, ".pi", "gentle-ai", "sdd-preflight.json"),
+          encodeJson({
+            executionMode: "auto",
+            artifactStore: "openspec",
+            chainedPrStrategy: "ask-on-risk",
+            reviewBudgetLines: 400,
+            engramAvailable: false,
+            prompted: true,
+          }),
+        );
         yield* fileSystem.makeDirectory(path.join(agentHome, "npm", "node_modules", "gentle-pi"), {
           recursive: true,
         });

@@ -8,6 +8,7 @@ import {
   type ProviderInstanceId,
   type ServerProviderModel,
 } from "@t3tools/contracts";
+import { GENTLE_SDD_DEFAULTS, GENTLE_SDD_LABELS } from "@t3tools/client-runtime/piGentleComposer";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -38,12 +39,6 @@ type GentleAction = typeof PiGentleActionInput.Type.action;
 type GentleArea = "global" | "profiles" | "project" | "sdd";
 type ProjectOption = { readonly title: string; readonly workspaceRoot: string };
 
-const DEFAULT_SDD: PiGentleSddPreferences = {
-  executionMode: "auto",
-  artifactStore: "openspec",
-  chainedPrStrategy: "ask-on-risk",
-  reviewBudgetLines: 400,
-};
 const THINKING = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 const THINKING_LABELS = {
   off: "Off",
@@ -57,20 +52,6 @@ const THINKING_LABELS = {
 const PERSONA_LABELS = { gentleman: "Gentleman", neutral: "Neutral" } as const;
 // Select value for "no local pin": the repository declaration or global profile applies.
 const PROJECT_DEFAULT_PROFILE = "__default__";
-const SDD_LABELS = {
-  executionMode: { auto: "Automatic", interactive: "Confirm each phase" },
-  artifactStore: {
-    openspec: "OpenSpec project files",
-    engram: "Engram memory",
-    hybrid: "Project files + Engram",
-    none: "No saved artifacts",
-  },
-  chainedPrStrategy: {
-    "ask-on-risk": "Ask when over budget",
-    "auto-chain": "Chain large changes",
-    "single-pr": "One pull request",
-  },
-} as const;
 // Matches the control width of the shared provider settings rows.
 const ROW_CONTROL = "w-full max-w-full @min-[32rem]/settings-row:w-56";
 
@@ -450,7 +431,7 @@ export function PiGentleSettingsSection({
   const pinned = project?.pinned ?? null;
   const localPin = project?.pinSource === "local" ? pinned : null;
   const selectedProject = projects.find((entry) => entry.workspaceRoot === selectedCwd);
-  const sdd = project?.sdd ?? DEFAULT_SDD;
+  const sdd = project?.sdd ?? GENTLE_SDD_DEFAULTS;
   const saveSdd = (patch: Partial<PiGentleSddPreferences>) => {
     if (selectedCwd) {
       void runAction({ type: "saveSdd", cwd: selectedCwd, preferences: { ...sdd, ...patch } });
@@ -809,7 +790,7 @@ export function PiGentleSettingsSection({
                 <GentleSelect
                   label="SDD execution mode"
                   value={sdd.executionMode}
-                  labels={SDD_LABELS.executionMode}
+                  labels={GENTLE_SDD_LABELS.executionMode}
                   disabled={!canEdit}
                   onChange={(executionMode) => saveSdd({ executionMode })}
                 />
@@ -822,7 +803,7 @@ export function PiGentleSettingsSection({
                 <GentleSelect
                   label="SDD artifact store"
                   value={sdd.artifactStore}
-                  labels={SDD_LABELS.artifactStore}
+                  labels={GENTLE_SDD_LABELS.artifactStore}
                   disabled={!canEdit}
                   onChange={(artifactStore) => saveSdd({ artifactStore })}
                 />
@@ -835,7 +816,7 @@ export function PiGentleSettingsSection({
                 <GentleSelect
                   label="SDD delivery strategy"
                   value={sdd.chainedPrStrategy}
-                  labels={SDD_LABELS.chainedPrStrategy}
+                  labels={GENTLE_SDD_LABELS.chainedPrStrategy}
                   disabled={!canEdit}
                   onChange={(chainedPrStrategy) => saveSdd({ chainedPrStrategy })}
                 />

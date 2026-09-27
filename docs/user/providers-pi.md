@@ -73,21 +73,26 @@ without Gentle AI. The choice is stored with the thread when you send its first
 message, and the dropdown then shows whether Gentle AI is on for that thread.
 Other installed Pi extensions remain available.
 
-For SDD, set the project's execution mode, artifact store, delivery strategy,
-and review budget in Pi settings; on mobile, they are in **Project overview**.
-They are saved in the project's `.pi/gentle-ai/sdd-preflight.json`. Commit that
-file so the whole team uses the same choices. A profile pinned for a checkout
-stays on your machine.
-
 In a Pi thread, open the Gentle AI dropdown and choose **Set up SDD** once per
-project. After that, **SDD changes** lists the project's active OpenSpec changes
-with their next phase and task progress. Choose a change's action, such as
-**Implement**, to open a new thread with Gentle AI on and that phase's request
-already written; review it and send. **New change** opens a thread for proposing
-another change. Planning requests stop once the tasks are written, even in
-automatic mode; implementation starts only when you choose **Implement** or ask
-for it. Changes are listed for projects that save SDD artifacts as
-OpenSpec files.
+project, including a new empty folder. Setup asks for the project's execution
+mode, artifact store, delivery strategy, and review budget, then prepares the
+project. Engram memory needs an Engram extension for Pi, such as gentle-engram;
+without one, Gentle AI saves artifacts as OpenSpec project files instead and
+setup tells you. The choices are saved in the project's
+`.pi/gentle-ai/sdd-preflight.json`. Commit that file so the whole team uses the
+same choices. Change them later from **SDD preferences** in the same dropdown or
+in Pi settings; on mobile, also in **Project overview**. The first time each
+thread uses SDD, Gentle AI asks you to confirm the choices. A profile pinned for
+a checkout stays on your machine.
+
+After setup, **SDD changes** lists the project's active changes with their next
+phase and task progress. Choose a change's action, such as **Implement**, to
+open a new thread with Gentle AI on and that phase's request already written;
+review it and send. **New change** opens a thread for proposing another change.
+Planning requests stop once the tasks are written, even in automatic mode;
+implementation starts only when you choose **Implement** or ask for it. Changes
+are listed when the project saves artifacts as project files; ask Gentle AI in
+a thread about changes kept only in Engram memory.
 
 ## T3 Code tools
 

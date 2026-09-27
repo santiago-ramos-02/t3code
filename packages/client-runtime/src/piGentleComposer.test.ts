@@ -42,13 +42,13 @@ describe("Gentle SDD change step", () => {
       kind: "ready",
       label: "Implement",
       prompt:
-        "SDD checkout-flow: run the apply phase. Continue the SDD workflow for the OpenSpec change `checkout-flow`.",
+        "SDD checkout-flow: run the apply phase. Continue the SDD workflow for the change `checkout-flow`.",
     });
     expect(gentleSddChangeStep(change("spec"))).toEqual({
       kind: "ready",
       label: "Write specs",
       prompt:
-        "SDD checkout-flow: run the spec phase. Continue planning the OpenSpec change `checkout-flow` through tasks. Stop after tasks; do not start apply until I say so.",
+        "SDD checkout-flow: run the spec phase. Continue planning the SDD change `checkout-flow` through tasks. Stop after tasks; do not start apply until I say so.",
     });
   });
 

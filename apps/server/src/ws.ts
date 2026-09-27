@@ -2507,7 +2507,7 @@ const makeWsRpcLayer = (
               "pi-gentle-initialize",
               (gentle) =>
                 gentle
-                  .initializeSdd(input.cwd, input.command)
+                  .initializeSdd(input.cwd, input.preferences)
                   .pipe(Effect.andThen(gentle.readComposer(input.cwd))),
               { requireEnabled: true },
             ),
