@@ -463,10 +463,14 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     gentleChangesState !== null && "error" in gentleChangesState
       ? gentleChangesState.error
       : undefined;
+  // gentle-ai's status does not read gentle-pi's saved store yet, so Pi's own choice wins.
+  const gentleArtifactStore =
+    gentleState?.sdd?.artifactStore ??
+    (gentleChangesState !== null && "artifactStore" in gentleChangesState
+      ? gentleChangesState.artifactStore
+      : null);
   const gentleUnlistedReason =
-    gentleChangesState !== null && "artifactStore" in gentleChangesState
-      ? gentleSddUnlistedReason(gentleChangesState.artifactStore)
-      : null;
+    gentleArtifactStore === null ? null : gentleSddUnlistedReason(gentleArtifactStore);
   // Only gentle-pi needs T3 Code to set up SDD; other agents run its preflight in the thread.
   const gentleNeedsSetup = isPiThread && gentleState?.projectInitNeeded === true;
   const showGentleControls =

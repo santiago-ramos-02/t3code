@@ -40,12 +40,11 @@ Pi's binary path and credentials in web or desktop settings.
 
 ## Gentle AI
 
-[Gentle AI](https://github.com/Gentleman-Programming/gentle-shell) is an
-optional Pi package. T3 Code shows its controls only when Pi on the project
-environment loads it, globally or for that project. Install it with Pi, for
-example `pi install npm:gentle-pi`, then choose **Refresh provider status**.
-Remote clients do not need their own installation. When an installed copy is
-older than 3.5, **Settings > Providers > Pi** offers to update it.
+Pi gets [Gentle AI](./gentle-ai.md) through the optional gentle-pi package. T3
+Code shows its controls only when Pi on the project environment loads it,
+globally or for that project. Install it with Pi, for example
+`pi install npm:gentle-pi`, then choose **Refresh provider status**. When an
+installed copy is older than 3.5, **Settings > Gentle AI** offers to update it.
 
 Its subagents appear in the thread's Agents panel with live progress and
 results, and its todo list appears as the composer's task progress while the
@@ -54,13 +53,13 @@ such as `/gentle:status` or `/gentle:doctor`, show it in the thread. Commands
 that only drive Pi's terminal interface, such as `/gentle:profiles`, are not
 offered; T3 Code's own profile and model routing settings replace them.
 
-Open **Settings > Providers > Pi**
-to choose the global persona and manage model profiles. The active global profile
-applies unless the repository declares one or the local clone has a pin. The
-**Project overrides** section shows which source applies and lets you pin a
-profile or override the persona. As in Pi, activating a profile also makes its
-`orchestrator` entry Pi's default model. Changes to routing and persona take
-effect when a Pi session starts or reloads.
+Open **Settings > Gentle AI** to choose the global persona and manage model
+profiles. The active global profile applies unless the repository declares one
+or the local clone has a pin. The **Project overrides** section shows which
+source applies and lets you pin a profile or override the persona. As in Pi,
+activating a profile also makes its `orchestrator` entry Pi's default model.
+Changes to routing and persona take effect when a Pi session starts or reloads.
+On mobile, project profile and persona controls are in **Project overview**.
 
 To switch profiles from a Pi thread, open the Gentle AI dropdown and choose one
 under **Profile**. This applies it the way Pi's `/gentle:profiles` does: it
@@ -69,16 +68,9 @@ The thread also switches to the profile's orchestrator model and thinking level
 for its next message. You can still pick a different model for the thread
 afterward. Choosing the current profile again moves the thread back to its
 orchestrator. A profile without an orchestrator keeps the thread's model.
-The optional **Gentle AI binary path** uses the copy bundled with gentle-pi when
-left empty. Refreshing Providers also reloads Gentle AI settings changed
-outside T3 Code. On mobile, project profile and persona controls are in
-**Project overview**.
 
-For a new Pi thread, open the Gentle AI dropdown and clear **Enable** to run
-standalone Pi without Gentle AI. The choice is stored with the thread when you
-send its first message, and the dropdown then shows whether Gentle AI is on for
-that thread. Other installed Pi extensions, skills, and prompts remain
-available; Gentle AI's own commands and skills are not offered in that thread.
+A Pi thread with Gentle AI off loads none of its packages. Other installed Pi
+extensions, skills, and prompts remain available.
 
 In a Pi thread, open the Gentle AI dropdown and choose **Set up SDD** once per
 project, including a new empty folder. Setup asks for the project's execution
@@ -88,18 +80,9 @@ without one, Gentle AI saves artifacts as OpenSpec project files instead and
 setup tells you. The choices are saved in the project's
 `.pi/gentle-ai/sdd-preflight.json`. Commit that file so the whole team uses the
 same choices. Change them later from **SDD preferences** in the same dropdown or
-in Pi settings; on mobile, also in **Project overview**. The first time each
-thread uses SDD, Gentle AI asks you to confirm the choices. A profile pinned for
-a checkout stays on your machine.
-
-After setup, **SDD changes** lists the project's active changes with their next
-phase and task progress. Choose a change's action, such as **Implement**, to
-open a new thread with Gentle AI on and that phase's request already written;
-review it and send. **New change** opens a thread for proposing another change.
-Planning requests stop once the tasks are written, even in automatic mode;
-implementation starts only when you choose **Implement** or ask for it. Changes
-are listed when the project saves artifacts as project files; ask Gentle AI in
-a thread about changes kept only in Engram memory.
+in **Settings > Gentle AI**; on mobile, also in **Project overview**. The first
+time each thread uses SDD, Gentle AI asks you to confirm the choices. A profile
+pinned for a checkout stays on your machine.
 
 ## T3 Code tools
 

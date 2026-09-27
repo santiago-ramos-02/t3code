@@ -174,8 +174,10 @@ export function GentleComposerActions({
   if (pi && loaded?.available !== true) return null;
   // Only gentle-pi needs T3 Code to set up SDD; other agents run its preflight in the thread.
   const needsSetup = pi && loaded?.projectInitNeeded === true;
-  const unlistedReason =
-    changes?._tag === "Loaded" ? gentleSddUnlistedReason(changes.value.artifactStore) : null;
+  // gentle-ai's status does not read gentle-pi's saved store yet, so Pi's own choice wins.
+  const artifactStore =
+    loaded?.sdd?.artifactStore ?? (changes?._tag === "Loaded" ? changes.value.artifactStore : null);
+  const unlistedReason = artifactStore === null ? null : gentleSddUnlistedReason(artifactStore);
   const setUpSdd = (preferences: PiGentleSddPreferences) => {
     setSettingUp(true);
     setSetupError(null);
