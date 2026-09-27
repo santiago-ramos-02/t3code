@@ -6434,7 +6434,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 });
                 setStickyComposerModelSelection(selection);
               }}
-              onStartSddThread={(prompt) =>
+              onStartThread={(prompt) =>
                 onStartGentleSddThread(
                   prompt,
                   createModelSelection(selectedInstanceId, selectedModel, [

@@ -3,6 +3,7 @@ import type {
   GentleAiJobMethod,
   GentleAiModelAgent,
   GentleAiModels,
+  GentleAiOddFeatures,
 } from "@t3tools/contracts";
 
 /** What each Gentle AI job is called while it runs and after, on every client. */
@@ -78,4 +79,32 @@ export function gentleAiModelsAllDefault(value: GentleAiModels): boolean {
 /** Whether the agents' files are behind the installed gentle-ai, so a sync would update them. */
 export function gentleAiSyncNeeded(status: Pick<GentleAiApiStatus, "state">): boolean {
   return status.state.syncNeeded ?? status.state.pendingSync;
+}
+
+/**
+ * Starts a spec thread: ODD writes the feature document only, from the description the user
+ * adds after it, and asks about product decisions. Naming the feature document matters: a plain
+ * "write the spec" produces a free-form document instead.
+ */
+export const GENTLE_ODD_NEW_SPEC_PROMPT =
+  "Create the ODD feature document for the feature below. Only the feature document; don't change any code. Ask me about any product decision you need. The feature: ";
+
+/** Continues a feature in a new thread: ODD resumes from its document. */
+export function gentleOddContinuePrompt(
+  feature: Pick<GentleAiOddFeatures["features"][number], "path">,
+) {
+  return `Implement ${feature.path}.`;
+}
+
+/** One line on where a feature stands: its task progress and next step. */
+export function gentleOddFeatureSummary(
+  feature: Pick<GentleAiOddFeatures["features"][number], "tasksDone" | "tasksTotal" | "nextStep">,
+): string {
+  const tasks =
+    feature.tasksTotal === 0
+      ? "No tasks yet"
+      : feature.tasksDone === feature.tasksTotal
+        ? `All ${feature.tasksTotal} tasks done`
+        : `${feature.tasksDone} of ${feature.tasksTotal} tasks done`;
+  return feature.nextStep ? `${tasks} · Next: ${feature.nextStep}` : tasks;
 }

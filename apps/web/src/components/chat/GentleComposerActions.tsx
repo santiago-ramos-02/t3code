@@ -24,8 +24,14 @@ import type {
   ServerProviderModel,
 } from "@t3tools/contracts";
 import {
+  GENTLE_ODD_NEW_SPEC_PROMPT,
+  gentleOddContinuePrompt,
+  gentleOddFeatureSummary,
+} from "@t3tools/client-runtime/gentle-ai";
+import {
   ChevronDownIcon,
   ClipboardListIcon,
+  FileTextIcon,
   PlusIcon,
   RefreshCwIcon,
   SlidersHorizontalIcon,
@@ -55,17 +61,22 @@ import {
   MenuRadioGroup,
   MenuRadioItem,
   MenuSeparator,
+  MenuSub,
+  MenuSubPopup,
+  MenuSubTrigger,
   MenuTrigger,
 } from "../ui/menu";
 import { Spinner } from "../ui/spinner";
 import { toastManager } from "../ui/toast";
 import { ComposerBanner } from "./ComposerBanner";
 import { useComposerMenuProps } from "./composerEventScope";
+import { useGentleAiQuery } from "../settings/gentle-ai/useGentleAi";
 import { GentleSddSetupDialog } from "./GentleSddSetupDialog";
 
 /**
  * Gentle AI entry point in the composer of any provider Gentle AI is set up for: the per-thread
- * Enable choice and the project's SDD changes, each ready one handing its phase to a new thread.
+ * Enable choice, and the project's ODD feature documents (or, with an SDD-era gentle-ai, its SDD
+ * changes), each handing its next step to a new thread, plus a new spec for a feature.
  * Pi threads also get gentle-pi's profiles, which move the thread onto a profile's orchestrator
  * model, and project SDD setup, which gentle-pi keeps in a file other agents ask for in chat.
  */
@@ -81,7 +92,7 @@ export function GentleComposerActions({
   modelLocked,
   onEnabledChange,
   onModelSelectionChange,
-  onStartSddThread,
+  onStartThread,
 }: {
   readonly environmentId: EnvironmentId;
   readonly instanceId: ProviderInstanceId;
@@ -96,7 +107,8 @@ export function GentleComposerActions({
   readonly modelLocked: boolean;
   readonly onEnabledChange: (enabled: boolean) => void;
   readonly onModelSelectionChange: (selection: ModelSelection) => void;
-  readonly onStartSddThread: (prompt: string) => void;
+  /** Opens a new thread with Gentle AI on and this request written, ready to review and send. */
+  readonly onStartThread: (prompt: string) => void;
 }) {
   const read = useAtomCommand(serverEnvironment.readPiGentleComposer, {
     reportFailure: false,
@@ -132,6 +144,15 @@ export function GentleComposerActions({
   const [settingUp, setSettingUp] = useState(false);
   const [setupError, setSetupError] = useState<string | null>(null);
   const floatingLayer = useComposerMenuProps();
+  const [menuOpen, setMenuOpen] = useState(false);
+  // ODD feature documents are read only while the menu is open.
+  const oddListed = gentleAiStatus?.oddFeatures === true;
+  const oddFeatures = useGentleAiQuery(
+    environmentId,
+    "odd.features",
+    { cwd },
+    { enabled: menuOpen && oddListed },
+  );
   const requestKey = `${environmentId}:${instanceId}:${cwd}:${refresh}`;
 
   useEffect(() => {
@@ -203,7 +224,7 @@ export function GentleComposerActions({
   };
   const startThread = (prompt: string) => {
     setChangesOpen(false);
-    onStartSddThread(prompt);
+    onStartThread(prompt);
   };
   const profiles = enabled ? (loaded?.profiles ?? []) : [];
   const effectiveProfile = loaded?.effectiveProfile ?? null;
@@ -243,7 +264,7 @@ export function GentleComposerActions({
       className="ml-auto"
     >
       <div data-chat-composer-collapsed-controls="true">
-        <Menu>
+        <Menu open={menuOpen} onOpenChange={setMenuOpen}>
           <MenuTrigger
             render={
               <ComposerBanner.Row
@@ -303,6 +324,47 @@ export function GentleComposerActions({
                 </MenuGroup>
                 <MenuSeparator />
               </>
+            ) : null}
+            {oddListed ? (
+              <MenuSub>
+                <MenuSubTrigger>
+                  <FileTextIcon aria-hidden /> Feature documents
+                </MenuSubTrigger>
+                <MenuSubPopup {...floatingLayer} className="max-w-sm">
+                  {oddFeatures.data === null ? (
+                    <MenuItem disabled>
+                      {oddFeatures.error ?? (
+                        <>
+                          <Spinner className="size-3.5" /> Reading feature documents
+                        </>
+                      )}
+                    </MenuItem>
+                  ) : oddFeatures.data.features.length === 0 ? (
+                    <MenuItem disabled>No feature documents in this project yet.</MenuItem>
+                  ) : (
+                    <MenuGroup>
+                      <MenuGroupLabel>Continue in a new thread</MenuGroupLabel>
+                      {oddFeatures.data.features.map((feature) => (
+                        <MenuItem
+                          key={feature.path}
+                          onClick={() => startThread(gentleOddContinuePrompt(feature))}
+                        >
+                          <span className="min-w-0">
+                            <span className="block truncate">{feature.title}</span>
+                            <span className="block truncate text-muted-foreground text-xs">
+                              {gentleOddFeatureSummary(feature)}
+                            </span>
+                          </span>
+                        </MenuItem>
+                      ))}
+                    </MenuGroup>
+                  )}
+                  <MenuSeparator />
+                  <MenuItem onClick={() => startThread(GENTLE_ODD_NEW_SPEC_PROMPT)}>
+                    <PlusIcon aria-hidden /> New spec
+                  </MenuItem>
+                </MenuSubPopup>
+              </MenuSub>
             ) : null}
             {sddListed && !needsSetup ? (
               <MenuItem

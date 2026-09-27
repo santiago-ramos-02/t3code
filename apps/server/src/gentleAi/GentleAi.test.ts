@@ -150,6 +150,7 @@ else process.exit(3);
           // This gentle-ai predates the headless API and still has SDD.
           apiVersion: null,
           sdd: true,
+          oddFeatures: false,
           installed: true,
           version: "3.7.0",
           binaryPath: binary,

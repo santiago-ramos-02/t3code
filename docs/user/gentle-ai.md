@@ -69,6 +69,21 @@ A few setups cannot run without Gentle AI:
 In a Claude thread with Gentle AI off, your own skills and commands are
 available under the `user:` prefix, for example `/user:deploy`.
 
+## Feature documents
+
+With Organic Driven Development (ODD), Gentle AI keeps larger work in a feature
+document under the project's `odd/tasks/` folder: the objective, scope, tasks
+with acceptance criteria, and progress.
+
+Open the Gentle AI dropdown in the composer and choose **Feature documents** to
+see the project's features with their task progress and next step. Choose one
+to continue it in a new thread, where Gentle AI resumes from the document.
+**New spec** opens a thread that asks Gentle AI to write only the feature
+document for a feature you describe, without changing code. This lets someone
+who plans work, such as a product manager, write specs that others then build.
+
+The list appears with a gentle-ai that reports feature documents.
+
 ## SDD changes
 
 Gentle AI 3.7 and earlier offer spec-driven development (SDD). Newer releases

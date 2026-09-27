@@ -126,13 +126,17 @@ function GentleAiEnvironmentSettings(props: {
   );
 }
 
-function useGentleAiQuery<M extends GentleAiQueryMethod>(
+/** A Gentle AI API query, decoded; skipped while `enabled` is false. */
+export function useGentleAiQuery<M extends GentleAiQueryMethod>(
   environmentId: EnvironmentId,
   method: M,
   params: GentleAiParams<M>,
+  options: { readonly enabled?: boolean } = {},
 ) {
   const view = useEnvironmentQuery(
-    serverEnvironment.gentleAiQuery({ environmentId, input: { method, params } }),
+    options.enabled === false
+      ? null
+      : serverEnvironment.gentleAiQuery({ environmentId, input: { method, params } }),
   );
   const data: GentleAiResult<M> | null =
     view.data === null ? null : Option.getOrNull(decodeGentleAiResult(method, view.data.data));

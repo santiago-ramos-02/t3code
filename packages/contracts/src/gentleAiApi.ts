@@ -383,6 +383,25 @@ export const GentleAiUninstallMode = Schema.Literals([
 ]);
 export type GentleAiUninstallMode = typeof GentleAiUninstallMode.Type;
 
+/** A project's ODD feature documents (`odd/tasks/*.md`), most recently changed first. */
+export const GentleAiOddFeatures = Schema.Struct({
+  features: Schema.Array(
+    Schema.Struct({
+      // The file name without .md, as ODD names the feature.
+      name: Schema.String,
+      // Relative to the project, with forward slashes.
+      path: Schema.String,
+      title: Schema.String,
+      objective: Opt(Schema.String),
+      tasksDone: Schema.Number,
+      tasksTotal: Schema.Number,
+      nextStep: Opt(Schema.String),
+      updatedAt: Schema.String,
+    }),
+  ),
+});
+export type GentleAiOddFeatures = typeof GentleAiOddFeatures.Type;
+
 export const GentleAiUninstallParams = Schema.Struct({
   mode: GentleAiUninstallMode,
   agents: Opt(Ids),
@@ -467,6 +486,7 @@ export const GENTLE_AI_METHODS = {
     }),
   ),
   // Without a cwd, the global setting read from the home directory.
+  "odd.features": query(Schema.Struct({ cwd: Cwd }), GentleAiOddFeatures),
   "review.status": query(Schema.Struct({ cwd: Opt(Cwd) }), GentleAiReviewMode),
   "reviewStore.survey": query(Schema.Struct({ cwd: Cwd }), GentleAiReviewStore),
   "uninstall.plan": query(
@@ -557,6 +577,7 @@ const QUERY_METHODS = [
   "reviewStore.survey",
   "uninstall.plan",
   "doctor",
+  "odd.features",
 ] as const satisfies ReadonlyArray<GentleAiQueryMethod>;
 const JOB_METHODS = [
   "install",

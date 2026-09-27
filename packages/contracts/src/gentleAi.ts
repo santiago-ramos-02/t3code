@@ -57,6 +57,8 @@ export const GentleAiStatus = Schema.Struct({
   // Whether this gentle-ai still offers SDD (`sdd-status`); releases after 3.7 replaced it
   // with ODD.
   sdd: Schema.Boolean,
+  // Whether this gentle-ai lists a project's ODD feature documents (`api odd.features`).
+  oddFeatures: Schema.Boolean,
   // Names of the skills and slash commands gentle-ai installed into the agents it set up, from
   // its own footprint. Absent without one (older releases), when a built-in list decides.
   resources: Schema.optional(Schema.Array(Schema.String)),

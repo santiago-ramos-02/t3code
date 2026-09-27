@@ -114,6 +114,7 @@ const CHANGE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 export const NOT_INSTALLED: GentleAiStatus = {
   apiVersion: null,
   sdd: false,
+  oddFeatures: false,
   installed: false,
   version: null,
   binaryPath: null,
@@ -323,6 +324,7 @@ export const make = Effect.gen(function* () {
       return {
         apiVersion: describe.apiVersion,
         sdd: describe.features?.includes("sdd") === true,
+        oddFeatures: describe.methods.includes("odd.features"),
         installed: true,
         version,
         binaryPath,
@@ -354,6 +356,7 @@ export const make = Effect.gen(function* () {
     return {
       apiVersion: describe?.apiVersion ?? null,
       sdd: help?.output.includes("sdd-status") === true,
+      oddFeatures: false,
       installed: true,
       version,
       binaryPath,

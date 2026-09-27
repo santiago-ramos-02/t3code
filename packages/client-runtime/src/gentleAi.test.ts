@@ -5,6 +5,8 @@ import {
   gentleAiModelAgent,
   gentleAiModelsAllDefault,
   gentleAiSyncNeeded,
+  gentleOddContinuePrompt,
+  gentleOddFeatureSummary,
 } from "./gentleAi.ts";
 
 const agent = (
@@ -66,5 +68,18 @@ describe("gentleAiSyncNeeded", () => {
     expect(gentleAiSyncNeeded(state({ pendingSync: true, syncNeeded: false }))).toBe(false);
     // Builds before syncNeeded report only a pending sync.
     expect(gentleAiSyncNeeded(state({ pendingSync: true }))).toBe(true);
+  });
+});
+
+describe("ODD features", () => {
+  it("resumes a feature from its document and summarizes where it stands", () => {
+    expect(gentleOddContinuePrompt({ path: "odd/tasks/due-dates.md" })).toBe(
+      "Implement odd/tasks/due-dates.md.",
+    );
+    expect(gentleOddFeatureSummary({ tasksDone: 2, tasksTotal: 3, nextStep: "Start T3." })).toBe(
+      "2 of 3 tasks done · Next: Start T3.",
+    );
+    expect(gentleOddFeatureSummary({ tasksDone: 3, tasksTotal: 3 })).toBe("All 3 tasks done");
+    expect(gentleOddFeatureSummary({ tasksDone: 0, tasksTotal: 0 })).toBe("No tasks yet");
   });
 });

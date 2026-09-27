@@ -13,6 +13,12 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import { useAtomValue } from "@effect/atom-react";
 import type { GentleAiSddChanges, PiGentleComposerState } from "@t3tools/contracts";
+import {
+  GENTLE_ODD_NEW_SPEC_PROMPT,
+  gentleOddContinuePrompt,
+  gentleOddFeatureSummary,
+} from "@t3tools/client-runtime/gentle-ai";
+import { useGentleAiQuery } from "../settings/SettingsGentleAiRouteScreen";
 import type { MenuAction } from "@react-native-menu/menu";
 import { clampFileAttachmentUploadBytes } from "@t3tools/client-runtime/state/attachments";
 import { pastedTextDisposition, replaceTextSelection } from "@t3tools/client-runtime/text-paste";
@@ -365,11 +371,20 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     value: PiGentleComposerState;
   } | null>(null);
   const [gentleError, setGentleError] = useState<{ key: string; message: string } | null>(null);
+  const gentleAiStatus = useEnvironmentQuery(
+    serverEnvironment.gentleAiStatus({ environmentId: props.environmentId, input: {} }),
+  ).data;
   // Changes are listed by gentle-ai's `sdd-status`; releases that replaced SDD with ODD have none.
-  const gentleAiSdd =
-    useEnvironmentQuery(
-      serverEnvironment.gentleAiStatus({ environmentId: props.environmentId, input: {} }),
-    ).data?.sdd === true;
+  const gentleAiSdd = gentleAiStatus?.sdd === true;
+  // Native menus cannot load after opening, so the ODD feature documents are read up front.
+  const gentleOddListed =
+    gentleProvider && gentleAiStatus?.oddFeatures === true && props.projectCwd !== null;
+  const gentleOdd = useGentleAiQuery(
+    props.environmentId,
+    "odd.features",
+    { cwd: props.projectCwd ?? "" },
+    { enabled: gentleOddListed },
+  );
   const readGentleChanges = useAtomCommand(serverEnvironment.readGentleAiSddChanges, {
     reportFailure: false,
     reportDefect: false,
@@ -491,7 +506,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     // In Pi, nothing Gentle-related shows unless the server confirms Pi loads gentle-pi here.
     (!isPiThread || gentleAvailable);
   // Hands an SDD phase to a new task draft in this project with Gentle on; the user sends it.
-  const startGentleSddTask = (prompt: string) => {
+  const startGentleTask = (prompt: string) => {
     const draftKey = createNewTaskDraft({
       environmentId: props.environmentId,
       projectId: props.selectedThread.projectId,
@@ -536,6 +551,41 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
           attributes: { disabled: true },
         },
     ...(gentleProfiles.action === null ? [] : [gentleProfiles.action]),
+    ...(gentleOddListed
+      ? [
+          {
+            id: "odd",
+            title: "Feature documents",
+            image: "doc.text",
+            subactions: [
+              ...(gentleOdd.data?.features ?? []).map((feature) => ({
+                id: `odd:${feature.path}`,
+                title: feature.title,
+                subtitle: gentleOddFeatureSummary(feature),
+              })),
+              ...(gentleOdd.data === null
+                ? [
+                    {
+                      id: "odd-unavailable",
+                      title: gentleOdd.error ? "Feature documents unavailable" : "Reading…",
+                      ...(gentleOdd.error ? { subtitle: gentleOdd.error } : {}),
+                      attributes: { disabled: true },
+                    },
+                  ]
+                : gentleOdd.data.features.length === 0
+                  ? [
+                      {
+                        id: "odd-empty",
+                        title: "No feature documents yet",
+                        attributes: { disabled: true },
+                      },
+                    ]
+                  : []),
+              { id: "odd-new", title: "New spec", image: "plus" },
+            ],
+          },
+        ]
+      : []),
     ...(gentleAiSdd && !gentleNeedsSetup
       ? [
           {
@@ -973,15 +1023,22 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                     cwd: props.projectCwd,
                   });
                 }
+                if (nativeEvent.event === "odd-new") startGentleTask(GENTLE_ODD_NEW_SPEC_PROMPT);
+                if (nativeEvent.event.startsWith("odd:")) {
+                  const feature = gentleOdd.data?.features.find(
+                    (entry) => `odd:${entry.path}` === nativeEvent.event,
+                  );
+                  if (feature) startGentleTask(gentleOddContinuePrompt(feature));
+                }
                 if (nativeEvent.event === "sdd-new") {
-                  startGentleSddTask(GENTLE_SDD_NEW_CHANGE_PROMPT);
+                  startGentleTask(GENTLE_SDD_NEW_CHANGE_PROMPT);
                 }
                 if (nativeEvent.event.startsWith("sdd:")) {
                   const change = gentleChanges.find(
                     (entry) => `sdd:${entry.changeName}` === nativeEvent.event,
                   );
                   const step = change ? gentleSddChangeStep(change) : null;
-                  if (step?.kind === "ready") startGentleSddTask(step.prompt);
+                  if (step?.kind === "ready") startGentleTask(step.prompt);
                 }
                 if (nativeEvent.event === "error" && gentleError?.key === gentleKey) {
                   Alert.alert("Gentle AI", gentleError.message);
