@@ -81,6 +81,7 @@ import {
   SettingsEnvironmentSourceControlRouteScreen,
 } from "./features/settings/SettingsServerControlsRouteScreen";
 import { SettingsKeyboardRouteScreen } from "./features/settings/SettingsKeyboardRouteScreen";
+import { SettingsGentleAiRouteScreen } from "./features/settings/SettingsGentleAiRouteScreen";
 import { SettingsLegalRouteScreen } from "./features/settings/SettingsLegalRouteScreen";
 import {
   SettingsOpenSourceLicenseRouteScreen,
@@ -219,6 +220,11 @@ const SettingsContentStack = createNativeStackNavigator({
       screen: SettingsEnvironmentMaintenanceRouteScreen,
       linking: "maintenance",
       options: { title: "Maintenance" },
+    }),
+    SettingsGentleAi: createNativeStackScreen({
+      screen: SettingsGentleAiRouteScreen,
+      linking: "gentle-ai",
+      options: { title: "Gentle AI" },
     }),
     SettingsNotifications: createNativeStackScreen({
       screen: SettingsNotificationsRouteScreen,
