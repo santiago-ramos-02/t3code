@@ -22,25 +22,23 @@ it.layer(NodeServices.layer)("GentleAiFootprints", (it) => {
         const path = yield* Path.Path;
         const platform = yield* HostProcessPlatform;
         const home = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-gentle-footprint-" });
-        yield* fileSystem.makeDirectory(path.join(home, ".gentle-ai"), { recursive: true });
-        yield* fileSystem.writeFileString(
-          path.join(home, ".gentle-ai", "state.json"),
-          encodeJson({ installed_agents: ["claude-code", "codex", "cursor"] }),
-        );
         const skill = path.join(home, ".claude", "skills", "judgment-day");
         const settings = path.join(home, ".claude", "settings.json");
         const script = path.join(home, "fake-gentle-ai.cjs");
-        // Claude's footprint is complete; Codex's reaches outside the home; this gentle-ai
-        // predates the method for Cursor.
+        // gentle-ai answers for the set-up agents it is asked about: Claude's footprint is
+        // complete, OpenCode was not set up, Codex's reaches outside the home, and asking about
+        // Cursor stands for an older gentle-ai without the method.
         yield* fileSystem.writeFileString(
           script,
           `const fs = require("node:fs");
 const [, method] = process.argv.slice(2);
-const { agent } = JSON.parse(fs.readFileSync(0, "utf8") || "{}");
+const { agents } = JSON.parse(fs.readFileSync(0, "utf8") || "{}");
 const line = (value) => process.stdout.write(JSON.stringify({ schema: "gentle-ai.api/v1", ...value }) + "\\n");
-if (method !== "footprint" || agent === "cursor") line({ type: "error", error: { code: "unsupported", message: "unknown method" } });
-else if (agent === "claude-code") line({ type: "result", data: { agent, removed: [${encodeJson(skill)}], rewritten: [{ path: ${encodeJson(settings)}, content: "{}" }], unsimulated: [] } });
-else line({ type: "result", data: { agent, removed: [], rewritten: [], unsimulated: ["/etc/xdg/codex"] } });
+const ask = agents ?? ["claude-code"];
+if (method !== "footprint" || ask.includes("cursor")) line({ type: "error", error: { code: "unsupported", message: "unknown method" } });
+else if (ask.includes("codex")) line({ type: "result", data: { agents: ask, removed: [], rewritten: [], unsimulated: ["/etc/xdg/codex"] } });
+else if (ask.includes("claude-code")) line({ type: "result", data: { agents: ask, removed: [${encodeJson(skill)}], rewritten: [{ path: ${encodeJson(settings)}, content: "{}" }], unsimulated: [] } });
+else line({ type: "result", data: { agents: [], removed: [], rewritten: [], unsimulated: [] } });
 `,
         );
         const binary = path.join(home, platform === "win32" ? "gentle-ai.cmd" : "gentle-ai");
@@ -75,7 +73,8 @@ else line({ type: "result", data: { agent, removed: [], rewritten: [], unsimulat
         // A footprint that could not be simulated, or an older gentle-ai, means the built-in lists.
         expect(yield* footprints.forAgents(["codex"])).toBeNull();
         expect(yield* footprints.forAgents(["cursor"])).toBeNull();
-        expect(yield* footprints.forAgents("set-up")).toBeNull();
+        // Every set-up agent is gentle-ai's default.
+        expect((yield* footprints.forAgents("set-up"))?.removed.size).toBe(1);
       }),
     ),
   );

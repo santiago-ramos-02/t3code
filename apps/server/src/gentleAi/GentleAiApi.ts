@@ -48,6 +48,8 @@ const encodeParams = Schema.encodeUnknownEffect(Schema.fromJsonString(Schema.Unk
 export const DescribeResult = Schema.Struct({
   apiVersion: Schema.Number,
   methods: Schema.Array(Schema.String),
+  // The workflows the build offers, such as "odd" or "sdd"; absent from early builds.
+  features: Schema.optional(Schema.Array(Schema.String)),
 });
 
 export const runGentleAiApi = Effect.fn("runGentleAiApi")(function* (input: {

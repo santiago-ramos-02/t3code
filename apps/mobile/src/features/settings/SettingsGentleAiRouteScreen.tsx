@@ -4,6 +4,7 @@ import {
   gentleAiAgentList,
   gentleAiModelAgent,
   gentleAiModelsAllDefault,
+  gentleAiSyncNeeded,
 } from "@t3tools/client-runtime/gentle-ai";
 import {
   isAtomCommandInterrupted,
@@ -172,7 +173,7 @@ function GentleAiApiSettings(props: {
                 ? "Gentle AI and its tools are up to date."
                 : outdated.map((tool) => `${tool.name} → ${tool.latest ?? "?"}`).join(" · ")}
           </Text>
-          {status?.state.pendingSync ? (
+          {status && gentleAiSyncNeeded(status) ? (
             <Text className="text-sm text-foreground-muted">
               Gentle AI changed since it last updated your agents. Sync brings them up to date.
             </Text>

@@ -21,8 +21,7 @@ import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawne
 import { ServerSettingsService } from "../serverSettings.ts";
 import { runGentleAiApi } from "./GentleAiApi.ts";
 import { resolveGentleAiBinary } from "./GentleAiBinary.ts";
-import { gentleAiUserHome } from "./GentleAiOff.ts";
-import { EMPTY_FOOTPRINT, footprintKey, type GentleAiPlainFootprint } from "./PlainFootprint.ts";
+import { footprintKey, type GentleAiPlainFootprint } from "./PlainFootprint.ts";
 
 const FootprintResult = Schema.Struct({
   removed: Schema.Array(Schema.String),
@@ -30,11 +29,6 @@ const FootprintResult = Schema.Struct({
   unsimulated: Schema.Array(Schema.String),
 });
 const decodeFootprint = Schema.decodeUnknownEffect(FootprintResult);
-const decodeInstalledAgents = Schema.decodeUnknownEffect(
-  Schema.fromJsonString(
-    Schema.Struct({ installed_agents: Schema.optional(Schema.Array(Schema.String)) }),
-  ),
-);
 
 export class GentleAiFootprints extends Context.Service<
   GentleAiFootprints,
@@ -67,14 +61,6 @@ export const make = Effect.gen(function* () {
       Effect.provideService(HostProcessEnvironment, environment),
     );
 
-  const installedAgents = fileSystem
-    .readFileString(path.join(gentleAiUserHome(environment, platform), ".gentle-ai", "state.json"))
-    .pipe(
-      Effect.flatMap(decodeInstalledAgents),
-      Effect.map((state) => state.installed_agents ?? []),
-      Effect.orElseSucceed((): ReadonlyArray<string> => []),
-    );
-
   const forAgents = (agents: ReadonlyArray<string> | "set-up") =>
     Effect.gen(function* () {
       const binaryPath = yield* settingsService.getSettings.pipe(
@@ -83,32 +69,25 @@ export const make = Effect.gen(function* () {
         Effect.flatMap(resolveGentleAiBinary),
       );
       if (binaryPath === null) return null;
-      const installed = yield* installedAgents;
-      const targets =
-        agents === "set-up" ? installed : agents.filter((agent) => installed.includes(agent));
-      if (targets.length === 0) return EMPTY_FOOTPRINT;
-      const footprints = yield* Effect.forEach(
-        targets,
-        (agent) =>
-          runGentleAiApi({
-            binaryPath,
-            method: "footprint",
-            params: { agent },
-            environment,
-            timeout: "30 seconds",
-          }).pipe(Effect.flatMap(decodeFootprint)),
-        { concurrency: "unbounded" },
-      );
+      // gentle-ai skips agents it did not set up, and simulates the rest together.
+      const footprint = yield* runGentleAiApi({
+        binaryPath,
+        method: "footprint",
+        params: agents === "set-up" ? {} : { agents },
+        environment,
+        timeout: "30 seconds",
+      }).pipe(Effect.flatMap(decodeFootprint));
       // A path the uninstall could not simulate (outside the home) would be left in the mirror.
-      if (footprints.some((footprint) => footprint.unsimulated.length > 0)) return null;
-      const removed = new Set<string>();
-      const rewritten = new Map<string, string>();
-      for (const footprint of footprints) {
-        for (const entry of footprint.removed) removed.add(footprintKey(path, entry, platform));
-        for (const entry of footprint.rewritten)
-          rewritten.set(footprintKey(path, entry.path, platform), entry.content);
-      }
-      return { removed, rewritten } satisfies GentleAiPlainFootprint;
+      if (footprint.unsimulated.length > 0) return null;
+      return {
+        removed: new Set(footprint.removed.map((entry) => footprintKey(path, entry, platform))),
+        rewritten: new Map(
+          footprint.rewritten.map((entry) => [
+            footprintKey(path, entry.path, platform),
+            entry.content,
+          ]),
+        ),
+      } satisfies GentleAiPlainFootprint;
     }).pipe(
       provide,
       // An older gentle-ai without the method, or any failure: use the built-in lists.

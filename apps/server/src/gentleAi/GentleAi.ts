@@ -257,17 +257,6 @@ export const make = Effect.gen(function* () {
     );
     const version = /(\d+\.\d+\.\d+[\w.+-]*)/.exec(versionRun?.output ?? "")?.[1] ?? null;
     if (version === null) return NOT_INSTALLED;
-    // gentle-ai keeps its state under the user's home, which it resolves like Go does.
-    const home =
-      (hostPlatform === "win32" ? environment.USERPROFILE : environment.HOME) || NodeOS.homedir();
-    const statePath = path.join(home, ".gentle-ai", "state.json");
-    const state = (yield* fileSystem.exists(statePath).pipe(Effect.orElseSucceed(() => false)))
-      ? yield* fileSystem.readFileString(statePath).pipe(
-          Effect.flatMap(decodeStateFile),
-          Effect.orElseSucceed(() => null),
-        )
-      : null;
-    const agents = state?.installed_agents ?? [];
     const describe = yield* runGentleAiApi({
       binaryPath,
       method: "describe",
@@ -279,6 +268,50 @@ export const make = Effect.gen(function* () {
       provide,
       Effect.orElseSucceed(() => null),
     );
+    // A gentle-ai with the API answers everything here; its state file stays its own.
+    const api =
+      describe === null
+        ? null
+        : yield* runGentleAiApi({
+            binaryPath,
+            method: "status",
+            params: {},
+            environment,
+            timeout: "30 seconds",
+          }).pipe(
+            Effect.flatMap(GENTLE_AI_METHODS.status.decodeResult),
+            provide,
+            Effect.orElseSucceed(() => null),
+          );
+    if (describe !== null && api !== null) {
+      const agents = api.agents.filter((agent) => agent.installed).map((agent) => agent.id);
+      return {
+        apiVersion: describe.apiVersion,
+        sdd: describe.features?.includes("sdd") === true,
+        installed: true,
+        version,
+        binaryPath,
+        agents,
+        drivers: gentleAiDrivers(agents),
+        preset: api.state.preset ?? null,
+        persona: api.state.persona ?? null,
+        components: api.components
+          .filter((component) => component.installed)
+          .map((component) => component.id),
+        syncNeeded: api.state.syncNeeded ?? api.state.pendingSync,
+      } satisfies GentleAiStatus;
+    }
+    // Older gentle-ai: read its state file, and tell SDD from its commands.
+    const home =
+      (hostPlatform === "win32" ? environment.USERPROFILE : environment.HOME) || NodeOS.homedir();
+    const statePath = path.join(home, ".gentle-ai", "state.json");
+    const state = (yield* fileSystem.exists(statePath).pipe(Effect.orElseSucceed(() => false)))
+      ? yield* fileSystem.readFileString(statePath).pipe(
+          Effect.flatMap(decodeStateFile),
+          Effect.orElseSucceed(() => null),
+        )
+      : null;
+    const agents = state?.installed_agents ?? [];
     const help = yield* run(binaryPath, ["help"], "15 seconds").pipe(
       Effect.orElseSucceed(() => null),
     );

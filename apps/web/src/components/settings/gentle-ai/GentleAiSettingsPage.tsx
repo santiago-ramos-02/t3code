@@ -1,3 +1,4 @@
+import { gentleAiSyncNeeded } from "@t3tools/client-runtime/gentle-ai";
 import type {
   EnvironmentId,
   GentleAiApiStatus,
@@ -228,7 +229,7 @@ function GentleAiOverviewSection({
       <SettingsRow
         title="Agent files"
         description={
-          status.state.pendingSync
+          gentleAiSyncNeeded(status)
             ? "Gentle AI changed since it last updated your agents. Sync brings them up to date."
             : status.state.lastSyncedAt
               ? `Up to date. Last synced ${new Date(status.state.lastSyncedAt).toLocaleString()}.`
@@ -237,7 +238,7 @@ function GentleAiOverviewSection({
         control={
           <Button
             size="sm"
-            variant={status.state.pendingSync ? "default" : "outline"}
+            variant={gentleAiSyncNeeded(status) ? "default" : "outline"}
             disabled={disabled}
             onClick={() => run(startJob("sync", {}))}
           >

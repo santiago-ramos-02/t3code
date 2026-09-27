@@ -214,7 +214,8 @@ if (command === "version") { process.stdout.write("gentle-ai 3.8.0\\n"); process
 if (command !== "api") process.exit(3);
 const params = JSON.parse(fs.readFileSync(0, "utf8") || "{}");
 const line = (value) => process.stdout.write(JSON.stringify({ schema: "gentle-ai.api/v1", ...value }) + "\\n");
-if (method === "describe") line({ type: "result", data: { version: "3.8.0", apiVersion: 1, methods: ["describe"] } });
+if (method === "describe") line({ type: "result", data: { version: "3.8.0", apiVersion: 1, methods: ["describe", "status"], features: ["odd"] } });
+else if (method === "status") line({ type: "result", data: { version: "3.8.0", system: { os: "linux", arch: "amd64", shell: "bash", supported: true }, agents: [{ id: "codex", name: "Codex", detected: true, installed: true, supported: true, configPath: "" }, { id: "claude-code", name: "Claude Code", detected: true, installed: false, supported: true, configPath: "" }], components: [{ id: "engram", name: "Engram", description: "", installed: true, requires: [] }], presets: [], personas: [], skills: [], state: { preset: "full-gentleman", pendingSync: false, syncNeeded: true, background: {} }, openCodeDetected: false, builderEngines: [] } });
 else if (method === "backups.list") line({ type: "result", data: { backups: [{ id: "b1", createdAt: "2026-09-01T00:00:00Z", source: "install", description: params.note ?? "Before install", fileCount: 3, createdByVersion: "3.8.0", pinned: false }] } });
 else if (method === "doctor") line({ type: "result", data: { checks: "not a list" } });
 else if (method === "sync") {
@@ -254,7 +255,15 @@ else line({ type: "error", error: { code: "unsupported", message: "unknown metho
         const service = Context.get(context, GentleAi);
         yield* service.refresh;
         // A gentle-ai with the API and without SDD (it moved to ODD) lists no SDD changes.
-        expect(yield* service.current).toMatchObject({ apiVersion: 1, sdd: false });
+        // Everything comes from the API: no state file here, and SDD from describe's features.
+        expect(yield* service.current).toMatchObject({
+          apiVersion: 1,
+          sdd: false,
+          agents: ["codex"],
+          components: ["engram"],
+          preset: "full-gentleman",
+          syncNeeded: true,
+        });
         expect((yield* Effect.flip(service.sddChanges(home))).detail).toContain("uses ODD");
 
         expect(yield* service.query("backups.list", {})).toEqual({

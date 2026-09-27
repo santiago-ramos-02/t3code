@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { gentleAiAgentList, gentleAiModelAgent, gentleAiModelsAllDefault } from "./gentleAi.ts";
+import {
+  gentleAiAgentList,
+  gentleAiModelAgent,
+  gentleAiModelsAllDefault,
+  gentleAiSyncNeeded,
+} from "./gentleAi.ts";
 
 const agent = (
   id: string,
@@ -49,5 +54,17 @@ describe("gentleAiModelsAllDefault", () => {
     expect(
       gentleAiModelsAllDefault({ codexOrchestratorAssignment: { model: "gpt", effort: "high" } }),
     ).toBe(false);
+  });
+});
+
+describe("gentleAiSyncNeeded", () => {
+  it("prefers gentle-ai's own answer, which also counts a version change", () => {
+    const state = (fields: { pendingSync: boolean; syncNeeded?: boolean }) => ({
+      state: { ...fields, background: {} },
+    });
+    expect(gentleAiSyncNeeded(state({ pendingSync: false, syncNeeded: true }))).toBe(true);
+    expect(gentleAiSyncNeeded(state({ pendingSync: true, syncNeeded: false }))).toBe(false);
+    // Builds before syncNeeded report only a pending sync.
+    expect(gentleAiSyncNeeded(state({ pendingSync: true }))).toBe(true);
   });
 });

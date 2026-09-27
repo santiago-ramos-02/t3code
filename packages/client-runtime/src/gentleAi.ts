@@ -74,3 +74,8 @@ export function gentleAiModelsAllDefault(value: GentleAiModels): boolean {
         : typeof entry === "object" && Object.keys(entry).length === 0),
   );
 }
+
+/** Whether the agents' files are behind the installed gentle-ai, so a sync would update them. */
+export function gentleAiSyncNeeded(status: Pick<GentleAiApiStatus, "state">): boolean {
+  return status.state.syncNeeded ?? status.state.pendingSync;
+}

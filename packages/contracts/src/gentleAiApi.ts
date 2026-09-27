@@ -109,6 +109,8 @@ export const GentleAiApiStatus = Schema.Struct({
     persona: Opt(Id),
     rddMode: Opt(Id),
     pendingSync: Schema.Boolean,
+    // The agents' files are behind this gentle-ai; absent from builds before it was reported.
+    syncNeeded: Opt(Schema.Boolean),
     lastSyncedAt: Opt(Schema.String),
     background: Schema.Struct({ opencode: Opt(Id), pi: Opt(Id) }),
   }),
