@@ -63,12 +63,14 @@ describe("setup wizard", () => {
       rdd: false,
       background: { opencode: "auto", pi: "on" },
     });
+    // Adding one agent keeps the agents already set up, so the install does not drop them.
+    expect(initialSetupDraft(setUp, "claude-code").agents).toEqual(["codex", "claude-code"]);
+    expect(initialSetupDraft(setUp, "codex").agents).toEqual(["codex"]);
   });
 
   it("sends only what the plan asks, with model presets and custom models apart", () => {
     const draft = {
       ...initialSetupDraft(status()),
-      communityTools: ["codegraph"],
       models: {
         "claude-code": { preset: "balanced" },
         codex: { models: { codexModelAssignments: { "sdd-apply": "high" } } },
@@ -76,7 +78,14 @@ describe("setup wizard", () => {
         opencode: { preset: "economy" },
       },
     };
-    expect(installParams(status(), draft, plan(["claudeModels", "codexModels", "rdd"]))).toEqual({
+    // Community tools are never sent, so gentle-ai keeps the ones already recorded.
+    expect(
+      installParams(
+        status(),
+        draft,
+        plan(["claudeModels", "codexModels", "rdd", "communityTools"]),
+      ),
+    ).toEqual({
       selection: {
         agents: ["claude-code", "codex"],
         persona: "gentleman",

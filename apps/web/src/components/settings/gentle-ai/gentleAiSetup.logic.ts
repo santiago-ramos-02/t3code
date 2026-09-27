@@ -15,7 +15,6 @@ export interface GentleAiSetupDraft {
   readonly components: ReadonlyArray<string>;
   readonly skills: ReadonlyArray<string>;
   readonly rdd: boolean;
-  readonly communityTools: ReadonlyArray<string>;
   readonly openCodePlugins: ReadonlyArray<string>;
   readonly background: {
     readonly opencode: "auto" | "on" | "off";
@@ -33,9 +32,13 @@ export const CUSTOM_PRESET = "custom";
 
 /**
  * The wizard's starting point, like the TUI's: what gentle-ai recorded choosing, else the agents
- * it detects, else nothing selected so the user picks.
+ * it detects, else nothing selected so the user picks. `addAgent` joins the agents already set up:
+ * an install replaces gentle-ai's list of set-up agents, so leaving them out would drop them.
  */
-export function initialSetupDraft(status: GentleAiApiStatus): GentleAiSetupDraft {
+export function initialSetupDraft(
+  status: GentleAiApiStatus,
+  addAgent?: string,
+): GentleAiSetupDraft {
   const installed = status.agents.filter((agent) => agent.installed).map((agent) => agent.id);
   const detected = status.agents.filter((agent) => agent.detected).map((agent) => agent.id);
   const preset =
@@ -44,7 +47,12 @@ export function initialSetupDraft(status: GentleAiApiStatus): GentleAiSetupDraft
     status.presets[0]?.id ??
     CUSTOM_PRESET;
   return {
-    agents: installed.length > 0 ? installed : detected,
+    agents:
+      addAgent !== undefined
+        ? [...new Set([...installed, addAgent])]
+        : installed.length > 0
+          ? installed
+          : detected,
     persona: status.state.persona ?? status.personas[0]?.id ?? "",
     preset,
     components: status.components
@@ -55,7 +63,6 @@ export function initialSetupDraft(status: GentleAiApiStatus): GentleAiSetupDraft
       ? status.skills.filter((skill) => skill.installed).map((skill) => skill.id)
       : status.skills.map((skill) => skill.id),
     rdd: status.state.rddMode !== "off",
-    communityTools: [],
     openCodePlugins: [],
     background: {
       opencode: backgroundChoice(status.state.background.opencode),
@@ -105,7 +112,10 @@ export function plannedModelAgents(plan: GentleAiPlan | null): ReadonlyArray<Gen
   );
 }
 
-/** The `install` params for a finished draft, asking only what the plan asks. */
+/**
+ * The `install` params for a finished draft, asking only what the plan asks. Community tools are
+ * left out: they are managed per project, and gentle-ai keeps the recorded ones when omitted.
+ */
 export function installParams(
   status: GentleAiApiStatus,
   draft: GentleAiSetupDraft,
@@ -126,7 +136,6 @@ export function installParams(
     selection: draftSelection(status, draft),
     ...(Object.keys(modelPresets).length > 0 ? { modelPresets } : {}),
     ...(models === undefined ? {} : { models }),
-    ...(asks("communityTools") ? { communityTools: [...draft.communityTools] } : {}),
     ...(asks("openCodePlugins") ? { openCodePlugins: [...draft.openCodePlugins] } : {}),
     ...(asks("rdd") ? { rdd: draft.rdd } : {}),
     ...(asks("openCodeBackground") || asks("piBackground")

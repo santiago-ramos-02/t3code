@@ -53,8 +53,9 @@ such as `/gentle:status` or `/gentle:doctor`, show it in the thread. Commands
 that only drive Pi's terminal interface, such as `/gentle:profiles`, are not
 offered; T3 Code's own profile and model routing settings replace them.
 
-Open **Settings > Gentle AI** to choose the global persona and manage model
-profiles. The active global profile applies unless the repository declares one
+Open **Settings > Gentle AI** and pick **Pi** under **Agents** to choose the
+global persona and manage model profiles. With an older gentle-ai, these
+settings are on the page itself. The active global profile applies unless the repository declares one
 or the local clone has a pin. The **Project overrides** section shows which
 source applies and lets you pin a profile or override the persona. As in Pi,
 activating a profile also makes its `orchestrator` entry Pi's default model.
@@ -80,7 +81,7 @@ without one, Gentle AI saves artifacts as OpenSpec project files instead and
 setup tells you. The choices are saved in the project's
 `.pi/gentle-ai/sdd-preflight.json`. Commit that file so the whole team uses the
 same choices. Change them later from **SDD preferences** in the same dropdown or
-in **Settings > Gentle AI**; on mobile, also in **Project overview**. The first
+in Pi's settings on **Settings > Gentle AI**; on mobile, also in **Project overview**. The first
 time each thread uses SDD, Gentle AI asks you to confirm the choices. A profile
 pinned for a checkout stays on your machine.
 

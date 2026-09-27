@@ -284,7 +284,8 @@ export const GentleAiPlugins = Schema.Struct({
       id: Id,
       name: Schema.String,
       description: Schema.String,
-      repoUrl: Schema.String,
+      // Absent for an installed plugin gentle-ai no longer offers; it can still be removed.
+      repoUrl: Opt(Schema.String),
       installed: Schema.Boolean,
     }),
   ),

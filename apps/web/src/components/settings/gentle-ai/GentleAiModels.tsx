@@ -1,45 +1,24 @@
 import type { GentleAiModelAgent, GentleAiModelConfig, GentleAiModels } from "@t3tools/contracts";
+import { gentleAiModelAgent, gentleAiModelsAllDefault } from "@t3tools/client-runtime/gentle-ai";
 import { useState } from "react";
 
 import { Button } from "../../ui/button";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../../ui/select";
 import { Spinner } from "../../ui/spinner";
-import { SettingsRow, SettingsSection } from "../settingsLayout";
+import { SettingsRow } from "../settingsLayout";
 import { GentleAiFlowFooter, GentleAiFlowHeader, GentleAiFlowPanel } from "./GentleAiFlow";
 import { GentleAiModelEditor } from "./GentleAiModelEditor";
 import { agentModels, resetAgentModels } from "./GentleAiModelEditor.logic";
 import type { GentleAiSectionProps } from "./GentleAiSettingsPage";
 import { useGentleAiQuery } from "./useGentleAi";
 
-const MODEL_AGENTS = [
-  "claude-code",
-  "codex",
-  "kiro-ide",
-  "opencode",
-] as const satisfies ReadonlyArray<GentleAiModelAgent>;
 // Codex and OpenCode list the models their CLI can reach, which takes a moment to discover.
 const DISCOVERS: ReadonlySet<GentleAiModelAgent> = new Set(["codex", "opencode"]);
 // Select value shown while the agent's choices match no preset.
 const CUSTOM = "__custom__";
 
-/** Which model each phase of Gentle AI's workflows runs on, per agent Gentle AI set up. */
-export function GentleAiModelsSection(props: GentleAiSectionProps) {
-  const agents = props.status.agents.flatMap((agent) => {
-    const id = MODEL_AGENTS.find((candidate) => candidate === agent.id);
-    return agent.installed && id !== undefined ? [{ id, name: agent.name }] : [];
-  });
-  if (agents.length === 0) return null;
-
-  return (
-    <SettingsSection title="Models">
-      {agents.map((agent) => (
-        <AgentModelsRow key={agent.id} {...props} agent={agent.id} name={agent.name} />
-      ))}
-    </SettingsSection>
-  );
-}
-
-function AgentModelsRow({
+/** Which model each phase of Gentle AI's workflow runs on in one agent: a preset, or custom. */
+export function GentleAiAgentModelsRow({
   environmentId,
   disabled,
   startJob,
@@ -53,17 +32,23 @@ function AgentModelsRow({
     void promise.then((error) => (error ? onError(error) : undefined));
   const data = config.data;
   const preset = data?.presets.find((entry) => entry.id === data.currentPreset);
+  // gentle-ai reports no preset both for custom choices and for none at all.
+  const allDefault =
+    data !== null && data.currentPreset === null && gentleAiModelsAllDefault(data.current);
+  const presetLabel = preset?.label ?? data?.currentPreset ?? (allDefault ? "Default" : "Custom");
 
   return (
     <SettingsRow
-      title={name}
+      title="Models"
       description={
         config.error ??
         (data === null
           ? "Reading model choices…"
-          : data.currentPreset === null
-            ? "Custom models per phase."
-            : (preset?.description ?? null))
+          : allDefault
+            ? "Every phase uses Gentle AI's default model."
+            : data.currentPreset === null
+              ? "Custom models per phase."
+              : (preset?.description ?? "The model each phase of Gentle AI's workflow uses."))
       }
       control={
         <div className="flex items-center gap-2">
@@ -82,15 +67,13 @@ function AgentModelsRow({
             >
               <SelectTrigger size="sm" className="w-40" aria-label={`${name} model preset`}>
                 <SelectValue>
-                  <span className="truncate">
-                    {preset?.label ?? data.currentPreset ?? "Custom"}
-                  </span>
+                  <span className="truncate">{presetLabel}</span>
                 </SelectValue>
               </SelectTrigger>
               <SelectPopup align="end">
                 {data.currentPreset === null ? (
                   <SelectItem value={CUSTOM} disabled>
-                    Custom
+                    {presetLabel}
                   </SelectItem>
                 ) : null}
                 {data.presets.map((entry) => (
@@ -125,7 +108,7 @@ export function GentleAiModelsFlow({
   agent: agentId,
   onClose,
 }: GentleAiSectionProps & { readonly agent: string; readonly onClose: () => void }) {
-  const agent = MODEL_AGENTS.find((candidate) => candidate === agentId) ?? null;
+  const agent = gentleAiModelAgent(agentId);
   const name = status.agents.find((entry) => entry.id === agentId)?.name ?? agentId;
   const discovers = agent !== null && DISCOVERS.has(agent);
   const config = useGentleAiQuery(

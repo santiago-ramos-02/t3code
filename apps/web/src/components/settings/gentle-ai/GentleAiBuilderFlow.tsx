@@ -7,7 +7,6 @@ import { Radio, RadioGroup } from "../../ui/radio-group";
 import { Spinner } from "../../ui/spinner";
 import { Textarea } from "../../ui/textarea";
 import { WizardSteps } from "../../ui/wizard";
-import { SettingsRow, SettingsSection } from "../settingsLayout";
 import { GentleAiFlowFooter, GentleAiFlowHeader, GentleAiFlowPanel } from "./GentleAiFlow";
 import { gentleAiNames } from "./gentleAiSections.logic";
 import type { GentleAiSectionProps } from "./GentleAiSettingsPage";
@@ -17,43 +16,6 @@ const STEPS = ["Engine", "Describe", "Generate"] as const;
 
 type Engines = GentleAiResult<"builder.engines">["engines"];
 
-/** Custom agents: gentle-ai generates one from a description with an installed agent, then installs it. */
-export function GentleAiBuilderSection(props: GentleAiSectionProps) {
-  const engines = useGentleAiQuery(props.environmentId, "builder.engines", {});
-  const list = engines.data?.engines ?? [];
-  const available = list.some((engine) => engine.available);
-
-  return (
-    <SettingsSection
-      title="Custom agents"
-      headerAction={
-        engines.isPending && engines.data === null ? <Spinner className="size-3.5" /> : null
-      }
-    >
-      <SettingsRow
-        title="Create an agent"
-        description={
-          engines.error
-            ? engines.error
-            : engines.data !== null && !available
-              ? "Generating an agent needs Claude Code, OpenCode, Gemini CLI, or Codex installed on this environment."
-              : "Describe what it should do. An installed agent writes it, and Gentle AI installs it in every agent it set up."
-        }
-        control={
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={props.readOnly || !available}
-            onClick={() => props.openFlow({ kind: "builder" })}
-          >
-            Create an agent
-          </Button>
-        }
-      />
-    </SettingsSection>
-  );
-}
-
 /** Creating an agent, in place of the page; waits for the engines list first. */
 export function GentleAiBuilderFlow(
   props: GentleAiSectionProps & { readonly onClose: () => void },
@@ -62,7 +24,7 @@ export function GentleAiBuilderFlow(
   if (engines.data === null)
     return (
       <section className="space-y-4">
-        <GentleAiFlowHeader title="Create an agent" onBack={props.onClose} />
+        <GentleAiFlowHeader title="Create a custom agent" onBack={props.onClose} />
         <GentleAiFlowPanel>
           <p className="flex items-center gap-2 text-muted-foreground text-sm">
             {engines.error ?? (
@@ -154,7 +116,11 @@ function BuilderWizard({
 
   return (
     <section className="space-y-4">
-      <GentleAiFlowHeader title="Create an agent" onBack={onClose}>
+      <GentleAiFlowHeader
+        title="Create a custom agent"
+        description="Describe what it should do. An agent you have installed writes it, and Gentle AI adds it to every agent it set up."
+        onBack={onClose}
+      >
         <WizardSteps
           steps={STEPS}
           currentStep={step}

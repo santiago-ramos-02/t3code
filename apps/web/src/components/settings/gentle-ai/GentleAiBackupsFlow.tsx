@@ -6,8 +6,10 @@ import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../../ui/menu";
 import { Spinner } from "../../ui/spinner";
-import { SettingsRow, SettingsSection } from "../settingsLayout";
+import { SettingsGroup } from "../SettingsGroup";
+import { SettingsRow } from "../settingsLayout";
 import { GentleAiConfirm } from "./GentleAiConfirm";
+import { GentleAiFlowHeader } from "./GentleAiFlow";
 import type { GentleAiSectionProps } from "./GentleAiSettingsPage";
 import { useGentleAiQuery } from "./useGentleAi";
 
@@ -18,13 +20,14 @@ function backupDate(value: string): string {
   return Number.isNaN(date.getTime()) ? value : dateFormat.format(date);
 }
 
-/** Gentle AI's backups: taken before installs, syncs, upgrades, and uninstalls. */
-export function GentleAiBackupsSection({
+/** Gentle AI's backups, in place of the page: taken before installs, syncs, upgrades, and uninstalls. */
+export function GentleAiBackupsFlow({
   environmentId,
   disabled,
   startJob,
   onError,
-}: GentleAiSectionProps) {
+  onClose,
+}: GentleAiSectionProps & { readonly onClose: () => void }) {
   const backups = useGentleAiQuery(environmentId, "backups.list", {});
   const [confirm, setConfirm] = useState<{
     kind: "restore" | "delete";
@@ -39,47 +42,48 @@ export function GentleAiBackupsSection({
     });
 
   return (
-    <SettingsSection
-      title="Backups"
-      headerAction={
-        backups.isPending && backups.data === null ? <Spinner className="size-3.5" /> : null
-      }
-    >
-      {backups.error ? (
-        <SettingsRow title="Backups unavailable" description={backups.error} />
-      ) : backups.data !== null && list.length === 0 ? (
-        <SettingsRow
-          title="No backups yet"
-          description="Gentle AI backs up agent files before it installs, syncs, upgrades, or uninstalls."
-        />
-      ) : (
-        list.map((backup) => (
-          <BackupRow
-            key={backup.id}
-            backup={backup}
-            disabled={disabled}
-            onRestore={() => setConfirm({ kind: "restore", backup })}
-            onDelete={() => setConfirm({ kind: "delete", backup })}
-            renaming={renaming?.backup.id === backup.id ? renaming.value : null}
-            onRename={() => setRenaming({ backup, value: backup.description })}
-            onRenameChange={(value) => setRenaming({ backup, value })}
-            onRenameCancel={() => setRenaming(null)}
-            onRenameSave={() => {
-              if (renaming === null || renaming.value.trim() === "") return;
-              run(
-                startJob("backups.rename", {
-                  id: renaming.backup.id,
-                  description: renaming.value.trim(),
-                }),
-              );
-              setRenaming(null);
-            }}
-            onTogglePin={() =>
-              run(startJob("backups.pin", { id: backup.id, pinned: !backup.pinned }))
-            }
-          />
-        ))
-      )}
+    <section className="space-y-4">
+      <GentleAiFlowHeader
+        title="Backups"
+        description="Gentle AI backs up agent files before it installs, syncs, upgrades, or uninstalls. Restoring puts those files back as they were."
+        onBack={onClose}
+      />
+      <SettingsGroup>
+        {backups.error ? (
+          <SettingsRow title="Backups unavailable" description={backups.error} />
+        ) : backups.data === null ? (
+          <SettingsRow title="Reading backups" control={<Spinner className="size-3.5" />} />
+        ) : list.length === 0 ? (
+          <SettingsRow title="No backups yet" />
+        ) : (
+          list.map((backup) => (
+            <BackupRow
+              key={backup.id}
+              backup={backup}
+              disabled={disabled}
+              onRestore={() => setConfirm({ kind: "restore", backup })}
+              onDelete={() => setConfirm({ kind: "delete", backup })}
+              renaming={renaming?.backup.id === backup.id ? renaming.value : null}
+              onRename={() => setRenaming({ backup, value: backup.description })}
+              onRenameChange={(value) => setRenaming({ backup, value })}
+              onRenameCancel={() => setRenaming(null)}
+              onRenameSave={() => {
+                if (renaming === null || renaming.value.trim() === "") return;
+                run(
+                  startJob("backups.rename", {
+                    id: renaming.backup.id,
+                    description: renaming.value.trim(),
+                  }),
+                );
+                setRenaming(null);
+              }}
+              onTogglePin={() =>
+                run(startJob("backups.pin", { id: backup.id, pinned: !backup.pinned }))
+              }
+            />
+          ))
+        )}
+      </SettingsGroup>
       <GentleAiConfirm
         open={confirm !== null}
         onOpenChange={(open) => (open ? undefined : setConfirm(null))}
@@ -100,7 +104,7 @@ export function GentleAiBackupsSection({
           );
         }}
       />
-    </SettingsSection>
+    </section>
   );
 }
 

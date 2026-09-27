@@ -8,7 +8,6 @@ import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../
 import { Spinner } from "../../ui/spinner";
 import { Switch } from "../../ui/switch";
 import { WizardSteps } from "../../ui/wizard";
-import { SettingsRow, SettingsSection } from "../settingsLayout";
 import { GentleAiFlowFooter, GentleAiFlowHeader, GentleAiFlowPanel } from "./GentleAiFlow";
 import { GentleAiModelEditor } from "./GentleAiModelEditor";
 import type { GentleAiSectionProps } from "./GentleAiSettingsPage";
@@ -32,9 +31,9 @@ const STEP_LABELS = {
   review: "Review",
 } satisfies Record<Step, string>;
 
+// Community tools are left out: they are managed per project on the page.
 const OPTION_QUESTIONS: ReadonlySet<string> = new Set([
   "rdd",
-  "communityTools",
   "openCodePlugins",
   "openCodeBackground",
   "piBackground",
@@ -52,45 +51,18 @@ function wizardSteps(plan: GentleAiPlan | null): ReadonlyArray<Step> {
   ];
 }
 
-/** What gentle-ai is set up with, and the wizard that changes it, like the TUI's installation. */
-export function GentleAiSetupSection(props: GentleAiSectionProps) {
-  const { status, disabled } = props;
-  const installed = status.agents.filter((agent) => agent.installed);
-  const preset = status.presets.find((entry) => entry.id === status.state.preset);
-  const persona = status.personas.find((entry) => entry.id === status.state.persona);
-  return (
-    <SettingsSection title="Setup">
-      <SettingsRow
-        title={
-          installed.length > 0 ? installed.map((agent) => agent.name).join(", ") : "Not set up yet"
-        }
-        description={
-          installed.length > 0
-            ? [preset?.label, persona ? `${persona.label} persona` : null]
-                .filter((part) => part !== null && part !== undefined)
-                .join(" · ")
-            : "Choose the agents to set up and what Gentle AI adds to them."
-        }
-        control={
-          <Button
-            size="sm"
-            variant={installed.length > 0 ? "outline" : "default"}
-            disabled={disabled}
-            onClick={() => props.openFlow({ kind: "setup" })}
-          >
-            {installed.length > 0 ? "Change setup" : "Set up"}
-          </Button>
-        }
-      />
-    </SettingsSection>
-  );
-}
-
-/** The setup flow, in place of the page: agents, style, the plan's options, then review. */
-export function GentleAiSetupFlow(props: GentleAiSectionProps & { readonly onClose: () => void }) {
-  const { environmentId, status, startJob, onError, projects } = props;
-  const [draft, setDraft] = useState<GentleAiSetupDraft>(() => initialSetupDraft(status));
-  const [stepIndex, setStepIndex] = useState(0);
+/**
+ * The setup flow, in place of the page: agents, style, the plan's options, then review. With an
+ * `agent` it sets up that one agent with the current choices, so it opens on the review.
+ */
+export function GentleAiSetupFlow(
+  props: GentleAiSectionProps & { readonly agent?: string; readonly onClose: () => void },
+) {
+  const { environmentId, status, startJob, onError, agent } = props;
+  const [draft, setDraft] = useState<GentleAiSetupDraft>(() => initialSetupDraft(status, agent));
+  // The step list depends on the plan, so "the last step" is any index past the end.
+  const [stepIndex, setStepIndex] = useState(agent === undefined ? 0 : Number.MAX_SAFE_INTEGER);
+  const agentName = status.agents.find((entry) => entry.id === agent)?.name;
   const update = (patch: Partial<GentleAiSetupDraft>) =>
     setDraft((current) => ({ ...current, ...patch }));
   const selection = draftSelection(status, draft);
@@ -121,8 +93,12 @@ export function GentleAiSetupFlow(props: GentleAiSectionProps & { readonly onClo
   return (
     <section className="space-y-4">
       <GentleAiFlowHeader
-        title="Set up Gentle AI"
-        description="Everything runs on this environment."
+        title={agentName === undefined ? "Change setup" : `Set up ${agentName}`}
+        description={
+          agentName === undefined
+            ? "Choose the agents Gentle AI sets up and what it adds to them."
+            : `Adds Gentle AI to ${agentName} with your current setup. Review it, or go back to change anything.`
+        }
         onBack={props.onClose}
       >
         <WizardSteps
@@ -139,11 +115,10 @@ export function GentleAiSetupFlow(props: GentleAiSectionProps & { readonly onClo
           <StyleStep status={status} draft={draft} update={update} />
         ) : step === "options" ? (
           <OptionsStep
-            {...props}
+            environmentId={environmentId}
             plan={plan.data}
             draft={draft}
             update={update}
-            projects={projects}
           />
         ) : step === "models" ? (
           <ModelsStep
@@ -358,18 +333,11 @@ function OptionsStep({
   plan,
   draft,
   update,
-  projects,
-}: GentleAiSectionProps & Omit<StepProps, "status"> & { readonly plan: GentleAiPlan | null }) {
+}: Omit<StepProps, "status"> & {
+  readonly environmentId: GentleAiSectionProps["environmentId"];
+  readonly plan: GentleAiPlan | null;
+}) {
   const asks = (question: string) => plan?.questions.includes(question) === true;
-  const cwd = projects[0]?.cwd;
-  const tools = useGentleAiQuery(
-    environmentId,
-    "tools.list",
-    { cwd: cwd ?? "" },
-    {
-      enabled: asks("communityTools") && cwd !== undefined,
-    },
-  );
   const plugins = useGentleAiQuery(
     environmentId,
     "plugins.list",
@@ -380,8 +348,8 @@ function OptionsStep({
     <div className="grid gap-3">
       {asks("rdd") ? (
         <OptionRow
-          label="Receipt-driven development"
-          detail="An independent review checks changes before delivery."
+          label="Review changes before delivery"
+          detail="An independent review checks agents' code changes before they hand them off."
           control={<Switch checked={draft.rdd} onCheckedChange={(rdd) => update({ rdd })} />}
         />
       ) : null}
@@ -423,30 +391,6 @@ function OptionsStep({
               />
             ))}
         </>
-      ) : null}
-      {asks("communityTools") ? (
-        <div className="grid gap-1">
-          <StepHeading>Community tools</StepHeading>
-          {cwd === undefined ? (
-            <p className="text-muted-foreground text-xs">
-              Add a project to install community tools.
-            </p>
-          ) : tools.data === null ? (
-            <Spinner className="size-3.5" />
-          ) : (
-            tools.data.tools.map((tool) => (
-              <CheckRow
-                key={tool.id}
-                checked={draft.communityTools.includes(tool.id)}
-                onChange={(on) =>
-                  update({ communityTools: toggled(draft.communityTools, tool.id, on) })
-                }
-                label={tool.name}
-                detail={tool.description}
-              />
-            ))
-          )}
-        </div>
       ) : null}
       {asks("openCodePlugins") ? (
         <div className="grid gap-1">
@@ -552,7 +496,7 @@ function AgentModels({
     <div className="grid gap-2">
       <OptionRow
         label={name}
-        detail="The model each SDD phase and review uses."
+        detail="The model each phase of Gentle AI's workflow uses."
         control={
           <Select
             value={selected}

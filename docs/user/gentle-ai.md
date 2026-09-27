@@ -16,33 +16,39 @@ need their own installation.
 environment, or a provider runs with it. What it offers depends on the gentle-ai
 version.
 
-With a gentle-ai that has the headless API, the page manages Gentle AI the way
-its own menu does, on the environment it runs on:
+With a gentle-ai that has the headless API, the page manages Gentle AI on the
+environment it runs on, organized around your agents:
 
-- **Setup** chooses the agents, persona, preset, components, and the options
-  gentle-ai asks for, then installs.
-- **Updates** checks for new versions and upgrades, with or without a sync.
-  **Sync** rewrites Gentle AI's files in every agent it set up.
-- **Models** picks a preset or each role's model for Claude Code, Codex, Kiro,
-  and OpenCode.
-- **Custom agents** has an installed agent write a new one from your
-  description, then installs it.
-- **Community tools**, **OpenCode plugins**, **Receipt-driven development**,
-  and the **Review store** match gentle-ai's own options.
-- **Backups** restores, renames, pins, or deletes the snapshots gentle-ai takes
-  before changing files. **Uninstall** removes what it set up.
+- **Agents** lists every agent found on the environment and whether Gentle AI
+  is set up in it. Pick one to see what Gentle AI does there: its models,
+  OpenCode's plugins, or gentle-pi's profiles for Pi. **Set up** adds Gentle AI
+  to an agent with the setup your other agents use, and **Remove Gentle AI**
+  takes it out of that agent alone.
+- **For every agent** shows what Gentle AI installs everywhere. **Change**
+  opens the full setup: agents, persona, preset, and components. **Review before
+  delivery** turns on an independent review of agents' code changes, and
+  **Custom agents** has an installed agent write a new one from your
+  description.
+- **Project** holds what applies to one project: skipping the review there, its
+  review history, and community tools such as CodeGraph.
+- **Maintenance** has backups of the files Gentle AI changed, a health check,
+  and removing Gentle AI from some or all agents.
 
-Long tasks run on the environment and show their progress on the page, so you
-can leave and come back, or follow them from another device. Setting up and
-other multi-step tasks open in place of the page; the back arrow returns to it.
+**Update** appears when Gentle AI or its tools have a new version, and also
+brings your agents' files up to date. **Sync** does only the latter.
+
+Long tasks run on the environment and show their progress at the top of the
+page, so you can leave and come back, or follow them from another device.
+Setting up and other multi-step tasks open in place of the page; the back arrow
+returns to it.
 
 With an older gentle-ai, the page offers sync, update checks, upgrade, and
 doctor. Set **Binary path** when `gentle-ai` is not on the environment's `PATH`.
 Left empty, T3 Code also finds the copy gentle-pi bundles.
 
-On mobile, **Settings > Gentle AI** shows task progress and offers updates,
-sync, model presets, and backups. Set up Gentle AI, customize models, and
-create agents from web or desktop.
+On mobile, **Settings > Gentle AI** shows task progress, updates, sync, your
+agents with their model presets, and backups. Set up or remove agents,
+customize models, and create agents from web or desktop.
 
 ## Turn Gentle AI off for a thread
 

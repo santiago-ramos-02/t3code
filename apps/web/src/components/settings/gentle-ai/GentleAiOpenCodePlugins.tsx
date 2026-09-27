@@ -11,13 +11,13 @@ import { useGentleAiQuery } from "./useGentleAi";
 const runWith = (onError: (message: string) => void) => (promise: Promise<string | null>) =>
   void promise.then((error) => (error ? onError(error) : undefined));
 
-/** What Gentle AI adds to OpenCode: its community plugins. */
-export function GentleAiOpenCodeSection(props: GentleAiSectionProps) {
-  if (!props.status.openCodeDetected) return null;
-  return <PluginsSection {...props} />;
-}
-
-function PluginsSection({ environmentId, disabled, startJob, onError }: GentleAiSectionProps) {
+/** OpenCode community plugins Gentle AI can install, shown on OpenCode's agent panel. */
+export function GentleAiOpenCodePlugins({
+  environmentId,
+  disabled,
+  startJob,
+  onError,
+}: GentleAiSectionProps) {
   const plugins = useGentleAiQuery(environmentId, "plugins.list", {});
   const [removing, setRemoving] = useState<{ readonly id: string; readonly name: string } | null>(
     null,
@@ -27,7 +27,7 @@ function PluginsSection({ environmentId, disabled, startJob, onError }: GentleAi
 
   return (
     <SettingsSection
-      title="OpenCode plugins"
+      title="Plugins"
       headerAction={plugins.isPending && data === null ? <Spinner className="size-3.5" /> : null}
     >
       {plugins.error ? (
@@ -49,17 +49,19 @@ function PluginsSection({ environmentId, disabled, startJob, onError }: GentleAi
             title={
               <span className="flex min-w-0 items-center gap-1.5">
                 <span className="truncate">{plugin.name}</span>
-                <Button
-                  size="icon-micro"
-                  variant="ghost-muted"
-                  aria-label={`${plugin.name} repository`}
-                  render={<a href={plugin.repoUrl} rel="noreferrer" target="_blank" />}
-                >
-                  <ExternalLinkIcon aria-hidden />
-                </Button>
+                {plugin.repoUrl ? (
+                  <Button
+                    size="icon-micro"
+                    variant="ghost-muted"
+                    aria-label={`${plugin.name} repository`}
+                    render={<a href={plugin.repoUrl} rel="noreferrer" target="_blank" />}
+                  >
+                    <ExternalLinkIcon aria-hidden />
+                  </Button>
+                ) : null}
               </span>
             }
-            description={plugin.description}
+            description={plugin.description || "No longer offered by Gentle AI."}
             control={
               plugin.installed ? (
                 <Button

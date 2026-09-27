@@ -1,32 +1,15 @@
-import type { GentleAiJob, GentleAiJobMethod } from "@t3tools/contracts";
+import { GENTLE_AI_JOB_LABELS } from "@t3tools/client-runtime/gentle-ai";
+import type { GentleAiJob } from "@t3tools/contracts";
 import { CheckIcon, ChevronRightIcon, CircleAlertIcon, MinusIcon } from "lucide-react";
 import { useState } from "react";
+
+import { Button } from "../../ui/button";
 
 import { cn } from "../../../lib/utils";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../../ui/collapsible";
 import { Spinner } from "../../ui/spinner";
 import { SettingsRow, SettingsSection } from "../settingsLayout";
 import { gentleAiJobResult } from "./useGentleAi";
-
-/** What each job is called while it runs and after. */
-export const GENTLE_AI_JOB_LABELS = {
-  install: "Setting up Gentle AI",
-  sync: "Syncing agent files",
-  upgrade: "Upgrading tools",
-  "models.set": "Applying models",
-  "backups.restore": "Restoring backup",
-  "backups.delete": "Deleting backup",
-  "backups.rename": "Renaming backup",
-  "backups.pin": "Updating backup",
-  "plugins.install": "Installing OpenCode plugins",
-  "plugins.uninstall": "Removing OpenCode plugin",
-  "tools.install": "Installing community tools",
-  "builder.generate": "Generating agent",
-  "builder.install": "Installing agent",
-  "review.set": "Changing RDD",
-  "reviewStore.reset": "Resetting review store",
-  "uninstall.run": "Uninstalling",
-} satisfies Record<GentleAiJobMethod, string>;
 
 /** What a sync changed: the files it rewrote and anything left to do by hand. */
 function syncOutcome(job: GentleAiJob) {
@@ -55,9 +38,32 @@ function StepIcon({ status }: { readonly status: GentleAiJob["steps"][number]["s
   return <MinusIcon className="size-3.5 text-muted-foreground" aria-label="Skipped" />;
 }
 
+/** One line on where a job is: its current step while running, else how its steps ended. */
+function jobProgress(job: GentleAiJob, names: ReadonlyMap<string, string>): string | null {
+  const total = job.steps.length;
+  if (total === 0) return null;
+  const done = job.steps.filter((step) => step.status !== "running").length;
+  if (job.phase === "running") {
+    const current = job.steps.findLast((step) => step.status === "running");
+    return current === undefined
+      ? `${done} of ${total} steps`
+      : `Step ${done + 1} of ${total}: ${gentleAiStepLabel(current.id, names)}`;
+  }
+  const failed = job.steps.filter((step) => step.status === "failed").length;
+  const skipped = job.steps.filter((step) => step.status === "skipped").length;
+  return [
+    `${total - failed - skipped} of ${total} steps done`,
+    failed > 0 ? `${failed} failed` : null,
+    skipped > 0 ? `${skipped} skipped` : null,
+  ]
+    .filter((part) => part !== null)
+    .join(" · ");
+}
+
 /**
- * The environment's running or last Gentle AI job: its steps, output, and outcome. Jobs run on
- * the server, so this reflects work any client started, and survives closing the page.
+ * The environment's running or last Gentle AI job, as one row: where it is, then how it ended,
+ * with its steps and output behind Details. Jobs run on the server, so this reflects work any
+ * client started, and survives closing the page. A finished job can be dismissed.
  */
 export function GentleAiJobPanel({
   job,
@@ -66,40 +72,56 @@ export function GentleAiJobPanel({
   readonly job: GentleAiJob | null;
   readonly names: ReadonlyMap<string, string>;
 }) {
-  const [logOpen, setLogOpen] = useState(false);
-  if (job === null) return null;
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [dismissed, setDismissed] = useState<string | null>(null);
+  if (job === null || job.id === dismissed) return null;
   const title = GENTLE_AI_JOB_LABELS[job.method];
   const outcome = syncOutcome(job);
+  const failedSteps = job.steps.filter((step) => step.error);
   return (
-    <SettingsSection
-      title={
-        job.phase === "running"
-          ? title
-          : job.phase === "succeeded"
-            ? `${title}: done`
-            : `${title}: failed`
-      }
-      headerAction={job.phase === "running" ? <Spinner className="size-3.5" /> : null}
-    >
-      {job.error ? (
-        <SettingsRow
-          title="What went wrong"
-          status={
+    <SettingsSection title={job.phase === "running" ? "In progress" : "Last change"}>
+      <SettingsRow
+        title={
+          <span className="flex items-center gap-2">
+            {job.phase === "running" ? (
+              <Spinner className="size-3.5" />
+            ) : job.phase === "succeeded" ? (
+              <CheckIcon className="size-3.5 text-success" aria-hidden />
+            ) : (
+              <CircleAlertIcon className="size-3.5 text-destructive" aria-hidden />
+            )}
+            {job.phase === "running"
+              ? title
+              : job.phase === "succeeded"
+                ? `${title}: done`
+                : `${title}: failed`}
+          </span>
+        }
+        description={
+          outcome === null
+            ? jobProgress(job, names)
+            : outcome.files === 0
+              ? "No files changed."
+              : `${outcome.files} ${outcome.files === 1 ? "file" : "files"} updated.`
+        }
+        status={
+          job.error || failedSteps.length > 0 ? (
             <span role="alert" className="text-destructive">
-              {job.error}
+              {job.error ??
+                failedSteps
+                  .map((step) => `${gentleAiStepLabel(step.id, names)}: ${step.error}`)
+                  .join(" · ")}
             </span>
-          }
-        />
-      ) : null}
-      {outcome !== null ? (
-        <SettingsRow
-          title={
-            outcome.files === 0
-              ? "No files changed"
-              : `${outcome.files} ${outcome.files === 1 ? "file" : "files"} updated`
-          }
-        />
-      ) : null}
+          ) : null
+        }
+        control={
+          job.phase === "running" ? null : (
+            <Button size="sm" variant="ghost" onClick={() => setDismissed(job.id)}>
+              Dismiss
+            </Button>
+          )
+        }
+      />
       {outcome !== null && outcome.manualActions.length > 0 ? (
         <SettingsRow
           title="Still to do by hand"
@@ -112,29 +134,28 @@ export function GentleAiJobPanel({
           }
         />
       ) : null}
-      {job.steps.length > 0 ? (
-        <ul className="grid gap-1 px-4 py-3 text-sm @min-[40rem]/settings-row:grid-cols-2">
-          {job.steps.map((step) => (
-            <li key={step.id} className="flex min-w-0 items-center gap-2">
-              <StepIcon status={step.status} />
-              <span className="truncate">{gentleAiStepLabel(step.id, names)}</span>
-              {step.error ? (
-                <span className="truncate text-destructive text-xs">{step.error}</span>
-              ) : null}
-            </li>
-          ))}
-        </ul>
-      ) : null}
-      {job.log.length > 0 ? (
-        <Collapsible open={logOpen} onOpenChange={setLogOpen}>
+      {job.steps.length > 0 || job.log.length > 0 ? (
+        <Collapsible open={detailsOpen} onOpenChange={setDetailsOpen}>
           <CollapsibleTrigger className="flex w-full items-center gap-1 px-4 py-2 text-muted-foreground text-xs hover:text-foreground">
-            <ChevronRightIcon className={cn("size-3.5", logOpen && "rotate-90")} aria-hidden />
-            Output ({job.log.length} lines)
+            <ChevronRightIcon className={cn("size-3.5", detailsOpen && "rotate-90")} aria-hidden />
+            Details
           </CollapsibleTrigger>
           <CollapsiblePanel>
-            <pre className="max-h-72 overflow-auto whitespace-pre-wrap px-4 pb-3 font-mono text-xs">
-              {job.log.join("\n")}
-            </pre>
+            {job.steps.length > 0 ? (
+              <ul className="grid gap-1 px-4 pb-3 text-sm @min-[40rem]/settings-row:grid-cols-2">
+                {job.steps.map((step) => (
+                  <li key={step.id} className="flex min-w-0 items-center gap-2">
+                    <StepIcon status={step.status} />
+                    <span className="truncate">{gentleAiStepLabel(step.id, names)}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {job.log.length > 0 ? (
+              <pre className="max-h-72 overflow-auto whitespace-pre-wrap px-4 pb-3 font-mono text-xs">
+                {job.log.join("\n")}
+              </pre>
+            ) : null}
           </CollapsiblePanel>
         </Collapsible>
       ) : null}

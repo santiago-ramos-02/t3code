@@ -1,5 +1,11 @@
 import { useAtomValue } from "@effect/atom-react";
 import {
+  GENTLE_AI_JOB_LABELS,
+  gentleAiAgentList,
+  gentleAiModelAgent,
+  gentleAiModelsAllDefault,
+} from "@t3tools/client-runtime/gentle-ai";
+import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
@@ -39,13 +45,6 @@ import { useSettingsEnvironmentFilter, type SettingsTarget } from "./settings-en
 
 type GentleAiAction = GentleAiActionInput["action"];
 
-const MODEL_AGENTS: ReadonlyArray<GentleAiModelAgent> = [
-  "claude-code",
-  "codex",
-  "kiro-ide",
-  "opencode",
-];
-
 /** Whether Gentle AI runs with any provider on an environment. */
 export function environmentRunsGentleAi(target: SettingsTarget): boolean {
   return target.serverConfig.providers.some((provider) => provider.gentleAi === true);
@@ -75,9 +74,9 @@ export function useGentleAiInstalledOnAny(environmentIds: ReadonlyArray<Environm
 }
 
 /**
- * Gentle AI on each selected environment. With a gentle-ai that has the headless API this is a
- * remote control for it: jobs, updates, sync, model presets, and backups. Setup, per-phase
- * models, and the agent builder are on web and desktop.
+ * Gentle AI on each selected environment. With a gentle-ai that has the headless API this follows
+ * the web page's layout as a remote control: status, then each agent with its model preset, then
+ * backups. Setting agents up, per-phase models, and removal are on web and desktop.
  */
 export function SettingsGentleAiRouteScreen() {
   const insets = useSafeAreaInsets();
@@ -139,25 +138,6 @@ function useGentleAiQuery<M extends GentleAiQueryMethod>(
   return { ...view, data };
 }
 
-const JOB_TITLES = {
-  install: "Setting up Gentle AI",
-  sync: "Syncing agent files",
-  upgrade: "Upgrading tools",
-  "models.set": "Applying models",
-  "backups.restore": "Restoring backup",
-  "backups.delete": "Deleting backup",
-  "backups.rename": "Renaming backup",
-  "backups.pin": "Updating backup",
-  "plugins.install": "Installing OpenCode plugins",
-  "plugins.uninstall": "Removing OpenCode plugin",
-  "tools.install": "Installing community tools",
-  "builder.generate": "Generating agent",
-  "builder.install": "Installing agent",
-  "review.set": "Changing RDD",
-  "reviewStore.reset": "Resetting review store",
-  "uninstall.run": "Uninstalling",
-} satisfies Record<GentleAiJobMethod, string>;
-
 function GentleAiApiSettings(props: {
   readonly environmentId: EnvironmentId;
   readonly title: string;
@@ -189,26 +169,28 @@ function GentleAiApiSettings(props: {
             {updates === null
               ? "Checking for updates…"
               : outdated.length === 0
-                ? "Everything Gentle AI manages is up to date."
+                ? "Gentle AI and its tools are up to date."
                 : outdated.map((tool) => `${tool.name} → ${tool.latest ?? "?"}`).join(" · ")}
           </Text>
           {status?.state.pendingSync ? (
             <Text className="text-sm text-foreground-muted">
-              gentle-ai changed since it last updated the agents it set up.
+              Gentle AI changed since it last updated your agents. Sync brings them up to date.
             </Text>
           ) : null}
           <View className="flex-row flex-wrap gap-2">
-            <Action
-              label="Upgrade"
-              disabled={running || outdated.length === 0}
-              onPress={() => startJob("upgrade", {})}
-            />
+            {outdated.length > 0 ? (
+              <Action
+                label="Update"
+                disabled={running}
+                onPress={() => startJob("upgrade", { sync: true })}
+              />
+            ) : null}
             <Action label="Sync" disabled={running} onPress={() => startJob("sync", {})} />
           </View>
         </View>
       </SettingsSection>
       {status ? (
-        <GentleAiModelPresets
+        <GentleAiAgents
           environmentId={environmentId}
           status={status}
           disabled={running}
@@ -262,54 +244,87 @@ function GentleAiApiSettings(props: {
 
 function GentleAiJobSummary({ job }: { readonly job: GentleAiJob }) {
   const done = job.steps.filter((step) => step.status === "succeeded").length;
-  const title = JOB_TITLES[job.method];
+  const title = GENTLE_AI_JOB_LABELS[job.method];
   return (
-    <SettingsSection
-      title={
-        job.phase === "running"
-          ? title
-          : job.phase === "succeeded"
-            ? `${title}: done`
-            : `${title}: failed`
-      }
-    >
+    <SettingsSection title={job.phase === "running" ? "In progress" : "Last change"}>
       <View className="flex-row items-center gap-3 p-4">
         {job.phase === "running" ? <ActivityIndicator /> : null}
-        <Text className="min-w-0 flex-1 text-sm text-foreground-muted">
-          {job.error ??
-            (job.steps.length > 0
-              ? `${done} of ${job.steps.length} steps`
-              : (job.log.at(-1) ?? (job.phase === "running" ? "Working…" : "")))}
-        </Text>
+        <View className="min-w-0 flex-1 gap-0.5">
+          <Text className="text-sm font-t3-medium text-foreground">
+            {job.phase === "running"
+              ? title
+              : job.phase === "succeeded"
+                ? `${title}: done`
+                : `${title}: failed`}
+          </Text>
+          <Text className="text-sm text-foreground-muted">
+            {job.error ??
+              (job.steps.length > 0
+                ? `${done} of ${job.steps.length} steps done`
+                : (job.log.at(-1) ?? (job.phase === "running" ? "Working…" : "")))}
+          </Text>
+        </View>
       </View>
     </SettingsSection>
   );
 }
 
-/** Each configurable agent's model preset; custom per-phase models are edited on web or desktop. */
-function GentleAiModelPresets(props: {
+const STATE_LABELS = {
+  "set-up": "Set up",
+  available: "Not set up",
+  unsupported: "Not supported on this system",
+} as const;
+
+/**
+ * Every agent Gentle AI set up or can set up, like the web page's Agents panel, with the model
+ * preset for the ones it configures. Setting agents up and removing Gentle AI stay on web and
+ * desktop, which have room for the review steps.
+ */
+function GentleAiAgents(props: {
   readonly environmentId: EnvironmentId;
   readonly status: GentleAiApiStatus;
   readonly disabled: boolean;
   readonly onApply: (agent: GentleAiModelAgent, preset: string) => void;
 }) {
-  const agents = MODEL_AGENTS.filter((agent) =>
-    props.status.agents.some((entry) => entry.id === agent && entry.installed),
-  );
-  if (agents.length === 0) return null;
+  const agents = gentleAiAgentList(props.status);
   return (
-    <SettingsSection title="Models">
+    <SettingsSection title="Agents">
       <View className="px-4 pb-2">
-        {agents.map((agent) => (
-          <GentleAiModelPreset
-            key={agent}
-            environmentId={props.environmentId}
-            agent={agent}
-            name={props.status.agents.find((entry) => entry.id === agent)?.name ?? agent}
-            disabled={props.disabled}
-            onApply={props.onApply}
-          />
-        ))}
+        {agents.length === 0 ? (
+          <Text className="py-3 text-sm text-foreground-muted">
+            No agents found on this environment.
+          </Text>
+        ) : (
+          agents.map((agent) => {
+            const modelAgent = agent.state === "set-up" ? gentleAiModelAgent(agent.id) : null;
+            return (
+              <View
+                key={agent.id}
+                className="min-h-11 flex-row items-center justify-between gap-3 border-b border-border-subtle py-2"
+              >
+                <View className="min-w-0 flex-1">
+                  <Text className="text-sm text-foreground" numberOfLines={1}>
+                    {agent.name}
+                  </Text>
+                  <Text className="text-xs text-foreground-muted">{STATE_LABELS[agent.state]}</Text>
+                </View>
+                {modelAgent === null ? null : (
+                  <GentleAiModelPreset
+                    environmentId={props.environmentId}
+                    agent={modelAgent}
+                    name={agent.name}
+                    disabled={props.disabled}
+                    onApply={props.onApply}
+                  />
+                )}
+              </View>
+            );
+          })
+        )}
+        <Text className="py-3 text-xs text-foreground-muted">
+          Set up agents, customize models per phase, and remove Gentle AI from T3 Code on web or
+          desktop.
+        </Text>
       </View>
     </SettingsSection>
   );
@@ -323,14 +338,16 @@ function GentleAiModelPreset(props: {
   readonly onApply: (agent: GentleAiModelAgent, preset: string) => void;
 }) {
   const config = useGentleAiQuery(props.environmentId, "models.get", { agent: props.agent }).data;
-  if (config === null) return null;
+  if (config === null) return <ActivityIndicator />;
+  // gentle-ai reports no preset both for custom choices and for none at all.
+  const noPreset = gentleAiModelsAllDefault(config.current) ? "Default" : "Custom";
   return (
     <ChoiceMenu
-      label={props.name}
+      label={`${props.name} models`}
       value={config.currentPreset ?? ""}
       choices={[
         ...config.presets.map((preset) => ({ value: preset.id, label: preset.label })),
-        ...(config.currentPreset === null ? [{ value: "", label: "Custom" }] : []),
+        ...(config.currentPreset === null ? [{ value: "", label: noPreset }] : []),
       ]}
       disabled={props.disabled}
       onChange={(preset) => {

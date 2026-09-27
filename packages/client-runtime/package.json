@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./gentle-ai": {
+      "types": "./src/gentleAi.ts",
+      "default": "./src/gentleAi.ts"
+    },
     "./device/stream": {
       "types": "./src/device/stream.ts",
       "default": "./src/device/stream.ts"

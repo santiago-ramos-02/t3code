@@ -4,22 +4,22 @@ import type {
   GentleAiJobMethod,
   GentleAiParams,
 } from "@t3tools/contracts";
-import { useMemo, useState } from "react";
+import { ChevronRightIcon } from "lucide-react";
+import { useMemo, useState, type ReactNode } from "react";
 
 import { Button } from "../../ui/button";
 import { Spinner } from "../../ui/spinner";
 import { SettingsRow, SettingsSection } from "../settingsLayout";
-import { GentleAiBackupsSection } from "./GentleAiBackupsSection";
-import { GentleAiBuilderFlow, GentleAiBuilderSection } from "./GentleAiBuilderSection";
+import { GentleAiAgentsSection } from "./GentleAiAgentsSection";
+import { GentleAiBackupsFlow } from "./GentleAiBackupsFlow";
+import { GentleAiBuilderFlow } from "./GentleAiBuilderFlow";
 import { GentleAiFlowHeader, GentleAiFlowPanel } from "./GentleAiFlow";
 import type { GentleAiFlow } from "./gentleAiFlow.logic";
 import { GentleAiJobPanel } from "./GentleAiJobPanel";
-import { GentleAiModelsFlow, GentleAiModelsSection } from "./GentleAiModelsSection";
-import { GentleAiOpenCodeSection } from "./GentleAiOpenCodeSection";
-import { GentleAiReviewSection } from "./GentleAiReviewSection";
-import { GentleAiSetupFlow, GentleAiSetupSection } from "./GentleAiSetupSection";
-import { GentleAiToolsSection } from "./GentleAiToolsSection";
-import { GentleAiUninstallFlow, GentleAiUninstallSection } from "./GentleAiUninstallSection";
+import { GentleAiModelsFlow } from "./GentleAiModels";
+import { GentleAiProjectSection, GentleAiReviewRow } from "./GentleAiProjectSection";
+import { GentleAiSetupFlow } from "./GentleAiSetupFlow";
+import { GentleAiUninstallFlow } from "./GentleAiUninstallFlow";
 import { useGentleAiJob, useGentleAiQuery } from "./useGentleAi";
 
 /** What every Gentle AI settings section gets from the page. */
@@ -41,8 +41,9 @@ export interface GentleAiSectionProps {
 }
 
 /**
- * Gentle AI's full GUI, for a gentle-ai with the headless API: everything its TUI offers,
- * run on the environment so it works the same from any client.
+ * Gentle AI's full GUI, for a gentle-ai with the headless API, run on the environment so it
+ * works the same from any client. The page is organized around the user's agents: what Gentle
+ * AI does in each, then what it installs for all of them, then per-project settings.
  */
 export function GentleAiSettingsPage({
   environmentId,
@@ -50,12 +51,23 @@ export function GentleAiSettingsPage({
   projects,
   flow,
   onFlowChange,
+  agentExtras,
+  selectedAgent,
+  onSelectAgent,
 }: {
   readonly environmentId: EnvironmentId;
   readonly readOnly: boolean;
   readonly projects: ReadonlyArray<{ readonly title: string; readonly cwd: string }>;
   readonly flow: GentleAiFlow | null;
   readonly onFlowChange: (flow: GentleAiFlow | null) => void;
+  /** Settings an agent brings along, shown on its panel, such as gentle-pi's for Pi. */
+  readonly agentExtras: Readonly<Record<string, ReactNode>>;
+  /**
+   * The agent shown in the Agents panel. Owned by the caller, which outlives this page while
+   * gentle-ai's status refreshes, so returning from a flow shows the same agent.
+   */
+  readonly selectedAgent: string | null;
+  readonly onSelectAgent: (agent: string) => void;
 }) {
   const status = useGentleAiQuery(environmentId, "status", {});
   const { job, running, startJob } = useGentleAiJob(environmentId);
@@ -113,15 +125,25 @@ export function GentleAiSettingsPage({
       <>
         {errorBanner}
         {flow.kind === "setup" ? (
-          <GentleAiSetupFlow {...sectionProps} onClose={close} />
+          <GentleAiSetupFlow
+            {...sectionProps}
+            {...(flow.agent === undefined ? {} : { agent: flow.agent })}
+            onClose={close}
+          />
+        ) : flow.kind === "uninstall" ? (
+          <GentleAiUninstallFlow
+            {...sectionProps}
+            {...(flow.agent === undefined ? {} : { agent: flow.agent })}
+            onClose={close}
+          />
+        ) : flow.kind === "models" ? (
+          <GentleAiModelsFlow {...sectionProps} agent={flow.agent} onClose={close} />
         ) : flow.kind === "builder" ? (
           <GentleAiBuilderFlow {...sectionProps} onClose={close} />
-        ) : flow.kind === "uninstall" ? (
-          <GentleAiUninstallFlow {...sectionProps} onClose={close} />
-        ) : flow.kind === "doctor" ? (
-          <GentleAiDoctorFlow environmentId={environmentId} onClose={close} />
+        ) : flow.kind === "backups" ? (
+          <GentleAiBackupsFlow {...sectionProps} onClose={close} />
         ) : (
-          <GentleAiModelsFlow {...sectionProps} agent={flow.agent} onClose={close} />
+          <GentleAiDoctorFlow environmentId={environmentId} onClose={close} />
         )}
       </>
     );
@@ -132,26 +154,26 @@ export function GentleAiSettingsPage({
       {errorBanner}
       <GentleAiJobPanel job={job} names={names} />
       <GentleAiOverviewSection {...sectionProps} />
+      <GentleAiAgentsSection
+        {...sectionProps}
+        selectedAgent={selectedAgent}
+        onSelectAgent={onSelectAgent}
+        agentExtras={agentExtras}
+      />
       <GentleAiSetupSection {...sectionProps} />
-      <GentleAiModelsSection {...sectionProps} />
-      <GentleAiOpenCodeSection {...sectionProps} />
-      <GentleAiToolsSection {...sectionProps} />
-      <GentleAiBuilderSection {...sectionProps} />
-      <GentleAiReviewSection {...sectionProps} />
-      <GentleAiBackupsSection {...sectionProps} />
-      <GentleAiUninstallSection {...sectionProps} />
+      <GentleAiProjectSection {...sectionProps} />
+      <GentleAiMaintenanceSection {...sectionProps} />
     </>
   );
 }
 
-/** Updates, sync, and health for the tools Gentle AI manages. */
+/** Updates and the agent files Gentle AI keeps current. */
 function GentleAiOverviewSection({
   environmentId,
   status,
   disabled,
   startJob,
   onError,
-  openFlow,
 }: GentleAiSectionProps) {
   // gentle-ai skips checks it ran recently; "Check now" forces one.
   const [forceCheck, setForceCheck] = useState(false);
@@ -178,7 +200,7 @@ function GentleAiOverviewSection({
               : updates.data.checked === false
                 ? "Checked recently."
                 : outdated.length === 0
-                  ? "Everything Gentle AI manages is up to date."
+                  ? "Gentle AI and its tools are up to date."
                   : outdated
                       .map(
                         (tool) => `${tool.name} ${tool.installed ?? "?"} → ${tool.latest ?? "?"}`,
@@ -186,45 +208,36 @@ function GentleAiOverviewSection({
                       .join(" · ")
         }
         control={
-          <div className="flex flex-wrap gap-2">
-            {updates.data?.checked === false ? (
-              <Button size="sm" variant="outline" onClick={() => setForceCheck(true)}>
-                Check now
-              </Button>
-            ) : null}
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={disabled || outdated.length === 0}
-              onClick={() => run(startJob("upgrade", {}))}
-            >
-              Upgrade
+          updates.data?.checked === false ? (
+            <Button size="sm" variant="outline" onClick={() => setForceCheck(true)}>
+              Check now
             </Button>
+          ) : outdated.length > 0 ? (
             <Button
               size="sm"
-              variant="outline"
-              disabled={disabled || outdated.length === 0}
-              // When gentle-ai upgrades itself, gentle-ai defers the sync to its next run.
+              disabled={disabled}
+              // Updating also refreshes the agents' files; when gentle-ai updates itself, it
+              // does that on its next run instead.
               onClick={() => run(startJob("upgrade", { sync: true }))}
             >
-              Upgrade and sync
+              Update
             </Button>
-          </div>
+          ) : null
         }
       />
       <SettingsRow
         title="Agent files"
         description={
           status.state.pendingSync
-            ? "gentle-ai changed since it last updated the agents it set up. Sync brings them up to date."
+            ? "Gentle AI changed since it last updated your agents. Sync brings them up to date."
             : status.state.lastSyncedAt
-              ? `Last synced ${new Date(status.state.lastSyncedAt).toLocaleString()}.`
+              ? `Up to date. Last synced ${new Date(status.state.lastSyncedAt).toLocaleString()}.`
               : "Sync rewrites Gentle AI's files in every agent it set up."
         }
         control={
           <Button
             size="sm"
-            variant="outline"
+            variant={status.state.pendingSync ? "default" : "outline"}
             disabled={disabled}
             onClick={() => run(startJob("sync", {}))}
           >
@@ -232,18 +245,121 @@ function GentleAiOverviewSection({
           </Button>
         }
       />
+    </SettingsSection>
+  );
+}
+
+/** What Gentle AI adds to every agent it set up: its setup, the review, and custom agents. */
+function GentleAiSetupSection(props: GentleAiSectionProps) {
+  const { status, disabled, readOnly, openFlow } = props;
+  const installed = status.components.filter((component) => component.installed);
+  const preset = status.presets.find((entry) => entry.id === status.state.preset);
+  const persona = status.personas.find((entry) => entry.id === status.state.persona);
+  const anySetUp = status.agents.some((agent) => agent.installed);
+  const canCreate = anySetUp && status.builderEngines.length > 0;
+  return (
+    <SettingsSection title="For every agent">
       <SettingsRow
-        title="Health"
-        description="Run gentle-ai's diagnostics for this environment."
+        title="Setup"
+        description={
+          anySetUp
+            ? installed.map((component) => component.name).join(", ") || "No components."
+            : "Gentle AI isn't set up in any agent yet."
+        }
+        status={
+          anySetUp
+            ? [preset?.label, persona ? `${persona.label} persona` : null]
+                .filter((part) => part !== null && part !== undefined)
+                .join(" · ")
+            : null
+        }
         control={
-          <Button size="sm" variant="outline" onClick={() => openFlow({ kind: "doctor" })}>
-            Run doctor
+          <Button
+            size="sm"
+            variant={anySetUp ? "outline" : "default"}
+            disabled={disabled}
+            onClick={() => openFlow({ kind: "setup" })}
+          >
+            {anySetUp ? "Change" : "Set up"}
+          </Button>
+        }
+      />
+      <GentleAiReviewRow {...props} />
+      <SettingsRow
+        title="Custom agents"
+        description={
+          !anySetUp
+            ? "Set up Gentle AI in an agent first."
+            : status.builderEngines.length === 0
+              ? "Creating one needs Claude Code, OpenCode, Gemini CLI, or Codex installed here."
+              : "Describe an agent, and Gentle AI adds it to every agent it set up."
+        }
+        control={
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={readOnly || !canCreate}
+            onClick={() => openFlow({ kind: "builder" })}
+          >
+            Create
           </Button>
         }
       />
     </SettingsSection>
   );
 }
+
+/** Backups, the health check, and removing Gentle AI, each opening in place of the page. */
+function GentleAiMaintenanceSection({ disabled, projects, openFlow }: GentleAiSectionProps) {
+  return (
+    <SettingsSection title="Maintenance">
+      <SettingsRow
+        title="Backups"
+        description="Restore agent files from before an install, sync, update, or removal."
+        control={
+          <Button size="sm" variant="outline" onClick={() => openFlow({ kind: "backups" })}>
+            Open
+            <ChevronRightIcon aria-hidden />
+          </Button>
+        }
+      />
+      <SettingsRow
+        title="Health check"
+        description="Checks the tools and files Gentle AI manages here."
+        control={
+          <Button size="sm" variant="outline" onClick={() => openFlow({ kind: "doctor" })}>
+            Run
+            <ChevronRightIcon aria-hidden />
+          </Button>
+        }
+      />
+      <SettingsRow
+        title="Remove Gentle AI"
+        description={
+          projects.length === 0
+            ? "Removing needs a project on this environment. Add one first."
+            : "Remove it from some or all agents, or start over with a clean setup."
+        }
+        control={
+          <Button
+            size="sm"
+            variant="destructive-outline"
+            disabled={disabled || projects.length === 0}
+            onClick={() => openFlow({ kind: "uninstall" })}
+          >
+            Remove
+          </Button>
+        }
+      />
+    </SettingsSection>
+  );
+}
+
+const CHECK_LABELS: Readonly<Record<string, string>> = {
+  pass: "OK",
+  warn: "Warning",
+  fail: "Problem",
+};
 
 /** gentle-ai's diagnostics for this environment, run each time the flow opens. */
 function GentleAiDoctorFlow({
@@ -257,7 +373,7 @@ function GentleAiDoctorFlow({
   return (
     <section className="space-y-4">
       <GentleAiFlowHeader
-        title="Gentle AI doctor"
+        title="Health check"
         description="Checks the tools and files Gentle AI manages on this environment."
         onBack={onClose}
       />
@@ -277,13 +393,13 @@ function GentleAiDoctorFlow({
                 <span
                   className={
                     check.status === "pass"
-                      ? "text-success"
+                      ? "w-16 shrink-0 text-success"
                       : check.status === "fail"
-                        ? "text-destructive"
-                        : "text-warning"
+                        ? "w-16 shrink-0 text-destructive"
+                        : "w-16 shrink-0 text-warning"
                   }
                 >
-                  {check.status}
+                  {CHECK_LABELS[check.status] ?? check.status}
                 </span>
                 <span className="min-w-0">
                   {check.message}
