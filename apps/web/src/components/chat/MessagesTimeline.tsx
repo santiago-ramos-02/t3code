@@ -4504,7 +4504,9 @@ function workEntryIconName(workEntry: TimelineWorkEntry): WorkEntryIconName {
   if (
     workEntry.questionAnswer ||
     workEntry.sourceActivityKind === "user-input.requested" ||
-    workEntry.sourceActivityKind === "user-input.resolved"
+    workEntry.sourceActivityKind === "user-input.resolved" ||
+    // A provider's own report, such as an extension command's result.
+    workEntry.sourceActivityKind === "runtime.notice"
   ) {
     return "message-circle";
   }
