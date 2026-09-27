@@ -1095,6 +1095,10 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:gentle-ai:action",
       tag: WS_METHODS.gentleAiAction,
     }),
+    readGentleAiSddChanges: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:gentle-ai:sdd-changes",
+      tag: WS_METHODS.gentleAiSddChanges,
+    }),
     refreshProviders: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:refresh-providers",
       tag: WS_METHODS.serverRefreshProviders,

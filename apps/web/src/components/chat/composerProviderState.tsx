@@ -146,10 +146,8 @@ export function getComposerProviderState(input: ComposerProviderStateInput): Com
     descriptors,
     selections,
   );
-  const gentleSelection =
-    provider === "pi"
-      ? selections?.find((selection) => selection.id === GENTLE_AI_OPTION_ID)
-      : undefined;
+  // Gentle AI is not a model capability, so its per-thread choice rides along for every provider.
+  const gentleSelection = selections?.find((selection) => selection.id === GENTLE_AI_OPTION_ID);
   return {
     provider,
     promptEffort,

@@ -2491,6 +2491,10 @@ const makeWsRpcLayer = (
           observeRpcEffect(WS_METHODS.gentleAiAction, gentleAi.action(input), {
             "rpc.aggregate": "gentle-ai",
           }),
+        [WS_METHODS.gentleAiSddChanges]: (input) =>
+          observeRpcEffect(WS_METHODS.gentleAiSddChanges, gentleAi.sddChanges(input.cwd), {
+            "rpc.aggregate": "gentle-ai",
+          }),
         [WS_METHODS.providerPiGentleRead]: (input) =>
           observeRpcEffect(
             WS_METHODS.providerPiGentleRead,
@@ -2501,7 +2505,7 @@ const makeWsRpcLayer = (
           observeRpcEffect(
             WS_METHODS.providerPiGentleComposerRead,
             runPiGentle(input.instanceId, "pi-gentle-composer-read", (gentle) =>
-              gentle.readComposer(input.cwd, { includeChanges: input.includeChanges === true }),
+              gentle.readComposer(input.cwd),
             ),
             { "rpc.aggregate": "provider" },
           ),

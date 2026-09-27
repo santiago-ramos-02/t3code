@@ -1,6 +1,5 @@
 import * as NodeCrypto from "node:crypto";
 import * as NodeOS from "node:os";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { compareSemverVersions } from "@t3tools/shared/semver";
 import {
   PI_GENTLE_ORCHESTRATOR,
@@ -9,9 +8,7 @@ import {
   PiGentleRouting,
   PiGentleRoutingEntry,
   PiGentleSddPreferences,
-  PiGentleSddStatus,
   type PiGentleComposerState,
-  type PiGentleSddChange,
   type PiGentleState,
 } from "@t3tools/contracts";
 import * as Cache from "effect/Cache";
@@ -92,17 +89,6 @@ const decodePin = Schema.decodeUnknownEffect(ProfilePin);
 const decodePiSettings = Schema.decodeUnknownEffect(PiSettingsFile);
 const decodeSdd = Schema.decodeUnknownEffect(StoredSdd);
 const decodePreferences = Schema.decodeUnknownEffect(PiGentleSddPreferences);
-const decodeNativeSddStatus = Schema.decodeUnknownEffect(
-  Schema.Struct({
-    schemaName: Schema.Literal("gentle-ai.sdd-status"),
-    schemaVersion: Schema.Literal(2),
-    ...PiGentleSddStatus.fields,
-    planningHome: Schema.optionalKey(Schema.Struct({ path: Schema.String })),
-  }),
-);
-// OpenSpec change folders are kebab-case names; anything else under `changes/` is not a change.
-const CHANGE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
-
 export class PiGentleSettingsError extends Schema.TaggedError<PiGentleSettingsError>()(
   "PiGentleSettingsError",
   { detail: Schema.String, cause: Schema.optional(Schema.Defect()) },
@@ -177,7 +163,6 @@ export type PiGentleAction = typeof PiGentleActionInput.Type.action;
 export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* (input: {
   readonly environment: NodeJS.ProcessEnv;
   readonly piBinaryPath?: string;
-  readonly binaryPath?: string;
   readonly fileSystem: FileSystem.FileSystem;
   readonly path: Path.Path;
   readonly spawner: ChildProcessSpawner.ChildProcessSpawner["Service"];
@@ -270,18 +255,6 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
       return yield* new PiGentleSettingsError({
         detail: `${options.failure} ${output.join(" ").slice(-400) || `Pi exited with code ${result.code}.`}`,
       });
-    });
-
-  /** Where gentle-pi's install step places its pinned gentle-ai binary. */
-  const bundledBinaryPath = (found: { readonly directory: string; readonly version: string }) =>
-    Effect.gen(function* () {
-      const platform = yield* HostProcessPlatform;
-      return path.join(
-        found.directory,
-        ".gentle-ai",
-        `v${found.version}`,
-        platform === "win32" ? "gentle-ai.exe" : "gentle-ai",
-      );
     });
 
   const loadProfiles = Effect.gen(function* () {
@@ -410,105 +383,6 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
       );
     });
 
-  const sddBinary = (cwd: string) =>
-    Effect.gen(function* () {
-      if (
-        environment.GENTLE_PI_GENTLE_AI_DEV_BINARY !== undefined ||
-        (yield* fileSystem.exists(path.join(configHome, "dev-binary.json")))
-      ) {
-        return yield* new PiGentleSettingsError({
-          detail: "SDD status is unavailable while a Gentle AI dev binary override is active.",
-        });
-      }
-      if (input.binaryPath) return input.binaryPath;
-      const found = yield* gentlePackage(cwd);
-      const bundledBinary = found === null ? null : yield* bundledBinaryPath(found);
-      if (bundledBinary === null || !(yield* fileSystem.exists(bundledBinary))) {
-        return yield* new PiGentleSettingsError({
-          detail: "Gentle AI's bundled binary is missing. Update Gentle AI or set its binary path.",
-        });
-      }
-      return bundledBinary;
-    });
-
-  const nativeSddStatus = (binary: string, cwd: string, changeName?: string) =>
-    Effect.gen(function* () {
-      // Resolved like the Pi executable so a Windows .cmd shim works as a custom binary path.
-      const resolved = yield* resolveSpawnCommand(
-        binary,
-        ["sdd-status", ...(changeName === undefined ? [] : [changeName]), "--cwd", cwd, "--json"],
-        { env: environment },
-      );
-      const output = yield* spawner
-        .string(
-          ChildProcess.make(resolved.command, resolved.args, {
-            cwd,
-            // The instance environment, like every other Pi and Gentle process for this provider.
-            env: environment,
-            extendEnv: false,
-            shell: resolved.shell,
-            stdin: "ignore",
-            stderr: "ignore",
-          }),
-        )
-        .pipe(Effect.timeout("5 seconds"));
-      return yield* decodeNativeSddStatus(yield* decodeJson(output));
-    }).pipe(
-      Effect.mapError(
-        (cause) =>
-          new PiGentleSettingsError({
-            detail: `Gentle AI could not report SDD status${changeName === undefined ? "" : ` for ${changeName}`}.`,
-            cause,
-          }),
-      ),
-    );
-
-  /**
-   * Lists the project's active OpenSpec changes with their native status. Gentle AI reports one
-   * change at a time, so this finds the change folders under its planning home first.
-   */
-  const readSddChanges = (cwd: string) =>
-    Effect.gen(function* () {
-      const binary = yield* sddBinary(cwd);
-      const overview = yield* nativeSddStatus(binary, cwd);
-      if (overview.planningHome === undefined) {
-        return yield* new PiGentleSettingsError({
-          detail: "SDD changes are listed only for projects that save artifacts as OpenSpec files.",
-        });
-      }
-      const changesDirectory = path.join(overview.planningHome.path, "changes");
-      if (!(yield* fileSystem.exists(changesDirectory))) return [];
-      const names: Array<string> = [];
-      for (const name of yield* fileSystem.readDirectory(changesDirectory)) {
-        if (name === "archive" || !CHANGE_NAME.test(name)) continue;
-        const info = yield* fileSystem.stat(path.join(changesDirectory, name));
-        if (info.type === "Directory") names.push(name);
-      }
-      names.sort((left, right) => left.localeCompare(right));
-      return yield* Effect.forEach(
-        names,
-        (name) =>
-          nativeSddStatus(binary, cwd, name).pipe(
-            Effect.map(
-              (status) =>
-                ({
-                  changeName: name,
-                  artifactStore: status.artifactStore,
-                  nextRecommended: status.nextRecommended,
-                  blockedReasons: status.blockedReasons,
-                  dependencies: status.dependencies,
-                  actionContext: status.actionContext,
-                  ...(status.remediationState === undefined
-                    ? {}
-                    : { remediationState: status.remediationState }),
-                  taskProgress: status.taskProgress,
-                }) satisfies PiGentleSddChange,
-            ),
-          ),
-        { concurrency: 4 },
-      );
-    });
-
   const read = (cwd?: string) =>
     Effect.gen(function* () {
       const version = (yield* gentlePackage(cwd))?.version ?? null;
@@ -555,7 +429,7 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
       } satisfies PiGentleState;
     }).pipe(Effect.mapError(toGentleError));
 
-  const readComposer = (cwd: string, options?: { readonly includeChanges?: boolean }) =>
+  const readComposer = (cwd: string) =>
     Effect.gen(function* () {
       if (!(yield* installed(cwd)))
         return {
@@ -572,8 +446,6 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
         persistedSdd === null ||
         ((artifactStore === "openspec" || artifactStore === "hybrid") &&
           !(yield* fileSystem.exists(path.join(cwd, "openspec", "config.yaml"))));
-      // Engram and artifact-free projects have no change folders to list.
-      const listable = artifactStore === "openspec" || artifactStore === "hybrid";
       // A broken profiles.json hides only the profile list; SDD actions stay usable.
       const profiles = yield* loadProfiles.pipe(
         Effect.flatMap((store) =>
@@ -599,15 +471,6 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
         projectInitNeeded,
         ...(persistedSdd === null ? {} : { sdd: persistedSdd.preferences }),
         ...profiles,
-        ...(options?.includeChanges
-          ? yield* (projectInitNeeded || !listable ? Effect.succeed([]) : readSddChanges(cwd)).pipe(
-              Effect.map((changes) => ({ changes })),
-              // Listing failures stay in the payload so the rest of the Gentle menu still works.
-              Effect.catch((error) =>
-                Effect.succeed({ changesError: toGentleError(error).detail }),
-              ),
-            )
-          : {}),
       } satisfies PiGentleComposerState;
     }).pipe(Effect.mapError(toGentleError));
 

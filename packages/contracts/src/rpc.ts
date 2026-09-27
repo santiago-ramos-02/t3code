@@ -24,6 +24,8 @@ import {
 import {
   GentleAiActionInput,
   GentleAiActionResult,
+  GentleAiSddChanges,
+  GentleAiSddChangesInput,
   GentleAiError,
   GentleAiStatus,
 } from "./gentleAi.ts";
@@ -329,6 +331,7 @@ export const WS_METHODS = {
   providerPiGentleInitialize: "provider.piGentle.initialize",
   gentleAiRead: "gentleAi.read",
   gentleAiAction: "gentleAi.action",
+  gentleAiSddChanges: "gentleAi.sddChanges",
 
   // VCS methods
   vcsPull: "vcs.pull",
@@ -541,6 +544,13 @@ const WsGentleAiReadRpc = Rpc.make(WS_METHODS.gentleAiRead, {
   payload: Schema.Struct({}),
   success: GentleAiStatus,
   error: EnvironmentAuthorizationError,
+});
+
+// Lists a project's SDD changes; runs gentle-ai once per change, so clients ask only on demand.
+const WsGentleAiSddChangesRpc = Rpc.make(WS_METHODS.gentleAiSddChanges, {
+  payload: GentleAiSddChangesInput,
+  success: GentleAiSddChanges,
+  error: Schema.Union([GentleAiError, EnvironmentAuthorizationError]),
 });
 
 const WsGentleAiActionRpc = Rpc.make(WS_METHODS.gentleAiAction, {
@@ -1458,6 +1468,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsProviderPiGentleInitializeRpc,
   WsGentleAiReadRpc,
   WsGentleAiActionRpc,
+  WsGentleAiSddChangesRpc,
   WsProviderConsumeResetCreditRpc,
   WsProviderAuthStartRpc,
   WsProviderAuthCompleteRpc,

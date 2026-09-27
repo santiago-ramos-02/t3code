@@ -1,5 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { ProviderDriverKind } from "@t3tools/contracts";
+import { ProviderDriverKind, type ServerProvider } from "@t3tools/contracts";
 import { HostProcessEnvironment, HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -40,6 +40,24 @@ it("marks installed providers whose agent Gentle AI set up, keeping a driver's o
   expect(marked.map((entry) => entry.gentleAi)).toEqual([true, undefined, undefined, false]);
 });
 
+it("tags the skills and commands gentle-ai installed, so threads with it off can hide them", () => {
+  const status = { ...NOT_INSTALLED, installed: true, drivers: gentleAiDrivers(["claude-code"]) };
+  const skills: ServerProvider["skills"] = [
+    { name: "judgment-day", path: "/s/judgment-day", enabled: true },
+    { name: "mine", path: "/s/mine", enabled: true },
+  ];
+  const slashCommands: ServerProvider["slashCommands"] = [
+    { name: "gentle-sdd-new" },
+    { name: "ship" },
+  ];
+  const [claude] = withGentleAi([{ ...provider("claudeAgent"), skills, slashCommands }], status);
+  expect(claude?.skills?.map((skill) => skill.package)).toEqual(["gentle-ai", undefined]);
+  expect(claude?.slashCommands?.map((command) => command.package)).toEqual([
+    "gentle-ai",
+    undefined,
+  ]);
+});
+
 it.layer(NodeServices.layer)("GentleAi service", (it) => {
   it.effect("reads the binary's version and what gentle-ai recorded", () =>
     Effect.scoped(
@@ -51,8 +69,31 @@ it.layer(NodeServices.layer)("GentleAi service", (it) => {
         const script = path.join(home, "fake-gentle-ai.cjs");
         yield* fileSystem.writeFileString(
           script,
-          `const command = process.argv[2];
-if (command === "version") process.stdout.write("gentle-ai 3.7.0\\n");
+          `const path = require("node:path");
+const command = process.argv[2];
+if (command === "sdd-status") {
+  // Mirrors the native \`sdd-status [change] --cwd <dir> --json\` output shape.
+  const args = process.argv.slice(3);
+  const change = args[0] === "--cwd" ? null : args[0];
+  const cwd = args[args.indexOf("--cwd") + 1];
+  if (change === "broken") { process.stdout.write("not json"); process.exit(0); }
+  const next = { "add-login": "apply", "fix-export": "spec" };
+  const deps = (value) => Object.fromEntries(["proposal", "specs", "design", "tasks", "apply", "verify", "archive"].map((key) => [key, value]));
+  const engram = path.basename(cwd) === "engram-project";
+  process.stdout.write(JSON.stringify({
+    schemaName: "gentle-ai.sdd-status",
+    schemaVersion: 2,
+    changeName: change,
+    artifactStore: engram ? "engram" : "openspec",
+    ...(engram ? {} : { planningHome: { mode: "repo-local", path: path.join(cwd, "openspec") } }),
+    nextRecommended: change ? next[change] : "select-change",
+    blockedReasons: [],
+    dependencies: deps(change === "add-login" ? "ready" : "blocked"),
+    actionContext: { mode: "repo-local", allowedEditRoots: [cwd] },
+    taskProgress: change === "add-login" ? { total: 3, completed: 1, pending: 2 } : { total: 0, completed: 0, pending: 0 },
+  }));
+}
+else if (command === "version") process.stdout.write("gentle-ai 3.7.0\\n");
 else if (command === "doctor") { process.stdout.write("Summary: 7 passed, 0 failed\\n"); process.exit(1); }
 else if (command === "sync") process.stdout.write("synced\\n");
 else process.exit(3);
@@ -109,6 +150,39 @@ else process.exit(3);
         expect((yield* service.action({ action: "doctor" })).output).toContain("7 passed");
         expect((yield* Effect.flip(service.action({ action: "upgrade" }))).detail).toContain(
           "gentle-ai upgrade failed.",
+        );
+
+        // Each active change gets its own native status; archives and stray files are skipped.
+        const cwd = path.join(home, "project");
+        const changes = path.join(cwd, "openspec", "changes");
+        yield* fileSystem.makeDirectory(path.join(changes, "archive", "2026-01-01-old"), {
+          recursive: true,
+        });
+        yield* fileSystem.makeDirectory(path.join(changes, "fix-export"));
+        yield* fileSystem.makeDirectory(path.join(changes, "add-login"));
+        yield* fileSystem.writeFileString(path.join(changes, "notes.md"), "not a change\n");
+        const listed = yield* service.sddChanges(cwd);
+        expect(listed.artifactStore).toBe("openspec");
+        expect(
+          listed.changes.map((change) => [
+            change.changeName,
+            change.nextRecommended,
+            change.taskProgress.completed,
+          ]),
+        ).toEqual([
+          ["add-login", "apply", 1],
+          ["fix-export", "spec", 0],
+        ]);
+        // Engram keeps no change folders, so there is nothing to list.
+        const engramProject = path.join(home, "engram-project");
+        yield* fileSystem.makeDirectory(engramProject);
+        expect(yield* service.sddChanges(engramProject)).toEqual({
+          artifactStore: "engram",
+          changes: [],
+        });
+        yield* fileSystem.makeDirectory(path.join(changes, "broken"));
+        expect((yield* Effect.flip(service.sddChanges(cwd))).detail).toBe(
+          "Gentle AI could not report SDD status for broken.",
         );
       }),
     ),

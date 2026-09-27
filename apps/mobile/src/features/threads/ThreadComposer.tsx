@@ -12,7 +12,7 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import { useAtomValue } from "@effect/atom-react";
-import type { PiGentleComposerState } from "@t3tools/contracts";
+import type { GentleAiSddChanges, PiGentleComposerState } from "@t3tools/contracts";
 import type { MenuAction } from "@react-native-menu/menu";
 import { clampFileAttachmentUploadBytes } from "@t3tools/client-runtime/state/attachments";
 import { pastedTextDisposition, replaceTextSelection } from "@t3tools/client-runtime/text-paste";
@@ -353,6 +353,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     );
   }, [props.serverConfig, props.selectedThread.modelSelection.instanceId]);
   const isPiThread = selectedProviderStatus?.driver === "pi";
+  const gentleProvider = selectedProviderStatus?.gentleAi === true;
   const gentleKey = `${props.environmentId}:${props.selectedThread.id}:${props.selectedThread.latestTurn?.turnId ?? ""}:${currentModelSelection.instanceId}:${props.projectCwd ?? ""}`;
   const readGentle = useAtomCommand(serverEnvironment.readPiGentleComposer, {
     reportFailure: false,
@@ -363,6 +364,14 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     value: PiGentleComposerState;
   } | null>(null);
   const [gentleError, setGentleError] = useState<{ key: string; message: string } | null>(null);
+  const readGentleChanges = useAtomCommand(serverEnvironment.readGentleAiSddChanges, {
+    reportFailure: false,
+    reportDefect: false,
+  });
+  const [gentleChangesLoaded, setGentleChangesLoaded] = useState<{
+    key: string;
+    value: GentleAiSddChanges | { readonly error: string };
+  } | null>(null);
   const [gentleRefresh, setGentleRefresh] = useState(0);
   // SDD setup runs in its own sheet; returning from it re-reads the project's SDD state.
   const gentleSetupPresentedRef = useRef(false);
@@ -378,12 +387,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     let current = true;
     void readGentle({
       environmentId: props.environmentId,
-      // Native menus cannot load after opening, so mobile reads the change list up front.
-      input: {
-        instanceId: currentModelSelection.instanceId,
-        cwd: props.projectCwd,
-        includeChanges: true,
-      },
+      input: { instanceId: currentModelSelection.instanceId, cwd: props.projectCwd },
     }).then((result) => {
       if (!current) return;
       if (result._tag === "Success") {
@@ -411,20 +415,65 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     props.projectCwd,
     readGentle,
   ]);
+  // Native menus cannot load after opening, so mobile reads the change list up front.
+  useEffect(() => {
+    if (!gentleProvider || props.connectionState !== "connected" || props.projectCwd === null)
+      return;
+    let current = true;
+    void readGentleChanges({
+      environmentId: props.environmentId,
+      input: { cwd: props.projectCwd },
+    }).then((result) => {
+      if (!current) return;
+      if (result._tag === "Success") {
+        setGentleChangesLoaded({ key: gentleKey, value: result.value });
+      } else if (!isAtomCommandInterrupted(result)) {
+        const failure = squashAtomCommandFailure(result);
+        setGentleChangesLoaded({
+          key: gentleKey,
+          value: {
+            error: failure instanceof Error ? failure.message : "Could not read SDD changes.",
+          },
+        });
+      }
+    });
+    return () => {
+      current = false;
+    };
+  }, [
+    gentleKey,
+    gentleProvider,
+    gentleRefresh,
+    props.connectionState,
+    props.environmentId,
+    props.projectCwd,
+    readGentleChanges,
+  ]);
   const gentleState = gentleLoaded?.key === gentleKey ? gentleLoaded.value : null;
   const gentleAvailable = gentleState?.available === true;
   const gentleEnabled = gentleAiEnabled(currentModelSelection.options);
   const canChangeGentle = props.selectedThread.latestTurn === null;
-  const gentleChanges = gentleState?.changes ?? [];
-  const gentleChangesError = gentleState?.changesError;
-  const gentleUnlistedReason = gentleState?.sdd
-    ? gentleSddUnlistedReason(gentleState.sdd.artifactStore)
-    : null;
+  const gentleChangesState =
+    gentleChangesLoaded?.key === gentleKey ? gentleChangesLoaded.value : null;
+  const gentleChanges =
+    gentleChangesState !== null && "changes" in gentleChangesState
+      ? gentleChangesState.changes
+      : [];
+  const gentleChangesError =
+    gentleChangesState !== null && "error" in gentleChangesState
+      ? gentleChangesState.error
+      : undefined;
+  const gentleUnlistedReason =
+    gentleChangesState !== null && "artifactStore" in gentleChangesState
+      ? gentleSddUnlistedReason(gentleChangesState.artifactStore)
+      : null;
+  // Only gentle-pi needs T3 Code to set up SDD; other agents run its preflight in the thread.
+  const gentleNeedsSetup = isPiThread && gentleState?.projectInitNeeded === true;
   const showGentleControls =
-    isPiThread &&
+    gentleProvider &&
     props.connectionState === "connected" &&
-    // Nothing Gentle-related shows unless the server confirms Pi loads gentle-pi here.
-    gentleAvailable;
+    // In Pi, nothing Gentle-related shows unless the server confirms Pi loads gentle-pi here.
+    (!isPiThread || gentleAvailable);
   // Hands an SDD phase to a new task draft in this project with Gentle on; the user sends it.
   const startGentleSddTask = (prompt: string) => {
     const draftKey = createNewTaskDraft({
@@ -471,7 +520,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
           attributes: { disabled: true },
         },
     ...(gentleProfiles.action === null ? [] : [gentleProfiles.action]),
-    ...(gentleAvailable && !gentleState.projectInitNeeded
+    ...(!gentleNeedsSetup
       ? [
           {
             id: "sdd",
@@ -517,11 +566,11 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
           },
         ]
       : []),
-    ...(gentleAvailable
+    ...(isPiThread && gentleAvailable
       ? [
           {
             id: "setup",
-            title: gentleState.projectInitNeeded ? "Set up SDD" : "SDD preferences",
+            title: gentleNeedsSetup ? "Set up SDD" : "SDD preferences",
             image: "slider.horizontal.3",
           },
         ]

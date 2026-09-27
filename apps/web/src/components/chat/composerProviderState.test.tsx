@@ -73,9 +73,9 @@ const ULTRATHINK_FRAME_CLASSES = {
 } as const;
 
 describe("getComposerProviderState", () => {
-  it("retains a plain Pi choice alongside model options", () => {
+  it("retains a thread's Gentle AI choice alongside model options", () => {
     const state = getComposerProviderState({
-      provider: ProviderDriverKind.make("pi"),
+      provider: ProviderDriverKind.make("codex"),
       model: MODEL,
       models: modelWith([
         selectDescriptor("thinkingLevel", [

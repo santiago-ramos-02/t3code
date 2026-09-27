@@ -1,25 +1,26 @@
 import {
+  GENTLE_AI_PACKAGE,
   PI_GENTLE_PACKAGES,
   type ModelSelection,
   type PiGentleComposerState,
-  type PiGentleSddChange,
+  type GentleAiSddChange,
   type PiGentleSddPreferences,
   type ServerProviderModel,
 } from "@t3tools/contracts";
 
+const GENTLE_PACKAGES: ReadonlySet<string> = new Set([GENTLE_AI_PACKAGE, ...PI_GENTLE_PACKAGES]);
+
 /**
- * The commands or skills a Pi thread can use. With Gentle AI off the thread loads none of its
- * packages, so what those packages provide is not offered.
+ * The commands or skills a thread can use. With Gentle AI off the thread's agent loads nothing
+ * from Gentle AI, so what it provides is not offered.
  */
-export function piResourcesForGentle<T extends { readonly package?: string | undefined }>(
+export function resourcesForGentle<T extends { readonly package?: string | undefined }>(
   items: ReadonlyArray<T>,
   gentleEnabled: boolean,
 ): ReadonlyArray<T> {
   return gentleEnabled
     ? items
-    : items.filter(
-        (item) => item.package === undefined || !PI_GENTLE_PACKAGES.includes(item.package),
-      );
+    : items.filter((item) => item.package === undefined || !GENTLE_PACKAGES.has(item.package));
 }
 
 export type GentleProfileOption = NonNullable<PiGentleComposerState["profiles"]>[number];
@@ -163,7 +164,7 @@ export type GentleSddChangeStep =
   | { readonly kind: "done"; readonly label: string };
 
 type SddPhase = Extract<
-  PiGentleSddChange["nextRecommended"],
+  GentleAiSddChange["nextRecommended"],
   "propose" | "spec" | "design" | "tasks" | "apply" | "verify" | "remediate" | "archive"
 >;
 
@@ -186,7 +187,7 @@ const PHASES = {
   {
     name: string;
     action: string;
-    dependency: keyof PiGentleSddChange["dependencies"] | null;
+    dependency: keyof GentleAiSddChange["dependencies"] | null;
     planning: boolean;
   }
 >;
@@ -198,7 +199,7 @@ const blocked = (label: string, reason: string): GentleSddChangeStep => ({
 });
 
 /** Resolves the next step for a change from Gentle AI's native status, never from task counts. */
-export function gentleSddChangeStep(change: PiGentleSddChange): GentleSddChangeStep {
+export function gentleSddChangeStep(change: GentleAiSddChange): GentleSddChangeStep {
   const next = change.nextRecommended;
   if (next === "archived") return { kind: "done", label: "Archived" };
   if (next === "resolve-blockers") {
@@ -234,7 +235,7 @@ export function gentleSddChangeStep(change: PiGentleSddChange): GentleSddChangeS
 }
 
 /** "1 of 3 tasks" once a change has a task plan, otherwise null. */
-export function gentleSddTaskSummary(change: PiGentleSddChange): string | null {
+export function gentleSddTaskSummary(change: GentleAiSddChange): string | null {
   const { total, completed } = change.taskProgress;
   return total > 0 ? `${completed} of ${total} tasks` : null;
 }

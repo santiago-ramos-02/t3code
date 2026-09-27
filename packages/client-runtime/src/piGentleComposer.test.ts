@@ -2,7 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   ProviderInstanceId,
   type ModelSelection,
-  type PiGentleSddChange,
+  type GentleAiSddChange,
   type ServerProviderModel,
 } from "@t3tools/contracts";
 
@@ -11,13 +11,13 @@ import {
   gentleProfileModelChange,
   gentleSddChangeStep,
   gentleSddTaskSummary,
-  piResourcesForGentle,
+  resourcesForGentle,
 } from "./piGentleComposer.ts";
 
 const change = (
-  nextRecommended: PiGentleSddChange["nextRecommended"],
-  overrides: Partial<PiGentleSddChange> = {},
-): PiGentleSddChange => ({
+  nextRecommended: GentleAiSddChange["nextRecommended"],
+  overrides: Partial<GentleAiSddChange> = {},
+): GentleAiSddChange => ({
   changeName: "checkout-flow",
   artifactStore: "openspec",
   nextRecommended,
@@ -180,16 +180,17 @@ describe("Pi resources with Gentle AI off", () => {
   const commands = [
     { name: "review" },
     { name: "gentle:status", package: "gentle-pi" },
+    { name: "gentle-sdd-new", package: "gentle-ai" },
     { name: "mem-search", package: "gentle-engram" },
     { name: "web-search", package: "pi-web-access" },
   ];
 
   it("offers everything while Gentle AI is on", () => {
-    expect(piResourcesForGentle(commands, true)).toEqual(commands);
+    expect(resourcesForGentle(commands, true)).toEqual(commands);
   });
 
   it("drops only what Gentle AI's packages provide once it is off", () => {
-    expect(piResourcesForGentle(commands, false).map((command) => command.name)).toEqual([
+    expect(resourcesForGentle(commands, false).map((command) => command.name)).toEqual([
       "review",
       "web-search",
     ]);

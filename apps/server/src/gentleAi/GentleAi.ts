@@ -12,10 +12,14 @@ import * as NodeOS from "node:os";
 
 import {
   GENTLE_AI_AGENT_DRIVERS,
+  GENTLE_AI_PACKAGE,
   GentleAiError,
+  GentleAiSddStatus,
   ProviderDriverKind,
   type GentleAiActionInput,
   type GentleAiActionResult,
+  type GentleAiSddChange,
+  type GentleAiSddChanges,
   type GentleAiStatus,
   type ServerProvider,
 } from "@t3tools/contracts";
@@ -37,6 +41,7 @@ import * as ChildProcess from "effect/unstable/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
 
 import { piPackages } from "../provider/PiPlainExtensions.ts";
+import { isGentleAiResource } from "./GentleAiFootprint.ts";
 import { spawnAndCollect } from "../provider/providerSnapshot.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 
@@ -55,6 +60,8 @@ export class GentleAi extends Context.Service<
     readonly action: (
       input: GentleAiActionInput,
     ) => Effect.Effect<GentleAiActionResult, GentleAiError>;
+    /** A project's active SDD changes with gentle-ai's native status for each. */
+    readonly sddChanges: (cwd: string) => Effect.Effect<GentleAiSddChanges, GentleAiError>;
   }
 >()("t3/gentleAi/GentleAi") {}
 
@@ -68,6 +75,18 @@ const StateFile = Schema.Struct({
   pending_sync: Schema.optional(Schema.Boolean),
 });
 const decodeStateFile = Schema.decodeUnknownEffect(Schema.fromJsonString(StateFile));
+const decodeSddStatus = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(
+    Schema.Struct({
+      schemaName: Schema.Literal("gentle-ai.sdd-status"),
+      schemaVersion: Schema.Literal(2),
+      ...GentleAiSddStatus.fields,
+      planningHome: Schema.optionalKey(Schema.Struct({ path: Schema.String })),
+    }),
+  ),
+);
+// OpenSpec change folders are kebab-case names; anything else under `changes/` is not a change.
+const CHANGE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 /** Status when no gentle-ai binary is available. */
 export const NOT_INSTALLED: GentleAiStatus = {
@@ -92,11 +111,26 @@ export function gentleAiDrivers(agents: ReadonlyArray<string>): ReadonlyArray<Pr
   });
 }
 
+/** Tags the skills or slash commands gentle-ai installed with its package name. */
+function tagGentleAiResources<
+  T extends { readonly name: string; readonly package?: string | undefined },
+>(items: ReadonlyArray<T>): ReadonlyArray<T> {
+  return items.map((item) =>
+    item.package === undefined && isGentleAiResource(item.name)
+      ? { ...item, package: GENTLE_AI_PACKAGE }
+      : item,
+  );
+}
+
+type GentleAiProvider = Pick<ServerProvider, "driver" | "installed" | "gentleAi"> &
+  Partial<Pick<ServerProvider, "skills" | "slashCommands" | "workspaceSnapshots">>;
+
 /**
- * Marks each provider whose agent gentle-ai set up. A driver that knows better, like Pi, which
- * gets Gentle AI through its own packages, reports the flag itself and keeps it.
+ * Marks each provider whose agent gentle-ai set up, and tags the skills and commands gentle-ai
+ * installed into it. A driver that knows better, like Pi, which gets Gentle AI through its own
+ * packages, reports the flag and tags itself, and keeps them.
  */
-export function withGentleAi<P extends Pick<ServerProvider, "driver" | "installed" | "gentleAi">>(
+export function withGentleAi<P extends GentleAiProvider>(
   providers: ReadonlyArray<P>,
   status: GentleAiStatus,
 ): ReadonlyArray<P> {
@@ -106,7 +140,25 @@ export function withGentleAi<P extends Pick<ServerProvider, "driver" | "installe
     !provider.installed ||
     !status.drivers.includes(provider.driver)
       ? provider
-      : { ...provider, gentleAi: true },
+      : {
+          ...provider,
+          gentleAi: true,
+          ...(provider.skills === undefined
+            ? {}
+            : { skills: tagGentleAiResources(provider.skills) }),
+          ...(provider.slashCommands === undefined
+            ? {}
+            : { slashCommands: tagGentleAiResources(provider.slashCommands) }),
+          ...(provider.workspaceSnapshots === undefined
+            ? {}
+            : {
+                workspaceSnapshots: provider.workspaceSnapshots.map((snapshot) => ({
+                  ...snapshot,
+                  skills: tagGentleAiResources(snapshot.skills),
+                  slashCommands: tagGentleAiResources(snapshot.slashCommands),
+                })),
+              }),
+        },
   );
 }
 
@@ -155,13 +207,19 @@ export const make = Effect.gen(function* () {
       : null;
   }).pipe(provide);
 
-  /** Runs gentle-ai to completion; stdout and stderr together, since reports use both. */
-  const run = (binaryPath: string, args: ReadonlyArray<string>, timeout: Duration.Input) =>
+  /** Runs gentle-ai to completion; `output` is stdout and stderr together, as reports use both. */
+  const run = (
+    binaryPath: string,
+    args: ReadonlyArray<string>,
+    timeout: Duration.Input,
+    cwd?: string,
+  ) =>
     Effect.gen(function* () {
       const resolved = yield* resolveSpawnCommand(binaryPath, args, { env: environment });
       const result = yield* spawnAndCollect(
         binaryPath,
         ChildProcess.make(resolved.command, resolved.args, {
+          ...(cwd === undefined ? {} : { cwd }),
           env: environment,
           extendEnv: false,
           shell: resolved.shell,
@@ -174,7 +232,7 @@ export const make = Effect.gen(function* () {
         }),
       );
       const output = [result.stdout.trim(), result.stderr.trim()].filter(Boolean).join("\n");
-      return { code: result.code, output };
+      return { code: result.code, stdout: result.stdout, output };
     }).pipe(
       provide,
       Effect.mapError((cause) =>
@@ -260,6 +318,66 @@ export const make = Effect.gen(function* () {
       } satisfies GentleAiActionResult;
     });
 
+  const sddStatus = (binaryPath: string, cwd: string, changeName?: string) =>
+    Effect.gen(function* () {
+      const result = yield* run(
+        binaryPath,
+        ["sdd-status", ...(changeName === undefined ? [] : [changeName]), "--cwd", cwd, "--json"],
+        "10 seconds",
+        cwd,
+      );
+      if (result.code !== 0) return yield* new GentleAiError({ detail: result.output });
+      return yield* decodeSddStatus(result.stdout);
+    }).pipe(
+      Effect.mapError(
+        () =>
+          new GentleAiError({
+            detail: `Gentle AI could not report SDD status${changeName === undefined ? "" : ` for ${changeName}`}.`,
+          }),
+      ),
+    );
+
+  /**
+   * gentle-ai reports one change at a time, so this finds the change folders under the
+   * project's planning home first. Stores without one (Engram, none) have nothing to list.
+   */
+  const sddChanges = (cwd: string) =>
+    Effect.gen(function* () {
+      if (!path.isAbsolute(cwd))
+        return yield* new GentleAiError({ detail: "Choose an absolute project folder." });
+      const binaryPath = yield* binary;
+      if (binaryPath === null)
+        return yield* new GentleAiError({ detail: "Gentle AI is not installed." });
+      const overview = yield* sddStatus(binaryPath, cwd);
+      const names: Array<string> = [];
+      if (overview.planningHome !== undefined) {
+        const changesDirectory = path.join(overview.planningHome.path, "changes");
+        const entries = yield* fileSystem
+          .readDirectory(changesDirectory)
+          .pipe(Effect.orElseSucceed((): ReadonlyArray<string> => []));
+        for (const name of entries) {
+          if (name === "archive" || !CHANGE_NAME.test(name)) continue;
+          const info = yield* fileSystem
+            .stat(path.join(changesDirectory, name))
+            .pipe(Effect.orElseSucceed(() => null));
+          if (info?.type === "Directory") names.push(name);
+        }
+      }
+      names.sort((left, right) => left.localeCompare(right));
+      const changes = yield* Effect.forEach(
+        names,
+        (name) =>
+          sddStatus(binaryPath, cwd, name).pipe(
+            Effect.map(
+              ({ schemaName: _name, schemaVersion: _version, planningHome: _home, ...status }) =>
+                ({ ...status, changeName: name }) satisfies GentleAiSddChange,
+            ),
+          ),
+        { concurrency: 4 },
+      );
+      return { artifactStore: overview.artifactStore, changes } satisfies GentleAiSddChanges;
+    });
+
   // A changed binary path points at another gentle-ai, so status re-reads straight away.
   yield* settingsService.streamChanges.pipe(
     Stream.map((settings) => settings.gentleAiBinaryPath),
@@ -274,6 +392,7 @@ export const make = Effect.gen(function* () {
     refresh,
     binary,
     action,
+    sddChanges,
     get streamChanges() {
       return Stream.unwrap(
         Effect.gen(function* () {

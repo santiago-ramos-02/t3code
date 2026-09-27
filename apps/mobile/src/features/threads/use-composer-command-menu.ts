@@ -34,7 +34,7 @@ import {
   resolveProviderSkillsForCwd,
   resolveProviderSlashCommandsForCwd,
 } from "@t3tools/client-runtime/providerSkills";
-import { piResourcesForGentle } from "@t3tools/client-runtime/piGentleComposer";
+import { resourcesForGentle } from "@t3tools/client-runtime/piGentleComposer";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { ComposerEditorSelection } from "../../components/ComposerEditor";
@@ -232,7 +232,7 @@ export function useComposerCommandMenu({
   const skills = useMemo(
     () =>
       selectedProviderStatus
-        ? piResourcesForGentle(
+        ? resourcesForGentle(
             resolveProviderSkillsForCwd(selectedProviderStatus, projectCwd),
             gentleEnabled,
           )
@@ -352,7 +352,7 @@ export function useComposerCommandMenu({
           ? {
               ...selectedProviderStatus,
               slashCommands: getProviderSlashCommandsForSlashMenu(
-                piResourcesForGentle(
+                resourcesForGentle(
                   resolveProviderSlashCommandsForCwd(selectedProviderStatus, projectCwd),
                   gentleEnabled,
                 ),

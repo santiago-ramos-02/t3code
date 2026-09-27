@@ -500,6 +500,11 @@ export function NewTaskDraftScreen(props: {
     selectedProject,
   ]);
   const gentleDraftEnabled = gentleAiEnabled(gentleDraftSelection?.options);
+  // Any provider Gentle AI is set up for; in Pi, only once the server confirms gentle-pi loads.
+  const gentleDraftVisible =
+    flow.selectedProviderStatus?.gentleAi === true &&
+    (flow.selectedProviderStatus.driver !== "pi" ||
+      (gentleDraftState?.key === gentleDraftKey && gentleDraftState.value?.available === true));
   const gentleDraftProfiles = useGentleProfileMenu({
     environmentId: selectedProject?.environmentId ?? null,
     cwd: composerWorkspaceCwd,
@@ -1689,9 +1694,7 @@ export function NewTaskDraftScreen(props: {
         </Pressable>
       ) : null}
 
-      {gentleDraftState?.key === gentleDraftKey &&
-      gentleDraftState.value?.available === true &&
-      gentleDraftSelection ? (
+      {gentleDraftVisible && gentleDraftSelection ? (
         <View className="flex-row items-center justify-end px-2 pb-1">
           <ControlPillMenu
             actions={gentleDraftActions}

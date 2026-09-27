@@ -1,5 +1,6 @@
 import * as Schema from "effect/Schema";
 import { TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { GentleAiArtifactStore } from "./gentleAi.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
 
 /**
@@ -22,66 +23,13 @@ export const PI_GENTLE_ORCHESTRATOR = "orchestrator";
 
 export const PiGentleSddPreferences = Schema.Struct({
   executionMode: Schema.Literals(["interactive", "auto"]),
-  artifactStore: Schema.Literals(["openspec", "engram", "hybrid", "none"]),
+  artifactStore: GentleAiArtifactStore,
   chainedPrStrategy: Schema.Literals(["ask-on-risk", "auto-chain", "single-pr"]),
   reviewBudgetLines: Schema.Int.check(Schema.isGreaterThan(0)),
 });
 export type PiGentleSddPreferences = typeof PiGentleSddPreferences.Type;
 
 export const PiGentlePersona = Schema.Literals(["gentleman", "neutral"]);
-
-export const PiGentleSddStatus = Schema.Struct({
-  changeName: Schema.NullOr(Schema.String),
-  artifactStore: Schema.Literals(["openspec", "engram", "hybrid", "none"]),
-  nextRecommended: Schema.Literals([
-    "apply",
-    "verify",
-    "remediate",
-    "archive",
-    "archived",
-    "resolve-blockers",
-    "sdd-new",
-    "select-change",
-    "propose",
-    "spec",
-    "design",
-    "tasks",
-  ]),
-  blockedReasons: Schema.Array(Schema.String),
-  dependencies: Schema.Struct({
-    proposal: Schema.Literals(["blocked", "ready", "all_done"]),
-    specs: Schema.Literals(["blocked", "ready", "all_done"]),
-    design: Schema.Literals(["blocked", "ready", "all_done"]),
-    tasks: Schema.Literals(["blocked", "ready", "all_done"]),
-    apply: Schema.Literals(["blocked", "ready", "all_done"]),
-    verify: Schema.Literals(["blocked", "ready", "all_done"]),
-    archive: Schema.Literals(["blocked", "ready", "all_done"]),
-  }),
-  actionContext: Schema.Struct({
-    mode: Schema.Literals(["repo-local", "workspace-planning"]),
-    allowedEditRoots: Schema.Array(Schema.String),
-  }),
-  remediationState: Schema.optionalKey(
-    Schema.Struct({
-      required: Schema.Boolean,
-      complete: Schema.Boolean,
-      failedEvidenceRevision: Schema.String,
-    }),
-  ),
-  taskProgress: Schema.Struct({
-    total: Schema.Int,
-    completed: Schema.Int,
-    pending: Schema.Int,
-  }),
-});
-export type PiGentleSddStatus = typeof PiGentleSddStatus.Type;
-
-/** Native SDD status of one active OpenSpec change in a project. */
-export const PiGentleSddChange = Schema.Struct({
-  ...PiGentleSddStatus.fields,
-  changeName: Schema.String,
-});
-export type PiGentleSddChange = typeof PiGentleSddChange.Type;
 
 export const PiGentleComposerState = Schema.Struct({
   available: Schema.Boolean,
@@ -102,18 +50,12 @@ export const PiGentleComposerState = Schema.Struct({
   effectiveProfile: Schema.optionalKey(
     Schema.NullOr(Schema.Struct({ name: Schema.String, pinned: Schema.Boolean })),
   ),
-  // When changes are requested, exactly one of these is present: the project's active changes,
-  // or why Gentle AI could not list them.
-  changes: Schema.optionalKey(Schema.Array(PiGentleSddChange)),
-  changesError: Schema.optionalKey(Schema.String),
 });
 export type PiGentleComposerState = typeof PiGentleComposerState.Type;
 
 export const PiGentleComposerReadInput = Schema.Struct({
   instanceId: ProviderInstanceId,
   cwd: TrimmedNonEmptyString,
-  // Listing changes runs Gentle AI once per change, so clients ask only when showing them.
-  includeChanges: Schema.optionalKey(Schema.Boolean),
 });
 
 export const PiGentleInitializeInput = Schema.Struct({

@@ -91,6 +91,11 @@ export const GENTLE_AI_COMMAND_FILES: ReadonlySet<string> = new Set([
   "skill-registry.md",
 ]);
 
+/** Whether a skill or slash command an agent reports, by name, is one gentle-ai installed. */
+export function isGentleAiResource(name: string): boolean {
+  return GENTLE_AI_SKILLS.has(name) || GENTLE_AI_COMMAND_FILES.has(`${name}.md`);
+}
+
 /** OpenCode plugin files gentle-ai installs. */
 export const GENTLE_AI_OPENCODE_PLUGINS: ReadonlySet<string> = new Set([
   "model-variants.ts",

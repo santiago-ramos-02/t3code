@@ -44,7 +44,7 @@ import {
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
 } from "@t3tools/contracts";
 import type { EnvironmentConnectionPresentation } from "@t3tools/client-runtime/connection";
-import { piResourcesForGentle } from "@t3tools/client-runtime/piGentleComposer";
+import { resourcesForGentle } from "@t3tools/client-runtime/piGentleComposer";
 import {
   isPasteAsTextShortcut,
   nextPastedTextFileName,
@@ -2093,15 +2093,15 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     [selectedInstanceId, selectedModel, selectedModelOptionsForDispatch],
   );
   const selectedGentleEnabled = gentleAiEnabled(selectedModelSelection.options);
-  // A Pi thread with Gentle AI off loads none of its packages, so their commands are not offered.
+  // A thread with Gentle AI off loads nothing from it, so its commands are not offered.
   const selectedProviderSkills = selectedProviderStatus
-    ? piResourcesForGentle(
+    ? resourcesForGentle(
         resolveProviderSkillsForCwd(selectedProviderStatus, gitCwd),
         selectedGentleEnabled,
       )
     : [];
   const selectedProviderSlashCommands = selectedProviderStatus
-    ? piResourcesForGentle(
+    ? resourcesForGentle(
         resolveProviderSlashCommandsForCwd(selectedProviderStatus, gitCwd),
         selectedGentleEnabled,
       )
@@ -6414,11 +6414,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               onToggleMenu={toggleStashMenu}
             />
           ) : null}
-          {selectedProvider === "pi" && gitCwd !== null ? (
+          {selectedProviderStatus?.gentleAi === true && gitCwd !== null ? (
             <GentleComposerActions
               key={`${routeKind}:${activeThreadId ?? draftId ?? "new"}:${activeThread?.latestTurn?.turnId ?? ""}:${activeThread?.latestTurn?.completedAt ?? ""}:${selectedInstanceId}:${gitCwd}`}
               environmentId={environmentId}
               instanceId={selectedInstanceId}
+              pi={selectedProvider === "pi"}
               cwd={gitCwd}
               enabled={selectedGentleEnabled}
               canChange={_isLocalDraftThread && multipleModelSelections === null}

@@ -51,6 +51,7 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.providerPiGentleInitialize]: AuthOrchestrationOperateScope,
   [WS_METHODS.gentleAiRead]: AuthOrchestrationReadScope,
   [WS_METHODS.gentleAiAction]: AuthOrchestrationOperateScope,
+  [WS_METHODS.gentleAiSddChanges]: AuthOrchestrationReadScope,
   [WS_METHODS.serverUpdateServer]: AuthOrchestrationOperateScope,
   [WS_METHODS.serverUpdateServerWithProgress]: AuthOrchestrationOperateScope,
   [WS_METHODS.serverCommitDesktopUpdate]: AuthOrchestrationOperateScope,
