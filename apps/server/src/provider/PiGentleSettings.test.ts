@@ -463,4 +463,119 @@ if (process.argv.includes("/gentle-sdd-init")) {
       }),
     ),
   );
+
+  it.effect("goes through gentle-pi's own API when the installed release ships one", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+        const root = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-pi-gentle-api-" });
+        const cwd = path.join(root, "project");
+        const agentHome = path.join(root, "agent");
+        const configHome = path.join(root, "gentle-config");
+        const packageDir = path.join(agentHome, "npm", "node_modules", "gentle-pi");
+        const calls = path.join(root, "calls.ndjson");
+        yield* fileSystem.makeDirectory(cwd);
+        yield* fileSystem.makeDirectory(path.join(packageDir, "bin"), { recursive: true });
+        yield* fileSystem.writeFileString(
+          path.join(packageDir, "package.json"),
+          encodeJson({ name: "gentle-pi", version: "3.7.0" }),
+        );
+        yield* fileSystem.writeFileString(
+          path.join(agentHome, "settings.json"),
+          encodeJson({ packages: ["npm:gentle-pi"] }),
+        );
+        // Records each call and answers like gentle-pi: a fixed state, and an error for "missing".
+        yield* fileSystem.writeFileString(
+          path.join(packageDir, "bin", "gentle-pi-api.mjs"),
+          `
+import fs from "node:fs";
+let body = "";
+for await (const chunk of process.stdin) body += chunk;
+const method = process.argv[2];
+const params = JSON.parse(body || "{}");
+fs.appendFileSync(${JSON.stringify(calls)}, JSON.stringify({ method, params, configHome: process.env.GENTLE_PI_CONFIG_HOME }) + "\\n");
+const line = params.name === "missing"
+  ? { type: "error", error: { code: "missing_profile", message: "Profile does not exist: missing." } }
+  : { type: "result", data: method !== "state" ? {} : {
+      profiles: [{ name: "deep", routing: { orchestrator: { model: "anthropic/opus" }, worker: { thinking: "high" } } }],
+      active: "deep",
+      persona: "neutral",
+      project: params.cwd ? { pinAvailable: true, pinned: { profile: "deep", source: "repo" }, persona: { effective: "gentleman", override: "gentleman" } } : null,
+    } };
+process.stdout.write(JSON.stringify({ schema: "gentle-pi.api/v1", ...line }) + "\\n");
+`,
+        );
+        const gentle = yield* makePiGentleSettings({
+          environment: { PI_CODING_AGENT_DIR: agentHome, GENTLE_PI_CONFIG_HOME: configHome },
+          fileSystem,
+          path,
+          spawner,
+        });
+        const recorded = fileSystem.readFileString(calls).pipe(
+          Effect.map((text) =>
+            text
+              .trim()
+              .split("\n")
+              .map((line) => decodeJson(line)),
+          ),
+        );
+
+        expect(yield* gentle.read(cwd)).toEqual({
+          available: true,
+          version: "3.7.0",
+          globalPersona: "neutral",
+          profiles: [
+            {
+              name: "deep",
+              routing: { orchestrator: { model: "anthropic/opus" }, worker: { thinking: "high" } },
+            },
+          ],
+          active: "deep",
+          project: {
+            pinAvailable: true,
+            pinned: "deep",
+            pinSource: "repo",
+            sdd: null,
+            persona: { effective: "gentleman", global: "neutral", override: "gentleman" },
+          },
+        });
+        expect(yield* gentle.readComposer(cwd)).toMatchObject({
+          profiles: [{ name: "deep", orchestrator: { model: "anthropic/opus" } }],
+          effectiveProfile: { name: "deep", pinned: true },
+        });
+
+        yield* gentle.action({ type: "apply", name: "deep", cwd });
+        yield* gentle.action({ type: "activate", name: "deep", cwd });
+        yield* gentle.action({ type: "setPersona", cwd, mode: null });
+        const failure = yield* Effect.flip(gentle.action({ type: "pin", name: "missing", cwd }));
+        expect(failure.detail).toBe("Profile does not exist: missing.");
+        // SDD predates the API, so its choices are still saved to the file Gentle AI reads.
+        const sdd = {
+          executionMode: "auto",
+          artifactStore: "engram",
+          chainedPrStrategy: "single-pr",
+          reviewBudgetLines: 300,
+        } as const;
+        expect(
+          (yield* gentle.action({ type: "saveSdd", cwd, preferences: sdd })).project?.sdd,
+        ).toEqual(sdd);
+
+        const actions = (yield* recorded).filter(
+          (call) =>
+            typeof call === "object" &&
+            call !== null &&
+            "method" in call &&
+            call.method !== "state",
+        );
+        expect(actions).toEqual([
+          { method: "profiles.apply", params: { name: "deep", cwd }, configHome },
+          { method: "profiles.apply", params: { name: "deep", cwd, global: true }, configHome },
+          { method: "persona.set", params: { mode: null, cwd }, configHome },
+          { method: "pin.set", params: { name: "missing", cwd }, configHome },
+        ]);
+      }),
+    ),
+  );
 });

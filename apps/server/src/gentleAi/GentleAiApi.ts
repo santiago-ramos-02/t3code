@@ -1,6 +1,7 @@
 /**
  * Runs one `gentle-ai api <method>` call: parameters as JSON on stdin, newline-delimited JSON
- * events on stdout, ending in exactly one result or error line.
+ * events on stdout, ending in exactly one result or error line. gentle-pi's API uses the same
+ * framing, so it runs through here too.
  *
  * @module gentleAi/GentleAiApi
  */
@@ -62,9 +63,12 @@ export const runGentleAiApi = Effect.fn("runGentleAiApi")(function* (input: {
   readonly environment: NodeJS.ProcessEnv;
   readonly timeout: Duration.Input;
   readonly onEvent?: (event: GentleAiApiEvent) => Effect.Effect<void>;
+  /** Another API with this framing: its name in errors and the arguments before the method. */
+  readonly command?: { readonly name: string; readonly leadingArgs: ReadonlyArray<string> };
 }) {
+  const name = input.command?.name ?? "gentle-ai";
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-  const args = ["api", input.method];
+  const args = [...(input.command?.leadingArgs ?? ["api"]), input.method];
   const resolved = yield* resolveSpawnCommand(input.binaryPath, args, { env: input.environment });
   const body = yield* encodeParams(input.params).pipe(
     Effect.mapError(() => new GentleAiError({ detail: `Invalid parameters for ${input.method}.` })),
@@ -111,18 +115,18 @@ export const runGentleAiApi = Effect.fn("runGentleAiApi")(function* (input: {
     Effect.timeoutOrElse({
       duration: input.timeout,
       orElse: () =>
-        Effect.fail(new GentleAiError({ detail: `gentle-ai ${input.method} timed out.` })),
+        Effect.fail(new GentleAiError({ detail: `${name} ${input.method} timed out.` })),
     }),
     Effect.mapError((cause) =>
       isGentleAiError(cause)
         ? cause
-        : new GentleAiError({ detail: `gentle-ai ${input.method} could not be run.` }),
+        : new GentleAiError({ detail: `${name} ${input.method} could not be run.` }),
     ),
   );
   if (outcome.final === undefined) {
     const tail = outcome.stderr.trim().split("\n").slice(-3).join(" ").slice(-400);
     return yield* new GentleAiError({
-      detail: `gentle-ai ${input.method} ended without a result${tail ? `: ${tail}` : ` (exit ${outcome.exitCode}).`}`,
+      detail: `${name} ${input.method} ended without a result${tail ? `: ${tail}` : ` (exit ${outcome.exitCode}).`}`,
     });
   }
   if ("error" in outcome.final) return yield* new GentleAiError({ detail: outcome.final.error });

@@ -21,13 +21,15 @@ import * as ChildProcess from "effect/unstable/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 
+import { runGentleAiApi } from "../gentleAi/GentleAiApi.ts";
 import { piPackages } from "./PiPlainExtensions.ts";
 import { spawnAndCollect } from "./providerSnapshot.ts";
 
 // Oldest gentle-pi whose profile, persona, and SDD files T3 Code reads and writes.
 const MINIMUM_GENTLE_VERSION = "3.5.0";
-// Newest gentle-pi minor release T3 Code was verified against. T3 Code writes Gentle AI's own
-// config files, so a newer minor or major release may have changed what they mean.
+// Newest gentle-pi minor release T3 Code was verified against. Without gentle-pi's API, T3 Code
+// writes Gentle AI's own config files, so a newer minor or major release may have changed what
+// they mean. With the API, gentle-pi writes them itself and no warning applies.
 const NEWEST_TESTED_GENTLE_MINOR = "3.7";
 
 function gentleCompatibilityWarning(version: string): string | undefined {
@@ -89,6 +91,28 @@ const decodePin = Schema.decodeUnknownEffect(ProfilePin);
 const decodePiSettings = Schema.decodeUnknownEffect(PiSettingsFile);
 const decodeSdd = Schema.decodeUnknownEffect(StoredSdd);
 const decodePreferences = Schema.decodeUnknownEffect(PiGentleSddPreferences);
+// What gentle-pi's API `state` reports.
+const decodeApiState = Schema.decodeUnknownEffect(
+  Schema.Struct({
+    profiles: Schema.Array(Schema.Struct({ name: Schema.String, routing: PiGentleRouting })),
+    active: Schema.NullOr(Schema.String),
+    // Set when profiles.json cannot be read.
+    profilesError: Schema.optionalKey(Schema.String),
+    persona: PiGentlePersona,
+    project: Schema.NullOr(
+      Schema.Struct({
+        pinAvailable: Schema.Boolean,
+        pinned: Schema.NullOr(
+          Schema.Struct({ profile: Schema.String, source: Schema.Literals(["local", "repo"]) }),
+        ),
+        persona: Schema.Struct({
+          effective: PiGentlePersona,
+          override: Schema.NullOr(PiGentlePersona),
+        }),
+      }),
+    ),
+  }),
+);
 export class PiGentleSettingsError extends Schema.TaggedError<PiGentleSettingsError>()(
   "PiGentleSettingsError",
   { detail: Schema.String, cause: Schema.optional(Schema.Defect()) },
@@ -160,6 +184,35 @@ function parseProfiles(value: unknown): ProfileStore {
 
 export type PiGentleAction = typeof PiGentleActionInput.Type.action;
 
+/** The gentle-pi API call that performs an action. */
+function apiCall(
+  command: Exclude<PiGentleAction, { readonly type: "update" | "saveSdd" }>,
+): readonly [method: string, params: unknown] {
+  const cwd = command.cwd === undefined ? {} : { cwd: command.cwd };
+  switch (command.type) {
+    case "create":
+      return ["profiles.create", { name: command.name }];
+    case "save":
+      return ["profiles.save", { name: command.name, routing: command.routing, ...cwd }];
+    case "activate":
+      // Activating applies everywhere, even in a project a pin governs.
+      return [
+        "profiles.apply",
+        { name: command.name, cwd: command.cwd ?? NodeOS.homedir(), global: true },
+      ];
+    case "apply":
+      return ["profiles.apply", { name: command.name, ...cwd }];
+    case "pin":
+      return ["pin.set", { name: command.name, ...cwd }];
+    case "clearPin":
+      return ["pin.clear", cwd];
+    case "setGlobalPersona":
+      return ["persona.set", { mode: command.mode }];
+    case "setPersona":
+      return ["persona.set", { mode: command.mode, ...cwd }];
+  }
+}
+
 export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* (input: {
   readonly environment: NodeJS.ProcessEnv;
   readonly piBinaryPath?: string;
@@ -216,6 +269,43 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
     typeof version === "string" && compareSemverVersions(version, MINIMUM_GENTLE_VERSION) >= 0;
   const installed = (cwd?: string) =>
     gentlePackage(cwd).pipe(Effect.map((found) => isSupported(found?.version)));
+
+  /**
+   * gentle-pi's own API script, when the installed release ships one. Through it gentle-pi
+   * reads and writes its files itself, so a profile applies exactly as it does in Pi, including
+   * the routing in the agents' own files. Older releases get the file-based path below.
+   */
+  const apiScript = (found: Effect.Success<ReturnType<typeof gentlePackage>>) => {
+    if (found === null || !isSupported(found.version)) return Effect.succeed(null);
+    const script = path.join(found.directory, "bin", "gentle-pi-api.mjs");
+    return fileSystem.exists(script).pipe(
+      Effect.map((exists) => (exists ? script : null)),
+      Effect.orElseSucceed(() => null),
+    );
+  };
+  const callApi = (script: string, method: string, params: unknown) =>
+    runGentleAiApi({
+      // The API is a Node script. The server's own runtime runs it, as Node even under Electron.
+      binaryPath: process.execPath,
+      command: { name: "gentle-pi", leadingArgs: [script] },
+      method,
+      params,
+      environment: {
+        ...environment,
+        ELECTRON_RUN_AS_NODE: "1",
+        GENTLE_PI_AGENT_HOME: agentHome,
+        GENTLE_PI_CONFIG_HOME: configHome,
+      },
+      timeout: "30 seconds",
+    }).pipe(
+      Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+      Effect.mapError((cause) => new PiGentleSettingsError({ detail: cause.detail, cause })),
+    );
+  const readApiState = (script: string, cwd?: string) =>
+    callApi(script, "state", cwd === undefined ? {} : { cwd }).pipe(
+      Effect.flatMap(decodeApiState),
+      Effect.mapError(toGentleError),
+    );
 
   /**
    * Runs Pi to completion and fails with the tail of its output when it exits non-zero, so a
@@ -385,7 +475,8 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
 
   const read = (cwd?: string) =>
     Effect.gen(function* () {
-      const version = (yield* gentlePackage(cwd))?.version ?? null;
+      const found = yield* gentlePackage(cwd);
+      const version = found?.version ?? null;
       // An outdated install reports its version so clients offer an update; clients show nothing
       // Gentle-related when there is no version at all.
       if (!isSupported(version))
@@ -397,6 +488,30 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
           active: null,
           project: null,
         } satisfies PiGentleState;
+      const script = yield* apiScript(found);
+      if (script !== null) {
+        const state = yield* readApiState(script, cwd);
+        if (state.profilesError !== undefined)
+          return yield* new PiGentleSettingsError({ detail: state.profilesError });
+        // SDD predates the API; releases that still have it keep their choices in this file.
+        const sdd = cwd ? yield* readSdd((yield* projectPaths(cwd)).sdd) : null;
+        return {
+          available: true,
+          version,
+          globalPersona: state.persona,
+          profiles: state.profiles,
+          active: state.active,
+          project: state.project
+            ? {
+                pinAvailable: state.project.pinAvailable,
+                pinned: state.project.pinned?.profile ?? null,
+                pinSource: state.project.pinned?.source ?? null,
+                sdd: sdd?.preferences ?? null,
+                persona: { ...state.project.persona, global: state.persona },
+              }
+            : null,
+        } satisfies PiGentleState;
+      }
       const store = yield* loadProfiles;
       const pin = cwd ? yield* resolvePin(store, cwd) : null;
       const paths = pin?.paths ?? null;
@@ -431,7 +546,8 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
 
   const readComposer = (cwd: string) =>
     Effect.gen(function* () {
-      if (!(yield* installed(cwd)))
+      const found = yield* gentlePackage(cwd);
+      if (!isSupported(found?.version))
         return {
           available: false,
           projectInitNeeded: false,
@@ -446,26 +562,53 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
         persistedSdd === null ||
         ((artifactStore === "openspec" || artifactStore === "hybrid") &&
           !(yield* fileSystem.exists(path.join(cwd, "openspec", "config.yaml"))));
+      const composerProfiles = (
+        profiles: ReadonlyArray<{ readonly name: string; readonly routing: GentleRouting }>,
+        pinned: string | null,
+        active: string | null,
+      ) => ({
+        profiles: profiles.map(({ name, routing }) => {
+          const orchestrator = routing[PI_GENTLE_ORCHESTRATOR];
+          return orchestrator === undefined ? { name } : { name, orchestrator };
+        }),
+        effectiveProfile:
+          pinned !== null
+            ? { name: pinned, pinned: true }
+            : active === null
+              ? null
+              : { name: active, pinned: false },
+      });
+      const script = yield* apiScript(found);
       // A broken profiles.json hides only the profile list; SDD actions stay usable.
-      const profiles = yield* loadProfiles.pipe(
-        Effect.flatMap((store) =>
-          resolvePin(store, cwd).pipe(
-            Effect.map((pin) => ({
-              profiles: Object.entries(store.profiles).map(([name, routing]) => {
-                const orchestrator = routing[PI_GENTLE_ORCHESTRATOR];
-                return orchestrator === undefined ? { name } : { name, orchestrator };
-              }),
-              effectiveProfile:
-                pin.pinned !== null
-                  ? { name: pin.pinned, pinned: true }
-                  : store.active === undefined
-                    ? null
-                    : { name: store.active, pinned: false },
-            })),
-          ),
-        ),
-        Effect.orElseSucceed(() => ({})),
-      );
+      const profiles = yield* (
+        script !== null
+          ? readApiState(script, cwd).pipe(
+              Effect.filterOrFail(
+                (state) => state.profilesError === undefined,
+                () => new PiGentleSettingsError({ detail: "Gentle profiles are unreadable." }),
+              ),
+              Effect.map((state) =>
+                composerProfiles(
+                  state.profiles,
+                  state.project?.pinned?.profile ?? null,
+                  state.active,
+                ),
+              ),
+            )
+          : loadProfiles.pipe(
+              Effect.flatMap((store) =>
+                resolvePin(store, cwd).pipe(
+                  Effect.map((pin) =>
+                    composerProfiles(
+                      Object.entries(store.profiles).map(([name, routing]) => ({ name, routing })),
+                      pin.pinned,
+                      store.active ?? null,
+                    ),
+                  ),
+                ),
+              ),
+            )
+      ).pipe(Effect.orElseSucceed(() => ({})));
       return {
         available: true,
         projectInitNeeded,
@@ -588,10 +731,17 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
         });
         return yield* read(command.cwd);
       }
-      if (!(yield* installed("cwd" in command ? command.cwd : undefined)))
+      const found = yield* gentlePackage(command.cwd);
+      if (!isSupported(found?.version))
         return yield* new PiGentleSettingsError({
           detail: "Gentle AI 3.5 or newer is not installed for this Pi instance.",
         });
+      const script = yield* apiScript(found);
+      if (script !== null && command.type !== "saveSdd") {
+        const [method, params] = apiCall(command);
+        yield* callApi(script, method, params);
+        return yield* read(command.cwd);
+      }
       const store = yield* loadProfiles;
       if (command.type === "create") {
         if (!validProfileName(command.name))
