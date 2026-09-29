@@ -2,17 +2,16 @@ import type { EnvironmentId } from "@t3tools/contracts";
 
 import { Spinner } from "../../ui/spinner";
 import { SettingsPageContainer, SettingsRow, SettingsSection } from "../settingsLayout";
-import { ModelProxyAccounts } from "./ModelProxyAccounts";
 import { ModelProxyAdvanced } from "./ModelProxyAdvanced";
+import { ModelProxyHeader } from "./ModelProxyHeader";
 import { ModelProxyModels } from "./ModelProxyModels";
-import { ModelProxyOverview } from "./ModelProxyOverview";
-import { ModelProxyProviders } from "./ModelProxyProviders";
+import { ModelProxySources } from "./ModelProxySources";
 import { useModelProxy } from "./useModelProxy";
 
 /**
- * CLIProxyAPI on one environment: installing and running it, its accounts and their limits,
- * API-key providers, failover pools, routing, plugins, and logs, so its own control panel is
- * never needed.
+ * CLIProxyAPI on one environment, in the order people need it: whether it runs and T3 Code
+ * uses it, where its models come from, its failover models, then everything set once, folded
+ * away. Its own control panel is never needed.
  */
 export function ModelProxySettings({
   environmentId,
@@ -41,28 +40,21 @@ export function ModelProxySettings({
 
   return (
     <SettingsPageContainer>
-      <ModelProxyOverview status={status} act={act} disabled={readOnly} />
+      <ModelProxyHeader status={status} act={act} disabled={readOnly} />
       {manageable ? (
         <>
-          <ModelProxyAccounts manage={manage} disabled={readOnly} />
+          <ModelProxySources manage={manage} disabled={readOnly} onChanged={resync} />
           <ModelProxyModels
             manage={manage}
             proxyUrl={status.url ?? "http://127.0.0.1:8317"}
             disabled={readOnly}
             onChanged={resync}
           />
-          <ModelProxyProviders manage={manage} disabled={readOnly} onChanged={resync} />
           <ModelProxyAdvanced manage={manage} disabled={readOnly} />
         </>
-      ) : status.installed ? (
-        <SettingsSection title="Accounts, models, and settings">
-          <SettingsRow
-            title={
-              !status.running
-                ? "Start CLIProxyAPI to manage its accounts, models, and settings."
-                : "Add the management key above to manage its accounts, models, and settings."
-            }
-          />
+      ) : status.installed && !status.running ? (
+        <SettingsSection title="Accounts and models">
+          <SettingsRow title="Start CLIProxyAPI to see and change its accounts and models." />
         </SettingsSection>
       ) : null}
     </SettingsPageContainer>

@@ -330,3 +330,47 @@ export function cliProxyModelLabels(
   }
   return labels;
 }
+
+// ---- Presentation ------------------------------------------------------------------------------
+
+const OWNER_LABELS: Readonly<Record<string, string>> = {
+  anthropic: "Claude",
+  openai: "OpenAI",
+  google: "Gemini",
+  xai: "xAI",
+  meta: "Meta",
+  moonshot: "Kimi",
+  antigravity: "Antigravity",
+};
+
+/** A provider name for a model's `owned_by`, for grouping the models the proxy serves. */
+export function cliProxyOwnerLabel(owner: string | null): string {
+  if (owner === null || owner.trim() === "") return "Other";
+  return OWNER_LABELS[owner.toLowerCase()] ?? owner.charAt(0).toUpperCase() + owner.slice(1);
+}
+
+/** The models the proxy serves by provider, the provider with the most models first. */
+export function cliProxyModelsByProvider(
+  models: ReadonlyArray<CliProxyModel>,
+): ReadonlyArray<{ readonly label: string; readonly models: ReadonlyArray<CliProxyModel> }> {
+  const groups = new Map<string, CliProxyModel[]>();
+  for (const model of models) {
+    const label = cliProxyOwnerLabel(model.owner);
+    groups.set(label, [...(groups.get(label) ?? []), model]);
+  }
+  return [...groups]
+    .map(([label, list]) => ({ label, models: list }))
+    .sort(
+      (left, right) =>
+        right.models.length - left.models.length || left.label.localeCompare(right.label),
+    );
+}
+
+/**
+ * The request an error log is about, from its file name: `error-v1-chat-completions-<time>.log`
+ * is `/v1/chat/completions`. Null for a name in another shape.
+ */
+export function cliProxyErrorEndpoint(fileName: string): string | null {
+  const match = /^error-(.+?)-\d{4}-\d{2}-\d{2}T\d{6}(?:-[0-9a-f]+)?\.log$/i.exec(fileName);
+  return match?.[1] ? `/${match[1].replaceAll("-", "/")}` : null;
+}

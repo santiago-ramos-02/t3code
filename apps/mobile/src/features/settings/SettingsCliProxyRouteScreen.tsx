@@ -161,7 +161,7 @@ function CliProxyEnvironment(props: {
             {status.startAtLogin === null ? null : (
               <SettingsSwitchRow
                 icon="arrow.clockwise"
-                label="Start at login"
+                label="Start when I sign in"
                 value={status.startAtLogin}
                 disabled={pending}
                 onValueChange={(enabled) => act({ type: "setStartAtLogin", enabled })}
@@ -170,7 +170,7 @@ function CliProxyEnvironment(props: {
             <SettingsSwitchRow
               icon="bolt.circle"
               label="Use in T3 Code"
-              subtitle="Adds a CLIProxyAPI provider with every model it serves."
+              subtitle="Adds a CLIProxyAPI provider with every model and failover model it serves."
               value={status.connected}
               disabled={pending || (!status.connected && !manageable)}
               onValueChange={(enabled) => act({ type: "setConnected", enabled })}
@@ -220,7 +220,7 @@ function CliProxyEnvironment(props: {
             })
           )}
           <Text className="px-4 py-3 text-xs text-foreground-muted">
-            Add accounts, providers, and failover pools from T3 Code on web or desktop.
+            Add accounts, API keys, and failover models from T3 Code on web or desktop.
           </Text>
         </SettingsSection>
       ) : null}

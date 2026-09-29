@@ -3,6 +3,7 @@ import {
   cliProxyGroups,
   cliProxyModelLabels,
   cliProxyModels,
+  cliProxyModelsByProvider,
   cliProxyPools,
   cliProxyWithPools,
   type CliProxyModel,
@@ -15,6 +16,7 @@ import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../../ui/select";
 import { Spinner } from "../../ui/spinner";
+import { FoldedSettingsSection } from "../FoldedSettingsSection";
 import { SettingsRow, SettingsSection } from "../settingsLayout";
 import { useManaged, useManagedAll, type ModelProxyManage } from "./useModelProxy";
 
@@ -44,8 +46,8 @@ function firstClientKey(config: unknown): string | null {
 }
 
 /**
- * The models the proxy serves and its failover pools: one model name backed by an ordered
- * list, where the next model serves when the one before it is at its limit.
+ * Failover models, each one model name backed by an ordered list where the next model serves
+ * when the one before it is at its limit, then every model the proxy serves by provider.
  */
 export function ModelProxyModels({
   manage,
@@ -70,11 +72,14 @@ export function ModelProxyModels({
   const pools = cliProxyPools(groups);
   const poolAliases = new Set(pools.map((pool) => pool.alias));
   const choices = list.filter((model) => !poolAliases.has(model.id));
+  const providers = cliProxyModelsByProvider(choices);
 
   const save = (next: ReadonlyArray<CliProxyPool>) => {
     const clientKey = firstClientKey(config.data);
     if (clientKey === null) {
-      setError("The proxy has no client key for pools to call it with. Add one under Keys.");
+      setError(
+        "The proxy has no client key for failover models to call it with. Add one under Advanced.",
+      );
       return;
     }
     setSaving(true);
@@ -95,7 +100,7 @@ export function ModelProxyModels({
   return (
     <>
       <SettingsSection
-        title="Failover pools"
+        title="Failover models"
         headerAction={
           <Button
             size="xs"
@@ -104,7 +109,7 @@ export function ModelProxyModels({
             onClick={() => setEditing("new")}
           >
             <PlusIcon className="size-3" aria-hidden />
-            New pool
+            New
           </Button>
         }
       >
@@ -128,13 +133,13 @@ export function ModelProxyModels({
         ) : null}
         {config.data === null ? (
           <SettingsRow
-            title={config.error ?? "Reading pools…"}
+            title={config.error ?? "Reading failover models…"}
             control={config.error ? null : <Spinner className="size-3.5" />}
           />
         ) : pools.length === 0 ? (
           <SettingsRow
-            title="No pools"
-            description="A pool is one model name that tries its models in order: when one is at its usage limit, the next one answers."
+            title="No failover models"
+            description="One model name that tries its models in order: when one is at its usage limit, the next one answers. Pick it in a thread like any model."
           />
         ) : (
           pools.map((pool) => (
@@ -151,7 +156,7 @@ export function ModelProxyModels({
                     variant="ghost"
                     disabled={disabled || saving}
                     onClick={() => {
-                      if (window.confirm(`Delete the pool ${pool.label}?`)) {
+                      if (window.confirm(`Delete ${pool.label}?`)) {
                         save(pools.filter((existing) => existing.alias !== pool.alias));
                       }
                     }}
@@ -172,24 +177,31 @@ export function ModelProxyModels({
           ))
         )}
       </SettingsSection>
-      <SettingsSection title="Models">
-        {models.data === null ? (
-          <SettingsRow
-            title={models.error ?? "Reading models…"}
-            control={models.error ? null : <Spinner className="size-3.5" />}
-          />
-        ) : list.length === 0 ? (
-          <SettingsRow
-            title="No models"
-            description="Models appear once an account or API-key provider is added and available."
-          />
-        ) : (
-          <SettingsRow
-            title={`${list.length} models`}
-            description={list.map((model) => model.label).join(" · ")}
-          />
-        )}
-      </SettingsSection>
+      {models.data === null ? (
+        models.error ? (
+          <SettingsSection title="Models it serves">
+            <SettingsRow title={models.error} />
+          </SettingsSection>
+        ) : null
+      ) : (
+        <FoldedSettingsSection
+          id="cli-proxy-models"
+          title="Models it serves"
+          summary={
+            choices.length === 0
+              ? "None yet. Add an account or API key."
+              : `${choices.length} · ${providers.map((group) => `${group.label} ${group.models.length}`).join(" · ")}`
+          }
+        >
+          {providers.map((group) => (
+            <SettingsRow
+              key={group.label}
+              title={group.label}
+              description={group.models.map((model) => model.label).join(" · ")}
+            />
+          ))}
+        </FoldedSettingsSection>
+      )}
     </>
   );
 }
@@ -225,17 +237,15 @@ function PoolEditor({
 
   return (
     <SettingsRow
-      title={initial === null ? "New pool" : `Edit ${initial.label}`}
+      title={initial === null ? "New failover model" : `Edit ${initial.label}`}
       description={
-        nameTaken
-          ? "A model or pool already has that name."
-          : "First choice first. Two or more models."
+        nameTaken ? "A model already has that name." : "First choice first. Two or more models."
       }
       control={
         <div className="flex w-full min-w-72 flex-col gap-2">
           <Input
             size="sm"
-            aria-label="Pool name"
+            aria-label="Failover model name"
             placeholder="Name, e.g. Luna, else Muse"
             value={label}
             onChange={(event) => setLabel(event.target.value)}
@@ -273,7 +283,7 @@ function PoolEditor({
             </div>
           ))}
           <Select value="" onValueChange={(next) => next && setMembers([...members, next])}>
-            <SelectTrigger size="sm" aria-label="Add a model to the pool">
+            <SelectTrigger size="sm" aria-label="Add a model">
               <SelectValue>
                 {members.length === 0 ? "Add the first model" : "Add a fallback"}
               </SelectValue>

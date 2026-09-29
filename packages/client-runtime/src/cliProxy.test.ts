@@ -3,8 +3,10 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   cliProxyAccountState,
   cliProxyCredentials,
+  cliProxyErrorEndpoint,
   cliProxyGroups,
   cliProxyModels,
+  cliProxyModelsByProvider,
   cliProxyPools,
   cliProxyRetryAt,
   cliProxyUsageWindows,
@@ -129,5 +131,30 @@ describe("failover pools", () => {
     expect(cliProxyPools({ "openai-compatibility": groups })).toEqual([
       { alias: "smart", label: "Sonnet, else Luna", members: ["claude-sonnet-5", "gpt-6-luna"] },
     ]);
+  });
+});
+
+describe("presenting the proxy", () => {
+  it("groups models by provider, the largest first", () => {
+    const model = (id: string, owner: string | null) => ({ id, label: id, owner });
+    const groups = cliProxyModelsByProvider([
+      model("gpt-6-luna", "openai"),
+      model("claude-opus-5-5", "anthropic"),
+      model("claude-sonnet-5", "anthropic"),
+      model("mystery", null),
+    ]);
+    expect(groups.map((group) => [group.label, group.models.length])).toEqual([
+      ["Claude", 2],
+      ["OpenAI", 1],
+      ["Other", 1],
+    ]);
+  });
+
+  it("reads the request an error log is about from its name", () => {
+    expect(cliProxyErrorEndpoint("error-v1-chat-completions-2026-09-29T020321-92c2da97.log")).toBe(
+      "/v1/chat/completions",
+    );
+    expect(cliProxyErrorEndpoint("error-api-hello-2026-09-29T023255-18.log")).toBe("/api/hello");
+    expect(cliProxyErrorEndpoint("notes.txt")).toBeNull();
   });
 });
