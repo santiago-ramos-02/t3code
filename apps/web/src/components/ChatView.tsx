@@ -2279,9 +2279,10 @@ export default function ChatView(props: ChatViewProps) {
   const handleNewThreadInActiveProject = useCallback(() => {
     startNewThreadForProject(activeProjectRef, handleNewThread);
   }, [activeProjectRef, handleNewThread]);
-  // Hands an SDD phase to a fresh draft in this project: same Pi selection with Gentle on, and the
-  // phase prompt written but not sent, so the user still picks the model and reviews the ask.
-  const startGentleSddThread = useCallback(
+  // Hands a Gentle AI step, such as continuing a feature document, to a fresh draft in this
+  // project: the same selection with Gentle on and the prompt written but not sent, so the user
+  // still picks the model and reviews the ask.
+  const startGentleThread = useCallback(
     async (prompt: string, modelSelection: ModelSelection) => {
       if (!activeProjectRef) return;
       const created = await handleNewThread(activeProjectRef);
@@ -10096,7 +10097,7 @@ export default function ChatView(props: ChatViewProps) {
                             keybindings={keybindings}
                             terminalOpen={Boolean(terminalUiState.terminalOpen)}
                             gitCwd={gitCwd}
-                            onStartGentleSddThread={startGentleSddThread}
+                            onStartGentleThread={startGentleThread}
                             pullRequestProjectId={
                               supportsPullRequests ? (activeProject?.id ?? null) : null
                             }

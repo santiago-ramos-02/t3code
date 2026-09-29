@@ -1,6 +1,5 @@
 import * as Schema from "effect/Schema";
 import { TrimmedNonEmptyString } from "./baseSchemas.ts";
-import { GentleAiArtifactStore } from "./gentleAi.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
 
 /**
@@ -21,22 +20,10 @@ export type PiGentleRouting = typeof PiGentleRouting.Type;
 /** Routing key a profile uses for the main Pi model rather than a subagent. */
 export const PI_GENTLE_ORCHESTRATOR = "orchestrator";
 
-export const PiGentleSddPreferences = Schema.Struct({
-  executionMode: Schema.Literals(["interactive", "auto"]),
-  artifactStore: GentleAiArtifactStore,
-  chainedPrStrategy: Schema.Literals(["ask-on-risk", "auto-chain", "single-pr"]),
-  reviewBudgetLines: Schema.Int.check(Schema.isGreaterThan(0)),
-});
-export type PiGentleSddPreferences = typeof PiGentleSddPreferences.Type;
-
 export const PiGentlePersona = Schema.Literals(["gentleman", "neutral"]);
 
 export const PiGentleComposerState = Schema.Struct({
   available: Schema.Boolean,
-  // True until the project has saved SDD choices and the project context their store needs.
-  projectInitNeeded: Schema.Boolean,
-  // The project's saved SDD choices; absent until SDD is set up.
-  sdd: Schema.optionalKey(PiGentleSddPreferences),
   // Profiles a thread can apply, with the orchestrator entry that moves the thread's model.
   profiles: Schema.optionalKey(
     Schema.Array(
@@ -58,13 +45,6 @@ export const PiGentleComposerReadInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
 });
 
-export const PiGentleInitializeInput = Schema.Struct({
-  instanceId: ProviderInstanceId,
-  cwd: TrimmedNonEmptyString,
-  // The choices the user confirmed for setup; without them the saved choices or defaults apply.
-  preferences: Schema.optionalKey(PiGentleSddPreferences),
-});
-
 export const PiGentleState = Schema.Struct({
   available: Schema.Boolean,
   version: Schema.NullOr(Schema.String),
@@ -84,7 +64,6 @@ export const PiGentleState = Schema.Struct({
       pinAvailable: Schema.Boolean,
       pinned: Schema.NullOr(Schema.String),
       pinSource: Schema.NullOr(Schema.Literals(["local", "repo"])),
-      sdd: Schema.NullOr(PiGentleSddPreferences),
       persona: Schema.Struct({
         effective: PiGentlePersona,
         global: PiGentlePersona,
@@ -142,11 +121,6 @@ export const PiGentleActionInput = Schema.Struct({
       type: Schema.Literal("setGlobalPersona"),
       mode: PiGentlePersona,
       cwd: Schema.optionalKey(TrimmedNonEmptyString),
-    }),
-    Schema.Struct({
-      type: Schema.Literal("saveSdd"),
-      cwd: TrimmedNonEmptyString,
-      preferences: PiGentleSddPreferences,
     }),
   ]),
 });

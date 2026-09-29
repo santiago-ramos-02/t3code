@@ -102,25 +102,5 @@ to continue it in a new thread, where Gentle AI resumes from the document.
 document for a feature you describe, without changing code. This lets someone
 who plans work, such as a product manager, write specs that others then build.
 
-The list appears with a gentle-ai that reports feature documents.
-
-## SDD changes
-
-Gentle AI 3.7 and earlier offer spec-driven development (SDD). Newer releases
-replace it with Organic Driven Development (ODD), which needs no setup, so the
-items below appear only with a Gentle AI that still has SDD.
-
-Open the Gentle AI dropdown and choose **SDD changes** to see the project's
-active changes with their next phase and task progress. Choose a change's
-action, such as **Implement**, to open a new thread with Gentle AI on and that
-phase's request already written; review it and send. **New change** opens a
-thread for proposing another change. Planning requests stop once the tasks are
-written; implementation starts only when you choose **Implement** or ask for
-it.
-
-The first time a thread uses SDD, Gentle AI asks for the project's SDD choices
-in the thread, and sets the project up if it has not been. Pi threads set these
-choices once per project instead, with **Set up SDD**.
-
-Changes are listed when the project saves artifacts as OpenSpec project files.
-Ask Gentle AI in a thread about changes kept only in Engram memory.
+The list appears with a gentle-ai that reports feature documents. ODD replaced the
+earlier spec-driven development (SDD) workflow and needs no setup.

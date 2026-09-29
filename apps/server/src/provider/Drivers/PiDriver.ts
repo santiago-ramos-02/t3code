@@ -212,6 +212,9 @@ const GENTLE_TUI_ONLY_COMMANDS = new Set([
   "gentle:banner-color",
   "gentle:toggle-rose",
   "gentle:toggle-text-logo",
+  "gentle:customize",
+  "gentle:vim",
+  "history",
 ]);
 
 function isGentleTuiOnlyCommand(command: PiCommand): boolean {

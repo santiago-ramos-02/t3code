@@ -28,7 +28,7 @@ const httpClient = HttpClient.make((request) =>
 );
 
 it.layer(NodeServices.layer)("Pi Gentle settings", (it) => {
-  it.effect("detects, updates, and sets up SDD through an isolated Pi executable", () =>
+  it.effect("detects and updates gentle-pi through an isolated Pi executable", () =>
     Effect.scoped(
       Effect.gen(function* () {
         const fileSystem = yield* FileSystem.FileSystem;
@@ -51,23 +51,7 @@ if (process.env.FAKE_PI_FAIL) {
   process.stderr.write("npm ERR! 404 gentle-pi is not in this registry\\n");
   process.exit(1);
 }
-if (process.argv.includes("/gentle-sdd-init")) {
-  // Like Gentle AI's init: Engram counts only when Pi's extensions load (gentle-engram provides
-  // it), an unavailable store falls back to OpenSpec, and only file stores get project context.
-  const preflight = path.join(process.cwd(), ".pi", "gentle-ai", "sdd-preflight.json");
-  const engramAvailable = !process.argv.includes("--no-extensions");
-  const saved = fs.existsSync(preflight) ? JSON.parse(fs.readFileSync(preflight, "utf8")) : {};
-  const requested = saved.artifactStore ?? "openspec";
-  const artifactStore = engramAvailable || requested === "none" ? requested : "openspec";
-  const prefs = { executionMode: "auto", chainedPrStrategy: "ask-on-risk", reviewBudgetLines: 400, ...saved, artifactStore, engramAvailable, prompted: false };
-  fs.mkdirSync(path.dirname(preflight), { recursive: true });
-  fs.writeFileSync(preflight, JSON.stringify(prefs, null, 2));
-  if (artifactStore === "openspec" || artifactStore === "hybrid") {
-    const target = path.join(process.cwd(), "openspec", "config.yaml");
-    fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.writeFileSync(target, "project: test\\n");
-  }
-} else if (process.argv[2] === "update" && process.argv[3] === "npm:gentle-pi") {
+if (process.argv[2] === "update" && process.argv[3] === "npm:gentle-pi") {
   const packageDir = path.join(home, "npm", "node_modules", "gentle-pi");
   fs.writeFileSync(path.join(packageDir, "package.json"), JSON.stringify({ name: "gentle-pi", version: "3.8.0" }));
 } else {
@@ -131,33 +115,11 @@ if (process.argv.includes("/gentle-sdd-init")) {
           updateAvailable: true,
           compatibilityWarning: expect.stringContaining("Gentle AI 3.8 is newer"),
         });
-        // A project without saved choices needs setup, where the user first makes them.
-        expect(yield* gentle.readComposer(cwd)).toMatchObject({
+        expect(yield* gentle.readComposer(cwd)).toEqual({
           available: true,
-          projectInitNeeded: true,
+          profiles: [],
+          effectiveProfile: null,
         });
-        const engram = {
-          executionMode: "interactive",
-          artifactStore: "engram",
-          chainedPrStrategy: "single-pr",
-          reviewBudgetLines: 250,
-        } as const;
-        yield* gentle.initializeSdd(cwd, engram);
-        // Setup loads Pi's extensions, so the confirmed Engram store survives Gentle AI's init.
-        expect(yield* gentle.readComposer(cwd)).toMatchObject({
-          available: true,
-          projectInitNeeded: false,
-          sdd: engram,
-        });
-        expect(yield* fileSystem.exists(path.join(cwd, "openspec", "config.yaml"))).toBe(false);
-
-        const openspec = { ...engram, artifactStore: "openspec" } as const;
-        yield* gentle.initializeSdd(cwd, openspec);
-        expect(yield* gentle.readComposer(cwd)).toMatchObject({
-          projectInitNeeded: false,
-          sdd: openspec,
-        });
-        expect(yield* fileSystem.exists(path.join(cwd, "openspec", "config.yaml"))).toBe(true);
       }),
     ),
   );
@@ -278,7 +240,6 @@ if (process.argv.includes("/gentle-sdd-init")) {
         });
         expect(yield* gentle.readComposer(cwd)).toEqual({
           available: true,
-          projectInitNeeded: true,
           profiles: [],
           effectiveProfile: null,
         });
@@ -322,52 +283,6 @@ if (process.argv.includes("/gentle-sdd-init")) {
         expect(yield* fileSystem.readFileString(path.join(configHome, "models.json"))).toContain(
           '"gentle-ai-worker":{}',
         );
-
-        const withSdd = yield* gentle.action({
-          type: "saveSdd",
-          cwd,
-          preferences: {
-            executionMode: "interactive",
-            artifactStore: "openspec",
-            chainedPrStrategy: "ask-on-risk",
-            reviewBudgetLines: 350,
-          },
-        });
-        expect(withSdd.project?.sdd).toMatchObject({
-          executionMode: "interactive",
-          reviewBudgetLines: 350,
-        });
-        const storedSdd = yield* fileSystem.readFileString(
-          path.join(cwd, ".pi", "gentle-ai", "sdd-preflight.json"),
-        );
-        // Byte-identical to Gentle AI's own writer, so a committed copy stays clean in git.
-        expect(storedSdd).toBe(
-          [
-            "{",
-            '  "executionMode": "interactive",',
-            '  "artifactStore": "openspec",',
-            '  "chainedPrStrategy": "ask-on-risk",',
-            '  "reviewBudgetLines": 350,',
-            '  "engramAvailable": false,',
-            '  "prompted": false',
-            "}",
-          ].join("\n"),
-        );
-
-        yield* fileSystem.writeFileString(
-          path.join(cwd, ".pi", "gentle-ai", "sdd-preflight.json"),
-          encodeJson({
-            executionMode: "interactive",
-            artifactStore: "both",
-            chainedPrStrategy: "force-chained",
-            reviewBudgetLines: 350,
-            engramAvailable: false,
-            prompted: true,
-          }),
-        );
-        expect((yield* gentle.read(cwd)).project).toMatchObject({
-          sdd: { artifactStore: "hybrid", chainedPrStrategy: "auto-chain" },
-        });
 
         const cleared = yield* gentle.action({ type: "clearPin", cwd });
         expect(cleared.project?.pinned).toBeNull();
@@ -563,7 +478,6 @@ process.stdout.write(JSON.stringify({ schema: "gentle-pi.api/v1", ...line }) + "
             pinAvailable: true,
             pinned: "deep",
             pinSource: "repo",
-            sdd: null,
             persona: { effective: "gentleman", global: "neutral", override: "gentleman" },
           },
         });
@@ -577,17 +491,6 @@ process.stdout.write(JSON.stringify({ schema: "gentle-pi.api/v1", ...line }) + "
         yield* gentle.action({ type: "setPersona", cwd, mode: null });
         const failure = yield* Effect.flip(gentle.action({ type: "pin", name: "missing", cwd }));
         expect(failure.detail).toBe("Profile does not exist: missing.");
-        // SDD predates the API, so its choices are still saved to the file Gentle AI reads.
-        const sdd = {
-          executionMode: "auto",
-          artifactStore: "engram",
-          chainedPrStrategy: "single-pr",
-          reviewBudgetLines: 300,
-        } as const;
-        expect(
-          (yield* gentle.action({ type: "saveSdd", cwd, preferences: sdd })).project?.sdd,
-        ).toEqual(sdd);
-
         const actions = (yield* recorded).filter(
           (call) =>
             typeof call === "object" &&

@@ -2527,10 +2527,6 @@ const makeWsRpcLayer = (
           observeRpcEffect(WS_METHODS.cliProxyManagement, cliProxy.management(input), {
             "rpc.aggregate": "cli-proxy",
           }),
-        [WS_METHODS.gentleAiSddChanges]: (input) =>
-          observeRpcEffect(WS_METHODS.gentleAiSddChanges, gentleAi.sddChanges(input.cwd), {
-            "rpc.aggregate": "gentle-ai",
-          }),
         [WS_METHODS.providerPiGentleRead]: (input) =>
           observeRpcEffect(
             WS_METHODS.providerPiGentleRead,
@@ -2550,20 +2546,6 @@ const makeWsRpcLayer = (
             WS_METHODS.providerPiGentleAction,
             runPiGentle(input.instanceId, "pi-gentle-action", (gentle) =>
               gentle.action(input.action),
-            ),
-            { "rpc.aggregate": "provider" },
-          ),
-        [WS_METHODS.providerPiGentleInitialize]: (input) =>
-          observeRpcEffect(
-            WS_METHODS.providerPiGentleInitialize,
-            runPiGentle(
-              input.instanceId,
-              "pi-gentle-initialize",
-              (gentle) =>
-                gentle
-                  .initializeSdd(input.cwd, input.preferences)
-                  .pipe(Effect.andThen(gentle.readComposer(input.cwd))),
-              { requireEnabled: true },
             ),
             { "rpc.aggregate": "provider" },
           ),

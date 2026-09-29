@@ -1,12 +1,6 @@
 import {
-  GENTLE_SDD_DEFAULTS,
-  GENTLE_SDD_NEW_CHANGE_PROMPT,
   gentleProfileModelChange,
   gentleProfileModelLabel,
-  gentleSddChangeStep,
-  gentleSddSetupNotice,
-  gentleSddTaskSummary,
-  gentleSddUnlistedReason,
   type GentleProfileOption,
 } from "@t3tools/client-runtime/piGentleComposer";
 import {
@@ -15,11 +9,8 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import type {
   EnvironmentId,
-  GentleAiSddChange,
-  GentleAiSddChanges,
   ModelSelection,
   PiGentleComposerState,
-  PiGentleSddPreferences,
   ProviderInstanceId,
   ServerProviderModel,
 } from "@t3tools/contracts";
@@ -34,7 +25,6 @@ import {
   FileTextIcon,
   PlusIcon,
   RefreshCwIcon,
-  SlidersHorizontalIcon,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -42,15 +32,7 @@ import { useEnvironmentQuery } from "../../state/query";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { GentleRoseIcon } from "../GentleRoseIcon";
-import { Button } from "../ui/button";
-import {
-  Dialog,
-  DialogDescription,
-  DialogHeader,
-  DialogPanel,
-  DialogPopup,
-  DialogTitle,
-} from "../ui/dialog";
+import { Dialog, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from "../ui/dialog";
 import {
   Menu,
   MenuCheckboxItem,
@@ -71,14 +53,12 @@ import { toastManager } from "../ui/toast";
 import { ComposerBanner } from "./ComposerBanner";
 import { useComposerMenuProps } from "./composerEventScope";
 import { useGentleAiQuery } from "../settings/gentle-ai/useGentleAi";
-import { GentleSddSetupDialog } from "./GentleSddSetupDialog";
 
 /**
  * Gentle AI entry point in the composer of any provider Gentle AI is set up for: the per-thread
- * Enable choice, and the project's ODD feature documents (or, with an SDD-era gentle-ai, its SDD
- * changes), each handing its next step to a new thread, plus a new spec for a feature.
- * Pi threads also get gentle-pi's profiles, which move the thread onto a profile's orchestrator
- * model, and project SDD setup, which gentle-pi keeps in a file other agents ask for in chat.
+ * Enable choice, and the project's ODD feature documents, each handing its next step to a new
+ * thread, plus a new spec for a feature. Pi threads also get gentle-pi's profiles, which move the
+ * thread onto a profile's orchestrator model.
  */
 export function GentleComposerActions({
   environmentId,
@@ -114,10 +94,6 @@ export function GentleComposerActions({
     reportFailure: false,
     reportDefect: false,
   });
-  const initialize = useAtomCommand(serverEnvironment.initializePiGentleSdd, {
-    reportFailure: false,
-    reportDefect: false,
-  });
   const update = useAtomCommand(serverEnvironment.updatePiGentle, {
     reportFailure: false,
     reportDefect: false,
@@ -127,22 +103,9 @@ export function GentleComposerActions({
   const [loaded, setLoaded] = useState<PiGentleComposerState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [errorOpen, setErrorOpen] = useState(false);
-  const [changesOpen, setChangesOpen] = useState(false);
   const gentleAiStatus = useEnvironmentQuery(
     serverEnvironment.gentleAiStatus({ environmentId, input: {} }),
   ).data;
-  const readChanges = useAtomCommand(serverEnvironment.readGentleAiSddChanges, {
-    reportFailure: false,
-    reportDefect: false,
-  });
-  const [changes, setChanges] = useState<
-    | { readonly _tag: "Loaded"; readonly value: GentleAiSddChanges }
-    | { readonly _tag: "Failed"; readonly error: string }
-    | null
-  >(null);
-  const [setupOpen, setSetupOpen] = useState(false);
-  const [settingUp, setSettingUp] = useState(false);
-  const [setupError, setSetupError] = useState<string | null>(null);
   const floatingLayer = useComposerMenuProps();
   const [menuOpen, setMenuOpen] = useState(false);
   // ODD feature documents are read only while the menu is open.
@@ -174,58 +137,9 @@ export function GentleComposerActions({
     };
   }, [cwd, environmentId, instanceId, pi, read, requestKey]);
 
-  // Listing runs Gentle AI once per change, so it happens only while the dialog is open.
-  useEffect(() => {
-    if (!changesOpen) return;
-    let current = true;
-    void readChanges({ environmentId, input: { cwd } }).then((result) => {
-      if (!current) return;
-      if (result._tag === "Success") {
-        setChanges({ _tag: "Loaded", value: result.value });
-      } else if (!isAtomCommandInterrupted(result)) {
-        const failure = squashAtomCommandFailure(result);
-        setChanges({
-          _tag: "Failed",
-          error: failure instanceof Error ? failure.message : "Could not read SDD changes.",
-        });
-      }
-    });
-    return () => {
-      current = false;
-    };
-  }, [changesOpen, cwd, environmentId, readChanges]);
-
   // In Pi, nothing Gentle-related shows unless the server confirms Pi loads gentle-pi here.
   if (pi && loaded?.available !== true) return null;
-  // Only gentle-pi needs T3 Code to set up SDD; other agents run its preflight in the thread.
-  const needsSetup = pi && loaded?.projectInitNeeded === true;
-  // Changes are listed by gentle-ai's `sdd-status`; releases that replaced SDD with ODD have none.
-  const sddListed = gentleAiStatus?.sdd === true;
-  // gentle-ai's status does not read gentle-pi's saved store yet, so Pi's own choice wins.
-  const artifactStore =
-    loaded?.sdd?.artifactStore ?? (changes?._tag === "Loaded" ? changes.value.artifactStore : null);
-  const unlistedReason = artifactStore === null ? null : gentleSddUnlistedReason(artifactStore);
-  const setUpSdd = (preferences: PiGentleSddPreferences) => {
-    setSettingUp(true);
-    setSetupError(null);
-    void initialize({ environmentId, input: { instanceId, cwd, preferences } }).then((result) => {
-      setSettingUp(false);
-      if (result._tag === "Success") {
-        setLoaded(result.value);
-        setError(null);
-        setSetupOpen(false);
-        const notice = gentleSddSetupNotice(preferences, result.value.sdd);
-        if (notice) toastManager.add({ type: "warning", title: "SDD set up", description: notice });
-      } else if (!isAtomCommandInterrupted(result)) {
-        const failure = squashAtomCommandFailure(result);
-        setSetupError(failure instanceof Error ? failure.message : "Could not set up SDD.");
-      }
-    });
-  };
-  const startThread = (prompt: string) => {
-    setChangesOpen(false);
-    onStartThread(prompt);
-  };
+  const startThread = (prompt: string) => onStartThread(prompt);
   const profiles = enabled ? (loaded?.profiles ?? []) : [];
   const effectiveProfile = loaded?.effectiveProfile ?? null;
   const applyProfile = (profile: GentleProfileOption) => {
@@ -366,27 +280,6 @@ export function GentleComposerActions({
                 </MenuSubPopup>
               </MenuSub>
             ) : null}
-            {sddListed && !needsSetup ? (
-              <MenuItem
-                onClick={() => {
-                  setChanges(null);
-                  setChangesOpen(true);
-                }}
-              >
-                <ClipboardListIcon aria-hidden /> SDD changes
-              </MenuItem>
-            ) : null}
-            {pi ? (
-              <MenuItem
-                onClick={() => {
-                  setSetupError(null);
-                  setSetupOpen(true);
-                }}
-              >
-                <SlidersHorizontalIcon aria-hidden />
-                {needsSetup ? "Set up SDD" : "SDD preferences"}
-              </MenuItem>
-            ) : null}
             {error ? (
               <MenuItem onClick={() => setErrorOpen(true)}>
                 <ClipboardListIcon aria-hidden /> View Gentle AI error
@@ -409,91 +302,7 @@ export function GentleComposerActions({
             </DialogPanel>
           </DialogPopup>
         </Dialog>
-        <Dialog open={changesOpen} onOpenChange={setChangesOpen}>
-          <DialogPopup {...floatingLayer} className="max-w-lg">
-            <DialogHeader>
-              <DialogTitle>SDD changes</DialogTitle>
-              <DialogDescription>
-                Each phase starts in a new thread with Gentle AI on.
-              </DialogDescription>
-            </DialogHeader>
-            <DialogPanel>
-              <div className="space-y-3">
-                {changes === null ? (
-                  <p className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Spinner className="size-3.5" /> Reading changes
-                  </p>
-                ) : changes._tag === "Failed" ? (
-                  <p className="text-sm text-destructive">{changes.error}</p>
-                ) : changes.value.changes.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">
-                    {unlistedReason ?? "No active changes."}
-                  </p>
-                ) : (
-                  <ul className="divide-y divide-border/60">
-                    {changes.value.changes.map((change) => (
-                      <SddChangeRow key={change.changeName} change={change} onStart={startThread} />
-                    ))}
-                  </ul>
-                )}
-                <div className="flex justify-end">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => startThread(GENTLE_SDD_NEW_CHANGE_PROMPT)}
-                  >
-                    <PlusIcon className="size-3" />
-                    New change
-                  </Button>
-                </div>
-              </div>
-            </DialogPanel>
-          </DialogPopup>
-        </Dialog>
-        {pi ? (
-          <GentleSddSetupDialog
-            open={setupOpen}
-            setUp={!needsSetup}
-            initial={loaded?.sdd ?? GENTLE_SDD_DEFAULTS}
-            pending={settingUp}
-            error={setupError}
-            onOpenChange={setSetupOpen}
-            onSubmit={setUpSdd}
-          />
-        ) : null}
       </div>
     </ComposerBanner.Root>
-  );
-}
-
-function SddChangeRow({
-  change,
-  onStart,
-}: {
-  readonly change: GentleAiSddChange;
-  readonly onStart: (prompt: string) => void;
-}) {
-  const step = gentleSddChangeStep(change);
-  const detail = [
-    step.kind === "ready" ? `Next: ${step.label}` : step.label,
-    gentleSddTaskSummary(change),
-  ]
-    .filter((part) => part !== null)
-    .join(" · ");
-  return (
-    <li className="flex items-center justify-between gap-4 py-2 first:pt-0 last:pb-0">
-      <div className="min-w-0">
-        <p className="truncate font-mono text-sm">{change.changeName}</p>
-        <p className="text-xs text-muted-foreground">{detail}</p>
-        {step.kind === "blocked" ? (
-          <p className="text-xs text-muted-foreground">{step.reason}</p>
-        ) : null}
-      </div>
-      {step.kind === "ready" ? (
-        <Button size="sm" variant="outline" onClick={() => onStart(step.prompt)}>
-          {step.label}
-        </Button>
-      ) : null}
-    </li>
   );
 }

@@ -1418,8 +1418,8 @@ export interface ChatComposerProps {
   keybindings: ResolvedKeybindingsConfig;
   terminalOpen: boolean;
   gitCwd: string | null;
-  /** Opens a new draft in this project for an SDD phase (see GentleComposerActions). */
-  onStartGentleSddThread: (prompt: string, modelSelection: ModelSelection) => void;
+  /** Opens a new draft in this project for a Gentle AI step (see GentleComposerActions). */
+  onStartGentleThread: (prompt: string, modelSelection: ModelSelection) => void;
   pullRequestProjectId: ProjectId | null;
   pullRequestRepository: string | null;
   restingControlsHost: HTMLDivElement | null;
@@ -1545,7 +1545,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     keybindings,
     terminalOpen,
     gitCwd,
-    onStartGentleSddThread,
+    onStartGentleThread,
     pullRequestProjectId,
     pullRequestRepository,
     restingControlsHost,
@@ -6435,7 +6435,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 setStickyComposerModelSelection(selection);
               }}
               onStartThread={(prompt) =>
-                onStartGentleSddThread(
+                onStartGentleThread(
                   prompt,
                   createModelSelection(selectedInstanceId, selectedModel, [
                     ...(selectedModelSelection.options?.filter(

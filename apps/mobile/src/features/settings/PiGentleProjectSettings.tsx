@@ -14,7 +14,7 @@ import { environmentSession } from "../../state/session";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { SettingsSection } from "./components/SettingsSection";
 import { canMaintainEnvironment } from "./environment-maintenance";
-import { ChoiceMenu } from "./GentleSddChoices";
+import { ChoiceMenu } from "./ChoiceMenu";
 
 // Choice value for "no checkout pin": the repository declaration or the active profile applies.
 const PROJECT_DEFAULT_PROFILE = "__default__";

@@ -86,10 +86,6 @@ export interface ProviderInstance {
     readonly action: (
       action: import("./PiGentleSettings.ts").PiGentleAction,
     ) => Effect.Effect<PiGentleState, import("./PiGentleSettings.ts").PiGentleSettingsError>;
-    readonly initializeSdd: (
-      cwd: string,
-      preferences?: import("./PiGentleSettings.ts").GentleSddPreferences,
-    ) => Effect.Effect<void, import("./PiGentleSettings.ts").PiGentleSettingsError>;
   };
   readonly snapshot: ServerProviderShape;
   readonly snapshotForCwd?: (cwd: string) => Effect.Effect<ServerProvider, ProviderDriverError>;

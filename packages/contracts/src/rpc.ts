@@ -15,7 +15,6 @@ import {
 } from "./providerSetup.ts";
 import {
   PiGentleActionInput,
-  PiGentleInitializeInput,
   PiGentleComposerReadInput,
   PiGentleComposerState,
   PiGentleReadInput,
@@ -30,8 +29,6 @@ import {
 import {
   GentleAiActionInput,
   GentleAiActionResult,
-  GentleAiSddChanges,
-  GentleAiSddChangesInput,
   GentleAiError,
   GentleAiStatus,
 } from "./gentleAi.ts";
@@ -341,10 +338,8 @@ export const WS_METHODS = {
   providerPiGentleRead: "provider.piGentle.read",
   providerPiGentleComposerRead: "provider.piGentle.composerRead",
   providerPiGentleAction: "provider.piGentle.action",
-  providerPiGentleInitialize: "provider.piGentle.initialize",
   gentleAiRead: "gentleAi.read",
   gentleAiAction: "gentleAi.action",
-  gentleAiSddChanges: "gentleAi.sddChanges",
   gentleAiQuery: "gentleAi.query",
   gentleAiStartJob: "gentleAi.startJob",
   gentleAiSubscribeJob: "gentleAi.subscribeJob",
@@ -554,23 +549,10 @@ const WsProviderPiGentleActionRpc = Rpc.make(WS_METHODS.providerPiGentleAction, 
   error: Schema.Union([ProviderSetupError, EnvironmentAuthorizationError]),
 });
 
-const WsProviderPiGentleInitializeRpc = Rpc.make(WS_METHODS.providerPiGentleInitialize, {
-  payload: PiGentleInitializeInput,
-  success: PiGentleComposerState,
-  error: Schema.Union([ProviderSetupError, EnvironmentAuthorizationError]),
-});
-
 const WsGentleAiReadRpc = Rpc.make(WS_METHODS.gentleAiRead, {
   payload: Schema.Struct({}),
   success: GentleAiStatus,
   error: EnvironmentAuthorizationError,
-});
-
-// Lists a project's SDD changes; runs gentle-ai once per change, so clients ask only on demand.
-const WsGentleAiSddChangesRpc = Rpc.make(WS_METHODS.gentleAiSddChanges, {
-  payload: GentleAiSddChangesInput,
-  success: GentleAiSddChanges,
-  error: Schema.Union([GentleAiError, EnvironmentAuthorizationError]),
 });
 
 const WsGentleAiQueryRpc = Rpc.make(WS_METHODS.gentleAiQuery, {
@@ -1534,13 +1516,11 @@ export const WsRpcGroup = RpcGroup.make(
   WsProviderPiGentleReadRpc,
   WsProviderPiGentleComposerReadRpc,
   WsProviderPiGentleActionRpc,
-  WsProviderPiGentleInitializeRpc,
   WsGentleAiReadRpc,
   WsGentleAiActionRpc,
   WsCliProxySubscribeStatusRpc,
   WsCliProxyActionRpc,
   WsCliProxyManagementRpc,
-  WsGentleAiSddChangesRpc,
   WsGentleAiQueryRpc,
   WsGentleAiStartJobRpc,
   WsGentleAiSubscribeJobRpc,

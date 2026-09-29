@@ -1104,10 +1104,6 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:provider:pi-gentle-composer-read",
       tag: WS_METHODS.providerPiGentleComposerRead,
     }),
-    initializePiGentleSdd: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:provider:pi-gentle-initialize",
-      tag: WS_METHODS.providerPiGentleInitialize,
-    }),
     updatePiGentle: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:provider:pi-gentle-action",
       tag: WS_METHODS.providerPiGentleAction,
@@ -1139,10 +1135,6 @@ export function createServerEnvironmentAtoms<R, E>(
     startGentleAiJob: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:gentle-ai:start-job",
       tag: WS_METHODS.gentleAiStartJob,
-    }),
-    readGentleAiSddChanges: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:gentle-ai:sdd-changes",
-      tag: WS_METHODS.gentleAiSddChanges,
     }),
     refreshProviders: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:refresh-providers",

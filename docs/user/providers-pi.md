@@ -74,16 +74,7 @@ orchestrator. A profile without an orchestrator keeps the thread's model.
 A Pi thread with Gentle AI off loads none of its packages. Other installed Pi
 extensions, skills, and prompts remain available.
 
-In a Pi thread, open the Gentle AI dropdown and choose **Set up SDD** once per
-project, including a new empty folder. Setup asks for the project's execution
-mode, artifact store, delivery strategy, and review budget, then prepares the
-project. Engram memory needs an Engram extension for Pi, such as gentle-engram;
-without one, Gentle AI saves artifacts as OpenSpec project files instead and
-setup tells you. The choices are saved in the project's
-`.pi/gentle-ai/sdd-preflight.json`. Commit that file so the whole team uses the
-same choices. Change them later from **SDD preferences** in the same dropdown. The first
-time each thread uses SDD, Gentle AI asks you to confirm the choices. A profile
-pinned for a checkout stays on your machine.
+A profile pinned for a checkout stays on your machine.
 
 ## T3 Code tools
 

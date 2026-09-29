@@ -1,11 +1,10 @@
 import * as Schema from "effect/Schema";
 
-import { TrimmedNonEmptyString } from "./baseSchemas.ts";
 import type { ProviderOptionSelection } from "./model.ts";
 import { ProviderDriverKind } from "./providerInstance.ts";
 
 /**
- * Gentle AI (https://github.com/Gentleman-Programming/gentle-ai) layers an SDD workflow,
+ * Gentle AI (https://github.com/Gentleman-Programming/gentle-ai) layers its ODD workflow,
  * subagents, skills, and review onto many coding agents. It is not a provider: it installs
  * into each agent's own configuration, so a thread gets it through whichever provider runs it.
  */
@@ -54,9 +53,6 @@ export const GentleAiStatus = Schema.Struct({
   // The headless API version this gentle-ai offers (`gentle-ai api`), or null without one.
   // Clients offer the full Gentle AI GUI only when it is present.
   apiVersion: Schema.NullOr(Schema.Number),
-  // Whether this gentle-ai still offers SDD (`sdd-status`); releases after 3.7 replaced it
-  // with ODD.
-  sdd: Schema.Boolean,
   // Whether this gentle-ai lists a project's ODD feature documents (`api odd.features`).
   oddFeatures: Schema.Boolean,
   // Whether this gentle-ai keeps Claude Code profiles (claude.profiles); absent from older servers.
@@ -80,72 +76,6 @@ export const GentleAiActionResult = Schema.Struct({
   output: Schema.optionalKey(Schema.String),
 });
 export type GentleAiActionResult = typeof GentleAiActionResult.Type;
-
-/** Where a project's SDD artifacts live, as chosen in its SDD preflight. */
-export const GentleAiArtifactStore = Schema.Literals(["openspec", "engram", "hybrid", "none"]);
-
-/** gentle-ai's native SDD status (`gentle-ai sdd-status --json`), the same for every agent. */
-export const GentleAiSddStatus = Schema.Struct({
-  changeName: Schema.NullOr(Schema.String),
-  artifactStore: GentleAiArtifactStore,
-  nextRecommended: Schema.Literals([
-    "apply",
-    "verify",
-    "remediate",
-    "archive",
-    "archived",
-    "resolve-blockers",
-    "sdd-new",
-    "select-change",
-    "propose",
-    "spec",
-    "design",
-    "tasks",
-  ]),
-  blockedReasons: Schema.Array(Schema.String),
-  dependencies: Schema.Struct({
-    proposal: Schema.Literals(["blocked", "ready", "all_done"]),
-    specs: Schema.Literals(["blocked", "ready", "all_done"]),
-    design: Schema.Literals(["blocked", "ready", "all_done"]),
-    tasks: Schema.Literals(["blocked", "ready", "all_done"]),
-    apply: Schema.Literals(["blocked", "ready", "all_done"]),
-    verify: Schema.Literals(["blocked", "ready", "all_done"]),
-    archive: Schema.Literals(["blocked", "ready", "all_done"]),
-  }),
-  actionContext: Schema.Struct({
-    mode: Schema.Literals(["repo-local", "workspace-planning"]),
-    allowedEditRoots: Schema.Array(Schema.String),
-  }),
-  remediationState: Schema.optionalKey(
-    Schema.Struct({
-      required: Schema.Boolean,
-      complete: Schema.Boolean,
-      failedEvidenceRevision: Schema.String,
-    }),
-  ),
-  taskProgress: Schema.Struct({
-    total: Schema.Int,
-    completed: Schema.Int,
-    pending: Schema.Int,
-  }),
-});
-export type GentleAiSddStatus = typeof GentleAiSddStatus.Type;
-
-/** Native SDD status of one active OpenSpec change in a project. */
-export const GentleAiSddChange = Schema.Struct({
-  ...GentleAiSddStatus.fields,
-  changeName: Schema.String,
-});
-export type GentleAiSddChange = typeof GentleAiSddChange.Type;
-
-export const GentleAiSddChangesInput = Schema.Struct({ cwd: TrimmedNonEmptyString });
-
-/** A project's active SDD changes. Only file-backed stores have changes to list. */
-export const GentleAiSddChanges = Schema.Struct({
-  artifactStore: GentleAiArtifactStore,
-  changes: Schema.Array(GentleAiSddChange),
-});
-export type GentleAiSddChanges = typeof GentleAiSddChanges.Type;
 
 export class GentleAiError extends Schema.TaggedError<GentleAiError>()("GentleAiError", {
   detail: Schema.String,

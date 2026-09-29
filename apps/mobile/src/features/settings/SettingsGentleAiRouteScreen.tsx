@@ -38,7 +38,7 @@ import { ScreenScrollView as ScrollView } from "../../components/ScreenScrollVie
 import { useEnvironmentQuery } from "../../state/query";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
-import { ChoiceMenu } from "./GentleSddChoices";
+import { ChoiceMenu } from "./ChoiceMenu";
 import {
   AndroidSettingsEnvironmentFilter,
   SettingsEnvironmentFilterHeader,

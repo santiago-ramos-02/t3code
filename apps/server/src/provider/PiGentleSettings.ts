@@ -7,7 +7,6 @@ import {
   PiGentlePersona,
   PiGentleRouting,
   PiGentleRoutingEntry,
-  PiGentleSddPreferences,
   type PiGentleComposerState,
   type PiGentleState,
 } from "@t3tools/contracts";
@@ -27,7 +26,7 @@ import { piPackages } from "./PiPlainExtensions.ts";
 import { fetchNpmLatestVersion } from "./providerMaintenance.ts";
 import { spawnAndCollect } from "./providerSnapshot.ts";
 
-// Oldest gentle-pi whose profile, persona, and SDD files T3 Code reads and writes.
+// Oldest gentle-pi whose profile and persona files T3 Code reads and writes.
 const MINIMUM_GENTLE_VERSION = "3.5.0";
 // Newest gentle-pi minor release T3 Code was verified against. Without gentle-pi's API, T3 Code
 // writes Gentle AI's own config files, so a newer minor or major release may have changed what
@@ -37,7 +36,7 @@ const NEWEST_TESTED_GENTLE_MINOR = "3.7";
 function gentleCompatibilityWarning(version: string): string | undefined {
   const [major = "0", minor = "0"] = version.split(".");
   return compareSemverVersions(`${major}.${minor}.0`, `${NEWEST_TESTED_GENTLE_MINOR}.0`) > 0
-    ? `Gentle AI ${major}.${minor} is newer than the ${NEWEST_TESTED_GENTLE_MINOR} releases T3 Code was tested with. Profile, persona, and SDD settings may not behave as expected.`
+    ? `Gentle AI ${major}.${minor} is newer than the ${NEWEST_TESTED_GENTLE_MINOR} releases T3 Code was tested with. Profile and persona settings may not behave as expected.`
     : undefined;
 }
 const PROFILE_KIND = "gentle-pi.agent_model_profiles";
@@ -47,7 +46,6 @@ const AGENT_NAME = /^[A-Za-z0-9._:@/+%-]+$/;
 const MODEL_ID = /^[A-Za-z0-9._~:@/+%-]+$/;
 
 export type GentleRouting = typeof PiGentleRouting.Type;
-export type GentleSddPreferences = typeof PiGentleSddPreferences.Type;
 
 const RawRouting = Schema.Record(
   Schema.String,
@@ -66,33 +64,14 @@ const ProfilePin = Schema.Struct({
 });
 const PersonaFile = Schema.Struct({ mode: PiGentlePersona });
 const PiSettingsFile = Schema.Record(Schema.String, Schema.Unknown);
-const StoredSdd = Schema.Struct({
-  executionMode: PiGentleSddPreferences.fields.executionMode,
-  artifactStore: Schema.Literals(["openspec", "engram", "hybrid", "none", "both"]),
-  chainedPrStrategy: Schema.Literals([
-    "ask-on-risk",
-    "auto-chain",
-    "single-pr",
-    "exception-ok",
-    "auto-forecast",
-    "ask-always",
-    "single-pr-default",
-    "force-chained",
-  ]),
-  reviewBudgetLines: PiGentleSddPreferences.fields.reviewBudgetLines,
-  engramAvailable: Schema.Boolean,
-  prompted: Schema.Boolean,
-});
 const decodeJson = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown));
 const encodeJson = Schema.encodeUnknownEffect(Schema.fromJsonString(Schema.Unknown));
-// Gentle AI's own serialization of sdd-preflight.json (two-space indent, no trailing newline).
+// Two-space JSON, the way Pi and Gentle AI write their own settings files.
 const encodeGentleJson = Schema.encodeUnknownEffect(
   Schema.fromJsonString(Schema.Unknown, { space: 2 }),
 );
 const decodePin = Schema.decodeUnknownEffect(ProfilePin);
 const decodePiSettings = Schema.decodeUnknownEffect(PiSettingsFile);
-const decodeSdd = Schema.decodeUnknownEffect(StoredSdd);
-const decodePreferences = Schema.decodeUnknownEffect(PiGentleSddPreferences);
 // What gentle-pi's API `state` reports.
 const decodeApiState = Schema.decodeUnknownEffect(
   Schema.Struct({
@@ -188,7 +167,7 @@ export type PiGentleAction = typeof PiGentleActionInput.Type.action;
 
 /** The gentle-pi API call that performs an action. */
 function apiCall(
-  command: Exclude<PiGentleAction, { readonly type: "update" | "saveSdd" }>,
+  command: Exclude<PiGentleAction, { readonly type: "update" }>,
 ): readonly [method: string, params: unknown] {
   const cwd = command.cwd === undefined ? {} : { cwd: command.cwd };
   switch (command.type) {
@@ -449,7 +428,6 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
         repoPin: repository
           ? path.join(path.resolve(repository[0]), ".pi", "gentle-ai", "profile.json")
           : null,
-        sdd: path.join(path.resolve(cwd), ".pi", "gentle-ai", "sdd-preflight.json"),
       };
     });
 
@@ -501,50 +479,6 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
       );
     });
 
-  const readSdd = (filePath: string) =>
-    Effect.gen(function* () {
-      if (!(yield* fileSystem.exists(filePath))) return null;
-      return yield* readJson(filePath).pipe(
-        Effect.flatMap(decodeSdd),
-        Effect.map((stored) => {
-          const artifactStore = stored.artifactStore === "both" ? "hybrid" : stored.artifactStore;
-          const chainedPrStrategy =
-            stored.chainedPrStrategy === "single-pr-default"
-              ? "single-pr"
-              : stored.chainedPrStrategy === "force-chained"
-                ? "auto-chain"
-                : stored.chainedPrStrategy === "auto-chain" ||
-                    stored.chainedPrStrategy === "single-pr"
-                  ? stored.chainedPrStrategy
-                  : "ask-on-risk";
-          return {
-            engramAvailable: stored.engramAvailable,
-            preferences: {
-              executionMode: stored.executionMode,
-              artifactStore,
-              chainedPrStrategy,
-              reviewBudgetLines: stored.reviewBudgetLines,
-            } satisfies GentleSddPreferences,
-          };
-        }),
-        Effect.orElseSucceed(() => null),
-      );
-    });
-
-  /** Saves a project's SDD choices where Gentle AI's preflight reads them. */
-  const writeSdd = (cwd: string, preferences: GentleSddPreferences) =>
-    Effect.gen(function* () {
-      const decoded = yield* decodePreferences(preferences);
-      const paths = yield* projectPaths(cwd);
-      const engramAvailable = (yield* readSdd(paths.sdd))?.engramAvailable ?? false;
-      // Gentle AI rewrites this file on every SDD preflight. Matching its exact serialization
-      // keeps a committed copy (the team's shared SDD choices) free of formatting churn.
-      yield* writeAtomicText(
-        paths.sdd,
-        yield* encodeGentleJson({ ...decoded, engramAvailable, prompted: false }),
-      );
-    });
-
   const read = (cwd?: string) =>
     Effect.gen(function* () {
       const found = yield* gentlePackage(cwd);
@@ -566,8 +500,6 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
         const state = yield* readApiState(script, cwd);
         if (state.profilesError !== undefined)
           return yield* new PiGentleSettingsError({ detail: state.profilesError });
-        // SDD predates the API; releases that still have it keep their choices in this file.
-        const sdd = cwd ? yield* readSdd((yield* projectPaths(cwd)).sdd) : null;
         return {
           available: true,
           version,
@@ -580,7 +512,6 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
                 pinAvailable: state.project.pinAvailable,
                 pinned: state.project.pinned?.profile ?? null,
                 pinSource: state.project.pinned?.source ?? null,
-                sdd: sdd?.preferences ?? null,
                 persona: { ...state.project.persona, global: state.persona },
               }
             : null,
@@ -589,7 +520,6 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
       const store = yield* loadProfiles;
       const pin = cwd ? yield* resolvePin(store, cwd) : null;
       const paths = pin?.paths ?? null;
-      const storedSdd = paths ? yield* readSdd(paths.sdd) : null;
       const globalPersona = (yield* readPersona(globalPersonaPath)) ?? "gentleman";
       const personaOverride = cwd
         ? yield* readPersona(path.join(path.resolve(cwd), ".pi", "gentle-ai", "persona.json"))
@@ -608,7 +538,6 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
               pinAvailable: paths.localPin !== null,
               pinned: pin?.pinned ?? null,
               pinSource: pin?.source ?? null,
-              sdd: storedSdd?.preferences ?? null,
               persona: {
                 effective: personaOverride ?? globalPersona,
                 global: globalPersona,
@@ -622,21 +551,9 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
   const readComposer = (cwd: string) =>
     Effect.gen(function* () {
       const found = yield* gentlePackage(cwd);
-      if (!isSupported(found?.version))
-        return {
-          available: false,
-          projectInitNeeded: false,
-        } satisfies PiGentleComposerState;
+      if (!isSupported(found?.version)) return { available: false } satisfies PiGentleComposerState;
       if (!path.isAbsolute(cwd))
         return yield* new PiGentleSettingsError({ detail: "Choose an absolute project folder." });
-      const persistedSdd = yield* readSdd((yield* projectPaths(cwd)).sdd);
-      const artifactStore = persistedSdd?.preferences.artifactStore ?? "openspec";
-      // Setup is how the user first chooses SDD preferences, so a project without saved choices
-      // still needs it. File-backed stores also need the OpenSpec project context it writes.
-      const projectInitNeeded =
-        persistedSdd === null ||
-        ((artifactStore === "openspec" || artifactStore === "hybrid") &&
-          !(yield* fileSystem.exists(path.join(cwd, "openspec", "config.yaml"))));
       const composerProfiles = (
         profiles: ReadonlyArray<{ readonly name: string; readonly routing: GentleRouting }>,
         pinned: string | null,
@@ -654,7 +571,7 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
               : { name: active, pinned: false },
       });
       const script = yield* apiScript(found);
-      // A broken profiles.json hides only the profile list; SDD actions stay usable.
+      // A broken profiles.json hides only the profile list.
       const profiles = yield* (
         script !== null
           ? readApiState(script, cwd).pipe(
@@ -686,35 +603,8 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
       ).pipe(Effect.orElseSucceed(() => ({})));
       return {
         available: true,
-        projectInitNeeded,
-        ...(persistedSdd === null ? {} : { sdd: persistedSdd.preferences }),
         ...profiles,
       } satisfies PiGentleComposerState;
-    }).pipe(Effect.mapError(toGentleError));
-
-  /**
-   * Saves the user's SDD choices, then runs Gentle AI's own project setup. Setup loads the same
-   * Pi extensions a Gentle thread does, so Gentle AI records whether Engram is available and
-   * keeps a store Pi cannot use from being saved.
-   */
-  const initializeSdd = (cwd: string, preferences?: GentleSddPreferences) =>
-    Effect.gen(function* () {
-      if (!path.isAbsolute(cwd))
-        return yield* new PiGentleSettingsError({ detail: "Choose an absolute project folder." });
-      if (!(yield* installed(cwd)))
-        return yield* new PiGentleSettingsError({ detail: "Gentle AI is not installed for Pi." });
-      if (preferences !== undefined) yield* writeSdd(cwd, preferences);
-      const spawnEnv = {
-        ...environment,
-        PI_CODING_AGENT_DIR: agentHome,
-        GENTLE_PI_CONFIG_HOME: configHome,
-      };
-      yield* runPi(["--no-session", "-p", "/gentle-sdd-init"], {
-        cwd,
-        env: spawnEnv,
-        timeout: "60 seconds",
-        failure: "SDD setup failed.",
-      });
     }).pipe(Effect.mapError(toGentleError));
 
   /**
@@ -813,7 +703,7 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
           detail: "Gentle AI 3.5 or newer is not installed for this Pi instance.",
         });
       const script = yield* apiScript(found);
-      if (script !== null && command.type !== "saveSdd") {
+      if (script !== null) {
         const [method, params] = apiCall(command);
         yield* callApi(script, method, params);
         return yield* read(command.cwd);
@@ -894,11 +784,9 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
         } else {
           yield* writeAtomic(personaPath, { mode: command.mode });
         }
-      } else {
-        yield* writeSdd(command.cwd, command.preferences);
       }
       return yield* read(command.cwd);
     }).pipe(Effect.mapError(toGentleError));
 
-  return { read, readComposer, action, initializeSdd };
+  return { read, readComposer, action };
 });

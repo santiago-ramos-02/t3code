@@ -15,15 +15,12 @@ import {
   GENTLE_AI_PACKAGE,
   GENTLE_AI_METHODS,
   GentleAiError,
-  GentleAiSddStatus,
   ProviderDriverKind,
   type GentleAiJob,
   type GentleAiJobMethod,
   type GentleAiQueryMethod,
   type GentleAiActionInput,
   type GentleAiActionResult,
-  type GentleAiSddChange,
-  type GentleAiSddChanges,
   type GentleAiStatus,
   type ServerProvider,
 } from "@t3tools/contracts";
@@ -75,8 +72,6 @@ export class GentleAi extends Context.Service<
     readonly action: (
       input: GentleAiActionInput,
     ) => Effect.Effect<GentleAiActionResult, GentleAiError>;
-    /** A project's active SDD changes with gentle-ai's native status for each. */
-    readonly sddChanges: (cwd: string) => Effect.Effect<GentleAiSddChanges, GentleAiError>;
     /** Answers a read-only API method; the result is validated and encoded for the wire. */
     readonly query: (
       method: GentleAiQueryMethod,
@@ -102,23 +97,9 @@ const StateFile = Schema.Struct({
   pending_sync: Schema.optional(Schema.Boolean),
 });
 const decodeStateFile = Schema.decodeUnknownEffect(Schema.fromJsonString(StateFile));
-const decodeSddStatus = Schema.decodeUnknownEffect(
-  Schema.fromJsonString(
-    Schema.Struct({
-      schemaName: Schema.Literal("gentle-ai.sdd-status"),
-      schemaVersion: Schema.Literal(2),
-      ...GentleAiSddStatus.fields,
-      planningHome: Schema.optionalKey(Schema.Struct({ path: Schema.String })),
-    }),
-  ),
-);
-// OpenSpec change folders are kebab-case names; anything else under `changes/` is not a change.
-const CHANGE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
-
 /** Status when no gentle-ai binary is available. */
 export const NOT_INSTALLED: GentleAiStatus = {
   apiVersion: null,
-  sdd: false,
   oddFeatures: false,
   installed: false,
   version: null,
@@ -328,7 +309,6 @@ export const make = Effect.gen(function* () {
         : null;
       return {
         apiVersion: describe.apiVersion,
-        sdd: describe.features?.includes("sdd") === true,
         oddFeatures: describe.methods.includes("odd.features"),
         claudeProfiles: describe.methods.includes("claude.profiles"),
         installed: true,
@@ -345,7 +325,7 @@ export const make = Effect.gen(function* () {
         ...(footprint === null ? {} : { resources: gentleAiResourceNames(footprint.removed) }),
       } satisfies GentleAiStatus;
     }
-    // Older gentle-ai: read its state file, and tell SDD from its commands.
+    // Older gentle-ai: read its state file.
     const home =
       (hostPlatform === "win32" ? environment.USERPROFILE : environment.HOME) || NodeOS.homedir();
     const statePath = path.join(home, ".gentle-ai", "state.json");
@@ -356,12 +336,8 @@ export const make = Effect.gen(function* () {
         )
       : null;
     const agents = state?.installed_agents ?? [];
-    const help = yield* run(binaryPath, ["help"], "15 seconds").pipe(
-      Effect.orElseSucceed(() => null),
-    );
     return {
       apiVersion: describe?.apiVersion ?? null,
-      sdd: help?.output.includes("sdd-status") === true,
       oddFeatures: false,
       installed: true,
       version,
@@ -417,71 +393,6 @@ export const make = Effect.gen(function* () {
         status: yield* Ref.get(stateRef),
         output: result.output,
       } satisfies GentleAiActionResult;
-    });
-
-  const sddStatus = (binaryPath: string, cwd: string, changeName?: string) =>
-    Effect.gen(function* () {
-      const result = yield* run(
-        binaryPath,
-        ["sdd-status", ...(changeName === undefined ? [] : [changeName]), "--cwd", cwd, "--json"],
-        "10 seconds",
-        cwd,
-      );
-      if (result.code !== 0) return yield* new GentleAiError({ detail: result.output });
-      return yield* decodeSddStatus(result.stdout);
-    }).pipe(
-      Effect.mapError(
-        () =>
-          new GentleAiError({
-            detail: `Gentle AI could not report SDD status${changeName === undefined ? "" : ` for ${changeName}`}.`,
-          }),
-      ),
-    );
-
-  /**
-   * gentle-ai reports one change at a time, so this finds the change folders under the
-   * project's planning home first. Stores without one (Engram, none) have nothing to list.
-   */
-  const sddChanges = (cwd: string) =>
-    Effect.gen(function* () {
-      if (!path.isAbsolute(cwd))
-        return yield* new GentleAiError({ detail: "Choose an absolute project folder." });
-      const status = yield* Ref.get(stateRef);
-      if (status.binaryPath === null)
-        return yield* new GentleAiError({ detail: "Gentle AI is not installed." });
-      if (!status.sdd)
-        return yield* new GentleAiError({
-          detail: "This Gentle AI uses ODD instead of SDD, so there are no SDD changes to list.",
-        });
-      const binaryPath = status.binaryPath;
-      const overview = yield* sddStatus(binaryPath, cwd);
-      const names: Array<string> = [];
-      if (overview.planningHome !== undefined) {
-        const changesDirectory = path.join(overview.planningHome.path, "changes");
-        const entries = yield* fileSystem
-          .readDirectory(changesDirectory)
-          .pipe(Effect.orElseSucceed((): ReadonlyArray<string> => []));
-        for (const name of entries) {
-          if (name === "archive" || !CHANGE_NAME.test(name)) continue;
-          const info = yield* fileSystem
-            .stat(path.join(changesDirectory, name))
-            .pipe(Effect.orElseSucceed(() => null));
-          if (info?.type === "Directory") names.push(name);
-        }
-      }
-      names.sort((left, right) => left.localeCompare(right));
-      const changes = yield* Effect.forEach(
-        names,
-        (name) =>
-          sddStatus(binaryPath, cwd, name).pipe(
-            Effect.map(
-              ({ schemaName: _name, schemaVersion: _version, planningHome: _home, ...status }) =>
-                ({ ...status, changeName: name }) satisfies GentleAiSddChange,
-            ),
-          ),
-        { concurrency: 4 },
-      );
-      return { artifactStore: overview.artifactStore, changes } satisfies GentleAiSddChanges;
     });
 
   const apiBinary = Effect.gen(function* () {
@@ -632,7 +543,6 @@ export const make = Effect.gen(function* () {
     refresh,
     binary,
     action,
-    sddChanges,
     query,
     startJob,
     get streamJob() {
