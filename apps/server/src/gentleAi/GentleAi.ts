@@ -325,6 +325,7 @@ export const make = Effect.gen(function* () {
         apiVersion: describe.apiVersion,
         sdd: describe.features?.includes("sdd") === true,
         oddFeatures: describe.methods.includes("odd.features"),
+        claudeProfiles: describe.methods.includes("claude.profiles"),
         installed: true,
         version,
         binaryPath,

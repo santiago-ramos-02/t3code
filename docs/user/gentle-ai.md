@@ -60,6 +60,18 @@ it there, for example the explorer on a lighter model while the main thread stay
 on Opus. This needs a gentle-ai that discovers proxy models; with others, the list
 shows only Claude's tiers.
 
+### Claude Code profiles
+
+Claude Code picks one of four model slots, `fable`, `opus`, `sonnet`, and `haiku`, each
+time it hands work to a subagent. A profile sets which model each slot really runs, and
+tells Claude what each slot is for, so it chooses a model per task: for example Opus for
+design, Sonnet for code, and an inexpensive model behind `haiku` for bounded tasks. A
+profile can also pin Gentle AI's phases to fixed models instead. Pick a profile under
+**Profile** in Claude Code's panel, and create or edit them with **Edit**. Keep one
+profile per situation, such as one for when an account is near its usage limit, and
+switch when it is; **None** puts Claude Code's own models back. A profile changes Claude
+Code everywhere it runs on that computer, not only in T3 Code.
+
 ## Turn Gentle AI off for a thread
 
 In a new thread, open the Gentle AI dropdown in the composer and clear

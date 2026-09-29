@@ -1,9 +1,11 @@
-import type {
-  GentleAiApiStatus,
-  GentleAiJobMethod,
-  GentleAiModelAgent,
-  GentleAiModels,
-  GentleAiOddFeatures,
+import {
+  GENTLE_AI_CLAUDE_SLOTS,
+  type GentleAiClaudeProfile,
+  type GentleAiApiStatus,
+  type GentleAiJobMethod,
+  type GentleAiModelAgent,
+  type GentleAiModels,
+  type GentleAiOddFeatures,
 } from "@t3tools/contracts";
 
 /** What each Gentle AI job is called while it runs and after, on every client. */
@@ -24,6 +26,9 @@ export const GENTLE_AI_JOB_LABELS = {
   "review.set": "Changing the review setting",
   "reviewStore.reset": "Clearing review history",
   "uninstall.run": "Removing Gentle AI",
+  "claude.profiles.save": "Saving the Claude Code profile",
+  "claude.profiles.delete": "Deleting the Claude Code profile",
+  "claude.profiles.apply": "Switching the Claude Code profile",
 } satisfies Record<GentleAiJobMethod, string>;
 
 export type GentleAiAgentState = "set-up" | "available" | "unsupported";
@@ -107,4 +112,23 @@ export function gentleOddFeatureSummary(
         ? `All ${feature.tasksTotal} tasks done`
         : `${feature.tasksDone} of ${feature.tasksTotal} tasks done`;
   return feature.nextStep ? `${tasks} · Next: ${feature.nextStep}` : tasks;
+}
+
+/**
+ * One line on what a Claude Code profile does: what each slot runs, then whether the
+ * orchestrator picks the phases' models or the profile pins them.
+ */
+export function gentleAiClaudeProfileSummary(
+  profile: Pick<GentleAiClaudeProfile, "slots" | "phases">,
+): string {
+  const slots = GENTLE_AI_CLAUDE_SLOTS.flatMap((slot) => {
+    const value = profile.slots[slot];
+    return value === undefined ? [] : [`${slot} → ${value.label ?? value.model}`];
+  });
+  const pinned = Object.keys(profile.phases ?? {}).length;
+  const phases =
+    pinned === 0
+      ? "Claude picks models per task"
+      : `${pinned} phase${pinned === 1 ? "" : "s"} pinned`;
+  return [...slots, phases].join(" · ");
 }

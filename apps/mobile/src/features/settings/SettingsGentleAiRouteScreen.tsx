@@ -3,6 +3,7 @@ import {
   GENTLE_AI_JOB_LABELS,
   gentleAiAgentList,
   gentleAiModelAgent,
+  gentleAiClaudeProfileSummary,
   gentleAiModelsAllDefault,
   gentleAiSyncNeeded,
 } from "@t3tools/client-runtime/gentle-ai";
@@ -26,7 +27,7 @@ import {
 } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import { Atom } from "effect/unstable/reactivity";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { ActivityIndicator, Alert, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -120,7 +121,11 @@ function GentleAiEnvironmentSettings(props: {
     .filter((part) => part !== null)
     .join(" · ");
   return status.apiVersion !== null ? (
-    <GentleAiApiSettings environmentId={environmentId} title={title} />
+    <GentleAiApiSettings
+      environmentId={environmentId}
+      title={title}
+      claudeProfiles={status.claudeProfiles === true}
+    />
   ) : (
     <GentleAiLegacySettings target={props.target} status={status} title={title} />
   );
@@ -146,6 +151,7 @@ export function useGentleAiQuery<M extends GentleAiQueryMethod>(
 function GentleAiApiSettings(props: {
   readonly environmentId: EnvironmentId;
   readonly title: string;
+  readonly claudeProfiles: boolean;
 }) {
   const { environmentId } = props;
   const status = useGentleAiQuery(environmentId, "status", {}).data;
@@ -200,6 +206,8 @@ function GentleAiApiSettings(props: {
           status={status}
           disabled={running}
           onApply={(agent, preset) => startJob("models.set", { agent, preset })}
+          claudeProfiles={props.claudeProfiles}
+          onApplyProfile={(name) => startJob("claude.profiles.apply", { name })}
         />
       ) : null}
       {backups && backups.backups.length > 0 ? (
@@ -290,6 +298,8 @@ function GentleAiAgents(props: {
   readonly status: GentleAiApiStatus;
   readonly disabled: boolean;
   readonly onApply: (agent: GentleAiModelAgent, preset: string) => void;
+  readonly claudeProfiles: boolean;
+  readonly onApplyProfile: (name: string | null) => void;
 }) {
   const agents = gentleAiAgentList(props.status);
   return (
@@ -303,35 +313,78 @@ function GentleAiAgents(props: {
           agents.map((agent) => {
             const modelAgent = agent.state === "set-up" ? gentleAiModelAgent(agent.id) : null;
             return (
-              <View
-                key={agent.id}
-                className="min-h-11 flex-row items-center justify-between gap-3 border-b border-border-subtle py-2"
-              >
-                <View className="min-w-0 flex-1">
-                  <Text className="text-sm text-foreground" numberOfLines={1}>
-                    {agent.name}
-                  </Text>
-                  <Text className="text-xs text-foreground-muted">{STATE_LABELS[agent.state]}</Text>
+              <Fragment key={agent.id}>
+                <View className="min-h-11 flex-row items-center justify-between gap-3 border-b border-border-subtle py-2">
+                  <View className="min-w-0 flex-1">
+                    <Text className="text-sm text-foreground" numberOfLines={1}>
+                      {agent.name}
+                    </Text>
+                    <Text className="text-xs text-foreground-muted">
+                      {STATE_LABELS[agent.state]}
+                    </Text>
+                  </View>
+                  {modelAgent === null ? null : (
+                    <GentleAiModelPreset
+                      environmentId={props.environmentId}
+                      agent={modelAgent}
+                      name={agent.name}
+                      disabled={props.disabled}
+                      onApply={props.onApply}
+                    />
+                  )}
                 </View>
-                {modelAgent === null ? null : (
-                  <GentleAiModelPreset
+                {agent.id === "claude-code" && agent.state === "set-up" && props.claudeProfiles ? (
+                  <GentleAiClaudeProfilePicker
                     environmentId={props.environmentId}
-                    agent={modelAgent}
-                    name={agent.name}
                     disabled={props.disabled}
-                    onApply={props.onApply}
+                    onApply={props.onApplyProfile}
                   />
-                )}
-              </View>
+                ) : null}
+              </Fragment>
             );
           })
         )}
         <Text className="py-3 text-xs text-foreground-muted">
-          Set up agents, customize models per phase, and remove Gentle AI from T3 Code on web or
-          desktop.
+          Set up agents, customize models per phase, edit Claude Code profiles, and remove Gentle AI
+          from T3 Code on web or desktop.
         </Text>
       </View>
     </SettingsSection>
+  );
+}
+
+/** Switches Claude Code's profile; profiles are made on web or desktop. */
+function GentleAiClaudeProfilePicker(props: {
+  readonly environmentId: EnvironmentId;
+  readonly disabled: boolean;
+  readonly onApply: (name: string | null) => void;
+}) {
+  const profiles = useGentleAiQuery(props.environmentId, "claude.profiles", {}).data;
+  if (profiles === null || profiles.profiles.length === 0) return null;
+  const active = profiles.profiles.find((profile) => profile.name === profiles.active) ?? null;
+  return (
+    <View className="min-h-11 flex-row items-center justify-between gap-3 border-b border-border-subtle py-2 pl-3">
+      <View className="min-w-0 flex-1">
+        <Text className="text-sm text-foreground">Claude Code profile</Text>
+        <Text className="text-xs text-foreground-muted" numberOfLines={2}>
+          {active === null
+            ? "Claude Code runs its own models."
+            : (active.description ?? gentleAiClaudeProfileSummary(active))}
+        </Text>
+      </View>
+      <ChoiceMenu
+        label="Claude Code profile"
+        value={profiles.active ?? ""}
+        choices={[
+          { value: "", label: "None" },
+          ...profiles.profiles.map((profile) => ({ value: profile.name, label: profile.name })),
+        ]}
+        disabled={props.disabled}
+        onChange={(name) => {
+          if (name !== (profiles.active ?? "")) props.onApply(name === "" ? null : name);
+        }}
+      />
+    </View>
   );
 }
 

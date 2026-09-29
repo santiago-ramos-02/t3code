@@ -21,6 +21,7 @@ import {
 import { Button } from "../../ui/button";
 import { SettingsGroup } from "../SettingsGroup";
 import { SettingsRow, SettingsSection } from "../settingsLayout";
+import { GentleAiClaudeProfileRow } from "./GentleAiClaudeProfiles";
 import { GentleAiAgentModelsRow } from "./GentleAiModels";
 import { GentleAiOpenCodePlugins } from "./GentleAiOpenCodePlugins";
 import type { GentleAiSectionProps } from "./GentleAiSettingsPage";
@@ -143,6 +144,9 @@ function AgentPanel({
             {modelAgent === null ? null : (
               <GentleAiAgentModelsRow {...props} agent={modelAgent} name={agent.name} />
             )}
+            {agent.id === "claude-code" && props.claudeProfiles ? (
+              <GentleAiClaudeProfileRow {...props} />
+            ) : null}
             <SettingsRow
               title="Remove Gentle AI"
               description={`Removes what Gentle AI added to ${agent.name}. Other agents keep their setup.`}

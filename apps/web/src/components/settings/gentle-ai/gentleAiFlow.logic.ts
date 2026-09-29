@@ -9,10 +9,18 @@ export type GentleAiFlow =
   | { readonly kind: "models"; readonly agent: string }
   | { readonly kind: "builder" }
   | { readonly kind: "backups" }
+  | { readonly kind: "claudeProfiles" }
   | { readonly kind: "doctor" };
 
 const AGENT_FLOWS = ["setup", "uninstall", "models"] as const;
-const PLAIN_FLOWS = ["setup", "uninstall", "builder", "backups", "doctor"] as const;
+const PLAIN_FLOWS = [
+  "setup",
+  "uninstall",
+  "builder",
+  "backups",
+  "claudeProfiles",
+  "doctor",
+] as const;
 
 export function gentleAiFlowKey(flow: GentleAiFlow): string {
   return "agent" in flow && flow.agent !== undefined ? `${flow.kind}:${flow.agent}` : flow.kind;

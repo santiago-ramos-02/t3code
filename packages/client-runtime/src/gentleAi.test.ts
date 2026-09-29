@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   gentleAiAgentList,
+  gentleAiClaudeProfileSummary,
   gentleAiModelAgent,
   gentleAiModelsAllDefault,
   gentleAiSyncNeeded,
@@ -81,5 +82,21 @@ describe("ODD features", () => {
     );
     expect(gentleOddFeatureSummary({ tasksDone: 3, tasksTotal: 3 })).toBe("All 3 tasks done");
     expect(gentleOddFeatureSummary({ tasksDone: 0, tasksTotal: 0 })).toBe("No tasks yet");
+  });
+});
+
+describe("gentleAiClaudeProfileSummary", () => {
+  it("names what each slot runs, strongest first, and who picks the phases' models", () => {
+    expect(
+      gentleAiClaudeProfileSummary({
+        slots: {
+          haiku: { model: "gpt-6-luna", label: "GPT-6 Luna" },
+          opus: { model: "claude-opus-5-5" },
+        },
+      }),
+    ).toBe("opus → claude-opus-5-5 · haiku → GPT-6 Luna · Claude picks models per task");
+    expect(
+      gentleAiClaudeProfileSummary({ slots: {}, phases: { "odd-worker": { model: "sonnet" } } }),
+    ).toBe("1 phase pinned");
   });
 });

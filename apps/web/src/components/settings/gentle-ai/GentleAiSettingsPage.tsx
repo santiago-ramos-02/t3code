@@ -17,6 +17,7 @@ import { GentleAiBuilderFlow } from "./GentleAiBuilderFlow";
 import { GentleAiFlowHeader, GentleAiFlowPanel } from "./GentleAiFlow";
 import type { GentleAiFlow } from "./gentleAiFlow.logic";
 import { GentleAiJobPanel } from "./GentleAiJobPanel";
+import { GentleAiClaudeProfilesFlow } from "./GentleAiClaudeProfiles";
 import { GentleAiModelsFlow } from "./GentleAiModels";
 import { GentleAiProjectSection, GentleAiReviewRow } from "./GentleAiProjectSection";
 import { GentleAiSetupFlow } from "./GentleAiSetupFlow";
@@ -37,6 +38,8 @@ export interface GentleAiSectionProps {
     params: GentleAiParams<M>,
   ) => Promise<string | null>;
   readonly onError: (message: string) => void;
+  /** Whether this gentle-ai keeps Claude Code profiles. */
+  readonly claudeProfiles: boolean;
   /** Opens a flow in place of the page; null returns to the page. */
   readonly openFlow: (flow: GentleAiFlow | null) => void;
 }
@@ -55,6 +58,7 @@ export function GentleAiSettingsPage({
   agentExtras,
   selectedAgent,
   onSelectAgent,
+  claudeProfiles,
 }: {
   readonly environmentId: EnvironmentId;
   readonly readOnly: boolean;
@@ -69,6 +73,8 @@ export function GentleAiSettingsPage({
    */
   readonly selectedAgent: string | null;
   readonly onSelectAgent: (agent: string) => void;
+  /** Whether this gentle-ai keeps Claude Code profiles. */
+  readonly claudeProfiles: boolean;
 }) {
   const status = useGentleAiQuery(environmentId, "status", {});
   const { job, running, startJob } = useGentleAiJob(environmentId);
@@ -106,6 +112,7 @@ export function GentleAiSettingsPage({
     },
     onError: setError,
     openFlow: onFlowChange,
+    claudeProfiles,
   };
   const close = () => onFlowChange(null);
   const errorBanner = error ? (
@@ -143,6 +150,8 @@ export function GentleAiSettingsPage({
           <GentleAiBuilderFlow {...sectionProps} onClose={close} />
         ) : flow.kind === "backups" ? (
           <GentleAiBackupsFlow {...sectionProps} onClose={close} />
+        ) : flow.kind === "claudeProfiles" ? (
+          <GentleAiClaudeProfilesFlow {...sectionProps} onClose={close} />
         ) : (
           <GentleAiDoctorFlow environmentId={environmentId} onClose={close} />
         )}

@@ -260,6 +260,37 @@ export const GentleAiModelConfig = Schema.Struct({
 });
 export type GentleAiModelConfig = typeof GentleAiModelConfig.Type;
 
+// ---- Claude Code profiles --------------------------------------------------------------------
+
+/** Claude Code's model slots, the names its orchestrator picks between per delegation. */
+export const GENTLE_AI_CLAUDE_SLOTS = ["fable", "opus", "sonnet", "haiku"] as const;
+export type GentleAiClaudeSlot = (typeof GENTLE_AI_CLAUDE_SLOTS)[number];
+
+/** What one slot runs, and what the orchestrator should use it for. */
+export const GentleAiClaudeSlotModel = Schema.Struct({
+  model: Id,
+  label: Opt(Schema.String),
+  useFor: Opt(Schema.String),
+});
+
+/**
+ * A named Claude Code setup: what each slot runs, and optionally fixed models for Gentle AI's
+ * phases. Without phases, Claude Code's orchestrator picks every model itself.
+ */
+export const GentleAiClaudeProfile = Schema.Struct({
+  name: Schema.String,
+  description: Opt(Schema.String),
+  slots: Schema.Record(Schema.String, GentleAiClaudeSlotModel),
+  phases: Opt(Assignments(ModelAndEffort)),
+});
+export type GentleAiClaudeProfile = typeof GentleAiClaudeProfile.Type;
+
+export const GentleAiClaudeProfiles = Schema.Struct({
+  active: Schema.NullOr(Schema.String),
+  profiles: Schema.Array(GentleAiClaudeProfile),
+});
+export type GentleAiClaudeProfiles = typeof GentleAiClaudeProfiles.Type;
+
 export const GentleAiModelsSetParams = Schema.Union([
   Schema.Struct({ agent: GentleAiModelAgent, preset: Id }),
   Schema.Struct({ agent: GentleAiModelAgent, models: GentleAiModels }),
@@ -499,6 +530,7 @@ export const GENTLE_AI_METHODS = {
     }),
   ),
   doctor: query(Empty, GentleAiDoctor),
+  "claude.profiles": query(Empty, GentleAiClaudeProfiles),
 
   install: job(GentleAiInstallParams, GentleAiInstallResult),
   sync: job(Schema.Struct({ agents: Opt(Ids), models: Opt(GentleAiModels) }), Files),
@@ -553,6 +585,17 @@ export const GENTLE_AI_METHODS = {
     GentleAiReviewStore,
   ),
   "uninstall.run": job(GentleAiUninstallParams, GentleAiUninstallResult),
+  // `replaces` is the previous name of a renamed profile. Saving the applied profile reapplies it.
+  "claude.profiles.save": job(
+    Schema.Struct({ profile: GentleAiClaudeProfile, replaces: Opt(Schema.String) }),
+    GentleAiClaudeProfiles,
+  ),
+  "claude.profiles.delete": job(Schema.Struct({ name: Schema.String }), GentleAiClaudeProfiles),
+  // A null name applies none, putting Claude Code's own slot models back.
+  "claude.profiles.apply": job(
+    Schema.Struct({ name: Schema.NullOr(Schema.String) }),
+    GentleAiClaudeProfiles,
+  ),
 } as const;
 
 type Methods = typeof GENTLE_AI_METHODS;
@@ -578,6 +621,7 @@ const QUERY_METHODS = [
   "uninstall.plan",
   "doctor",
   "odd.features",
+  "claude.profiles",
 ] as const satisfies ReadonlyArray<GentleAiQueryMethod>;
 const JOB_METHODS = [
   "install",
@@ -596,6 +640,9 @@ const JOB_METHODS = [
   "review.set",
   "reviewStore.reset",
   "uninstall.run",
+  "claude.profiles.save",
+  "claude.profiles.delete",
+  "claude.profiles.apply",
 ] as const satisfies ReadonlyArray<GentleAiJobMethod>;
 // Both lists name every method of their kind; adding a method to the table without listing it
 // fails here.

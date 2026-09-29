@@ -178,6 +178,7 @@ export function GentleAiSettingsPanel({
             cwd: project.workspaceRoot,
           }))}
           agentExtras={piSections.length > 0 ? { pi: piSections } : {}}
+          claudeProfiles={status?.claudeProfiles === true}
           selectedAgent={selectedAgent}
           onSelectAgent={setSelectedAgent}
         />
