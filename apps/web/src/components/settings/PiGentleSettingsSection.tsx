@@ -228,7 +228,8 @@ export function PiGentleSettingsSection({
   const [newAgent, setNewAgent] = useState("");
   const [agentFilter, setAgentFilter] = useState("");
   const [customizing, setCustomizing] = useState(false);
-  const [pending, setPending] = useState(false);
+  // The action in flight, so its own control can say what is happening.
+  const [pending, setPending] = useState<GentleAction["type"] | null>(null);
   const [errorState, setErrorState] = useState<{
     key: string;
     text: string;
@@ -291,7 +292,7 @@ export function PiGentleSettingsSection({
               action.type === "update"
             ? "global"
             : "profiles";
-    setPending(true);
+    setPending(action.type);
     setErrorState(null);
     try {
       const result = await update({ environmentId, input: { instanceId, action } });
@@ -311,7 +312,7 @@ export function PiGentleSettingsSection({
     } catch (cause) {
       setErrorState({ key: stateKey, text: errorText(cause), area });
     } finally {
-      setPending(false);
+      setPending(null);
     }
   }
 
@@ -321,7 +322,7 @@ export function PiGentleSettingsSection({
     className: readOnly ? "opacity-50 select-none" : undefined,
   };
   const sectionIcon = <GentleRoseIcon className="size-5 shrink-0" />;
-  const canEdit = !readOnly && !pending;
+  const canEdit = !readOnly && pending === null;
   const cwdInput = selectedCwd ? { cwd: selectedCwd } : {};
   const errorFor = (area: GentleArea) =>
     error?.area === area ? (
@@ -369,7 +370,7 @@ export function PiGentleSettingsSection({
               disabled={!canEdit}
               onClick={() => void runAction({ type: "update", ...cwdInput })}
             >
-              {pending ? "Working…" : "Update Gentle AI"}
+              {pending === "update" ? "Updating…" : "Update Gentle AI"}
             </Button>
           }
         />
@@ -423,15 +424,20 @@ export function PiGentleSettingsSection({
         headerAction={
           state.version ? (
             <div className="flex items-center gap-2">
-              <span className="font-mono text-xs text-muted-foreground">v{state.version}</span>
-              <Button
-                size="xs"
-                variant="ghost"
-                disabled={!canEdit}
-                onClick={() => void runAction({ type: "update", ...cwdInput })}
-              >
-                Update
-              </Button>
+              <span className="font-mono text-xs text-muted-foreground">
+                v{state.version}
+                {state.commit ? ` · ${state.commit}` : ""}
+              </span>
+              {state.updateAvailable || pending === "update" ? (
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  disabled={!canEdit}
+                  onClick={() => void runAction({ type: "update", ...cwdInput })}
+                >
+                  {pending === "update" ? "Updating…" : "Update"}
+                </Button>
+              ) : null}
             </div>
           ) : null
         }

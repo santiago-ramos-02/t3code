@@ -5,6 +5,8 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
+import * as HttpClient from "effect/unstable/http/HttpClient";
+import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse";
 import * as ChildProcess from "effect/unstable/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
 
@@ -12,6 +14,18 @@ import { makePiGentleSettings } from "./PiGentleSettings.ts";
 
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 const decodeJson = Schema.decodeSync(Schema.fromJsonString(Schema.Unknown));
+// npm reports gentle-pi 3.9.0 as its latest release.
+const httpClient = HttpClient.make((request) =>
+  Effect.succeed(
+    HttpClientResponse.fromWeb(
+      request,
+      new Response(encodeJson({ version: "3.9.0" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    ),
+  ),
+);
 
 it.layer(NodeServices.layer)("Pi Gentle settings", (it) => {
   it.effect("detects, updates, and sets up SDD through an isolated Pi executable", () =>
@@ -78,6 +92,7 @@ if (process.argv.includes("/gentle-sdd-init")) {
           fileSystem,
           path,
           spawner,
+          httpClient,
         });
         // Without gentle-pi, clients show nothing Gentle-related, so updating is refused too.
         expect(yield* gentle.read()).toMatchObject({ available: false, version: null });
@@ -103,14 +118,17 @@ if (process.argv.includes("/gentle-sdd-init")) {
           fileSystem,
           path,
           spawner,
+          httpClient,
         });
         const updateFailure = yield* Effect.flip(failing.action({ type: "update" }));
         expect(updateFailure.detail).toContain("Gentle AI update failed.");
         expect(updateFailure.detail).toContain("npm ERR! 404");
-        // 3.8 is past the newest tested minor release, so settings carry a warning.
+        // 3.8 is past the newest tested minor release, so settings carry a warning, and npm's
+        // 3.9.0 is still an update.
         expect(yield* gentle.action({ type: "update" })).toMatchObject({
           available: true,
           version: "3.8.0",
+          updateAvailable: true,
           compatibilityWarning: expect.stringContaining("Gentle AI 3.8 is newer"),
         });
         // A project without saved choices needs setup, where the user first makes them.
@@ -170,10 +188,14 @@ if (process.argv.includes("/gentle-sdd-init")) {
           fileSystem,
           path,
           spawner,
+          httpClient,
         });
         // Only the project loads it, so it counts there and nowhere else.
         expect(yield* gentle.read()).toMatchObject({ available: false, version: null });
-        expect(yield* gentle.read(cwd)).toMatchObject({ available: true, version: "3.7.0" });
+        const projectState = yield* gentle.read(cwd);
+        expect(projectState).toMatchObject({ available: true, version: "3.7.0" });
+        // A local folder is not Pi's to update, so no update is ever offered for it.
+        expect(projectState).not.toHaveProperty("updateAvailable");
         expect(yield* gentle.readComposer(cwd)).toMatchObject({ available: true });
       }),
     ),
@@ -217,6 +239,7 @@ if (process.argv.includes("/gentle-sdd-init")) {
           fileSystem,
           path,
           spawner,
+          httpClient,
         });
         expect(yield* gentle.read(cwd)).toMatchObject({
           available: true,
@@ -401,6 +424,7 @@ if (process.argv.includes("/gentle-sdd-init")) {
           fileSystem,
           path,
           spawner,
+          httpClient,
         });
         const readPiSettings = fileSystem
           .readFileString(piSettingsPath)
@@ -495,7 +519,7 @@ let body = "";
 for await (const chunk of process.stdin) body += chunk;
 const method = process.argv[2];
 const params = JSON.parse(body || "{}");
-fs.appendFileSync(${JSON.stringify(calls)}, JSON.stringify({ method, params, configHome: process.env.GENTLE_PI_CONFIG_HOME }) + "\\n");
+fs.appendFileSync(${encodeJson(calls)}, JSON.stringify({ method, params, configHome: process.env.GENTLE_PI_CONFIG_HOME }) + "\\n");
 const line = params.name === "missing"
   ? { type: "error", error: { code: "missing_profile", message: "Profile does not exist: missing." } }
   : { type: "result", data: method !== "state" ? {} : {
@@ -512,6 +536,7 @@ process.stdout.write(JSON.stringify({ schema: "gentle-pi.api/v1", ...line }) + "
           fileSystem,
           path,
           spawner,
+          httpClient,
         });
         const recorded = fileSystem.readFileString(calls).pipe(
           Effect.map((text) =>
@@ -525,6 +550,7 @@ process.stdout.write(JSON.stringify({ schema: "gentle-pi.api/v1", ...line }) + "
         expect(yield* gentle.read(cwd)).toEqual({
           available: true,
           version: "3.7.0",
+          updateAvailable: true,
           globalPersona: "neutral",
           profiles: [
             {

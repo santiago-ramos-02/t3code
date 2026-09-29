@@ -22,6 +22,7 @@ import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
+import { HttpClient } from "effect/unstable/http";
 import * as ChildProcess from "effect/unstable/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
 
@@ -115,6 +116,7 @@ const MAINTENANCE_CAPABILITIES = makeManualOnlyProviderMaintenanceCapabilities({
 export type PiDriverEnv =
   | ChildProcessSpawner.ChildProcessSpawner
   | FileSystem.FileSystem
+  | HttpClient.HttpClient
   | Path.Path
   | ServerConfig.ServerConfig;
 
@@ -695,6 +697,7 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
       });
       const piGentle = yield* makePiGentleSettings({
         environment: processEnv,
+        httpClient: yield* HttpClient.HttpClient,
         piBinaryPath: effectiveConfig.binaryPath,
         fileSystem,
         path,

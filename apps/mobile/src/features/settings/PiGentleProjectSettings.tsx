@@ -140,7 +140,7 @@ function PiGentleInstanceSettings(props: {
 
   return (
     <SettingsSection
-      title={`Gentle AI${state?.version ? ` · ${state.version}` : ""} · ${props.environmentLabel}${props.instanceName === "Pi" ? "" : ` · ${props.instanceName}`}`}
+      title={`Gentle AI${state?.version ? ` · ${state.version}` : ""}${state?.commit ? ` · ${state.commit}` : ""} · ${props.environmentLabel}${props.instanceName === "Pi" ? "" : ` · ${props.instanceName}`}`}
     >
       <View className="gap-3 p-4">
         {state === null ? (

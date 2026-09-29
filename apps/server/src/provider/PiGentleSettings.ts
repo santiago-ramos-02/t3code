@@ -17,12 +17,14 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
+import { HttpClient } from "effect/unstable/http";
 import * as ChildProcess from "effect/unstable/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 
 import { runGentleAiApi } from "../gentleAi/GentleAiApi.ts";
 import { piPackages } from "./PiPlainExtensions.ts";
+import { fetchNpmLatestVersion } from "./providerMaintenance.ts";
 import { spawnAndCollect } from "./providerSnapshot.ts";
 
 // Oldest gentle-pi whose profile, persona, and SDD files T3 Code reads and writes.
@@ -219,6 +221,7 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
   readonly fileSystem: FileSystem.FileSystem;
   readonly path: Path.Path;
   readonly spawner: ChildProcessSpawner.ChildProcessSpawner["Service"];
+  readonly httpClient: HttpClient.HttpClient;
 }) {
   const { environment, fileSystem, path, spawner } = input;
   const agentHome =
@@ -269,6 +272,75 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
     typeof version === "string" && compareSemverVersions(version, MINIMUM_GENTLE_VERSION) >= 0;
   const installed = (cwd?: string) =>
     gentlePackage(cwd).pipe(Effect.map((found) => isSupported(found?.version)));
+
+  /**
+   * Whether `pi update <source>` would install a newer gentle-pi, decided the way Pi updates
+   * it: npm sources move to the latest release, git sources to the repository's current
+   * commit. Pinned versions and refs never move, and a local folder is not Pi's to update, so
+   * neither reports anything; neither does a check that cannot reach the registry or remote.
+   */
+  const git = (args: ReadonlyArray<string>, cwd?: string) =>
+    spawner
+      .string(
+        ChildProcess.make("git", args, {
+          ...(cwd === undefined ? {} : { cwd }),
+          stdin: "ignore",
+          stderr: "ignore",
+        }),
+      )
+      .pipe(
+        Effect.timeout("15 seconds"),
+        Effect.map((output) => output.trim().split(/\s/)[0] ?? ""),
+        Effect.orElseSucceed(() => ""),
+      );
+  const gitLocation = (source: string) =>
+    source.startsWith("git:")
+      ? source.slice("git:".length)
+      : source.startsWith("https://")
+        ? source.slice("https://".length)
+        : null;
+  /**
+   * What `pi update <source>` would move gentle-pi to: npm's latest release, or the git
+   * repository's current commit. Empty when that cannot be known, such as without a network.
+   */
+  const latestRemote = (source: string) =>
+    source.startsWith("npm:")
+      ? fetchNpmLatestVersion("gentle-pi").pipe(
+          Effect.provideService(HttpClient.HttpClient, input.httpClient),
+          Effect.map((latest) => latest ?? ""),
+          Effect.orElseSucceed(() => ""),
+        )
+      : git(["ls-remote", `https://${(gitLocation(source) ?? "").split("@")[0]}`, "HEAD"]);
+  // Settings re-read after every change, so the registry or remote is asked at most every few
+  // minutes; an update clears it. What is installed is read fresh every time.
+  const latestCache = yield* Cache.make({
+    lookup: latestRemote,
+    capacity: 8,
+    timeToLive: "10 minutes",
+  });
+  /**
+   * The installed commit for a git install, and whether `pi update <source>` would install a
+   * newer gentle-pi. Pinned versions and refs never move, and a local folder is not Pi's to
+   * update, so neither reports an update; neither does a check that cannot reach the remote.
+   */
+  const updateStatus = (found: { source: string; directory: string; version: string }) =>
+    Effect.gen(function* () {
+      const pinned = (gitLocation(found.source) ?? found.source.slice("npm:".length)).includes("@");
+      if (found.source.startsWith("npm:")) {
+        if (pinned) return {};
+        const latest = yield* Cache.get(latestCache, found.source);
+        return latest === ""
+          ? {}
+          : { updateAvailable: compareSemverVersions(latest, found.version) > 0 };
+      }
+      if (gitLocation(found.source) === null) return {};
+      const commit = yield* git(["rev-parse", "HEAD"], found.directory);
+      if (commit === "") return {};
+      const installed = { commit: commit.slice(0, 7) };
+      if (pinned) return installed;
+      const latest = yield* Cache.get(latestCache, found.source);
+      return latest === "" ? installed : { ...installed, updateAvailable: latest !== commit };
+    });
 
   /**
    * gentle-pi's own API script, when the installed release ships one. Through it gentle-pi
@@ -488,6 +560,7 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
           active: null,
           project: null,
         } satisfies PiGentleState;
+      const update = found === null ? {} : yield* updateStatus(found);
       const script = yield* apiScript(found);
       if (script !== null) {
         const state = yield* readApiState(script, cwd);
@@ -498,6 +571,7 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
         return {
           available: true,
           version,
+          ...update,
           globalPersona: state.persona,
           profiles: state.profiles,
           active: state.active,
@@ -524,6 +598,7 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
       return {
         available: true,
         version,
+        ...update,
         ...(compatibilityWarning === undefined ? {} : { compatibilityWarning }),
         globalPersona,
         profiles: Object.entries(store.profiles).map(([name, routing]) => ({ name, routing })),
@@ -726,9 +801,10 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
         yield* runPi(["update", found.source], {
           ...(command.cwd === undefined ? {} : { cwd: command.cwd }),
           env: environment,
-          timeout: "2 minutes",
+          timeout: "5 minutes",
           failure: "Gentle AI update failed.",
         });
+        yield* Cache.invalidateAll(latestCache);
         return yield* read(command.cwd);
       }
       const found = yield* gentlePackage(command.cwd);

@@ -11,6 +11,8 @@ import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
+import * as HttpClient from "effect/unstable/http/HttpClient";
+import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse";
 import * as ChildProcess from "effect/unstable/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
 
@@ -28,6 +30,13 @@ const PiDriverTestLayer = Layer.mergeAll(
     prefix: "t3-pi-driver-test-",
   }).pipe(Layer.provide(NodeServices.layer)),
   NodeServices.layer,
+  // Gentle AI update checks find nothing, so no test reaches the network.
+  Layer.succeed(
+    HttpClient.HttpClient,
+    HttpClient.make((request) =>
+      Effect.succeed(HttpClientResponse.fromWeb(request, new Response(null, { status: 404 }))),
+    ),
+  ),
 );
 
 const TEST_AGENT_HOME = `${NodeOS.tmpdir()}/t3-pi-driver-test-agent-home`;

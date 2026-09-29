@@ -68,6 +68,12 @@ export const PiGentleInitializeInput = Schema.Struct({
 export const PiGentleState = Schema.Struct({
   available: Schema.Boolean,
   version: Schema.NullOr(Schema.String),
+  // The installed commit when gentle-pi is installed from git, which the version alone
+  // does not tell apart.
+  commit: Schema.optionalKey(Schema.String),
+  // Whether Pi's package source has a newer gentle-pi; absent when that cannot be known,
+  // such as a pinned version, a local folder, or no network.
+  updateAvailable: Schema.optionalKey(Schema.Boolean),
   // Set when the installed Gentle AI is newer than the releases T3 Code was tested with.
   compatibilityWarning: Schema.optionalKey(Schema.String),
   globalPersona: Schema.optionalKey(PiGentlePersona),
