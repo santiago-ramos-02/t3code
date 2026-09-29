@@ -56,6 +56,10 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.gentleAiStartJob]: AuthOrchestrationOperateScope,
   [WS_METHODS.gentleAiSubscribeJob]: AuthOrchestrationReadScope,
   [WS_METHODS.gentleAiSubscribeStatus]: AuthOrchestrationReadScope,
+  [WS_METHODS.cliProxySubscribeStatus]: AuthOrchestrationReadScope,
+  // The proxy holds account credentials and runs a program on the environment, like a terminal.
+  [WS_METHODS.cliProxyAction]: AuthTerminalOperateScope,
+  [WS_METHODS.cliProxyManagement]: AuthTerminalOperateScope,
   [WS_METHODS.serverUpdateServer]: AuthOrchestrationOperateScope,
   [WS_METHODS.serverUpdateServerWithProgress]: AuthOrchestrationOperateScope,
   [WS_METHODS.serverCommitDesktopUpdate]: AuthOrchestrationOperateScope,

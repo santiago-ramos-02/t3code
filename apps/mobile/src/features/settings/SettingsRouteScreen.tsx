@@ -200,6 +200,12 @@ function SettingsIndexSections() {
         {gentleAiInstalled || selectedTargets.some(environmentRunsGentleAi) ? (
           <SettingsRow icon="slider.horizontal.3" label="Gentle AI" target="SettingsGentleAi" />
         ) : null}
+        <SettingsRow
+          icon="arrow.triangle.branch"
+          label="CLIProxyAPI"
+          target="SettingsCliProxy"
+          disabled={noServerTargets}
+        />
       </SettingsSection>
 
       <SettingsSection title="App">

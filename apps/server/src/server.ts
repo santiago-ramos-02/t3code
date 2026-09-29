@@ -162,6 +162,7 @@ import * as ResourceMonitorBinary from "./resourceTelemetry/ResourceMonitorBinar
 import * as ResourceTelemetry from "./resourceTelemetry/ResourceTelemetry.ts";
 import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
 import * as GentleAi from "./gentleAi/GentleAi.ts";
+import * as CliProxy from "./cliProxy/CliProxy.ts";
 import * as GentleAiFootprints from "./gentleAi/GentleAiFootprints.ts";
 import * as UsageService from "./usage/UsageService.ts";
 import { OrchestrationLayerLive } from "./orchestration/runtimeLayer.ts";
@@ -529,6 +530,7 @@ const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
       EnvironmentTheme.layer,
       UsageLimitSources.layer,
       GentleAi.layer,
+      CliProxy.layer,
     ),
   ),
   Layer.provideMerge(ProviderRegistryLive),

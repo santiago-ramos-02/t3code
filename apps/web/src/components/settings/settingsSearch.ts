@@ -19,6 +19,7 @@ export type SettingsPath =
   | "/settings/snap-shot"
   | "/settings/providers"
   | "/settings/gentle-ai"
+  | "/settings/cli-proxy"
   | "/settings/integrations"
   | "/settings/source-control"
   | "/settings/storage"
@@ -91,6 +92,7 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/snap-shot": "SnapShots",
   "/settings/providers": "Providers",
   "/settings/gentle-ai": "Gentle AI",
+  "/settings/cli-proxy": "CLIProxyAPI",
   "/settings/integrations": "Integrations",
   "/settings/source-control": "Source Control",
   "/settings/storage": "Storage",
@@ -852,6 +854,8 @@ const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScop
   "/settings/providers": null,
   // Like Providers, Gentle AI is machine state shown for the representative environment.
   "/settings/gentle-ai": null,
+  // Machine state too: the proxy runs on the representative environment.
+  "/settings/cli-proxy": null,
   "/settings/integrations": null,
   "/settings/source-control": "environment-defaults",
   "/settings/storage": "project-defaults",

@@ -21,6 +21,7 @@ import {
   Link2Icon,
   PaletteIcon,
   SearchIcon,
+  WaypointsIcon,
   Settings2Icon,
   XIcon,
 } from "lucide-react";
@@ -86,6 +87,7 @@ const SETTINGS_SECTION_ICONS: Readonly<
   "/settings/snap-shot": SnapShotIcon,
   "/settings/providers": BotIcon,
   "/settings/gentle-ai": GentleRoseIcon,
+  "/settings/cli-proxy": WaypointsIcon,
   "/settings/integrations": BlocksIcon,
   "/settings/source-control": GitBranchIcon,
   "/settings/storage": HardDriveIcon,

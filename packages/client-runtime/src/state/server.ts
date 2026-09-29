@@ -1123,6 +1123,19 @@ export function createServerEnvironmentAtoms<R, E>(
     gentleAiJob,
     gentleAiQuery,
     gentleAiStatus,
+    // CLIProxyAPI on the environment: status now and on every change, actions, management calls.
+    cliProxyStatus: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
+      label: "environment-data:cli-proxy:status",
+      tag: WS_METHODS.cliProxySubscribeStatus,
+    }),
+    runCliProxyAction: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:cli-proxy:action",
+      tag: WS_METHODS.cliProxyAction,
+    }),
+    cliProxyManagement: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:cli-proxy:management",
+      tag: WS_METHODS.cliProxyManagement,
+    }),
     startGentleAiJob: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:gentle-ai:start-job",
       tag: WS_METHODS.gentleAiStartJob,

@@ -120,6 +120,7 @@ import * as GitManager from "./git/GitManager.ts";
 import * as EnvironmentTheme from "./environmentTheme.ts";
 import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
 import * as GentleAi from "./gentleAi/GentleAi.ts";
+import * as CliProxy from "./cliProxy/CliProxy.ts";
 import * as Keybindings from "./keybindings.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import * as RemoteOpenTargets from "./environment/RemoteOpenTargets.ts";
@@ -804,6 +805,7 @@ const buildAppUnderTest = (options?: {
             refresh: Effect.void,
             ...options?.layers?.gentleAi,
           }),
+          Layer.mock(CliProxy.CliProxy)({}),
         ),
       ),
       Layer.provide(

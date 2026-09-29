@@ -7,6 +7,10 @@
       "types": "./src/gentleAi.ts",
       "default": "./src/gentleAi.ts"
     },
+    "./cli-proxy": {
+      "types": "./src/cliProxy.ts",
+      "default": "./src/cliProxy.ts"
+    },
     "./device/stream": {
       "types": "./src/device/stream.ts",
       "default": "./src/device/stream.ts"

@@ -157,6 +157,7 @@ import * as HostResources from "./resourceTelemetry/HostResources.ts";
 import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
 import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
 import * as GentleAi from "./gentleAi/GentleAi.ts";
+import * as CliProxy from "./cliProxy/CliProxy.ts";
 import * as UsageService from "./usage/UsageService.ts";
 import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
@@ -552,6 +553,7 @@ const makeWsRpcLayer = (
       const environmentTheme = yield* EnvironmentTheme.EnvironmentThemeService;
       const usageLimitSources = yield* UsageLimitSources.UsageLimitSources;
       const gentleAi = yield* GentleAi.GentleAi;
+      const cliProxy = yield* CliProxy.CliProxy;
       const externalLauncher = yield* ExternalLauncher.ExternalLauncher;
       const remoteOpenTargets = yield* RemoteOpenTargets.RemoteOpenTargets;
       const gitWorkflow = yield* GitWorkflowService.GitWorkflowService;
@@ -2512,6 +2514,18 @@ const makeWsRpcLayer = (
         [WS_METHODS.gentleAiSubscribeJob]: () =>
           observeRpcStream(WS_METHODS.gentleAiSubscribeJob, gentleAi.streamJob, {
             "rpc.aggregate": "gentle-ai",
+          }),
+        [WS_METHODS.cliProxySubscribeStatus]: () =>
+          observeRpcStream(WS_METHODS.cliProxySubscribeStatus, cliProxy.streamChanges, {
+            "rpc.aggregate": "cli-proxy",
+          }),
+        [WS_METHODS.cliProxyAction]: (input) =>
+          observeRpcEffect(WS_METHODS.cliProxyAction, cliProxy.action(input.action), {
+            "rpc.aggregate": "cli-proxy",
+          }),
+        [WS_METHODS.cliProxyManagement]: (input) =>
+          observeRpcEffect(WS_METHODS.cliProxyManagement, cliProxy.management(input), {
+            "rpc.aggregate": "cli-proxy",
           }),
         [WS_METHODS.gentleAiSddChanges]: (input) =>
           observeRpcEffect(WS_METHODS.gentleAiSddChanges, gentleAi.sddChanges(input.cwd), {

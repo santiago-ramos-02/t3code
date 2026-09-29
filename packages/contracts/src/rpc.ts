@@ -35,6 +35,13 @@ import {
   GentleAiError,
   GentleAiStatus,
 } from "./gentleAi.ts";
+import {
+  CliProxyActionInput,
+  CliProxyError,
+  CliProxyManagementInput,
+  CliProxyManagementResult,
+  CliProxyStatus,
+} from "./cliProxy.ts";
 
 import { ExternalLauncherError, LaunchEditorInput } from "./editor.ts";
 import {
@@ -342,6 +349,9 @@ export const WS_METHODS = {
   gentleAiStartJob: "gentleAi.startJob",
   gentleAiSubscribeJob: "gentleAi.subscribeJob",
   gentleAiSubscribeStatus: "gentleAi.subscribeStatus",
+  cliProxySubscribeStatus: "cliProxy.subscribeStatus",
+  cliProxyAction: "cliProxy.action",
+  cliProxyManagement: "cliProxy.management",
 
   // VCS methods
   vcsPull: "vcs.pull",
@@ -590,6 +600,26 @@ const WsGentleAiSubscribeJobRpc = Rpc.make(WS_METHODS.gentleAiSubscribeJob, {
   success: Schema.NullOr(GentleAiJob),
   error: EnvironmentAuthorizationError,
   stream: true,
+});
+
+// CLIProxyAPI on the environment now, then every change.
+const WsCliProxySubscribeStatusRpc = Rpc.make(WS_METHODS.cliProxySubscribeStatus, {
+  payload: Schema.Struct({}),
+  success: CliProxyStatus,
+  error: EnvironmentAuthorizationError,
+  stream: true,
+});
+
+const WsCliProxyActionRpc = Rpc.make(WS_METHODS.cliProxyAction, {
+  payload: CliProxyActionInput,
+  success: CliProxyStatus,
+  error: Schema.Union([CliProxyError, EnvironmentAuthorizationError]),
+});
+
+const WsCliProxyManagementRpc = Rpc.make(WS_METHODS.cliProxyManagement, {
+  payload: CliProxyManagementInput,
+  success: CliProxyManagementResult,
+  error: Schema.Union([CliProxyError, EnvironmentAuthorizationError]),
 });
 
 const WsGentleAiActionRpc = Rpc.make(WS_METHODS.gentleAiAction, {
@@ -1507,6 +1537,9 @@ export const WsRpcGroup = RpcGroup.make(
   WsProviderPiGentleInitializeRpc,
   WsGentleAiReadRpc,
   WsGentleAiActionRpc,
+  WsCliProxySubscribeStatusRpc,
+  WsCliProxyActionRpc,
+  WsCliProxyManagementRpc,
   WsGentleAiSddChangesRpc,
   WsGentleAiQueryRpc,
   WsGentleAiStartJobRpc,
