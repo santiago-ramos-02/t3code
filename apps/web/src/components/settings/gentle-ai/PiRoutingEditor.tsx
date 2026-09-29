@@ -40,35 +40,36 @@ const THINKING_LABELS = {
 } satisfies Record<Thinking, string>;
 const INHERIT = "__inherit__";
 
-// gentle-pi's roles, grouped the way its workflow uses them. Roles outside these, such as a
-// custom agent's, show under "Other roles" and are the only ones that can be removed.
+// gentle-pi's roles, grouped and named as Claude Code's phases are (see GentleAiModelEditor), so
+// ODD and RDD read the same for every agent. Roles outside these, such as a custom agent's, show
+// under "Other roles" and are the only ones that can be removed.
 const GROUPS = [
-  { label: "Main thread", roles: [["orchestrator", "Orchestrator"]] },
+  { label: "Orchestrator", roles: [["orchestrator", "Orchestrator"]] },
   {
-    label: "Building",
+    label: "ODD",
     roles: [
-      ["gentle-ai-explore", "Explore"],
-      ["gentle-ai-worker", "Build"],
-      ["gentle-ai-verify", "Verify"],
+      ["gentle-ai-explore", "ODD Explorer"],
+      ["gentle-ai-worker", "ODD Worker"],
+      ["gentle-ai-verify", "ODD Verify"],
     ],
   },
   {
-    label: "Judgment day",
+    label: "Judgment Day",
     roles: [
-      ["jd-judge-a", "Judge A"],
-      ["jd-judge-b", "Judge B"],
-      ["jd-fix-agent", "Fix"],
+      ["jd-judge-a", "JD Judge A"],
+      ["jd-judge-b", "JD Judge B"],
+      ["jd-fix-agent", "JD Fix Agent"],
     ],
   },
   {
-    label: "Review",
+    label: "RDD review",
     roles: [
-      ["review-risk", "Risk"],
-      ["review-refuter", "Refuter"],
-      ["review-validator", "Validator"],
-      ["review-readability", "Readability"],
-      ["review-reliability", "Reliability"],
-      ["review-resilience", "Resilience"],
+      ["review-risk", "RDD Risk"],
+      ["review-readability", "RDD Readability"],
+      ["review-reliability", "RDD Reliability"],
+      ["review-resilience", "RDD Resilience"],
+      ["review-refuter", "RDD Refuter"],
+      ["review-validator", "RDD Validator"],
     ],
   },
 ] as const;
