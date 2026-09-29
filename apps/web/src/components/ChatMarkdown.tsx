@@ -608,7 +608,6 @@ type MarkdownAstNode = {
   type?: string;
   meta?: unknown;
   url?: string;
-  position?: { start: { offset?: number }; end: { offset?: number } };
   data?: {
     hProperties?: Record<string, unknown>;
   };
@@ -635,48 +634,19 @@ function remarkPreserveCodeMeta() {
 }
 
 /**
- * The destination of a link, image, or definition exactly as written. Markdown
- * reads a backslash before punctuation as an escape, so the parsed URL of
- * `C:\Users\me\.t3\a.png` loses the separator before `.t3`; a Windows path means
- * every backslash literally.
- */
-function writtenDestination(source: string, node: MarkdownAstNode): string | undefined {
-  const start = node.position?.start.offset;
-  const end = node.position?.end.offset;
-  if (start === undefined || end === undefined) return undefined;
-  const written = source.slice(start, end);
-  const opener = node.type === "definition" ? /\]:\s*/g : /\]\(\s*/g;
-  let destinationStart = -1;
-  for (const match of written.matchAll(opener)) destinationStart = match.index + match[0].length;
-  if (destinationStart === -1) return undefined;
-  const rest = written.slice(destinationStart);
-  if (rest.startsWith("<")) {
-    const close = rest.indexOf(">");
-    return close === -1 ? undefined : rest.slice(1, close);
-  }
-  const destination = /^[^\s)]+/.exec(rest)?.[0];
-  return destination !== undefined && WINDOWS_DRIVE_PATH_REGEX.test(destination)
-    ? destination
-    : undefined;
-}
-
-/**
- * Preserve Windows drive paths as written, and drive links as allowed `file:`
- * URLs before sanitization. The same traversal tags inline code while it can
- * still be distinguished from fenced code. Code inside links stays untagged to
- * avoid nested anchors.
+ * Preserve Windows drive links as allowed `file:` URLs before sanitization.
+ * The same traversal tags inline code while it can still be distinguished
+ * from fenced code. Code inside links stays untagged to avoid nested anchors.
  */
 function remarkNormalizeLinksAndTagInlineCode() {
-  return (tree: MarkdownAstNode, file: { readonly value: unknown }) => {
-    const source = String(file.value);
+  return (tree: MarkdownAstNode) => {
     const visit = (node: MarkdownAstNode, insideLink: boolean) => {
       if (
-        (node.type === "link" || node.type === "definition" || node.type === "image") &&
+        (node.type === "link" || node.type === "definition") &&
         typeof node.url === "string" &&
         WINDOWS_DRIVE_PATH_REGEX.test(node.url)
       ) {
-        const url = writtenDestination(source, node) ?? node.url;
-        node.url = node.type === "image" ? url : `file:///${url.replaceAll("\\", "/")}`;
+        node.url = `file:///${node.url.replaceAll("\\", "/")}`;
       }
       if (node.type === "inlineCode" && !insideLink) {
         node.data = {

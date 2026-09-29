@@ -13,11 +13,7 @@ import {
   type TurnTokenUsage,
   TurnId,
   type UserInputQuestion,
-  gentleAiEnabled,
 } from "@t3tools/contracts";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
-import { gentleAiFootprintLookup } from "../../gentleAi/GentleAiFootprints.ts";
-import { openCodeGentleOffEnvironment } from "../../gentleAi/GentleAiOff.ts";
 import * as Cause from "effect/Cause";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
@@ -953,9 +949,6 @@ export function makeOpenCodeAdapter(
     const crypto = yield* Crypto.Crypto;
     const fileSystem = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
-    const hostPlatform = yield* HostProcessPlatform;
-    // What gentle-ai added to each agent, for threads with Gentle AI off.
-    const gentleAiFootprints = yield* gentleAiFootprintLookup;
     const sameDirectory = (left: string, right: string) =>
       isSameOpenCodeDirectory(fileSystem, path, left, right);
     const nativeEventLogger =
@@ -2859,47 +2852,15 @@ export function makeOpenCodeAdapter(
               // we provide below — closing `sessionScope` kills the child
               // process automatically. No manual `server.close()` needed.
               const mcpSession = McpProviderSession.readMcpProviderSession(input.threadId);
-              const gentleOff = !gentleAiEnabled(input.modelSelection?.options);
-              // An external server loads its own configuration, which T3 Code cannot change.
-              if (gentleOff && serverUrl) {
-                return yield* new ProviderAdapterValidationError({
-                  provider: PROVIDER,
-                  operation: "startSession",
-                  issue:
-                    "Gentle AI cannot be turned off for an OpenCode server T3 Code does not start.",
-                });
-              }
-              const baseEnvironment = McpProviderSession.withAgentDeviceEnvironment(
-                options?.environment ?? process.env,
-                mcpSession,
-              );
-              // With Gentle AI off, this thread's own server runs on a plain config home.
-              const environment = gentleOff
-                ? yield* openCodeGentleOffEnvironment({
-                    environment: baseEnvironment,
-                    platform: hostPlatform,
-                    footprint: yield* gentleAiFootprints(["opencode"]),
-                  }).pipe(
-                    Effect.provideService(FileSystem.FileSystem, fileSystem),
-                    Effect.provideService(Path.Path, path),
-                    Effect.provideService(Scope.Scope, sessionScope),
-                    Effect.mapError(
-                      (cause) =>
-                        new ProviderAdapterProcessError({
-                          provider: PROVIDER,
-                          threadId: input.threadId,
-                          detail: "OpenCode could not start with Gentle AI off.",
-                          cause,
-                        }),
-                    ),
-                  )
-                : baseEnvironment;
               const server = yield* openCodeRuntime.connectToOpenCodeServer({
                 binaryPath,
                 directory,
                 serverUrl,
                 ...(serverPassword ? { serverPassword } : {}),
-                environment,
+                environment: McpProviderSession.withAgentDeviceEnvironment(
+                  options?.environment ?? process.env,
+                  mcpSession,
+                ),
               });
               const client = openCodeRuntime.createOpenCodeSdkClient({
                 baseUrl: server.url,

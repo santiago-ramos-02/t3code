@@ -58,10 +58,6 @@ import {
 } from "../ProviderDriver.ts";
 import { mergeProviderInstanceEnvironment } from "../ProviderInstanceEnvironment.ts";
 import { withInstanceIdentity } from "./instanceIdentity.ts";
-import {
-  gentleAiOffDirectory,
-  materializeAntigravityPlainHome,
-} from "../../gentleAi/GentleAiOff.ts";
 import { discoverAntigravitySkills, resolveAntigravityUserHome } from "./AntigravitySkills.ts";
 
 const DRIVER = ProviderDriverKind.make("antigravity");
@@ -105,8 +101,7 @@ export const AntigravityDriver: ProviderDriver<AntigravitySettings, AntigravityD
       };
       const authConfigIssue = antigravityAuthConfigIssue(auth);
       const processEnvironment = mergeProviderInstanceEnvironment(environment);
-      const hostPlatform = yield* HostProcessPlatform;
-      const userHome = resolveAntigravityUserHome(hostPlatform, processEnvironment);
+      const userHome = resolveAntigravityUserHome(yield* HostProcessPlatform, processEnvironment);
       const directories = yield* resolveAntigravityInstanceDirectories(
         serverConfig.stateDir,
         instanceId,
@@ -157,9 +152,7 @@ export const AntigravityDriver: ProviderDriver<AntigravitySettings, AntigravityD
         );
 
       const makeRuntime = Effect.fn("AntigravityDriver.makeRuntime")(function* (
-        input: Omit<AntigravityAcpRuntimeInput, "spawn" | "childProcessSpawner"> & {
-          readonly gentleAiOff?: boolean;
-        },
+        input: Omit<AntigravityAcpRuntimeInput, "spawn" | "childProcessSpawner">,
       ): Effect.fn.Return<
         AcpSessionRuntime["Service"],
         AcpError | ProviderSetupError,
@@ -232,42 +225,13 @@ export const AntigravityDriver: ProviderDriver<AntigravitySettings, AntigravityD
                 ),
               ),
         );
-        // With Gentle AI off, the thread runs on a plain mirror of the profile that lives as long
-        // as the runtime: the same sign-in, without gentle-ai's skills.
-        const runProfile = input.gentleAiOff
-          ? {
-              ...profile,
-              geminiHome: yield* Effect.gen(function* () {
-                const target = yield* gentleAiOffDirectory("antigravity");
-                yield* materializeAntigravityPlainHome({
-                  source: profile.geminiHome,
-                  target,
-                  platform: hostPlatform,
-                });
-                return target;
-              }).pipe(
-                Effect.provideService(FileSystem.FileSystem, fileSystem),
-                Effect.provideService(Path.Path, path),
-                Effect.mapError(
-                  (cause) =>
-                    new ProviderSetupError({
-                      instanceId,
-                      operation: "start",
-                      detail: "Antigravity could not start with Gentle AI off.",
-                      cause,
-                    }),
-                ),
-              ),
-            }
-          : profile;
-        const { gentleAiOff: _gentleAiOff, ...runtimeInput } = input;
         const runtime = yield* makeAntigravityAcpRuntime({
-          ...runtimeInput,
+          ...input,
           authMethod: auth.authMethod,
           childProcessSpawner: spawner,
           spawn: buildAntigravityAcpSpawnInput({
             installation: executable,
-            profile: runProfile,
+            profile,
             cwd: input.cwd,
             baseEnv: withAgentDeviceEnvironment(processEnvironment, input),
             auth,

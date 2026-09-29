@@ -7,7 +7,6 @@ import {
   buildExplicitProviderOptionSelectionsFromDescriptors,
   getProviderOptionDescriptors,
 } from "@t3tools/shared/model";
-import { resolveProviderForCwd } from "@t3tools/client-runtime/providerSkills";
 
 export type ModelOption = {
   readonly key: string;
@@ -151,12 +150,10 @@ export function resolveNewTaskModelSelection(input: {
 export function buildModelOptions(
   config: T3ServerConfig | null | undefined,
   fallbackModelSelection: ModelSelection | null,
-  cwd?: string | null,
 ): ReadonlyArray<ModelOption> {
   const options = new Map<string, ModelOption>();
 
-  for (const source of config?.providers ?? []) {
-    const provider = resolveProviderForCwd(source, cwd);
+  for (const provider of config?.providers ?? []) {
     if (
       !provider.enabled ||
       !provider.installed ||
@@ -206,11 +203,9 @@ export function buildModelOptions(
         (candidate) => candidate.instanceId === fallbackModelSelection.instanceId,
       );
       const instanceConfig = config?.settings?.providerInstances[fallbackModelSelection.instanceId];
-      const model =
-        provider &&
-        resolveProviderForCwd(provider, cwd).models.find(
-          (candidate) => candidate.slug === fallbackModelSelection.model,
-        );
+      const model = provider?.models.find(
+        (candidate) => candidate.slug === fallbackModelSelection.model,
+      );
       const providerDriver =
         provider?.driver ?? instanceConfig?.driver ?? fallbackModelSelection.instanceId;
       const providerLabel = providerDisplayLabel({

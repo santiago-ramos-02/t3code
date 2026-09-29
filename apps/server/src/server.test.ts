@@ -119,8 +119,6 @@ import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import * as GitManager from "./git/GitManager.ts";
 import * as EnvironmentTheme from "./environmentTheme.ts";
 import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
-import * as GentleAi from "./gentleAi/GentleAi.ts";
-import * as CliProxy from "./cliProxy/CliProxy.ts";
 import * as Keybindings from "./keybindings.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import * as RemoteOpenTargets from "./environment/RemoteOpenTargets.ts";
@@ -528,7 +526,6 @@ const buildAppUnderTest = (options?: {
     providerRegistry?: Partial<ProviderRegistry.ProviderRegistry["Service"]>;
     modelManifest?: Partial<ModelManifest.ModelManifest["Service"]>;
     usageLimitSources?: Partial<UsageLimitSources.UsageLimitSources["Service"]>;
-    gentleAi?: Partial<GentleAi.GentleAi["Service"]>;
     providerService?: Partial<ProviderService.ProviderService["Service"]>;
     providerAuth?: Partial<ProviderAuthService["Service"]>;
     providerInstanceRegistry?: Partial<ProviderInstanceRegistry["Service"]>;
@@ -801,13 +798,6 @@ const buildAppUnderTest = (options?: {
             refresh: Effect.void,
             ...options?.layers?.usageLimitSources,
           }),
-          Layer.mock(GentleAi.GentleAi)({
-            current: Effect.succeed(GentleAi.NOT_INSTALLED),
-            streamChanges: Stream.make(GentleAi.NOT_INSTALLED),
-            refresh: Effect.void,
-            ...options?.layers?.gentleAi,
-          }),
-          Layer.mock(CliProxy.CliProxy)({}),
         ),
       ),
       Layer.provide(

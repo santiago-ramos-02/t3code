@@ -625,40 +625,6 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
         ]);
       });
 
-      it("stores a workspace model catalog only when it differs from the machine catalog", () => {
-        const model = {
-          slug: "project-provider/project-model",
-          name: "Project Model",
-          subProvider: "project-provider",
-          isCustom: false,
-          capabilities: null,
-        } as const;
-        const provider = {
-          instanceId: ProviderInstanceId.make("pi"),
-          driver: ProviderDriverKind.make("pi"),
-          status: "ready",
-          enabled: true,
-          installed: true,
-          auth: { status: "authenticated" },
-          checkedAt: "2026-03-25T00:00:00.000Z",
-          version: "0.87.1",
-          models: [],
-          slashCommands: [],
-          skills: [],
-        } satisfies ServerProvider;
-        const scoped = { ...provider, models: [model] } satisfies ServerProvider;
-
-        const result = upsertProviderWorkspaceSnapshot(provider, "/project", scoped);
-
-        assert.deepStrictEqual(result.models, []);
-        assert.deepStrictEqual(result.workspaceSnapshots?.[0]?.models, [model]);
-        assert.deepStrictEqual(
-          mergeProviderSnapshot(result, { ...provider, checkedAt: "2026-03-25T00:02:00.000Z" })
-            .workspaceSnapshots,
-          undefined,
-        );
-      });
-
       it("preserves previously discovered provider models when a refresh returns none", () => {
         const previousProvider = {
           instanceId: ProviderInstanceId.make("cursor"),
@@ -2605,71 +2571,6 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
         }),
       );
 
-      it.effect("registers the default Pi instance as an available provider", () =>
-        Effect.gen(function* () {
-          const serverSettings = yield* makeMutableServerSettingsService(
-            decodeServerSettings(
-              deepMerge(encodedDefaultServerSettings, {
-                providers: {
-                  codex: { enabled: false },
-                  claudeAgent: { enabled: false },
-                  cursor: { enabled: false },
-                  grok: { enabled: false },
-                  opencode: { enabled: false },
-                },
-              }),
-            ),
-          );
-          const scope = yield* Scope.make();
-          yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void));
-          const providerRegistryLayer = ProviderRegistryLive.pipe(
-            Layer.provideMerge(ProviderInstanceRegistryHydrationLive),
-            Layer.provideMerge(AntigravityInstallation.layer),
-            Layer.provideMerge(
-              Layer.succeed(ServerSettingsModule.ServerSettingsService, serverSettings),
-            ),
-            Layer.provideMerge(
-              ServerConfig.layerTest(process.cwd(), {
-                prefix: "t3-provider-registry-",
-              }),
-            ),
-            Layer.provideMerge(TestHttpClientLive),
-            Layer.provideMerge(
-              Layer.succeed(
-                ProviderEventLoggers.ProviderEventLoggers,
-                ProviderEventLoggers.NoOpProviderEventLoggers,
-              ),
-            ),
-            Layer.provideMerge(ModelManifest.layerTest),
-            Layer.provideMerge(ResetCreditCoordinator.layerTest),
-            Layer.provideMerge(OpenCodeRuntime.OpenCodeRuntimeLive),
-            Layer.provideMerge(NodeServices.layer),
-            Layer.provideMerge(BackgroundPolicyAlwaysRunLayer),
-          );
-          const runtimeServices = yield* Layer.build(providerRegistryLayer).pipe(
-            Scope.provide(scope),
-          );
-
-          yield* Effect.gen(function* () {
-            const registry = yield* ProviderRegistry.ProviderRegistry;
-            const instanceRegistry = yield* ProviderInstanceRegistry.ProviderInstanceRegistry;
-            const providers = yield* registry.getProviders;
-            const pi = providers.find((provider) => provider.instanceId === "pi");
-
-            assert.notStrictEqual(pi, undefined);
-            assert.strictEqual(pi?.driver, "pi");
-            assert.notStrictEqual(pi?.availability, "unavailable");
-            assert.strictEqual(pi?.unavailableReason, undefined);
-
-            const unavailable = yield* instanceRegistry.listUnavailable;
-            assert.strictEqual(
-              unavailable.some((provider) => provider.instanceId === "pi"),
-              false,
-            );
-          }).pipe(Effect.provide(runtimeServices));
-        }),
-      );
-
       it.effect(
         "keeps Cursor disabled and skips provider probing when settings use their defaults",
         () =>
@@ -2758,7 +2659,6 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
                 "cursor",
                 "grok",
                 "opencode",
-                "pi",
               ]);
               assert.strictEqual(cursorProvider?.enabled, false);
               assert.strictEqual(cursorProvider?.status, "disabled");

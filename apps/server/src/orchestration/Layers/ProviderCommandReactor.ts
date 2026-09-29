@@ -169,16 +169,14 @@ function isUnknownPendingUserInputRequestError(cause: Cause.Cause<ProviderServic
     return (
       detail.includes("unknown pending user-input request") ||
       detail.includes("unknown pending user input request") ||
-      detail.includes("unknown pending codex user input request") ||
-      detail.includes("pi user-input request is no longer pending")
+      detail.includes("unknown pending codex user input request")
     );
   }
   const message = Cause.pretty(cause).toLowerCase();
   return (
     message.includes("unknown pending user-input request") ||
     message.includes("unknown pending user input request") ||
-    message.includes("unknown pending codex user input request") ||
-    message.includes("pi user-input request is no longer pending")
+    message.includes("unknown pending codex user input request")
   );
 }
 
@@ -186,10 +184,7 @@ function stalePendingRequestDetail(
   requestKind: "approval" | "user-input",
   requestId: string,
 ): string {
-  if (requestKind === "user-input") {
-    return `This question is no longer available. Ask the agent to ask it again. (Stale pending user-input request: ${requestId}.)`;
-  }
-  return `Stale pending approval request: ${requestId}. Provider callback state does not survive app restarts or recovered sessions. Restart the turn to continue.`;
+  return `Stale pending ${requestKind} request: ${requestId}. Provider callback state does not survive app restarts or recovered sessions. Restart the turn to continue.`;
 }
 
 function buildGeneratedWorktreeBranchName(raw: string): string {
@@ -312,34 +307,6 @@ const make = Effect.gen(function* () {
       ),
     );
 
-  const closeUnavailableUserInput = (input: {
-    readonly threadId: ThreadId;
-    readonly requestId: string;
-    readonly createdAt: string;
-  }) =>
-    Effect.all({
-      commandId: serverCommandId("user-input-unavailable"),
-      eventId: serverEventId(),
-    }).pipe(
-      Effect.flatMap(({ commandId, eventId }) =>
-        orchestrationEngine.dispatch({
-          type: "thread.activity.append",
-          commandId,
-          threadId: input.threadId,
-          activity: {
-            id: eventId,
-            tone: "info",
-            kind: "user-input.resolved",
-            summary: "Question closed",
-            payload: { requestId: input.requestId, answers: {}, reason: "unavailable" },
-            turnId: null,
-            createdAt: input.createdAt,
-          },
-          createdAt: input.createdAt,
-        }),
-      ),
-    );
-
   const cancelTurnsAfterCompaction = Effect.fn("cancelTurnsAfterCompaction")(function* (
     threadId: ThreadId,
     detail: string,
@@ -449,11 +416,6 @@ const make = Effect.gen(function* () {
       return;
     }
     const session = thread.session;
-    // A failed follow-up is attached to its user message below. It must not
-    // clear the turn that was already running when the follow-up was attempted.
-    if (session?.status === "running" && session.activeTurnId !== null) {
-      return;
-    }
     yield* setThreadSession({
       threadId: input.threadId,
       session: {
@@ -1717,24 +1679,15 @@ const make = Effect.gen(function* () {
       }
       const hasSession = thread.session && thread.session.status !== "stopped";
       if (!hasSession) {
-        const providerName =
-          thread.session?.providerName ??
-          (yield* providerService.getInstanceInfo(thread.modelSelection.instanceId).pipe(
-            Effect.map((info) => info.driverKind),
-            Effect.orElseSucceed(() => null),
-          ));
-        const isPiThread = providerName === "pi";
-        return yield* isPiThread
-          ? closeUnavailableUserInput(event.payload)
-          : appendProviderFailureActivity({
-              threadId: event.payload.threadId,
-              kind: "provider.user-input.respond.failed",
-              summary: "Provider user input response failed",
-              detail: stalePendingRequestDetail("user-input", event.payload.requestId),
-              turnId: null,
-              createdAt: event.payload.createdAt,
-              requestId: event.payload.requestId,
-            });
+        return yield* appendProviderFailureActivity({
+          threadId: event.payload.threadId,
+          kind: "provider.user-input.respond.failed",
+          summary: "Provider user input response failed",
+          detail: "No active provider session is bound to this thread.",
+          turnId: null,
+          createdAt: event.payload.createdAt,
+          requestId: event.payload.requestId,
+        });
       }
 
       yield* providerService
@@ -1748,20 +1701,17 @@ const make = Effect.gen(function* () {
         })
         .pipe(
           Effect.catchCause((cause) =>
-            findProviderAdapterRequestError(cause)?.provider === "pi" &&
-            isUnknownPendingUserInputRequestError(cause)
-              ? closeUnavailableUserInput(event.payload)
-              : appendProviderFailureActivity({
-                  threadId: event.payload.threadId,
-                  kind: "provider.user-input.respond.failed",
-                  summary: "Provider user input response failed",
-                  detail: isUnknownPendingUserInputRequestError(cause)
-                    ? stalePendingRequestDetail("user-input", event.payload.requestId)
-                    : Cause.pretty(cause),
-                  turnId: null,
-                  createdAt: event.payload.createdAt,
-                  requestId: event.payload.requestId,
-                }),
+            appendProviderFailureActivity({
+              threadId: event.payload.threadId,
+              kind: "provider.user-input.respond.failed",
+              summary: "Provider user input response failed",
+              detail: isUnknownPendingUserInputRequestError(cause)
+                ? stalePendingRequestDetail("user-input", event.payload.requestId)
+                : Cause.pretty(cause),
+              turnId: null,
+              createdAt: event.payload.createdAt,
+              requestId: event.payload.requestId,
+            }),
           ),
         );
     },

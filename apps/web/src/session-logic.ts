@@ -599,11 +599,7 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   const viewedImagePath = asTrimmedString(asRecord(payload?.data)?.imagePath);
   if (detail) {
     entry.detail = detail;
-  } else if (
-    activity.kind === "runtime.error" ||
-    activity.kind === "runtime.warning" ||
-    activity.kind === "runtime.notice"
-  ) {
+  } else if (activity.kind === "runtime.error" || activity.kind === "runtime.warning") {
     const message = asTrimmedString(payload?.message);
     if (
       message &&

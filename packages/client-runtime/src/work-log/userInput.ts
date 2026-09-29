@@ -94,16 +94,6 @@ export function foldUserInputActivities(
   const replacements = new Map<OrchestrationThreadActivity, OrchestrationThreadActivity | null>();
   for (const [requestId, group] of requests) {
     const payloads = group.map((activity) => record(activity.payload)!);
-    const acceptedAnswers = group
-      .filter((activity) => activity.kind === "user-input.resolved")
-      .map((activity) => record(record(activity.payload)?.answers))
-      .findLast((answers) => answers && Object.keys(answers).length > 0);
-    const unavailableResolution = group.some(
-      (activity) =>
-        activity.kind === "user-input.resolved" &&
-        record(activity.payload)?.reason === "unavailable",
-    );
-    const unavailable = !acceptedAnswers && unavailableResolution;
     const questions = new Map<string, Record<string, unknown>>();
     const texts = new Map<string, unknown>();
     for (const payload of payloads) {
@@ -122,12 +112,10 @@ export function foldUserInputActivities(
         activity.kind === "user-input.answer-submitted" &&
         record(record(activity.payload)?.answers),
     );
-    const rawAnswers = unavailable
-      ? {}
-      : ((unavailableResolution && acceptedAnswers ? acceptedAnswers : undefined) ??
-        record(record(submitted?.payload)?.answers) ??
-        payloads.map((payload) => record(payload.answers)).findLast(Boolean) ??
-        {});
+    const rawAnswers =
+      record(record(submitted?.payload)?.answers) ??
+      payloads.map((payload) => record(payload.answers)).findLast(Boolean) ??
+      {};
     const answers = Object.fromEntries(
       Object.entries(rawAnswers).map(([id, value]) => {
         const options = questions.get(id)?.options;
@@ -140,13 +128,9 @@ export function foldUserInputActivities(
         return [id, displayOptionAnswer(value, labels)];
       }),
     );
-    const attachmentsByQuestionId = unavailable
-      ? {}
-      : Object.fromEntries(
-          payloads.flatMap((payload) =>
-            Object.entries(record(payload.attachmentsByQuestionId) ?? {}),
-          ),
-        );
+    const attachmentsByQuestionId = Object.fromEntries(
+      payloads.flatMap((payload) => Object.entries(record(payload.attachmentsByQuestionId) ?? {})),
+    );
     const answer = { requestId, questionTextById, answers, attachmentsByQuestionId };
     if (!isQuestionAnswer(answer)) continue;
     const submittedAnswer =
@@ -158,11 +142,9 @@ export function foldUserInputActivities(
       tone: "tool",
       summary: submittedAnswer
         ? "User input submitted"
-        : unavailable
-          ? "Question closed"
-          : group.some((activity) => activity.kind === "user-input.resolved")
-            ? "User input dismissed"
-            : "User input requested",
+        : group.some((activity) => activity.kind === "user-input.resolved")
+          ? "User input dismissed"
+          : "User input requested",
       payload: answer,
     });
   }

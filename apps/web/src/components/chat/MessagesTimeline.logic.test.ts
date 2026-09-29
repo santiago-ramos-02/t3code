@@ -44,86 +44,6 @@ import {
 } from "../../session-logic";
 import { isImageAttachment, type ChatMessage, type TurnDiffSummary } from "../../types";
 
-describe("provider startup row", () => {
-  const timelineEntries = [
-    {
-      id: "pi-user-message",
-      kind: "message" as const,
-      createdAt: "2026-09-23T15:00:00.000Z",
-      message: {
-        id: MessageId.make("pi-user-message"),
-        role: "user" as const,
-        text: "Hello",
-        turnId: null,
-        createdAt: "2026-09-23T15:00:00.000Z",
-        updatedAt: "2026-09-23T15:00:00.000Z",
-        streaming: false,
-      },
-    },
-  ];
-  const base = {
-    timelineEntries,
-    activeTurnStartedAt: "2026-09-23T15:00:00.000Z",
-    turnDiffSummaries: [],
-    supportsConversationRollback: false,
-  };
-
-  it("shows one loading row after the send, then hands off to normal activity", () => {
-    const starting = deriveMessagesTimelineRows({
-      ...base,
-      isWorking: true,
-      isStartingProvider: true,
-    });
-    expect(starting.map((row) => row.kind)).toEqual(["message", "working"]);
-
-    const running = deriveMessagesTimelineRows({ ...base, isWorking: true });
-    expect(running.map((row) => row.kind)).toEqual(["message", "working", "thinking"]);
-
-    const failed = deriveMessagesTimelineRows({ ...base, isWorking: false });
-    expect(failed.map((row) => row.kind)).toEqual(["message"]);
-  });
-});
-
-it("folds completed Pi commentary and reasoning while keeping the final reply visible", () => {
-  const turnId = TurnId.make("pi-turn");
-  const message = (id: string, role: "assistant" | "reasoning", text: string, second: number) => ({
-    id,
-    kind: "message" as const,
-    createdAt: `2026-09-23T15:00:0${second}.000Z`,
-    message: {
-      id: MessageId.make(id),
-      role,
-      text,
-      turnId,
-      createdAt: `2026-09-23T15:00:0${second}.000Z`,
-      updatedAt: `2026-09-23T15:00:0${second}.000Z`,
-      streaming: false,
-    },
-  });
-  const rows = deriveMessagesTimelineRows({
-    timelineEntries: [
-      message("pi-commentary", "assistant", "I’ll inspect the issue.", 1),
-      message("pi-reasoning", "reasoning", "Checking the cause.", 2),
-      message("pi-final", "assistant", "Here is the result.", 3),
-    ],
-    latestTurn: {
-      turnId,
-      state: "completed",
-      startedAt: "2026-09-23T15:00:00.000Z",
-      completedAt: "2026-09-23T15:00:04.000Z",
-    },
-    isWorking: false,
-    activeTurnStartedAt: null,
-    turnDiffSummaries: [],
-    supportsConversationRollback: false,
-  });
-
-  expect(rows.some((row) => row.kind === "turn-fold")).toBe(true);
-  expect(rows.filter((row) => row.kind === "message").map((row) => row.message.text)).toEqual([
-    "Here is the result.",
-  ]);
-});
-
 describe("streaming row projection", () => {
   function fixture(text = "") {
     const turnId = TurnId.make("live-turn");
@@ -2191,44 +2111,23 @@ describe("deriveMessagesTimelineRows", () => {
     expect(rows.map((row) => row.id)).toEqual(thoughts.map((entry) => entry.id));
   });
 
-  it("shows thoughts while working and folds them after the answer", () => {
+  it("keeps a thought-only turn out of the work fold", () => {
     const thought = reasoningEntry("reasoning-entry", "2026-01-01T00:00:01Z", "turn-1");
-    const answer = answerEntry("assistant-entry", "2026-01-01T00:00:02Z", "turn-1");
-    const input = {
-      timelineEntries: [thought, answer],
+    const rows = deriveMessagesTimelineRows({
+      timelineEntries: [thought, answerEntry("assistant-entry", "2026-01-01T00:00:02Z", "turn-1")],
       isWorking: false,
       activeTurnStartedAt: null,
       turnDiffSummaries: [],
       supportsConversationRollback: false,
-    } satisfies Parameters<typeof deriveMessagesTimelineRows>[0];
-    const live = deriveMessagesTimelineRows({
-      ...input,
-      runningTurnId: TurnId.make("turn-1"),
-      isWorking: true,
-      activeTurnStartedAt: "2026-01-01T00:00:00Z",
     });
-    expect(live.some((row) => row.kind === "turn-fold")).toBe(false);
-    expect(live.find((row) => row.kind === "activity-group")).toMatchObject({ entries: [thought] });
-
-    const rows = deriveMessagesTimelineRows(input);
-    expect(rows.map((row) => row.kind)).toEqual(["turn-fold", "message"]);
-    expect(rows[0]).toMatchObject({ id: "turn-fold:turn-1", expanded: false });
-    expect(rows[1]).toMatchObject({ message: answer.message, showAssistantMeta: true });
-    const reopened = deriveMessagesTimelineRows({
-      ...input,
-      expandedTurnIds: new Set([TurnId.make("turn-1")]),
-    });
-    expect(reopened.map((row) => row.kind)).toEqual(["turn-fold", "activity-group", "message"]);
-    expect(reopened[1]).toMatchObject({ entries: [thought] });
-
-    const stranded = deriveMessagesTimelineRows({ ...input, timelineEntries: [thought] });
-    expect(stranded.some((row) => row.kind === "turn-fold")).toBe(false);
-    expect(stranded.find((row) => row.kind === "activity-group")).toMatchObject({
+    expect(rows.some((row) => row.kind === "turn-fold")).toBe(false);
+    expect(rows.find((row) => row.kind === "activity-group")).toMatchObject({
       entries: [thought],
+      expanded: false,
     });
   });
 
-  it("folds a thought emitted after the answer", () => {
+  it("keeps the assistant footer before a trailing thought-only group", () => {
     const answer = answerEntry("assistant-entry", "2026-01-01T00:00:01Z", "turn-1");
     const thought = reasoningEntry("reasoning-after", "2026-01-01T00:00:02Z", "turn-1");
     const rows = deriveMessagesTimelineRows({
@@ -2238,9 +2137,9 @@ describe("deriveMessagesTimelineRows", () => {
       turnDiffSummaries: [],
       supportsConversationRollback: false,
     });
-    expect(rows.map((row) => row.kind)).toEqual(["message", "turn-fold"]);
+    expect(rows.map((row) => row.kind)).toEqual(["message", "activity-group"]);
     expect(rows[0]).toMatchObject({ message: answer.message, showAssistantMeta: true });
-    expect(rows[1]).toMatchObject({ id: "turn-fold:turn-1" });
+    expect(rows[1]).toMatchObject({ entries: [thought] });
   });
 
   it("keeps thoughts and tools in one activity row across a failed tool", () => {
@@ -2761,84 +2660,6 @@ describe("deriveMessagesTimelineRows", () => {
       expect.objectContaining({ entry: expect.objectContaining({ id: "new-work" }) }),
     ]);
     expect(rows.some((row) => row.kind === "thinking")).toBe(false);
-  });
-
-  it("keeps the follow-up reply final when Pi continues without another prompt", () => {
-    const rows = deriveMessagesTimelineRows({
-      timelineEntries: [
-        {
-          id: "prompt",
-          kind: "message",
-          createdAt: "2026-01-01T00:00:00Z",
-          message: {
-            id: "prompt" as never,
-            role: "user",
-            text: "Investigate the model",
-            turnId: null,
-            createdAt: "2026-01-01T00:00:00Z",
-            updatedAt: "2026-01-01T00:00:00Z",
-            streaming: false,
-          },
-        },
-        reasoningEntry("first-thought", "2026-01-01T00:00:01Z", "first-turn"),
-        toolEntry("first-tool", "2026-01-01T00:00:02Z", "first-turn"),
-        answerEntry("first-reply", "2026-01-01T00:00:03Z", "first-turn"),
-        reasoningEntry("follow-up-thought", "2026-01-01T00:03:01Z", "follow-up-turn"),
-        answerEntry("follow-up-reply", "2026-01-01T00:03:02Z", "follow-up-turn"),
-      ],
-      isWorking: false,
-      activeTurnStartedAt: null,
-      turnDiffSummaries: [],
-      supportsConversationRollback: false,
-    });
-
-    expect(rows.find((row) => row.id === "first-reply")).toMatchObject({
-      kind: "message",
-      showAssistantMeta: false,
-      showAssistantCopyButton: false,
-    });
-    expect(rows.find((row) => row.id === "follow-up-reply")).toMatchObject({
-      kind: "message",
-      showAssistantMeta: true,
-      showAssistantCopyButton: true,
-    });
-    expect(rows.some((row) => row.id === "turn-fold:first-turn")).toBe(true);
-    expect(rows.some((row) => row.id === "turn-fold:follow-up-turn")).toBe(true);
-    expect(rows.find((row) => row.id === "turn-fold:first-turn")).toMatchObject({
-      label: "Replied after 3.0s",
-    });
-    expect(rows.find((row) => row.id === "turn-fold:follow-up-turn")).toMatchObject({
-      label: "Worked for 1.0s",
-    });
-    expect(rows.some((row) => row.id === "activity-group:follow-up-thought")).toBe(false);
-  });
-
-  it("labels a settled Pi reply as an update while Gentle work continues", () => {
-    const timelineEntries = [
-      reasoningEntry("first-thought", "2026-01-01T00:00:01Z", "first-turn"),
-      answerEntry("first-reply", "2026-01-01T00:00:03Z", "first-turn"),
-    ];
-    const rows = deriveMessagesTimelineRows({
-      timelineEntries,
-      isWorking: false,
-      backgroundWorkContinues: true,
-      activeTurnStartedAt: null,
-      turnDiffSummaries: [],
-      supportsConversationRollback: false,
-    });
-
-    expect(rows.find((row) => row.id === "turn-fold:first-turn")).toMatchObject({
-      label: "Replied after 2.0s",
-    });
-    expect(
-      deriveMessagesTimelineRows({
-        timelineEntries,
-        isWorking: false,
-        activeTurnStartedAt: null,
-        turnDiffSummaries: [],
-        supportsConversationRollback: false,
-      }).find((row) => row.id === "turn-fold:first-turn"),
-    ).toMatchObject({ label: "Worked for 2.0s" });
   });
 
   it("keeps an actually running tool in the shared activity row", () => {

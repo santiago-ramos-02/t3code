@@ -3,14 +3,6 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./gentle-ai": {
-      "types": "./src/gentleAi.ts",
-      "default": "./src/gentleAi.ts"
-    },
-    "./cli-proxy": {
-      "types": "./src/cliProxy.ts",
-      "default": "./src/cliProxy.ts"
-    },
     "./device/stream": {
       "types": "./src/device/stream.ts",
       "default": "./src/device/stream.ts"
@@ -103,14 +95,6 @@
       "types": "./src/providerSkills.ts",
       "default": "./src/providerSkills.ts"
     },
-    "./piGentleComposer": {
-      "types": "./src/piGentleComposer.ts",
-      "default": "./src/piGentleComposer.ts"
-    },
-    "./gentleRose": {
-      "types": "./src/gentleRose.ts",
-      "default": "./src/gentleRose.ts"
-    },
     "./voice-input": {
       "types": "./src/voice-input/index.ts",
       "default": "./src/voice-input/index.ts"
@@ -186,10 +170,6 @@
     "./state/provider-instance-display": {
       "types": "./src/state/providerInstanceDisplay.ts",
       "default": "./src/state/providerInstanceDisplay.ts"
-    },
-    "./state/final-assistant-messages": {
-      "types": "./src/state/finalAssistantMessages.ts",
-      "default": "./src/state/finalAssistantMessages.ts"
     },
     "./state/pull-requests": {
       "types": "./src/state/pullRequests.ts",

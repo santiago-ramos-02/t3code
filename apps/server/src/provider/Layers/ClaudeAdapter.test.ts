@@ -618,64 +618,6 @@ describe("ClaudeAdapterLive", () => {
     );
   });
 
-  it.effect("applies the Gentle AI Claude Code profile only to sessions through a proxy", () => {
-    const home = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "claude-gentle-profile-"));
-    NodeFS.mkdirSync(NodePath.join(home, ".gentle-ai"));
-    NodeFS.writeFileSync(
-      NodePath.join(home, ".gentle-ai", "claude-host.json"),
-      JSON.stringify({
-        profile: "Dynamic",
-        env: { ANTHROPIC_DEFAULT_HAIKU_MODEL: "luna-then-muse", PATH: "/not/a/slot" },
-        guide: "### Claude Code model slots\n\n| `haiku` | GPT-6 Luna | bounded tasks |",
-      }),
-    );
-    const start = (environment: NodeJS.ProcessEnv) => {
-      const harness = makeHarness({ environment });
-      return Effect.gen(function* () {
-        const adapter = yield* ClaudeAdapter;
-        yield* adapter.startSession({
-          threadId: THREAD_ID,
-          provider: ProviderDriverKind.make("claudeAgent"),
-          modelSelection: createModelSelection(
-            ProviderInstanceId.make("claudeAgent"),
-            SYNTHETIC_CLAUDE_CAPABLE_MODEL,
-          ),
-          runtimeMode: "full-access",
-        });
-        return harness.getLastCreateQueryInput()?.options;
-      }).pipe(
-        Effect.provideService(Random.Random, makeDeterministicRandomService()),
-        Effect.provide(harness.layer),
-      );
-    };
-    const homeEnvironment: NodeJS.ProcessEnv = { ...process.env, HOME: home, USERPROFILE: home };
-    const settingsEnv = (options: ClaudeQueryOptions | undefined) =>
-      typeof options?.settings === "object" ? options.settings.env : undefined;
-    const appended = (options: ClaudeQueryOptions | undefined) => {
-      const prompt = options?.systemPrompt;
-      return typeof prompt === "object" && !Array.isArray(prompt) && prompt.type === "preset"
-        ? (prompt.append ?? "")
-        : "";
-    };
-    return Effect.gen(function* () {
-      const proxied = yield* start({
-        ...homeEnvironment,
-        ANTHROPIC_BASE_URL: "http://127.0.0.1:8317",
-      });
-      assert.deepStrictEqual(settingsEnv(proxied), {
-        ANTHROPIC_DEFAULT_HAIKU_MODEL: "luna-then-muse",
-      });
-      assert.equal(proxied?.env?.ANTHROPIC_DEFAULT_HAIKU_MODEL, "luna-then-muse");
-      assert(appended(proxied).includes("GPT-6 Luna"));
-
-      const { ANTHROPIC_BASE_URL: _direct, ...directEnvironment } = homeEnvironment;
-      const direct = yield* start(directEnvironment);
-      assert.equal(settingsEnv(direct), undefined);
-      assert.equal(direct?.env?.ANTHROPIC_DEFAULT_HAIKU_MODEL, undefined);
-      assert(!appended(direct).includes("GPT-6 Luna"));
-    });
-  });
-
   it.effect("forwards Claude thinking toggle for models that support it", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {

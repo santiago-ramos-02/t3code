@@ -162,9 +162,6 @@ import * as ResourceAttribution from "./resourceTelemetry/ResourceAttribution.ts
 import * as ResourceMonitorBinary from "./resourceTelemetry/ResourceMonitorBinary.ts";
 import * as ResourceTelemetry from "./resourceTelemetry/ResourceTelemetry.ts";
 import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
-import * as GentleAi from "./gentleAi/GentleAi.ts";
-import * as CliProxy from "./cliProxy/CliProxy.ts";
-import * as GentleAiFootprints from "./gentleAi/GentleAiFootprints.ts";
 import * as UsageService from "./usage/UsageService.ts";
 import { OrchestrationLayerLive } from "./orchestration/runtimeLayer.ts";
 import {
@@ -531,13 +528,7 @@ const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
   // Both read a user-owned file out of the state directory and stream changes
   // to clients; neither depends on the other.
   Layer.provideMerge(
-    Layer.mergeAll(
-      Keybindings.layer,
-      EnvironmentTheme.layer,
-      UsageLimitSources.layer,
-      GentleAi.layer,
-      CliProxy.layer,
-    ),
+    Layer.mergeAll(Keybindings.layer, EnvironmentTheme.layer, UsageLimitSources.layer),
   ),
   Layer.provideMerge(ProviderRegistryLive),
   // The instance registry is the new routing keystone — text generation,
@@ -555,15 +546,9 @@ const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
   // logger instances.
   // `ModelManifest.layer` is the legacy-model classification data, refreshed
   // from the repo's `model-manifest.json` on `main` and applied by the
-  // Codex/Claude drivers. `GentleAiFootprints.layer` tells the drivers what
-  // gentle-ai added to their agent, for threads with Gentle AI off.
+  // Codex/Claude drivers.
   Layer.provideMerge(
-    Layer.mergeAll(
-      ProviderEventLoggers.layer,
-      ModelManifest.layer,
-      ResetCreditCoordinator.layer,
-      GentleAiFootprints.layer,
-    ),
+    Layer.mergeAll(ProviderEventLoggers.layer, ModelManifest.layer, ResetCreditCoordinator.layer),
   ),
   // `OpenCodeDriver.create()` yields `OpenCodeRuntime`; previously the old
   // `ProviderRegistryLive` pulled `OpenCodeRuntimeLive` in for itself, but

@@ -44,9 +44,6 @@ export type EnvironmentSubscriptionRpcTag =
   | typeof WS_METHODS.codexAuthCallbackSubscribe
   | typeof WS_METHODS.providerAuthSubscribe
   | typeof WS_METHODS.providerInstallSubscribe
-  | typeof WS_METHODS.gentleAiSubscribeJob
-  | typeof WS_METHODS.gentleAiSubscribeStatus
-  | typeof WS_METHODS.cliProxySubscribeStatus
   | typeof ORCHESTRATION_WS_METHODS.subscribeShell
   | typeof ORCHESTRATION_WS_METHODS.subscribeThread
   | typeof WS_METHODS.subscribeAuthAccess

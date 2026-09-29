@@ -1,9 +1,5 @@
 import { worktreeSetupAgentStarted } from "@t3tools/client-runtime/worktree-setup";
 export { worktreeSetupAgentStarted } from "@t3tools/client-runtime/worktree-setup";
-import {
-  continuingAssistantTurnIds,
-  finalAssistantMessageIds,
-} from "@t3tools/client-runtime/state/final-assistant-messages";
 import * as Equal from "effect/Equal";
 import { shallow } from "zustand/vanilla/shallow";
 import { renderCodexDirectivesForCopy } from "@t3tools/client-runtime/codex-markdown-directives";
@@ -654,7 +650,6 @@ function deriveTurnFolds(input: {
   terminalAssistantMessageIds: ReadonlySet<string>;
   latestTurn: TimelineLatestTurn | null;
   unfoldedTurnIds: ReadonlySet<TurnId>;
-  continuingTurnIds: ReadonlySet<string>;
 }): ReadonlyMap<string, TurnFold> {
   interface TurnGroup {
     entries: Array<TimelineEntry>;
@@ -772,15 +767,15 @@ function deriveTurnFolds(input: {
     if (hiddenEntryIds.size === 0) {
       continue;
     }
-    // A lone compaction row stays visible on its own. Reasoning folds once
-    // the turn has an answer; without one, its "Thought" row remains visible.
+    // A lone compaction row stays visible on its own; it only folds away as
+    // part of a turn that already folds other work. Thinking is the same: a
+    // question answered by thought alone keeps its "Thought" row
+    // rather than collapsing behind a "Worked for ..." that hides nothing else.
     const hidesFoldableWork = group.entries.some(
       (entry) =>
         hiddenEntryIds.has(entry.id) &&
         !(entry.kind === "work" && entry.entry.sourceActivityKind === "context-compaction") &&
-        (group.terminalEntry !== null ||
-          entry.kind !== "message" ||
-          entry.message.role !== "reasoning"),
+        !(entry.kind === "message" && entry.message.role === "reasoning"),
     );
     if (!hidesFoldableWork) {
       continue;
@@ -814,13 +809,9 @@ function deriveTurnFolds(input: {
       ? duration
         ? `You stopped after ${duration}`
         : "You stopped this response"
-      : input.continuingTurnIds.has(turnId)
-        ? duration
-          ? `Replied after ${duration}`
-          : "Replied"
-        : duration
-          ? `Worked for ${duration}`
-          : "Worked";
+      : duration
+        ? `Worked for ${duration}`
+        : "Worked";
 
     foldsByAnchorEntryId.set(firstHiddenEntry.id, {
       turnId,
@@ -975,8 +966,6 @@ export function deriveMessagesTimelineRows(input: {
   expandedTurnIds?: ReadonlySet<TurnId>;
   expandedWorkGroupIds?: ReadonlySet<string>;
   isWorking: boolean;
-  backgroundWorkContinues?: boolean;
-  isStartingProvider?: boolean;
   activeTurnStartedAt: string | null;
   turnDiffSummaries: ReadonlyArray<TurnDiffSummary>;
   supportsConversationRollback: boolean;
@@ -1002,12 +991,10 @@ export function deriveMessagesTimelineRows(input: {
       : {},
   });
   const nextRows: MessagesTimelineRow[] = [];
-  const messages = input.timelineEntries.flatMap((entry) =>
-    entry.kind === "message" ? [entry.message] : [],
+  const durationStartByMessageId = computeMessageDurationStart(
+    input.timelineEntries.flatMap((entry) => (entry.kind === "message" ? [entry.message] : [])),
   );
-  const durationStartByMessageId = computeMessageDurationStart(messages);
   const terminalAssistantMessageIds = deriveTerminalAssistantMessageIds(input.timelineEntries);
-  const finalMessageIds = finalAssistantMessageIds(messages);
   const unsettledTurnId = deriveUnsettledTurnId(
     input.latestTurn ?? null,
     input.runningTurnId ?? null,
@@ -1017,16 +1004,11 @@ export function deriveMessagesTimelineRows(input: {
     unsettledTurnId,
     isWorking: input.isWorking,
   });
-  const continuingTurnIds = continuingAssistantTurnIds(messages, {
-    activeTurnId: input.isWorking ? unsettledTurnId : null,
-    backgroundWorkContinues: input.backgroundWorkContinues === true,
-  });
   const foldsByAnchorEntryId = deriveTurnFolds({
     timelineEntries: input.timelineEntries,
     terminalAssistantMessageIds,
     latestTurn: input.latestTurn ?? null,
     unfoldedTurnIds: activeVisualResponseTurnIds,
-    continuingTurnIds,
   });
   const collapsedEntryIds = new Set<string>();
   for (const fold of foldsByAnchorEntryId.values()) {
@@ -1406,7 +1388,7 @@ export function deriveMessagesTimelineRows(input: {
     // settles so commentary doesn't flash timestamps mid-work.
     const showAssistantMeta =
       timelineEntry.message.role === "assistant" &&
-      finalMessageIds.has(timelineEntry.message.id) &&
+      terminalAssistantMessageIds.has(timelineEntry.message.id) &&
       !assistantResponseStillInProgress;
 
     nextRows.push({
@@ -1484,12 +1466,7 @@ export function deriveMessagesTimelineRows(input: {
   if (input.isWorking && !hasWorkingRow && activeTurnHeaderIndex === input.timelineEntries.length) {
     appendWorkingRow();
   }
-  if (
-    input.isWorking &&
-    !input.isStartingProvider &&
-    !setupRunning &&
-    (!hasActivityRow || latestToolFailed)
-  ) {
+  if (input.isWorking && !setupRunning && (!hasActivityRow || latestToolFailed)) {
     nextRows.push({
       kind: "thinking",
       id: LIVE_ACTIVITY_ROW_ID,

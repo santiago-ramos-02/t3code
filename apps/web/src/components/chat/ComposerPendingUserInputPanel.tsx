@@ -170,8 +170,6 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
   }
 
   const customAnswerActive = progress.customAnswer.trim().length > 0;
-  const header =
-    activeQuestion.header === activeQuestion.question ? "Question" : activeQuestion.header;
 
   return (
     <Collapsible
@@ -189,7 +187,9 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
       >
         <ComposerBanner.Icon />
         <ComposerBanner.Content>
-          <span className="min-w-0 truncate font-medium text-muted-foreground">{header}</span>
+          <span className="shrink-0 font-medium text-muted-foreground">
+            {activeQuestion.header}
+          </span>
           {isCollapsed ? (
             <span className="min-w-0 flex-1 truncate text-secondary-label">
               {activeQuestion.question}

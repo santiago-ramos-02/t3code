@@ -30,7 +30,6 @@ import {
   type CodexArtifactTemplate,
 } from "@t3tools/client-runtime/codex-artifact-templates";
 import { resolveAssetUrl } from "@t3tools/client-runtime/state/assets";
-import { finalAssistantMessageIds } from "@t3tools/client-runtime/state/final-assistant-messages";
 import { formatAttachmentSize } from "@t3tools/client-runtime/state/attachments";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import {
@@ -259,7 +258,6 @@ export interface ThreadFeedProps {
   readonly agentLabel: string;
   readonly latestTurn: ThreadFeedLatestTurn | null;
   readonly activeWorkStartedAt: string | null;
-  readonly backgroundWorkContinues: boolean;
   readonly listRef: RefObject<LegendListRef | null>;
   readonly freeze: SharedValue<boolean>;
   readonly anchorMessageId: MessageId | null;
@@ -2459,7 +2457,6 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
           expandedTurnIds,
           expandedWorkGroupIds,
           props.activeWorkStartedAt,
-          props.backgroundWorkContinues,
         ),
         props.feed,
         props.queuedMessages,
@@ -2469,7 +2466,6 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       expandedTurnIds,
       expandedWorkGroupIds,
       props.activeWorkStartedAt,
-      props.backgroundWorkContinues,
       props.feed,
       props.latestTurn,
     ],
@@ -2503,9 +2499,13 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     [presentedFeed, props.anchorMessageId, anchorTopInset],
   );
   const terminalAssistantMessageIds = useMemo(() => {
-    return finalAssistantMessageIds(
-      props.feed.flatMap((entry) => (entry.type === "message" ? [entry.message] : [])),
-    );
+    const terminalIdsByTurn = new Map<TurnId, string>();
+    for (const entry of props.feed) {
+      if (entry.type === "message" && entry.message.role === "assistant" && entry.message.turnId) {
+        terminalIdsByTurn.set(entry.message.turnId, entry.message.id);
+      }
+    }
+    return new Set(terminalIdsByTurn.values());
   }, [props.feed]);
   useEffect(() => {
     const previous = previousLatestTurnRef.current;

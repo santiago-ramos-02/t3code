@@ -8,8 +8,7 @@
 import {
   defaultInstanceIdForDriver,
   PROVIDER_DISPLAY_NAMES,
-  ProviderDriverKind,
-  type OrchestrationSession,
+  type ProviderDriverKind,
   type ServerProvider,
 } from "@t3tools/contracts";
 
@@ -24,19 +23,6 @@ function humanizeSlug(slug: string): string {
     .replace(/[_-]+/g, " ")
     .trim()
     .replace(/\b\w/g, (char) => char.toUpperCase());
-}
-
-/** Use the projected session state so every client clears startup text on success or failure. */
-export function providerSessionStartupLabel(
-  session: Pick<OrchestrationSession, "status" | "providerName"> | null,
-): string | null {
-  if (session?.status !== "starting") return null;
-  if (session.providerName === "pi") return "Starting Pi";
-  const providerName = session.providerName;
-  const name = providerName
-    ? (PROVIDER_DISPLAY_NAMES[ProviderDriverKind.make(providerName)] ?? humanizeSlug(providerName))
-    : "agent";
-  return `Starting ${name}`;
 }
 
 /**

@@ -80,8 +80,6 @@ import {
   SettingsEnvironmentSourceControlRouteScreen,
 } from "./features/settings/SettingsServerControlsRouteScreen";
 import { SettingsKeyboardRouteScreen } from "./features/settings/SettingsKeyboardRouteScreen";
-import { SettingsGentleAiRouteScreen } from "./features/settings/SettingsGentleAiRouteScreen";
-import { SettingsCliProxyRouteScreen } from "./features/settings/SettingsCliProxyRouteScreen";
 import { SettingsLegalRouteScreen } from "./features/settings/SettingsLegalRouteScreen";
 import {
   SettingsOpenSourceLicenseRouteScreen,
@@ -220,16 +218,6 @@ const SettingsContentStack = createNativeStackNavigator({
       screen: SettingsEnvironmentMaintenanceRouteScreen,
       linking: "maintenance",
       options: { title: "Maintenance" },
-    }),
-    SettingsGentleAi: createNativeStackScreen({
-      screen: SettingsGentleAiRouteScreen,
-      linking: "gentle-ai",
-      options: { title: "Gentle AI" },
-    }),
-    SettingsCliProxy: createNativeStackScreen({
-      screen: SettingsCliProxyRouteScreen,
-      linking: "cli-proxy",
-      options: { title: "CLIProxyAPI" },
     }),
     SettingsNotifications: createNativeStackScreen({
       screen: SettingsNotificationsRouteScreen,

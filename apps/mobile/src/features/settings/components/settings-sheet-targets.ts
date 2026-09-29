@@ -7,8 +7,6 @@ export type SettingsSheetTarget =
   | "SettingsAppearance"
   | "SettingsOrganization"
   | "SettingsProjectOverview"
-  | "SettingsGentleAi"
-  | "SettingsCliProxy"
   | "SettingsEnvironmentNewThreads"
   | "SettingsEnvironmentSourceControl"
   | "SettingsEnvironmentAgentBehavior"

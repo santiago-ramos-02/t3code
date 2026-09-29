@@ -47,7 +47,6 @@ import {
   type WorktreeSetupSnapshot,
 } from "@t3tools/contracts";
 import { type EnvironmentConnectionPresentation } from "@t3tools/client-runtime/connection";
-import { providerSessionStartupLabel } from "@t3tools/client-runtime/state/provider-instance-display";
 import {
   wasBootstrapThreadDeleted,
   wasBootstrapThreadNotCreated,
@@ -2280,23 +2279,6 @@ export default function ChatView(props: ChatViewProps) {
   const handleNewThreadInActiveProject = useCallback(() => {
     startNewThreadForProject(activeProjectRef, handleNewThread);
   }, [activeProjectRef, handleNewThread]);
-  // Hands a Gentle AI step, such as continuing a feature document, to a fresh draft in this
-  // project: the same selection with Gentle on and the prompt written but not sent, so the user
-  // still picks the model and reviews the ask.
-  const startGentleThread = useCallback(
-    async (prompt: string, modelSelection: ModelSelection) => {
-      if (!activeProjectRef) return;
-      const created = await handleNewThread(activeProjectRef);
-      if (!created) return;
-      const store = useComposerDraftStore.getState();
-      store.setModelSelection(created.draftId, modelSelection, {
-        explicit: true,
-        replaceOptions: true,
-      });
-      store.setPrompt(created.draftId, prompt);
-    },
-    [activeProjectRef, handleNewThread],
-  );
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
   const activeDraftLogicalProjectKey =
     !isServerThread && activeProject
@@ -3253,27 +3235,20 @@ export default function ChatView(props: ChatViewProps) {
     activeServerThread.id === routeThreadRef.threadId &&
     activeServerThread.latestTurn === null &&
     recordedWorktreeSetup?.phase === "running";
-  const isPreparingWorktree = isLocallyPreparingWorktree || awaitingBootstrapTurn;
-  const startupLabel = isPreparingWorktree
-    ? null
-    : providerSessionStartupLabel(activeThread?.session ?? null);
   const isWorking =
     phase === "running" ||
     isSendBusy ||
     isConnecting ||
     isRevertingCheckpoint ||
     isCompacting ||
-    awaitingBootstrapTurn ||
-    startupLabel !== null;
-  const activeWorkStartedAt =
-    startupLabel !== null
-      ? (activeThread?.session?.updatedAt ?? null)
-      : deriveActiveWorkStartedAt(
-          activeLatestTurn,
-          activeThread?.session ?? null,
-          localDispatchStartedAt,
-          latestUserMessageAt,
-        );
+    awaitingBootstrapTurn;
+  const isPreparingWorktree = isLocallyPreparingWorktree || awaitingBootstrapTurn;
+  const activeWorkStartedAt = deriveActiveWorkStartedAt(
+    activeLatestTurn,
+    activeThread?.session ?? null,
+    localDispatchStartedAt,
+    latestUserMessageAt,
+  );
   useEffect(() => {
     attachmentPreviewHandoffByMessageIdRef.current = attachmentPreviewHandoffByMessageId;
   }, [attachmentPreviewHandoffByMessageId]);
@@ -4546,10 +4521,10 @@ export default function ChatView(props: ChatViewProps) {
     handleInteractionModeChange(interactionMode === "plan" ? "default" : "plan");
   }, [handleInteractionModeChange, interactionMode, interactionModeEnabled]);
   const openProviderSetup = useCallback(
-    (instanceId: ProviderInstanceId, projectCwd?: string) => {
+    (instanceId: ProviderInstanceId) => {
       void navigate({
         to: "/settings/providers",
-        search: { environmentId, instanceId, ...(projectCwd ? { projectCwd } : {}) },
+        search: { environmentId, instanceId },
       });
     },
     [environmentId, navigate],
@@ -5348,10 +5323,6 @@ export default function ChatView(props: ChatViewProps) {
     settledTimelineAnchorRef.current = null;
     activeTimelineAnchorIndexRef.current = null;
   }, []);
-  const isTimelineLiveFollowLatched = useCallback(
-    () => liveFollowUserScrollGenerationRef.current === anchorUserScrollGenerationRef.current,
-    [],
-  );
   const cancelTimelineLiveFollowForUserNavigationRef = useRef(
     cancelTimelineLiveFollowForUserNavigation,
   );
@@ -6325,7 +6296,7 @@ export default function ChatView(props: ChatViewProps) {
       ),
       title: working
         ? liveCount > 0
-          ? `${liveCount} ${liveCount === 1 ? "subagent" : "subagents"} still working`
+          ? `${liveCount} ${liveCount === 1 ? "agent" : "agents"} working`
           : "Background work"
         : "Monitoring",
       actions: (
@@ -6341,7 +6312,7 @@ export default function ChatView(props: ChatViewProps) {
             disabled={isStoppingBackgroundWork}
             onClick={() => void handleStopBackgroundWork()}
           >
-            {isStoppingBackgroundWork ? "Stopping all..." : "Stop all"}
+            {isStoppingBackgroundWork ? "Stopping..." : "Stop"}
           </Button>
         </>
       ),
@@ -6907,8 +6878,7 @@ export default function ChatView(props: ChatViewProps) {
         command === "composer.host" ||
         command === "composer.effort" ||
         command === "composer.mode" ||
-        command === "composer.workspace" ||
-        command === "composer.gentle"
+        command === "composer.workspace"
       ) {
         event.preventDefault();
         event.stopPropagation();
@@ -9864,10 +9834,6 @@ export default function ChatView(props: ChatViewProps) {
                     }
                   : {})}
                 isWorking={!paintOnlyDisplayedTimeline && isWorking}
-                backgroundWorkContinues={
-                  !paintOnlyDisplayedTimeline && activeThreadShell?.backgroundLiveness != null
-                }
-                startupLabel={paintOnlyDisplayedTimeline ? null : startupLabel}
                 isPreparingWorktree={!paintOnlyDisplayedTimeline && isPreparingWorktree}
                 isCompacting={!paintOnlyDisplayedTimeline && isCompacting}
                 activeTurnStartedAt={paintOnlyDisplayedTimeline ? null : activeWorkStartedAt}
@@ -9923,7 +9889,6 @@ export default function ChatView(props: ChatViewProps) {
                 onAnchorReady={onTimelineAnchorReady}
                 contentInsetEndAdjustment={composerTimelineInset}
                 liveFollowEnabled={!paintOnlyDisplayedTimeline && timelineLiveFollowEnabled}
-                isLiveFollowLatched={isTimelineLiveFollowLatched}
                 onIsAtEndChange={onIsAtEndChange}
                 onContentOverflowChange={setTimelineOverflows}
                 onToolOutputCollapsedAtEnd={onToolOutputCollapsedAtEnd}
@@ -10099,7 +10064,6 @@ export default function ChatView(props: ChatViewProps) {
                             keybindings={keybindings}
                             terminalOpen={Boolean(terminalUiState.terminalOpen)}
                             gitCwd={gitCwd}
-                            onStartGentleThread={startGentleThread}
                             pullRequestProjectId={
                               supportsPullRequests ? (activeProject?.id ?? null) : null
                             }

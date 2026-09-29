@@ -80,8 +80,6 @@ import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { AddProviderInstanceDialog } from "./AddProviderInstanceDialog";
-import { PiModelProvidersSection } from "./PiModelProvidersSection";
-import { PiSetupSection, piSetupSteps } from "./PiSetupSection";
 import { ExpandableText } from "./ExpandableText";
 import { ProviderInstanceCard } from "./ProviderInstanceCard";
 import { UsageProviderSettings } from "./UsageProviderSettings";
@@ -268,7 +266,6 @@ function EnvironmentUnavailablePlaceholder({
 interface ProviderSettingsTarget {
   readonly environmentId?: EnvironmentId;
   readonly instanceId?: ProviderInstanceId;
-  readonly projectCwd?: string;
   readonly scoped?: boolean;
   readonly environmentIds?: readonly EnvironmentId[];
 }
@@ -277,7 +274,7 @@ export function ProviderSettingsPanel(target: ProviderSettingsTarget) {
   return (
     <SettingsPageContainer width="wide" className="@container/providers gap-8">
       <ProviderSettingsPanelContent
-        key={`${target.environmentId ?? ""}:${target.instanceId ?? ""}:${target.projectCwd ?? ""}`}
+        key={`${target.environmentId ?? ""}:${target.instanceId ?? ""}`}
         {...target}
       />
     </SettingsPageContainer>
@@ -436,7 +433,6 @@ function ProviderSettingsPanelContent(target: ProviderSettingsTarget) {
           key={selectedEnvironment.environmentId}
           environment={selectedEnvironment}
           deviceTabs={deviceTabs}
-          projectCwd={target.projectCwd}
           targetInstanceId={
             target.environmentId === undefined ||
             selectedEnvironment.environmentId === target.environmentId
@@ -453,12 +449,10 @@ function SelectedEnvironmentProviderSettings({
   environment,
   deviceTabs,
   targetInstanceId,
-  projectCwd,
 }: {
   readonly environment: EnvironmentPresentation;
   readonly deviceTabs?: ReactNode;
   readonly targetInstanceId?: ProviderInstanceId | undefined;
-  readonly projectCwd?: string | undefined;
 }) {
   const isPrimary = environment.entry.target._tag === "PrimaryConnectionTarget";
   if (isPrimary) {
@@ -471,7 +465,6 @@ function SelectedEnvironmentProviderSettings({
           operateAccess="granted"
           deviceTabs={deviceTabs}
           targetInstanceId={targetInstanceId}
-          projectCwd={projectCwd}
         />
       );
     }
@@ -480,7 +473,6 @@ function SelectedEnvironmentProviderSettings({
         environment={environment}
         deviceTabs={deviceTabs}
         targetInstanceId={targetInstanceId}
-        projectCwd={projectCwd}
       />
     );
   }
@@ -489,7 +481,6 @@ function SelectedEnvironmentProviderSettings({
       environment={environment}
       deviceTabs={deviceTabs}
       targetInstanceId={targetInstanceId}
-      projectCwd={projectCwd}
     />
   );
 }
@@ -498,12 +489,10 @@ function PrimarySessionGatedProviderSettings({
   environment,
   deviceTabs,
   targetInstanceId,
-  projectCwd,
 }: {
   readonly environment: EnvironmentPresentation;
   readonly deviceTabs?: ReactNode;
   readonly targetInstanceId?: ProviderInstanceId | undefined;
-  readonly projectCwd?: string | undefined;
 }) {
   const primarySessionState = usePrimarySessionState();
   const operateAccess = resolvePrimaryOperateAccess({
@@ -519,7 +508,6 @@ function PrimarySessionGatedProviderSettings({
       operateAccess={operateAccess}
       deviceTabs={deviceTabs}
       targetInstanceId={targetInstanceId}
-      projectCwd={projectCwd}
     />
   );
 }
@@ -528,12 +516,10 @@ function RemoteSessionGatedProviderSettings({
   environment,
   deviceTabs,
   targetInstanceId,
-  projectCwd,
 }: {
   readonly environment: EnvironmentPresentation;
   readonly deviceTabs?: ReactNode;
   readonly targetInstanceId?: ProviderInstanceId | undefined;
-  readonly projectCwd?: string | undefined;
 }) {
   const sessionState = useEnvironmentSessionState(environment.environmentId);
   const operateAccess = resolveRemoteOperateAccess({
@@ -547,7 +533,6 @@ function RemoteSessionGatedProviderSettings({
       operateAccess={operateAccess}
       deviceTabs={deviceTabs}
       targetInstanceId={targetInstanceId}
-      projectCwd={projectCwd}
     />
   );
 }
@@ -557,13 +542,11 @@ function AccessGatedProviderSettings({
   operateAccess,
   deviceTabs,
   targetInstanceId,
-  projectCwd,
 }: {
   readonly environment: EnvironmentPresentation;
   readonly operateAccess: ProviderOperateAccess;
   readonly deviceTabs?: ReactNode;
   readonly targetInstanceId?: ProviderInstanceId | undefined;
-  readonly projectCwd?: string | undefined;
 }) {
   const access = classifyProviderEnvironmentAccess({
     connectionPhase: environment.connection.phase,
@@ -586,7 +569,6 @@ function AccessGatedProviderSettings({
       readOnly={access.kind === "read-only"}
       deviceTabs={deviceTabs}
       targetInstanceId={targetInstanceId}
-      projectCwd={projectCwd}
     />
   );
 }
@@ -597,13 +579,11 @@ export function EnvironmentProviderSettings({
   readOnly = false,
   deviceTabs,
   targetInstanceId,
-  projectCwd,
 }: {
   readonly environmentId: EnvironmentId;
   readonly environmentLabel: string;
   readonly deviceTabs?: ReactNode;
   readonly targetInstanceId?: ProviderInstanceId | undefined;
-  readonly projectCwd?: string | undefined;
   /**
    * Grey out and freeze every write control when this session's credential
    * lacks `orchestration:operate` on the environment. Selecting providers
@@ -626,24 +606,6 @@ export function EnvironmentProviderSettings({
     reportFailure: false,
   });
   const [isRefreshingProviders, setIsRefreshingProviders] = useState(false);
-  // Instances with an explicit scoped status refresh in flight, keyed by
-  // environment+instance so a stale completion for a previous environment
-  // can never mark the new card Checking. Local pending state only: the
-  // toggle persists settings and never probes, since the server
-  // re-discovers version and models on enable.
-  const [refreshingKeys, setRefreshingKeys] = useState<ReadonlySet<string>>(() => new Set());
-  // Synchronous re-entry guard: a state updater runs after dispatch, so it
-  // cannot dedupe a double invocation before the first dispatch lands.
-  const refreshingKeysRef = useRef<Set<string>>(new Set());
-  const mountedRef = useRef(true);
-  const activeEnvironmentRef = useRef(environmentId);
-  useEffect(() => {
-    mountedRef.current = true;
-    activeEnvironmentRef.current = environmentId;
-    return () => {
-      mountedRef.current = false;
-    };
-  }, [environmentId]);
   const [isAddInstanceDialogOpen, setIsAddInstanceDialogOpen] = useState(false);
   const [selectedInstanceId, setSelectedInstanceId] = useState<ProviderInstanceId | null>(
     targetInstanceId ?? null,
@@ -709,53 +671,6 @@ export function EnvironmentProviderSettings({
       }
     })();
   }, [environmentId, refreshServerProviders]);
-
-  /**
-   * Explicit scoped status refresh for one instance, with model discovery.
-   * Tracks local pending state only; failures surface a bounded toast
-   * because the card retry would otherwise fail silently. Interruptions
-   * stay silent so navigation never reports an error.
-   */
-  const refreshInstance = useCallback(
-    (instanceId: ProviderInstanceId) => {
-      const key = `${environmentId}:${instanceId}`;
-      if (refreshingKeysRef.current.has(key)) return;
-      refreshingKeysRef.current.add(key);
-      setRefreshingKeys((previous) => (previous.has(key) ? previous : new Set(previous).add(key)));
-      void (async () => {
-        const result = await refreshServerProviders({
-          environmentId,
-          input: { instanceId, refreshModels: true },
-        });
-        refreshingKeysRef.current.delete(key);
-        // Suppress late publication after unmount or environment change:
-        // the old environment must not clear new state, toast, or mark a
-        // new card Checking.
-        if (!mountedRef.current || activeEnvironmentRef.current !== environmentId) return;
-        setRefreshingKeys((previous) => {
-          if (!previous.has(key)) return previous;
-          const next = new Set(previous);
-          next.delete(key);
-          return next;
-        });
-        if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-          console.warn("Failed to refresh provider instance", {
-            operation: "refresh-provider-instance",
-            environmentId,
-            ...safeErrorLogAttributes(squashAtomCommandFailure(result)),
-          });
-          toastManager.add(
-            stackedThreadToast({
-              type: "error",
-              title: "Could not refresh provider status",
-              description: "The provider status check could not be completed.",
-            }),
-          );
-        }
-      })();
-    },
-    [environmentId, refreshServerProviders],
-  );
 
   const runProviderUpdate = useCallback(
     async (
@@ -1072,15 +987,6 @@ export function EnvironmentProviderSettings({
                 })
               }
             />
-          ) : mode === "editor" && row.driver === "pi" && piSetupSteps(liveProvider).length > 0 ? (
-            <PiSetupSection steps={piSetupSteps(liveProvider)} />
-          ) : null
-        }
-        integration={
-          mode === "editor" && row.driver === "pi" ? (
-            <>
-              <PiModelProvidersSection provider={liveProvider} />
-            </>
           ) : null
         }
         onUpdate={(next) => {
@@ -1098,10 +1004,6 @@ export function EnvironmentProviderSettings({
               : undefined,
           );
         }}
-        isChecking={refreshingKeys.has(`${environmentId}:${row.instanceId}`)}
-        onRefresh={
-          mode === "editor" && !readOnly ? () => refreshInstance(row.instanceId) : undefined
-        }
         onDelete={
           mode === "editor" && !row.isDefault
             ? () => deleteProviderInstance(row.instanceId)

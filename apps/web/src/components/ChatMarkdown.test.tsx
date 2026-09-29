@@ -862,18 +862,6 @@ describe("ChatMarkdown Windows file links", () => {
     expect(html).toContain("chat-markdown-file-link");
   });
 
-  it("keeps the backslash before a dot folder in a Windows link", () => {
-    const html = renderToStaticMarkup(
-      <ChatMarkdown
-        cwd="C:/Users/shawn/project"
-        environmentId={environmentId}
-        text={String.raw`[Config](C:\Users\shawn\project\.t3\settings.json)`}
-      />,
-    );
-
-    expect(html).toContain('href="C:/Users/shawn/project/.t3/settings.json"');
-  });
-
   it.each([true, false])(
     "distinguishes same-named backslash paths with parseRawHtml=%s",
     (parseRawHtml) => {

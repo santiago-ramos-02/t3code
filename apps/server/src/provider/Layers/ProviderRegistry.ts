@@ -92,9 +92,6 @@ export function upsertProviderWorkspaceSnapshot(
     checkedAt: scopedSnapshot.checkedAt,
     slashCommands: scopedSnapshot.slashCommands,
     skills: scopedSnapshot.skills,
-    ...(JSON.stringify(scopedSnapshot.models) === JSON.stringify(provider.models)
-      ? {}
-      : { models: scopedSnapshot.models }),
   } satisfies NonNullable<ServerProvider["workspaceSnapshots"]>[number];
   return {
     ...provider,
@@ -214,13 +211,11 @@ export const mergeProviderSnapshot = (
     ...(savedAccount?.status === "ready" ? nextWithoutMessage : nextProvider),
     ...savedAccount,
     models: mergeProviderModels(nextProvider, previousProvider.models, nextProvider.models),
-    ...(nextProvider.driver === "pi" && nextProvider.checkedAt !== previousProvider.checkedAt
-      ? {}
-      : nextProvider.workspaceSnapshots !== undefined
-        ? { workspaceSnapshots: nextProvider.workspaceSnapshots }
-        : previousProvider.workspaceSnapshots !== undefined
-          ? { workspaceSnapshots: previousProvider.workspaceSnapshots }
-          : {}),
+    ...(nextProvider.workspaceSnapshots !== undefined
+      ? { workspaceSnapshots: nextProvider.workspaceSnapshots }
+      : previousProvider.workspaceSnapshots !== undefined
+        ? { workspaceSnapshots: previousProvider.workspaceSnapshots }
+        : {}),
     ...(shouldRetainMissingOpenCodeMetadata(nextProvider)
       ? {
           slashCommands:

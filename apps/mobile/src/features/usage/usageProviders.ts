@@ -12,7 +12,6 @@ export const PROVIDER_ORDER: readonly UsageProviderKind[] = [
   "cursor",
   "opencode",
   "antigravity",
-  "pi",
 ];
 
 export const PROVIDER_LABEL: Record<UsageProviderKind, string> = {
@@ -22,41 +21,11 @@ export const PROVIDER_LABEL: Record<UsageProviderKind, string> = {
   cursor: "Cursor",
   opencode: "OpenCode",
   antigravity: "Antigravity",
-  pi: "Pi",
 };
-
-/** Shared labels for provider-instance and live-limit surfaces. */
-const PROVIDER_DRIVER_LABEL: Readonly<Record<string, string>> = {
-  antigravity: "Antigravity",
-  claudeAgent: "Claude",
-  codex: "Codex",
-  cursor: "Cursor",
-  grok: "Grok",
-  opencode: "OpenCode",
-  pi: "Pi",
-};
-
-const USAGE_PROVIDER_BY_DRIVER: Readonly<Partial<Record<string, UsageProviderKind>>> = {
-  claudeAgent: "claude",
-  codex: "codex",
-  grok: "grok",
-  cursor: "cursor",
-  opencode: "opencode",
-  antigravity: "antigravity",
-  pi: "pi",
-};
-
-export function providerDriverLabel(driver: string): string {
-  return PROVIDER_DRIVER_LABEL[driver] ?? driver;
-}
-
-export function usageProviderForDriver(driver: string): UsageProviderKind | null {
-  return USAGE_PROVIDER_BY_DRIVER[driver] ?? null;
-}
 
 /**
- * Claude's brand orange and Pi's mid-tone neutral hold in both themes. Codex
- * and Grok flip so their bars remain distinct against the matching background.
+ * Claude's brand orange holds in both themes; Codex and Grok are neutrals and
+ * must flip with the theme or their bars vanish against the matching background.
  */
 export function useProviderColors(): Record<UsageProviderKind, string> {
   const { themeAppearance: scheme } = useAppearancePreferences();
@@ -67,6 +36,5 @@ export function useProviderColors(): Record<UsageProviderKind, string> {
     cursor: "#8b8b8b",
     opencode: "#5b9bbd",
     antigravity: "#8c7bd1",
-    pi: "#71717a",
   };
 }

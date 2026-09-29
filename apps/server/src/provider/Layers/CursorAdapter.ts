@@ -20,11 +20,7 @@ import {
   type RuntimeMode,
   type ThreadId,
   TurnId,
-  gentleAiEnabled,
 } from "@t3tools/contracts";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
-import { gentleAiFootprintLookup } from "../../gentleAi/GentleAiFootprints.ts";
-import { cursorGentleOffEnvironment } from "../../gentleAi/GentleAiOff.ts";
 import * as DateTime from "effect/DateTime";
 import * as Crypto from "effect/Crypto";
 import * as Deferred from "effect/Deferred";
@@ -335,9 +331,6 @@ export function makeCursorAdapter(
     const boundInstanceId = options?.instanceId ?? ProviderInstanceId.make("cursor");
     const fileSystem = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
-    const hostPlatform = yield* HostProcessPlatform;
-    // What gentle-ai added to each agent, for threads with Gentle AI off.
-    const gentleAiFootprints = yield* gentleAiFootprintLookup;
     const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     const serverConfig = yield* Effect.service(ServerConfig);
     const crypto = yield* Crypto.Crypto;
@@ -552,38 +545,16 @@ export function makeCursorAdapter(
             : cursorSettings;
 
           const mcpSession = McpProviderSession.readMcpProviderSession(input.threadId);
-          const baseEnvironment =
-            options?.environment || mcpSession?.agentDeviceEnvironment
-              ? McpProviderSession.withAgentDeviceEnvironment(
-                  options?.environment ?? process.env,
-                  mcpSession,
-                )
-              : undefined;
-          // With Gentle AI off, the agent runs with a filtered mirror of the home as HOME.
-          const environment = gentleAiEnabled(input.modelSelection?.options)
-            ? baseEnvironment
-            : yield* cursorGentleOffEnvironment({
-                environment: baseEnvironment ?? process.env,
-                platform: hostPlatform,
-                // Cursor also reads the Claude and Codex folders, so every set-up agent counts.
-                footprint: yield* gentleAiFootprints("set-up"),
-              }).pipe(
-                Effect.provideService(FileSystem.FileSystem, fileSystem),
-                Effect.provideService(Path.Path, path),
-                Effect.provideService(Scope.Scope, sessionScope),
-                Effect.mapError(
-                  (cause) =>
-                    new ProviderAdapterProcessError({
-                      provider: PROVIDER,
-                      threadId: input.threadId,
-                      detail: cause.detail,
-                      cause,
-                    }),
-                ),
-              );
           const acp = yield* makeCursorAcpRuntime({
             cursorSettings: effectiveCursorSettings,
-            ...(environment ? { environment } : {}),
+            ...(options?.environment || mcpSession?.agentDeviceEnvironment
+              ? {
+                  environment: McpProviderSession.withAgentDeviceEnvironment(
+                    options?.environment ?? process.env,
+                    mcpSession,
+                  ),
+                }
+              : {}),
             childProcessSpawner,
             cwd,
             runtimeMode: input.runtimeMode,

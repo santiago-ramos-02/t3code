@@ -8,7 +8,6 @@ import {
   type Icon,
   OpenAI,
   OpenCodeIcon,
-  PiAgentIcon,
 } from "../Icons";
 
 type UsageProviderPresentation = {
@@ -42,11 +41,6 @@ export const PROVIDER_PRESENTATION = {
   cursor: { label: "Cursor", color: "#8b8b8b", mark: CursorIcon },
   opencode: { label: "OpenCode", color: "#5b9bbd", mark: OpenCodeIcon },
   antigravity: { label: "Antigravity", color: "#8c7bd1", mark: AntigravityIcon },
-  pi: {
-    label: "Pi",
-    color: "color-mix(in oklab, var(--contrast-foreground) 52%, var(--background))",
-    mark: PiAgentIcon,
-  },
 } satisfies Record<UsageProviderKind, UsageProviderPresentation>;
 
 /** Stable provider reading order across charts, summaries, tables, and hover rows. */

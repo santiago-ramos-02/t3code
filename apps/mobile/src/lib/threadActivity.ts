@@ -15,7 +15,6 @@ import type {
   UserInputQuestion,
 } from "@t3tools/contracts";
 import { formatDuration } from "@t3tools/shared/orchestrationTiming";
-import { continuingAssistantTurnIds } from "@t3tools/client-runtime/state/final-assistant-messages";
 import {
   commandDetailRepeatsCommand,
   extractCommandOutputText,
@@ -571,12 +570,7 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   if (isTaskActivity && typeof payload?.error === "string" && payload.error.trim()) {
     entry.detail = payload.error;
   }
-  if (
-    !entry.detail &&
-    (activity.kind === "runtime.error" ||
-      activity.kind === "runtime.warning" ||
-      activity.kind === "runtime.notice")
-  ) {
+  if (!entry.detail && (activity.kind === "runtime.error" || activity.kind === "runtime.warning")) {
     const message = asTrimmedString(payload?.message);
     if (message) entry.detail = message;
   }
@@ -1641,7 +1635,6 @@ interface ThreadFeedTurnFold {
 function deriveThreadFeedTurnFolds(
   feed: ReadonlyArray<ThreadFeedEntry>,
   latestTurn: ThreadFeedLatestTurn | null,
-  continuingTurnIds: ReadonlySet<string>,
 ): ReadonlyMap<string, ThreadFeedTurnFold> {
   const firstAssistantMessageIdByTurn = new Map<TurnId, string>();
   const terminalAssistantMessageIdByTurn = new Map<TurnId, string>();
@@ -1725,15 +1718,15 @@ function deriveThreadFeedTurnFolds(
     if (hiddenEntryIds.size === 0) {
       continue;
     }
-    // A lone compaction row stays visible on its own. Reasoning folds once
-    // the turn has an answer; without one, its "Thought" row remains visible.
+    // A lone compaction row stays visible on its own; it only folds away as
+    // part of a turn that already folds other work. Thinking is the same: a
+    // question answered by thought alone keeps its "Thought" row
+    // rather than collapsing behind a "Worked for ..." that hides nothing else.
     const hidesFoldableWork = entries.some(
       (entry) =>
         hiddenEntryIds.has(entry.id) &&
         !(entry.type === "activity-group" && isContextCompactionActivityGroup(entry)) &&
-        (terminalAssistantMessageId !== undefined ||
-          entry.type !== "message" ||
-          entry.message.role !== "reasoning"),
+        !(entry.type === "message" && entry.message.role === "reasoning"),
     );
     if (!hidesFoldableWork) {
       continue;
@@ -1767,13 +1760,9 @@ function deriveThreadFeedTurnFolds(
       ? duration
         ? `You stopped after ${duration}`
         : "You stopped this response"
-      : continuingTurnIds.has(turnId)
-        ? duration
-          ? `Replied after ${duration}`
-          : "Replied"
-        : duration
-          ? `Worked for ${duration}`
-          : "Worked";
+      : duration
+        ? `Worked for ${duration}`
+        : "Worked";
 
     foldsByAnchorId.set(firstHiddenEntry.id, {
       turnId,
@@ -1791,7 +1780,6 @@ export function deriveThreadFeedPresentation(
   expandedTurnIds: ReadonlySet<TurnId>,
   expandedWorkGroupIds: ReadonlySet<string> = new Set(),
   activeWorkStartedAt: string | null = null,
-  backgroundWorkContinues = false,
 ): ThreadFeedEntry[] {
   const sourceFeed = feed.filter(
     (entry) =>
@@ -1803,16 +1791,9 @@ export function deriveThreadFeedPresentation(
   const activeTailGroup = sourceFeed.findLast(
     (entry) => entry.type !== "message" || !isEmptyMessage(entry),
   );
+  const foldsByAnchorId = deriveThreadFeedTurnFolds(sourceFeed, latestTurn);
   const unsettledTurnId = deriveUnsettledTurnId(latestTurn);
   const isWorking = activeWorkStartedAt !== null;
-  const continuingTurnIds = continuingAssistantTurnIds(
-    sourceFeed.flatMap((entry) => (entry.type === "message" ? [entry.message] : [])),
-    {
-      activeTurnId: isWorking ? unsettledTurnId : null,
-      backgroundWorkContinues,
-    },
-  );
-  const foldsByAnchorId = deriveThreadFeedTurnFolds(sourceFeed, latestTurn, continuingTurnIds);
   const collapsedEntryIds = new Set<string>();
   for (const fold of foldsByAnchorId.values()) {
     if (!expandedTurnIds.has(fold.turnId)) {

@@ -90,8 +90,6 @@ export type ServerProviderSlashCommandInput = typeof ServerProviderSlashCommandI
 export const ServerProviderSlashCommand = Schema.Struct({
   name: TrimmedNonEmptyString,
   description: Schema.optional(TrimmedNonEmptyString),
-  // Name of the provider package that supplies it, such as a Pi package; absent for built-ins.
-  package: Schema.optional(TrimmedNonEmptyString),
   input: Schema.optional(ServerProviderSlashCommandInput),
 });
 export type ServerProviderSlashCommand = typeof ServerProviderSlashCommand.Type;
@@ -100,8 +98,6 @@ export const ServerProviderSkill = Schema.Struct({
   name: TrimmedNonEmptyString,
   description: Schema.optional(TrimmedNonEmptyString),
   path: TrimmedNonEmptyString,
-  // Name of the provider package that supplies it, such as a Pi package; absent for built-ins.
-  package: Schema.optional(TrimmedNonEmptyString),
   scope: Schema.optional(TrimmedNonEmptyString),
   enabled: Schema.Boolean,
   displayName: Schema.optional(TrimmedNonEmptyString),
@@ -126,7 +122,6 @@ export const ServerProviderWorkspaceSnapshot = Schema.Struct({
   checkedAt: IsoDateTime,
   slashCommands: Schema.Array(ServerProviderSlashCommand),
   skills: Schema.Array(ServerProviderSkill),
-  models: Schema.optional(Schema.Array(ServerProviderModel)),
 });
 export type ServerProviderWorkspaceSnapshot = typeof ServerProviderWorkspaceSnapshot.Type;
 
@@ -260,9 +255,6 @@ export const ServerProvider = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed([])),
   ),
   skills: Schema.Array(ServerProviderSkill).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
-  // True when Gentle AI is set up for this provider's agent, so its threads run with it unless
-  // the thread turns it off. False or absent means Gentle AI plays no part.
-  gentleAi: Schema.optionalKey(Schema.Boolean),
   workspaceSnapshots: Schema.optionalKey(Schema.Array(ServerProviderWorkspaceSnapshot)),
   // Absent when the driver has no notion of subscription usage.
   usageLimits: Schema.optional(ServerProviderUsageLimits),

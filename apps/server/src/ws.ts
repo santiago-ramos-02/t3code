@@ -158,8 +158,6 @@ import * as ResourceTelemetry from "./resourceTelemetry/ResourceTelemetry.ts";
 import * as HostResources from "./resourceTelemetry/HostResources.ts";
 import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
 import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
-import * as GentleAi from "./gentleAi/GentleAi.ts";
-import * as CliProxy from "./cliProxy/CliProxy.ts";
 import * as UsageService from "./usage/UsageService.ts";
 import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
@@ -554,8 +552,6 @@ const makeWsRpcLayer = (
       const keybindings = yield* Keybindings.Keybindings;
       const environmentTheme = yield* EnvironmentTheme.EnvironmentThemeService;
       const usageLimitSources = yield* UsageLimitSources.UsageLimitSources;
-      const gentleAi = yield* GentleAi.GentleAi;
-      const cliProxy = yield* CliProxy.CliProxy;
       const externalLauncher = yield* ExternalLauncher.ExternalLauncher;
       const remoteOpenTargets = yield* RemoteOpenTargets.RemoteOpenTargets;
       const gitWorkflow = yield* GitWorkflowService.GitWorkflowService;
@@ -576,32 +572,6 @@ const makeWsRpcLayer = (
       const providerMaintenanceRunner = yield* ProviderMaintenanceRunner.ProviderMaintenanceRunner;
       const providerAuth = yield* ProviderAuthService;
       const providerInstances = yield* ProviderInstanceRegistry;
-      type PiGentleService = NonNullable<
-        NonNullable<Effect.Success<ReturnType<typeof providerInstances.getInstance>>>["piGentle"]
-      >;
-      // Runs one Gentle AI operation on a Pi instance; any failure becomes a setup error.
-      const runPiGentle = <A, E extends { readonly message: string }>(
-        instanceId: Parameters<typeof providerInstances.getInstance>[0],
-        operation: string,
-        run: (gentle: PiGentleService) => Effect.Effect<A, E>,
-        options: { readonly requireEnabled?: boolean } = {},
-      ) =>
-        Effect.gen(function* () {
-          const instance = yield* providerInstances.getInstance(instanceId);
-          const gentle = instance?.piGentle;
-          if (!gentle || (options.requireEnabled && !instance.enabled)) {
-            return yield* new ProviderSetupError({
-              instanceId,
-              operation,
-              detail: "This provider is not an available Pi instance.",
-            });
-          }
-          return yield* run(gentle).pipe(
-            Effect.mapError(
-              (cause) => new ProviderSetupError({ instanceId, operation, detail: cause.message }),
-            ),
-          );
-        });
       const providerInstallation = yield* makeProviderInstallation();
       const serverUpdate = yield* ServerSelfUpdate.ServerSelfUpdate;
       const config = yield* ServerConfig.ServerConfig;
@@ -1839,10 +1809,7 @@ const makeWsRpcLayer = (
       const loadServerConfig = (options: { readonly usageLimitsCommand: boolean }) =>
         Effect.gen(function* () {
           const keybindingsConfig = yield* keybindings.loadConfigState;
-          const currentProviders = GentleAi.withGentleAi(
-            yield* providerRegistry.getProviders,
-            yield* gentleAi.current,
-          );
+          const currentProviders = yield* providerRegistry.getProviders;
           const providers = options.usageLimitsCommand
             ? withUsageLimitsCommands(currentProviders, yield* usageLimitSources.current)
             : currentProviders;
@@ -2424,7 +2391,6 @@ const makeWsRpcLayer = (
               // interrupt a fork before the hub answered.
               if (input.instanceId === undefined) {
                 yield* usageLimitSources.refresh;
-                yield* gentleAi.refresh;
               }
               let providers = yield* input.cwd !== undefined && input.instanceId !== undefined
                 ? providerRegistry.refreshWorkspaceSnapshot({
@@ -2461,7 +2427,7 @@ const makeWsRpcLayer = (
                   providers = yield* providerRegistry.refreshInstance(instance.instanceId);
                 }
               }
-              return { providers: GentleAi.withGentleAi(providers, yield* gentleAi.current) };
+              return { providers };
             }),
             { "rpc.aggregate": "server" },
           ),
@@ -2486,70 +2452,6 @@ const makeWsRpcLayer = (
             {
               "rpc.aggregate": "server",
             },
-          ),
-        [WS_METHODS.gentleAiRead]: () =>
-          observeRpcEffect(WS_METHODS.gentleAiRead, gentleAi.current, {
-            "rpc.aggregate": "gentle-ai",
-          }),
-        [WS_METHODS.gentleAiAction]: (input) =>
-          observeRpcEffect(WS_METHODS.gentleAiAction, gentleAi.action(input), {
-            "rpc.aggregate": "gentle-ai",
-          }),
-        [WS_METHODS.gentleAiQuery]: (input) =>
-          observeRpcEffect(
-            WS_METHODS.gentleAiQuery,
-            gentleAi.query(input.method, input.params).pipe(Effect.map((data) => ({ data }))),
-            { "rpc.aggregate": "gentle-ai" },
-          ),
-        [WS_METHODS.gentleAiStartJob]: (input) =>
-          observeRpcEffect(
-            WS_METHODS.gentleAiStartJob,
-            gentleAi.startJob(input.method, input.params),
-            {
-              "rpc.aggregate": "gentle-ai",
-            },
-          ),
-        [WS_METHODS.gentleAiSubscribeStatus]: () =>
-          observeRpcStream(WS_METHODS.gentleAiSubscribeStatus, gentleAi.streamChanges, {
-            "rpc.aggregate": "gentle-ai",
-          }),
-        [WS_METHODS.gentleAiSubscribeJob]: () =>
-          observeRpcStream(WS_METHODS.gentleAiSubscribeJob, gentleAi.streamJob, {
-            "rpc.aggregate": "gentle-ai",
-          }),
-        [WS_METHODS.cliProxySubscribeStatus]: () =>
-          observeRpcStream(WS_METHODS.cliProxySubscribeStatus, cliProxy.streamChanges, {
-            "rpc.aggregate": "cli-proxy",
-          }),
-        [WS_METHODS.cliProxyAction]: (input) =>
-          observeRpcEffect(WS_METHODS.cliProxyAction, cliProxy.action(input.action), {
-            "rpc.aggregate": "cli-proxy",
-          }),
-        [WS_METHODS.cliProxyManagement]: (input) =>
-          observeRpcEffect(WS_METHODS.cliProxyManagement, cliProxy.management(input), {
-            "rpc.aggregate": "cli-proxy",
-          }),
-        [WS_METHODS.providerPiGentleRead]: (input) =>
-          observeRpcEffect(
-            WS_METHODS.providerPiGentleRead,
-            runPiGentle(input.instanceId, "pi-gentle-read", (gentle) => gentle.read(input.cwd)),
-            { "rpc.aggregate": "provider" },
-          ),
-        [WS_METHODS.providerPiGentleComposerRead]: (input) =>
-          observeRpcEffect(
-            WS_METHODS.providerPiGentleComposerRead,
-            runPiGentle(input.instanceId, "pi-gentle-composer-read", (gentle) =>
-              gentle.readComposer(input.cwd),
-            ),
-            { "rpc.aggregate": "provider" },
-          ),
-        [WS_METHODS.providerPiGentleAction]: (input) =>
-          observeRpcEffect(
-            WS_METHODS.providerPiGentleAction,
-            runPiGentle(input.instanceId, "pi-gentle-action", (gentle) =>
-              gentle.action(input.action),
-            ),
-            { "rpc.aggregate": "provider" },
           ),
         [WS_METHODS.providerConsumeResetCredit]: (input) =>
           observeRpcEffect(
@@ -3749,9 +3651,6 @@ const makeWsRpcLayer = (
                 (providers, sources) =>
                   usageLimitsCommand ? withUsageLimitsCommands(providers, sources) : providers,
               ).pipe(
-                // Gentle AI marks which providers run with it; its status changes on its own.
-                (updates) =>
-                  Stream.zipLatestWith(updates, gentleAi.streamChanges, GentleAi.withGentleAi),
                 // Both sides replay their current value, so the first pairing normally
                 // repeats the snapshot the client already holds. Compare against that
                 // snapshot rather than dropping blindly: a refresh that landed between

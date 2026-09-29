@@ -22,32 +22,6 @@ import {
   ProviderSetupError,
   ProviderSetupInput,
 } from "./providerSetup.ts";
-import {
-  PiGentleActionInput,
-  PiGentleComposerReadInput,
-  PiGentleComposerState,
-  PiGentleReadInput,
-  PiGentleState,
-} from "./piGentle.ts";
-import {
-  GentleAiJob,
-  GentleAiJobInput,
-  GentleAiQueryInput,
-  GentleAiQueryResult,
-} from "./gentleAiApi.ts";
-import {
-  GentleAiActionInput,
-  GentleAiActionResult,
-  GentleAiError,
-  GentleAiStatus,
-} from "./gentleAi.ts";
-import {
-  CliProxyActionInput,
-  CliProxyError,
-  CliProxyManagementInput,
-  CliProxyManagementResult,
-  CliProxyStatus,
-} from "./cliProxy.ts";
 
 import { ExternalLauncherError, LaunchEditorInput } from "./editor.ts";
 import {
@@ -348,18 +322,6 @@ export const WS_METHODS = {
   providerInstallCancel: "provider.install.cancel",
   providerInstallSubscribe: "provider.install.subscribe",
   providerInstallRemove: "provider.install.remove",
-  providerPiGentleRead: "provider.piGentle.read",
-  providerPiGentleComposerRead: "provider.piGentle.composerRead",
-  providerPiGentleAction: "provider.piGentle.action",
-  gentleAiRead: "gentleAi.read",
-  gentleAiAction: "gentleAi.action",
-  gentleAiQuery: "gentleAi.query",
-  gentleAiStartJob: "gentleAi.startJob",
-  gentleAiSubscribeJob: "gentleAi.subscribeJob",
-  gentleAiSubscribeStatus: "gentleAi.subscribeStatus",
-  cliProxySubscribeStatus: "cliProxy.subscribeStatus",
-  cliProxyAction: "cliProxy.action",
-  cliProxyManagement: "cliProxy.management",
 
   // VCS methods
   vcsPull: "vcs.pull",
@@ -542,85 +504,6 @@ const WsServerUpdateProviderRpc = Rpc.make(WS_METHODS.serverUpdateProvider, {
   payload: ServerProviderUpdateInput,
   success: ServerProviderUpdatedPayload,
   error: Schema.Union([ServerProviderUpdateError, EnvironmentAuthorizationError]),
-});
-
-const WsProviderPiGentleReadRpc = Rpc.make(WS_METHODS.providerPiGentleRead, {
-  payload: PiGentleReadInput,
-  success: PiGentleState,
-  error: Schema.Union([ProviderSetupError, EnvironmentAuthorizationError]),
-});
-
-const WsProviderPiGentleComposerReadRpc = Rpc.make(WS_METHODS.providerPiGentleComposerRead, {
-  payload: PiGentleComposerReadInput,
-  success: PiGentleComposerState,
-  error: Schema.Union([ProviderSetupError, EnvironmentAuthorizationError]),
-});
-
-const WsProviderPiGentleActionRpc = Rpc.make(WS_METHODS.providerPiGentleAction, {
-  payload: PiGentleActionInput,
-  success: PiGentleState,
-  error: Schema.Union([ProviderSetupError, EnvironmentAuthorizationError]),
-});
-
-const WsGentleAiReadRpc = Rpc.make(WS_METHODS.gentleAiRead, {
-  payload: Schema.Struct({}),
-  success: GentleAiStatus,
-  error: EnvironmentAuthorizationError,
-});
-
-const WsGentleAiQueryRpc = Rpc.make(WS_METHODS.gentleAiQuery, {
-  payload: GentleAiQueryInput,
-  success: GentleAiQueryResult,
-  error: Schema.Union([GentleAiError, EnvironmentAuthorizationError]),
-});
-
-// Starting fails while another Gentle AI job runs; the job itself streams from subscribeJob.
-const WsGentleAiStartJobRpc = Rpc.make(WS_METHODS.gentleAiStartJob, {
-  payload: GentleAiJobInput,
-  success: GentleAiJob,
-  error: Schema.Union([GentleAiError, EnvironmentAuthorizationError]),
-});
-
-// Gentle AI on the environment now, then every change.
-const WsGentleAiSubscribeStatusRpc = Rpc.make(WS_METHODS.gentleAiSubscribeStatus, {
-  payload: Schema.Struct({}),
-  success: GentleAiStatus,
-  error: EnvironmentAuthorizationError,
-  stream: true,
-});
-
-// The environment's current or most recent job, then every change; null before the first.
-const WsGentleAiSubscribeJobRpc = Rpc.make(WS_METHODS.gentleAiSubscribeJob, {
-  payload: Schema.Struct({}),
-  success: Schema.NullOr(GentleAiJob),
-  error: EnvironmentAuthorizationError,
-  stream: true,
-});
-
-// CLIProxyAPI on the environment now, then every change.
-const WsCliProxySubscribeStatusRpc = Rpc.make(WS_METHODS.cliProxySubscribeStatus, {
-  payload: Schema.Struct({}),
-  success: CliProxyStatus,
-  error: EnvironmentAuthorizationError,
-  stream: true,
-});
-
-const WsCliProxyActionRpc = Rpc.make(WS_METHODS.cliProxyAction, {
-  payload: CliProxyActionInput,
-  success: CliProxyStatus,
-  error: Schema.Union([CliProxyError, EnvironmentAuthorizationError]),
-});
-
-const WsCliProxyManagementRpc = Rpc.make(WS_METHODS.cliProxyManagement, {
-  payload: CliProxyManagementInput,
-  success: CliProxyManagementResult,
-  error: Schema.Union([CliProxyError, EnvironmentAuthorizationError]),
-});
-
-const WsGentleAiActionRpc = Rpc.make(WS_METHODS.gentleAiAction, {
-  payload: GentleAiActionInput,
-  success: GentleAiActionResult,
-  error: Schema.Union([GentleAiError, EnvironmentAuthorizationError]),
 });
 
 const ProviderSetupRpcError = Schema.Union([ProviderSetupError, EnvironmentAuthorizationError]);
@@ -1549,18 +1432,6 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerGetConfigRpc,
   WsServerRefreshProvidersRpc,
   WsServerUpdateProviderRpc,
-  WsProviderPiGentleReadRpc,
-  WsProviderPiGentleComposerReadRpc,
-  WsProviderPiGentleActionRpc,
-  WsGentleAiReadRpc,
-  WsGentleAiActionRpc,
-  WsCliProxySubscribeStatusRpc,
-  WsCliProxyActionRpc,
-  WsCliProxyManagementRpc,
-  WsGentleAiQueryRpc,
-  WsGentleAiStartJobRpc,
-  WsGentleAiSubscribeJobRpc,
-  WsGentleAiSubscribeStatusRpc,
   WsProviderConsumeResetCreditRpc,
   WsProviderAuthStartRpc,
   WsProviderAuthCompleteRpc,

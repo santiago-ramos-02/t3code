@@ -267,7 +267,7 @@ describe("ProviderCommandReactor", () => {
         ),
       );
     });
-    const sendTurn = vi.fn<ProviderServiceShape["sendTurn"]>(() =>
+    const sendTurn = vi.fn((_: unknown) =>
       Effect.succeed({
         threadId: ThreadId.make("thread-1"),
         turnId: asTurnId("turn-1"),
@@ -366,7 +366,6 @@ describe("ProviderCommandReactor", () => {
       respondToUserInput: respondToUserInput as ProviderServiceShape["respondToUserInput"],
       stopSession: stopSession as ProviderServiceShape["stopSession"],
       listSessions: () => Effect.succeed(runtimeSessions),
-      ensureSession: () => unsupported(),
       getCapabilities: (_provider) =>
         Effect.succeed({
           sessionModelSwitch: input?.sessionModelSwitch ?? "in-session",
@@ -3092,73 +3091,6 @@ describe("ProviderCommandReactor", () => {
     ).toBeUndefined();
   });
 
-  it("keeps a running turn alive when a follow-up send fails", async () => {
-    const harness = await createHarness();
-    const threadId = ThreadId.make("thread-1");
-    const now = "2026-01-01T00:00:00.000Z";
-    const dispatchMessage = (suffix: string) =>
-      harness.engine.dispatch({
-        type: "thread.turn.start",
-        commandId: CommandId.make(`cmd-follow-up-${suffix}`),
-        threadId,
-        message: {
-          messageId: asMessageId(`user-message-follow-up-${suffix}`),
-          role: "user",
-          text: suffix,
-          attachments: [],
-        },
-        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
-        runtimeMode: "approval-required",
-        createdAt: now,
-      });
-
-    await Effect.runPromise(dispatchMessage("first"));
-    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.session.set",
-        commandId: CommandId.make("cmd-follow-up-running"),
-        threadId,
-        session: {
-          threadId,
-          status: "running",
-          providerName: "codex",
-          providerInstanceId: ProviderInstanceId.make("codex"),
-          runtimeMode: "approval-required",
-          activeTurnId: asTurnId("turn-1"),
-          lastError: null,
-          updatedAt: now,
-        },
-        createdAt: now,
-      }),
-    );
-    harness.sendTurn.mockImplementation(() =>
-      Effect.fail(
-        new ProviderAdapterRequestError({
-          provider: "codex",
-          method: "sendTurn",
-          detail: "steer was rejected",
-        }),
-      ),
-    );
-    await Effect.runPromise(dispatchMessage("second"));
-    await waitFor(async () => {
-      const thread = (await harness.readModel()).threads.find((entry) => entry.id === threadId);
-      return (
-        thread?.activities.some((activity) => activity.kind === "provider.turn.start.failed") ??
-        false
-      );
-    });
-
-    const thread = (await harness.readModel()).threads.find((entry) => entry.id === threadId);
-    expect(harness.sendTurn).toHaveBeenCalledTimes(2);
-    expect(thread?.session).toMatchObject({
-      status: "running",
-      activeTurnId: asTurnId("turn-1"),
-      lastError: null,
-    });
-  });
-
   it("reuses the same provider session when runtime mode is unchanged", async () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";
@@ -4206,75 +4138,6 @@ describe("ProviderCommandReactor", () => {
     });
   });
 
-  it.each([
-    { provider: "codex", closesQuietly: false },
-    { provider: "pi", closesQuietly: true },
-  ] as const)(
-    "handles a $provider question whose session has ended",
-    async ({ provider, closesQuietly }) => {
-      const harness = await createHarness({
-        threadModelSelection: {
-          instanceId: ProviderInstanceId.make(provider),
-          model: "test-model",
-        },
-      });
-      const now = "2026-01-01T00:00:00.000Z";
-
-      await harness.runEffect(
-        harness.engine.dispatch({
-          type: "thread.user-input.respond",
-          commandId: CommandId.make("cmd-user-input-respond-without-session"),
-          threadId: ThreadId.make("thread-1"),
-          requestId: asApprovalRequestId("user-input-request-1"),
-          answers: { sandbox_mode: "workspace-write" },
-          createdAt: now,
-        }),
-      );
-
-      await waitFor(async () => {
-        const readModel = await harness.readModel();
-        return readModel.threads.some((thread) =>
-          thread.activities.some(
-            (activity) =>
-              activity.kind ===
-              (closesQuietly ? "user-input.resolved" : "provider.user-input.respond.failed"),
-          ),
-        );
-      });
-
-      expect(harness.respondToUserInput).not.toHaveBeenCalled();
-      const thread = (await harness.readModel()).threads.find(
-        (entry) => entry.id === ThreadId.make("thread-1"),
-      );
-      if (closesQuietly) {
-        const closedActivity = thread?.activities.find(
-          (activity) => activity.kind === "user-input.resolved",
-        );
-        expect(closedActivity).toMatchObject({
-          tone: "info",
-          summary: "Question closed",
-          payload: {
-            requestId: "user-input-request-1",
-            answers: {},
-            reason: "unavailable",
-          },
-        });
-        expect(thread?.activities.some((activity) => activity.tone === "error")).toBe(false);
-      } else {
-        const failureActivity = thread?.activities.find(
-          (activity) => activity.kind === "provider.user-input.respond.failed",
-        );
-        expect(failureActivity).toMatchObject({
-          tone: "error",
-          payload: {
-            requestId: "user-input-request-1",
-            detail: expect.stringContaining("Stale pending user-input request"),
-          },
-        });
-      }
-    },
-  );
-
   it("normalizes stale Codex approval callbacks without faking approval resolution", async () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";
@@ -4370,142 +4233,114 @@ describe("ProviderCommandReactor", () => {
     expect(resolvedActivity).toBeUndefined();
   });
 
-  it.each([
-    {
-      provider: "claudeAgent",
-      method: "item/tool/respondToUserInput",
-      detail: "Unknown pending Codex user input request: user-input-request-1",
-    },
-    {
-      provider: "pi",
-      method: "extension_ui_response",
-      detail: "This Pi user-input request is no longer pending.",
-    },
-  ] as const)(
-    "handles non-resumable $provider user-input callbacks",
-    async ({ provider, method, detail }) => {
-      const harness = await createHarness();
-      const now = "2026-01-01T00:00:00.000Z";
-      harness.respondToUserInput.mockImplementation(() =>
-        Effect.fail(
-          new ProviderAdapterRequestError({
-            provider: ProviderDriverKind.make(provider),
-            method,
-            detail,
-          }),
-        ),
-      );
-
-      await harness.runEffect(
-        harness.engine.dispatch({
-          type: "thread.session.set",
-          commandId: CommandId.make("cmd-session-set-for-user-input-error"),
-          threadId: ThreadId.make("thread-1"),
-          session: {
-            threadId: ThreadId.make("thread-1"),
-            status: "running",
-            providerName: provider,
-            runtimeMode: "approval-required",
-            activeTurnId: null,
-            lastError: null,
-            updatedAt: now,
-          },
-          createdAt: now,
+  it("surfaces non-resumable provider user-input callbacks as stale failures", async () => {
+    const harness = await createHarness();
+    const now = "2026-01-01T00:00:00.000Z";
+    harness.respondToUserInput.mockImplementation(() =>
+      Effect.fail(
+        new ProviderAdapterRequestError({
+          provider: ProviderDriverKind.make("claudeAgent"),
+          method: "item/tool/respondToUserInput",
+          detail: "Unknown pending Codex user input request: user-input-request-1",
         }),
-      );
+      ),
+    );
 
-      await harness.runEffect(
-        harness.engine.dispatch({
-          type: "thread.activity.append",
-          commandId: CommandId.make("cmd-user-input-requested"),
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.make("cmd-session-set-for-user-input-error"),
+        threadId: ThreadId.make("thread-1"),
+        session: {
           threadId: ThreadId.make("thread-1"),
-          activity: {
-            id: EventId.make("activity-user-input-requested"),
-            tone: "info",
-            kind: "user-input.requested",
-            summary: "User input requested",
-            payload: {
-              requestId: "user-input-request-1",
-              questions: [
-                {
-                  id: "sandbox_mode",
-                  header: "Sandbox",
-                  question: "Which mode should be used?",
-                  options: [
-                    {
-                      label: "workspace-write",
-                      description: "Allow workspace writes only",
-                    },
-                  ],
-                },
-              ],
-            },
-            turnId: null,
-            createdAt: now,
+          status: "running",
+          providerName: "claudeAgent",
+          runtimeMode: "approval-required",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.activity.append",
+        commandId: CommandId.make("cmd-user-input-requested"),
+        threadId: ThreadId.make("thread-1"),
+        activity: {
+          id: EventId.make("activity-user-input-requested"),
+          tone: "info",
+          kind: "user-input.requested",
+          summary: "User input requested",
+          payload: {
+            requestId: "user-input-request-1",
+            questions: [
+              {
+                id: "sandbox_mode",
+                header: "Sandbox",
+                question: "Which mode should be used?",
+                options: [
+                  {
+                    label: "workspace-write",
+                    description: "Allow workspace writes only",
+                  },
+                ],
+              },
+            ],
           },
+          turnId: null,
           createdAt: now,
-        }),
-      );
+        },
+        createdAt: now,
+      }),
+    );
 
-      await harness.runEffect(
-        harness.engine.dispatch({
-          type: "thread.user-input.respond",
-          commandId: CommandId.make("cmd-user-input-respond-stale"),
-          threadId: ThreadId.make("thread-1"),
-          requestId: asApprovalRequestId("user-input-request-1"),
-          answers: {
-            sandbox_mode: "workspace-write",
-          },
-          createdAt: now,
-        }),
-      );
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.user-input.respond",
+        commandId: CommandId.make("cmd-user-input-respond-stale"),
+        threadId: ThreadId.make("thread-1"),
+        requestId: asApprovalRequestId("user-input-request-1"),
+        answers: {
+          sandbox_mode: "workspace-write",
+        },
+        createdAt: now,
+      }),
+    );
 
-      await waitFor(async () => {
-        const readModel = await harness.readModel();
-        const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
-        if (!thread) return false;
-        return thread.activities.some(
-          (activity) =>
-            activity.kind ===
-            (provider === "pi" ? "user-input.resolved" : "provider.user-input.respond.failed"),
-        );
-      });
-
+    await waitFor(async () => {
       const readModel = await harness.readModel();
       const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
-      expect(thread).toBeDefined();
+      if (!thread) return false;
+      return thread.activities.some(
+        (activity) => activity.kind === "provider.user-input.respond.failed",
+      );
+    });
 
-      if (provider === "pi") {
-        const closedActivity = thread?.activities.find(
-          (activity) => activity.kind === "user-input.resolved",
-        );
-        expect(closedActivity).toMatchObject({
-          tone: "info",
-          summary: "Question closed",
-          payload: {
-            requestId: "user-input-request-1",
-            answers: {},
-            reason: "unavailable",
-          },
-        });
-        expect(thread?.activities.some((activity) => activity.tone === "error")).toBe(false);
-      } else {
-        const failureActivity = thread?.activities.find(
-          (activity) => activity.kind === "provider.user-input.respond.failed",
-        );
-        expect(failureActivity).toMatchObject({
-          tone: "error",
-          payload: {
-            requestId: "user-input-request-1",
-            detail: expect.stringContaining("Stale pending user-input request"),
-          },
-        });
-        expect(thread?.activities.some((activity) => activity.kind === "user-input.resolved")).toBe(
-          false,
-        );
-      }
-    },
-  );
+    const readModel = await harness.readModel();
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
+    expect(thread).toBeDefined();
+
+    const failureActivity = thread?.activities.find(
+      (activity) => activity.kind === "provider.user-input.respond.failed",
+    );
+    expect(failureActivity).toBeDefined();
+    expect(failureActivity?.payload).toMatchObject({
+      requestId: "user-input-request-1",
+      detail: expect.stringContaining("Stale pending user-input request: user-input-request-1"),
+    });
+
+    const resolvedActivity = thread?.activities.find(
+      (activity) =>
+        activity.kind === "user-input.resolved" &&
+        typeof activity.payload === "object" &&
+        activity.payload !== null &&
+        (activity.payload as Record<string, unknown>).requestId === "user-input-request-1",
+    );
+    expect(resolvedActivity).toBeUndefined();
+  });
 
   effectIt.effect("stops a provider session without reading unrelated message bodies", () =>
     Effect.gen(function* () {

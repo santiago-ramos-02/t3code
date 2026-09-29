@@ -1,6 +1,3 @@
-// @effect-diagnostics nodeBuiltinImport:off - SHA-256 over the packaged server entry binds the extraction marker to the exact shipped code; Effect has no equivalent digest primitive.
-import * as NodeCrypto from "node:crypto";
-
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -30,22 +27,7 @@ export type WslServerTreeResult =
 const MARKER_FILE_NAME = "t3code-wsl-server-tree.json";
 const COPY_CONCURRENCY = 8;
 
-const MARKER_VERSION_MAX_LENGTH = 64;
-// `sha256-` (7 chars) plus 64 lowercase hex digest chars. The generated
-// identity stays lowercase (`digest("hex")`); uppercase or non-hex markers
-// fail decode and are treated as cache misses, so they re-extract.
-const SERVER_IDENTITY_PATTERN = /^sha256-[0-9a-f]{64}$/;
-const Marker = Schema.Struct({
-  version: Schema.String.pipe(
-    Schema.check(Schema.isMinLength(1)),
-    Schema.check(Schema.isMaxLength(MARKER_VERSION_MAX_LENGTH)),
-  ),
-  serverIdentity: Schema.String.pipe(
-    Schema.check(Schema.isMinLength(71)),
-    Schema.check(Schema.isMaxLength(71)),
-    Schema.check(Schema.isPattern(SERVER_IDENTITY_PATTERN)),
-  ),
-});
+const Marker = Schema.Struct({ version: Schema.String });
 const decodeMarker = Schema.decodeUnknownEffect(Schema.fromJsonString(Marker));
 const encodeMarker = Schema.encodeEffect(Schema.fromJsonString(Marker));
 
@@ -141,7 +123,6 @@ export const make = Effect.gen(function* () {
   const join = environment.path.join;
 
   const serverRoot = environment.serverRoot;
-  const backendEntryPath = environment.backendEntryPath;
   const needsExtraction = environment.isPackaged && environment.platform === "win32";
   const treeRoot = join(environment.stateDir, "wsl-server-tree");
   const version = environment.appVersion;
@@ -158,57 +139,39 @@ export const make = Effect.gen(function* () {
     );
   });
 
-  // Strong identity of the packaged backend entry (apps/server/dist/bin.mjs).
-  // The marker binds to this instead of the app version alone, so a rebuilt
-  // backend shipped under an unchanged version invalidates the stale tree.
-  // Only this file is hashed: walking the whole asar on every ensure would
-  // regress fallback preflight, and the entry is the artifact the WSL backend
-  // executes first.
-  const currentServerIdentity = Effect.gen(function* () {
-    const bytes = yield* fs.readFile(backendEntryPath);
-    return `sha256-${NodeCrypto.createHash("sha256").update(bytes).digest("hex")}`;
-  });
+  const markerMatches = Effect.gen(function* () {
+    const raw = yield* fs.readFileString(join(versionDir, MARKER_FILE_NAME));
+    const marker = yield* decodeMarker(raw);
+    return marker.version === version;
+  }).pipe(Effect.orElseSucceed(() => false));
 
-  const markerMatches = (serverIdentity: string) =>
-    Effect.gen(function* () {
-      const raw = yield* fs.readFileString(join(versionDir, MARKER_FILE_NAME));
-      const marker = yield* decodeMarker(raw);
-      // Legacy version-only markers fail the decode above (missing
-      // serverIdentity) and are treated as cache misses, so they migrate on
-      // the next extraction.
-      return marker.version === version && marker.serverIdentity === serverIdentity;
-    }).pipe(Effect.orElseSucceed(() => false));
-
-  const extract = (serverIdentity: string) =>
-    Effect.gen(function* () {
-      yield* Effect.log(`[wsl-server-tree] Extracting ${serverRoot} to ${versionDir}...`);
-      yield* fs.makeDirectory(treeRoot, { recursive: true });
-      // Keep the temporary tree beside the target so rename is atomic. Cleanup
-      // is owned explicitly because a scoped temp-directory finalizer treats the
-      // successful rename (and therefore missing original path) as an error.
-      const partialDir = yield* fs.makeTempDirectory({
-        directory: treeRoot,
-        prefix: `.${version}.extract-`,
-      });
-      yield* Effect.gen(function* () {
-        yield* copyTree(fs, join, serverRoot, partialDir);
-        const markerJson = yield* encodeMarker({ version, serverIdentity });
-        yield* fs.writeFileString(join(partialDir, MARKER_FILE_NAME), `${markerJson}\n`);
-        // The marker is written before the rename, so a directory named after
-        // the version is complete by construction.
-        yield* fs.remove(versionDir, { recursive: true }).pipe(Effect.ignore);
-        yield* fs.rename(partialDir, versionDir);
-      }).pipe(
-        Effect.ensuring(
-          fs.remove(partialDir, { recursive: true, force: true }).pipe(Effect.ignore),
-        ),
-      );
-      yield* Effect.log(`[wsl-server-tree] Extraction complete at ${versionDir}.`);
+  const extract = Effect.gen(function* () {
+    yield* Effect.log(`[wsl-server-tree] Extracting ${serverRoot} to ${versionDir}...`);
+    yield* fs.makeDirectory(treeRoot, { recursive: true });
+    // Keep the temporary tree beside the target so rename is atomic. Cleanup
+    // is owned explicitly because a scoped temp-directory finalizer treats the
+    // successful rename (and therefore missing original path) as an error.
+    const partialDir = yield* fs.makeTempDirectory({
+      directory: treeRoot,
+      prefix: `.${version}.extract-`,
+    });
+    yield* Effect.gen(function* () {
+      yield* copyTree(fs, join, serverRoot, partialDir);
+      const markerJson = yield* encodeMarker({ version });
+      yield* fs.writeFileString(join(partialDir, MARKER_FILE_NAME), `${markerJson}\n`);
+      // The marker is written before the rename, so a directory named after
+      // the version is complete by construction.
+      yield* fs.remove(versionDir, { recursive: true }).pipe(Effect.ignore);
+      yield* fs.rename(partialDir, versionDir);
     }).pipe(
-      Effect.mapError(
-        (cause) => new DesktopWslServerTreeExtractError({ targetDir: versionDir, cause }),
-      ),
+      Effect.ensuring(fs.remove(partialDir, { recursive: true, force: true }).pipe(Effect.ignore)),
     );
+    yield* Effect.log(`[wsl-server-tree] Extraction complete at ${versionDir}.`);
+  }).pipe(
+    Effect.mapError(
+      (cause) => new DesktopWslServerTreeExtractError({ targetDir: versionDir, cause }),
+    ),
+  );
 
   // Serialize concurrent ensure calls (backend restarts can overlap): the
   // first caller extracts, later callers see the marker and reuse the tree.
@@ -242,21 +205,11 @@ export const make = Effect.gen(function* () {
         if (!needsExtraction) {
           return { ok: true, root: serverRoot } as const;
         }
-        // Resolve the packaged entry's identity before trusting the marker:
-        // an unreadable entry fails closed instead of accepting a stale tree.
-        const serverIdentity = yield* currentServerIdentity.pipe(Effect.orElseSucceed(() => null));
-        if (serverIdentity === null) {
-          return {
-            ok: false,
-            reason: `WSL server files could not be extracted to ${versionDir}: the packaged server entry at ${backendEntryPath} could not be read.`,
-            fatal: false,
-          } as const;
-        }
-        if (yield* markerMatches(serverIdentity)) {
+        if (yield* markerMatches) {
           yield* sweepStale;
           return { ok: true, root: versionDir } as const;
         }
-        const result = yield* extract(serverIdentity).pipe(
+        const result = yield* extract.pipe(
           Effect.map(() => ({ ok: true, root: versionDir }) as const),
           // Retryable: transient antivirus locks and slow disks are the common
           // causes, and the backend manager already bounds preflight retries.

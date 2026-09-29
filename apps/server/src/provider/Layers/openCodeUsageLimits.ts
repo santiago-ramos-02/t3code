@@ -1,5 +1,4 @@
 import * as NodeOS from "node:os";
-import * as NodeCrypto from "node:crypto";
 
 import type { ServerProviderUsageWindow } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
@@ -96,16 +95,7 @@ export const readOpenCodeGoUsageLimits = Effect.fn("readOpenCodeGoUsageLimits")(
         resetsAt: DateTime.formatIso(body.usage.monthly.resetsAt),
       },
     ];
-    return {
-      ...makeUsageLimits({ checkedAt, windows }),
-      // Go's usage response has no account ID. An unkeyed hash matches across
-      // environments without a shared secret. It permits offline guesses, but
-      // Go keys are randomly generated.
-      credentialFingerprint: NodeCrypto.createHash("sha256")
-        .update("opencode-go\0")
-        .update(apiKey)
-        .digest("hex"),
-    };
+    return makeUsageLimits({ checkedAt, windows });
   }).pipe(
     Effect.timeout("5 seconds"),
     Effect.orElseSucceed(() =>

@@ -4,29 +4,12 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   normalizeProviderAccentColor,
   providerInstanceInitials,
-  providerSessionStartupLabel,
   resolveProviderInstanceDisplayName,
   shouldShowInstanceBadge,
 } from "./providerInstanceDisplay.ts";
 
 const codex = ProviderDriverKind.make("codex");
 const claude = ProviderDriverKind.make("claudeAgent");
-
-describe("providerSessionStartupLabel", () => {
-  it("identifies Pi until the projected session starts", () => {
-    expect(providerSessionStartupLabel({ status: "starting", providerName: "pi" })).toBe(
-      "Starting Pi",
-    );
-    expect(providerSessionStartupLabel({ status: "running", providerName: "pi" })).toBeNull();
-    expect(providerSessionStartupLabel({ status: "error", providerName: "pi" })).toBeNull();
-  });
-
-  it("uses the provider name for other starting sessions", () => {
-    expect(providerSessionStartupLabel({ status: "starting", providerName: "claudeAgent" })).toBe(
-      "Starting Claude",
-    );
-  });
-});
 
 describe("resolveProviderInstanceDisplayName", () => {
   it("keeps a snapshot name that differs from the brand label", () => {

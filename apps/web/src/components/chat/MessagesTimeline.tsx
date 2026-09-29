@@ -305,7 +305,6 @@ interface TimelineRowSharedState {
 
 interface TimelineRowActivityState {
   isWorking: boolean;
-  startupLabel: string | null;
   isPreparingWorktree: boolean;
   isCompacting: boolean;
   isRevertingCheckpoint: boolean;
@@ -405,8 +404,6 @@ interface MessagesTimelineProps {
   agentPanelModel?: AgentPanelModel;
   onOpenAgents?: () => void;
   isWorking: boolean;
-  backgroundWorkContinues?: boolean;
-  startupLabel?: string | null;
   isPreparingWorktree?: boolean;
   isCompacting?: boolean;
   activeTurnStartedAt: string | null;
@@ -452,11 +449,6 @@ interface MessagesTimelineProps {
    * scroll-mode refs whenever the user drifts near the bottom.
    */
   liveFollowEnabled: boolean;
-  /**
-   * Reads ChatView's live-follow latch. A navigation gesture releases it
-   * synchronously, before `liveFollowEnabled` re-renders.
-   */
-  isLiveFollowLatched: () => boolean;
   onIsAtEndChange: (isAtEnd: boolean) => void;
   /**
    * Whether the real rows extend past the viewport above the composer.
@@ -486,8 +478,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   citationHistoryLoading = false,
   onCiteAssistantText,
   isWorking,
-  backgroundWorkContinues = false,
-  startupLabel = null,
   worktreeSetup = null,
   onCancelWorktreeSetup,
   onWorktreeSetupWorkLocally,
@@ -523,7 +513,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   onAnchorReady,
   contentInsetEndAdjustment,
   liveFollowEnabled,
-  isLiveFollowLatched,
   onIsAtEndChange,
   onContentOverflowChange,
   onToolOutputCollapsedAtEnd,
@@ -790,8 +779,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         expandedTurnIds: paintedExpandedTurnIds,
         expandedWorkGroupIds: paintedExpandedWorkGroupIds,
         isWorking,
-        backgroundWorkContinues,
-        isStartingProvider: startupLabel !== null,
         activeTurnStartedAt,
         turnDiffSummaries,
         supportsConversationRollback,
@@ -815,8 +802,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     paintedExpandedTurnIds,
     paintedExpandedWorkGroupIds,
     isWorking,
-    backgroundWorkContinues,
-    startupLabel,
     activeTurnStartedAt,
     turnDiffSummaries,
     supportsConversationRollback,
@@ -1048,12 +1033,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           // DOM geometry includes the header and the virtualizer's layout adjustment.
           offsetWithinRow: element.getBoundingClientRect().top - row.getBoundingClientRect().top,
           scrollOffset: element.scrollTop,
-          // While live-following, a gap to the end is the follow scroll
-          // trailing streamed output, not a reading position to restore.
-          // Anchored end space holds the first send near the top instead of
-          // following, so its gap is a real position. The latch covers a
-          // gesture that released follow before this render caught up.
-          atEnd: isAtEnd || (liveFollowEnabled && isLiveFollowLatched() && !anchoredEndSpace),
+          atEnd: isAtEnd,
           disclosures: {
             turns: paintedExpandedTurnIds,
             workGroups: paintedExpandedWorkGroupIds,
@@ -1111,9 +1091,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     workGroupViewState,
     rows,
     listIdentityKey,
-    liveFollowEnabled,
-    isLiveFollowLatched,
-    anchoredEndSpace,
     restoringThreadPosition,
     listRef,
     minimapItems,
@@ -1246,7 +1223,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const activityState = useMemo<TimelineRowActivityState>(
     () => ({
       isWorking,
-      startupLabel,
       isPreparingWorktree,
       isCompacting,
       isRevertingCheckpoint,
@@ -1261,7 +1237,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       isCompacting,
       isRevertingCheckpoint,
       isWorking,
-      startupLabel,
       isPreparingWorktree,
       // Deliberately the fields `deriveUnsettledTurnId` reads, not the object:
       // its identity changes on every thread-shell patch.
@@ -2554,7 +2529,7 @@ function ProposedPlanTimelineRow({
 }
 
 function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "working" }> }) {
-  const { isCompacting, isPreparingWorktree, startupLabel, backgroundWorktreeSetup } =
+  const { isCompacting, isPreparingWorktree, backgroundWorktreeSetup } =
     use(TimelineRowActivityCtx);
   // One span for every label so the setup-to-working handoff swaps text in
   // place instead of remounting the row.
@@ -2563,8 +2538,6 @@ function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "workin
     "Setting up worktree…"
   ) : isCompacting ? (
     <CompactingLabel />
-  ) : startupLabel !== null ? (
-    startupLabel
   ) : row.createdAt ? (
     <>
       Working for <WorkingTimer createdAt={row.createdAt} />
@@ -2574,26 +2547,14 @@ function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "workin
   );
   return (
     <div className="border-b border-border/60 pb-2 pt-1">
-      <div
-        className={cn(
-          "flex h-6 min-w-0 gap-2 px-1 text-sm leading-relaxed text-muted-foreground tabular-nums",
-          startupLabel !== null ? "items-center" : "items-baseline",
-        )}
-      >
-        {startupLabel !== null ? <Spinner size="xs" className="shrink-0" aria-hidden /> : null}
+      <div className="flex h-6 min-w-0 items-baseline gap-2 px-1 text-sm leading-relaxed text-muted-foreground tabular-nums">
         <span
           ref={shimmer ? observeVisibleAnimation : undefined}
           className="relative shrink-0 overflow-hidden whitespace-nowrap"
-          role={startupLabel !== null ? "status" : undefined}
         >
           {label}
           {shimmer ? <ActivityShimmerOverlay>{label}</ActivityShimmerOverlay> : null}
         </span>
-        {startupLabel !== null && row.createdAt ? (
-          <span className="text-muted-foreground/70" aria-hidden="true">
-            <WorkingTimer createdAt={row.createdAt} />
-          </span>
-        ) : null}
         {backgroundWorktreeSetup ? (
           <BackgroundWorktreeSetupChip snapshot={backgroundWorktreeSetup} />
         ) : null}
@@ -4504,9 +4465,7 @@ function workEntryIconName(workEntry: TimelineWorkEntry): WorkEntryIconName {
   if (
     workEntry.questionAnswer ||
     workEntry.sourceActivityKind === "user-input.requested" ||
-    workEntry.sourceActivityKind === "user-input.resolved" ||
-    // A provider's own report, such as an extension command's result.
-    workEntry.sourceActivityKind === "runtime.notice"
+    workEntry.sourceActivityKind === "user-input.resolved"
   ) {
     return "message-circle";
   }

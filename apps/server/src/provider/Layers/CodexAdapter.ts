@@ -31,18 +31,7 @@ import {
   ProviderApprovalDecision,
   ThreadId,
   ProviderSendTurnInput,
-  gentleAiEnabled,
 } from "@t3tools/contracts";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
-import * as FileSystem from "effect/FileSystem";
-import * as Path from "effect/Path";
-import { gentleAiFootprintLookup } from "../../gentleAi/GentleAiFootprints.ts";
-import {
-  gentleAiOffDirectory,
-  gentleAiUserHome,
-  materializeCodexPlainHome,
-} from "../../gentleAi/GentleAiOff.ts";
-import { expandHomePath } from "../../pathExpansion.ts";
 import * as Effect from "effect/Effect";
 import * as NodeCrypto from "node:crypto";
 import * as Crypto from "effect/Crypto";
@@ -2261,11 +2250,6 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
   const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const crypto = yield* Crypto.Crypto;
   const serverConfig = yield* Effect.service(ServerConfig);
-  const fileSystem = yield* FileSystem.FileSystem;
-  const path = yield* Path.Path;
-  const hostPlatform = yield* HostProcessPlatform;
-  // What gentle-ai added to each agent, for threads with Gentle AI off.
-  const gentleAiFootprints = yield* gentleAiFootprintLookup;
   const nativeEventLogger =
     options?.nativeEventLogger ??
     (options?.nativeEventLogPath !== undefined
@@ -2318,39 +2302,6 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
           !resolved && input.modelSelection?.instanceId === boundInstanceId
             ? getCodexServiceTierOptionValue(input.modelSelection)
             : undefined;
-        // With Gentle AI off, Codex runs on a plain mirror of its home that lives as long as the
-        // session: the same credentials and sessions, without gentle-ai's footprint.
-        const plainHomePath = gentleAiEnabled(input.modelSelection?.options)
-          ? undefined
-          : yield* Effect.gen(function* () {
-              const environment = effectiveEnvironment ?? process.env;
-              const userHome = gentleAiUserHome(environment, hostPlatform);
-              const source = effectiveConfig.homePath
-                ? path.resolve(expandHomePath(effectiveConfig.homePath))
-                : environment.CODEX_HOME?.trim() || path.join(userHome, ".codex");
-              const target = yield* gentleAiOffDirectory("codex");
-              yield* materializeCodexPlainHome({
-                source,
-                target,
-                platform: hostPlatform,
-                userHome,
-                footprint: yield* gentleAiFootprints(["codex"]),
-              });
-              return target;
-            }).pipe(
-              Effect.provideService(FileSystem.FileSystem, fileSystem),
-              Effect.provideService(Path.Path, path),
-              Effect.provideService(Scope.Scope, sessionScope),
-              Effect.mapError(
-                (cause) =>
-                  new ProviderAdapterProcessError({
-                    provider: PROVIDER,
-                    threadId: input.threadId,
-                    detail: "Codex could not start with Gentle AI off.",
-                    cause,
-                  }),
-              ),
-            );
         const mcpSession = McpProviderSession.readMcpProviderSession(input.threadId);
         const runtimeInput: CodexSessionRuntimeOptions = {
           threadId: input.threadId,
@@ -2360,11 +2311,7 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
           binaryPath: effectiveConfig.binaryPath,
           launchArgs: resolveCodexLaunchArgs(effectiveConfig.launchArgs, effectiveEnvironment),
           ...(effectiveEnvironment ? { environment: effectiveEnvironment } : {}),
-          ...(plainHomePath
-            ? { homePath: plainHomePath }
-            : effectiveConfig.homePath
-              ? { homePath: effectiveConfig.homePath }
-              : {}),
+          ...(effectiveConfig.homePath ? { homePath: effectiveConfig.homePath } : {}),
           ...(isCodexResumeCursorSchema(input.resumeCursor)
             ? { resumeCursor: input.resumeCursor }
             : {}),

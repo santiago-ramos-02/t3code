@@ -1,20 +1,7 @@
-import { GENTLE_AI_OPTION_ID, gentleAiEnabled } from "@t3tools/contracts";
 import { ChatGptUsageLimitNotice } from "./ChatGptUsageLimitNotice";
 import type { ComposerTextPaste } from "../../native/T3ComposerEditor.types";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
-import {
-  isAtomCommandInterrupted,
-  squashAtomCommandFailure,
-} from "@t3tools/client-runtime/state/runtime";
 import { useAtomValue } from "@effect/atom-react";
-import type { PiGentleComposerState } from "@t3tools/contracts";
-import {
-  GENTLE_ODD_NEW_SPEC_PROMPT,
-  gentleOddContinuePrompt,
-  gentleOddFeatureSummary,
-} from "@t3tools/client-runtime/gentle-ai";
-import { useGentleAiQuery } from "../settings/SettingsGentleAiRouteScreen";
-import type { MenuAction } from "@react-native-menu/menu";
 import { clampFileAttachmentUploadBytes } from "@t3tools/client-runtime/state/attachments";
 import { pastedTextDisposition, replaceTextSelection } from "@t3tools/client-runtime/text-paste";
 import {
@@ -69,27 +56,18 @@ import { scopedThreadKey } from "../../lib/scopedEntities";
 import {
   composerContextImportsAtom,
   countComposerDraftAttachmentsAfterSelection,
-  createNewTaskDraft,
-  setComposerDraftText,
-  updateComposerDraftSettings,
 } from "../../state/use-composer-drafts";
 import type { ComposerDocumentAttachment } from "../../lib/composerContext";
 import { useProject } from "../../state/entities";
-import { useEnvironmentQuery } from "../../state/query";
-import { serverEnvironment } from "../../state/server";
-import { useAtomCommand } from "../../state/use-atom-command";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 
 import { AppText as Text } from "../../components/AppText";
 import { ComposerAttachmentButton } from "../../components/ComposerAttachmentButton";
-import { ControlPillMenu } from "../../components/ControlPill";
 import {
   ComposerAttachmentStrip,
   ComposerAttachmentThumbnail,
 } from "../../components/ComposerAttachmentStrip";
 import { VideoPreviewModal, type VideoPreviewSource } from "../../components/VideoPreviewModal";
-import { GentleRoseIcon } from "./GentleRoseIcon";
-import { useGentleProfileMenu } from "./useGentleProfileMenu";
 import { GlassSurface } from "../../components/GlassSurface";
 import { ComposerEditor, type ComposerEditorHandle } from "../../components/ComposerEditor";
 import { fileRoutePathSegments } from "../files/filePath";
@@ -176,7 +154,6 @@ export interface ThreadComposerProps {
   readonly onUpdateRuntimeMode: (runtimeMode: RuntimeMode) => void;
   readonly onUpdateInteractionMode: (interactionMode: ProviderInteractionMode) => void;
   readonly onExpandedChange?: (expanded: boolean) => void;
-  readonly onGentleControlsVisibilityChange?: (visible: boolean) => void;
   /** Fires on editor focus/blur; hosts use it to vet stale keyboard state. */
   readonly onEditorFocusChange?: (focused: boolean) => void;
 }
@@ -354,163 +331,6 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       ) ?? null
     );
   }, [props.serverConfig, props.selectedThread.modelSelection.instanceId]);
-  const isPiThread = selectedProviderStatus?.driver === "pi";
-  const gentleProvider = selectedProviderStatus?.gentleAi === true;
-  const gentleKey = `${props.environmentId}:${props.selectedThread.id}:${props.selectedThread.latestTurn?.turnId ?? ""}:${currentModelSelection.instanceId}:${props.projectCwd ?? ""}`;
-  const readGentle = useAtomCommand(serverEnvironment.readPiGentleComposer, {
-    reportFailure: false,
-    reportDefect: false,
-  });
-  const [gentleLoaded, setGentleLoaded] = useState<{
-    key: string;
-    value: PiGentleComposerState;
-  } | null>(null);
-  const [gentleError, setGentleError] = useState<{ key: string; message: string } | null>(null);
-  const gentleAiStatus = useEnvironmentQuery(
-    serverEnvironment.gentleAiStatus({ environmentId: props.environmentId, input: {} }),
-  ).data;
-  // Native menus cannot load after opening, so the ODD feature documents are read up front.
-  const gentleOddListed =
-    gentleProvider && gentleAiStatus?.oddFeatures === true && props.projectCwd !== null;
-  const gentleOdd = useGentleAiQuery(
-    props.environmentId,
-    "odd.features",
-    { cwd: props.projectCwd ?? "" },
-    { enabled: gentleOddListed },
-  );
-  const [gentleRefresh, setGentleRefresh] = useState(0);
-  useEffect(() => {
-    if (!isPiThread || props.connectionState !== "connected" || props.projectCwd === null) return;
-    let current = true;
-    void readGentle({
-      environmentId: props.environmentId,
-      input: { instanceId: currentModelSelection.instanceId, cwd: props.projectCwd },
-    }).then((result) => {
-      if (!current) return;
-      if (result._tag === "Success") {
-        setGentleLoaded({ key: gentleKey, value: result.value });
-        setGentleError(null);
-      } else if (!isAtomCommandInterrupted(result)) {
-        const failure = squashAtomCommandFailure(result);
-        setGentleLoaded(null);
-        setGentleError({
-          key: gentleKey,
-          message: failure instanceof Error ? failure.message : "Could not read Gentle AI status.",
-        });
-      }
-    });
-    return () => {
-      current = false;
-    };
-  }, [
-    currentModelSelection.instanceId,
-    isPiThread,
-    gentleKey,
-    gentleRefresh,
-    props.connectionState,
-    props.environmentId,
-    props.projectCwd,
-    readGentle,
-  ]);
-  const gentleState = gentleLoaded?.key === gentleKey ? gentleLoaded.value : null;
-  const gentleAvailable = gentleState?.available === true;
-  const gentleEnabled = gentleAiEnabled(currentModelSelection.options);
-  const canChangeGentle = props.selectedThread.latestTurn === null;
-  const showGentleControls =
-    gentleProvider &&
-    props.connectionState === "connected" &&
-    // In Pi, nothing Gentle-related shows unless the server confirms Pi loads gentle-pi here.
-    (!isPiThread || gentleAvailable) &&
-    // A thread that started without Gentle AI keeps it off, so it has nothing to offer.
-    (gentleEnabled || canChangeGentle);
-  // Hands a Gentle AI step to a new task draft in this project with Gentle on; the user sends it.
-  const startGentleTask = (prompt: string) => {
-    const draftKey = createNewTaskDraft({
-      environmentId: props.environmentId,
-      projectId: props.selectedThread.projectId,
-    });
-    updateComposerDraftSettings(draftKey, {
-      modelSelection: {
-        ...currentModelSelection,
-        options: [
-          ...(currentModelSelection.options?.filter(
-            (option) => option.id !== GENTLE_AI_OPTION_ID,
-          ) ?? []),
-          { id: GENTLE_AI_OPTION_ID, value: true },
-        ],
-      },
-    });
-    setComposerDraftText(draftKey, prompt);
-    navigation.navigate("NewTaskSheet", {
-      screen: "NewTaskDraft",
-      params: {
-        environmentId: String(props.environmentId),
-        projectId: String(props.selectedThread.projectId),
-        draftId: draftKey,
-      },
-    });
-  };
-  const gentleProfiles = useGentleProfileMenu({
-    environmentId: props.environmentId,
-    cwd: props.projectCwd,
-    state: gentleState,
-    enabled: gentleEnabled,
-    selection: currentModelSelection,
-    models: selectedProviderStatus?.models ?? [],
-    onModelSelectionChange: props.onUpdateModelSelection,
-    onApplied: () => setGentleRefresh((value) => value + 1),
-  });
-  const gentleMenuActions: MenuAction[] = [
-    ...(canChangeGentle
-      ? [
-          {
-            id: "enable",
-            title: "Gentle AI",
-            state: gentleEnabled ? ("on" as const) : ("off" as const),
-          },
-        ]
-      : []),
-    ...(gentleProfiles.action === null ? [] : [gentleProfiles.action]),
-    ...(gentleOddListed
-      ? [
-          {
-            id: "odd",
-            title: "Feature documents",
-            image: "doc.text",
-            subactions: [
-              ...(gentleOdd.data?.features ?? []).map((feature) => ({
-                id: `odd:${feature.path}`,
-                title: feature.title,
-                subtitle: gentleOddFeatureSummary(feature),
-              })),
-              ...(gentleOdd.data === null
-                ? [
-                    {
-                      id: "odd-unavailable",
-                      title: gentleOdd.error ? "Unavailable" : "Reading…",
-                      ...(gentleOdd.error ? { subtitle: gentleOdd.error } : {}),
-                      attributes: { disabled: true },
-                    },
-                  ]
-                : gentleOdd.data.features.length === 0
-                  ? [
-                      {
-                        id: "odd-empty",
-                        title: "None yet",
-                        attributes: { disabled: true },
-                      },
-                    ]
-                  : []),
-              { id: "odd-new", title: "New spec", image: "plus" },
-            ],
-          },
-        ]
-      : []),
-    ...(gentleError?.key === gentleKey
-      ? [{ id: "error", title: "Show error", image: "exclamationmark.triangle" }]
-      : []),
-    { id: "refresh", title: "Refresh", image: "arrow.clockwise" },
-  ];
   const composerOwnerKey = scopedThreadKey(props.environmentId, props.selectedThread.id);
   const openDraftDocument = (attachment: ComposerDocumentAttachment) => {
     Keyboard.dismiss();
@@ -559,7 +379,6 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       : null,
     pullRequestRepository: project?.repositoryIdentity?.displayName ?? null,
     selectedProviderStatus,
-    gentleEnabled,
     hasThread: true,
     hasCompactableConversation: props.hasCompactableConversation,
     onChangeDraftMessage: props.onChangeDraftMessage,
@@ -586,12 +405,6 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   const isVoiceInputPresented = voicePresentation.statusLabel !== null;
   // An open draft stays visible; only a collapsed composer becomes a voice strip.
   const isExpanded = isFocused || settingsSheetPresentation.keepsComposerExpanded;
-  const gentleControlsVisible = isExpanded && showGentleControls && !voiceInput.isBusy;
-  const { onGentleControlsVisibilityChange } = props;
-  useEffect(() => {
-    onGentleControlsVisibilityChange?.(gentleControlsVisible);
-    return () => onGentleControlsVisibilityChange?.(false);
-  }, [gentleControlsVisible, onGentleControlsVisibilityChange]);
   const showsCompactDictation = isVoiceInputPresented && !isExpanded;
   const isToolbarVisible = isExpanded || isVoiceInputPresented;
   const attachmentBlockReason = composerAttachmentUploadBlockReason({
@@ -689,7 +502,6 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
         threadTitle: props.selectedThread.title,
         projectTitle: props.environmentLabel ?? "T3 Code",
       });
-      return messageId;
     } finally {
       inFlightThreadIdsRef.current.delete(threadKey);
     }
@@ -709,8 +521,8 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
 
   // ── Model menu ───────────────────────────────────────────
   const modelOptions = useMemo(
-    () => buildModelOptions(props.serverConfig, currentModelSelection, props.projectCwd),
-    [props.serverConfig, currentModelSelection, props.projectCwd],
+    () => buildModelOptions(props.serverConfig, currentModelSelection),
+    [props.serverConfig, currentModelSelection],
   );
   const providerGroups = useMemo(() => groupByProvider(modelOptions), [modelOptions]);
   // An existing thread is bound to its harness: sessions can't move between
@@ -869,53 +681,6 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
           <Pressable accessibilityRole="button" className="px-3 py-2" onPress={openSettings}>
             <Text className="text-xs text-foreground">Model unavailable. Open model settings.</Text>
           </Pressable>
-        ) : null}
-
-        {gentleControlsVisible ? (
-          <View className="flex-row items-center justify-end gap-1 px-2 pb-1">
-            <ControlPillMenu
-              actions={gentleMenuActions}
-              onPressAction={({ nativeEvent }) => {
-                if (gentleProfiles.handle(nativeEvent.event)) return;
-                if (nativeEvent.event === "enable" && canChangeGentle) {
-                  props.onUpdateModelSelection({
-                    ...currentModelSelection,
-                    options: [
-                      ...(currentModelSelection.options?.filter(
-                        (option) => option.id !== GENTLE_AI_OPTION_ID,
-                      ) ?? []),
-                      { id: GENTLE_AI_OPTION_ID, value: !gentleEnabled },
-                    ],
-                  });
-                }
-                if (nativeEvent.event === "odd-new") startGentleTask(GENTLE_ODD_NEW_SPEC_PROMPT);
-                if (nativeEvent.event.startsWith("odd:")) {
-                  const feature = gentleOdd.data?.features.find(
-                    (entry) => `odd:${entry.path}` === nativeEvent.event,
-                  );
-                  if (feature) startGentleTask(gentleOddContinuePrompt(feature));
-                }
-                if (nativeEvent.event === "error" && gentleError?.key === gentleKey) {
-                  Alert.alert("Gentle AI", gentleError.message);
-                }
-                if (nativeEvent.event === "refresh") setGentleRefresh((value) => value + 1);
-              }}
-            >
-              <ComposerInlineControl
-                // On or off, and the profile in use, show in the menu.
-                label="Gentle AI"
-                accessibilityLabel={
-                  gentleEnabled
-                    ? `Gentle AI${gentleState?.effectiveProfile ? `, profile ${gentleState.effectiveProfile.name}` : ""}`
-                    : "Gentle AI off"
-                }
-                renderIcon={(size) => (
-                  <GentleRoseIcon color={materialTheme["--color-foreground"]} size={size} />
-                )}
-                maxWidth={125}
-              />
-            </ControlPillMenu>
-          </View>
         ) : null}
 
         <ComposerSurface

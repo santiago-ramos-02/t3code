@@ -34,7 +34,6 @@ import {
   resolveProviderSkillsForCwd,
   resolveProviderSlashCommandsForCwd,
 } from "@t3tools/client-runtime/providerSkills";
-import { resourcesForGentle } from "@t3tools/client-runtime/piGentleComposer";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { ComposerEditorSelection } from "../../components/ComposerEditor";
@@ -172,7 +171,6 @@ export function useComposerCommandMenu({
   hasThread,
   hasCompactableConversation,
   offersUsageLimits = false,
-  gentleEnabled = true,
   enabled = true,
   onChangeDraftMessage,
   onUpdateInteractionMode,
@@ -189,8 +187,6 @@ export function useComposerCommandMenu({
   readonly hasCompactableConversation: boolean;
   /** Whether T3 itself offers /usage-limits for the selected provider. */
   readonly offersUsageLimits?: boolean;
-  /** A Pi thread with Gentle AI off loads none of its packages, so their commands are hidden. */
-  readonly gentleEnabled?: boolean;
   readonly enabled?: boolean;
   readonly onChangeDraftMessage: (value: string) => void;
   readonly onUpdateInteractionMode?: (mode: ProviderInteractionMode) => void;
@@ -231,13 +227,8 @@ export function useComposerCommandMenu({
 
   const skills = useMemo(
     () =>
-      selectedProviderStatus
-        ? resourcesForGentle(
-            resolveProviderSkillsForCwd(selectedProviderStatus, projectCwd),
-            gentleEnabled,
-          )
-        : [],
-    [gentleEnabled, projectCwd, selectedProviderStatus],
+      selectedProviderStatus ? resolveProviderSkillsForCwd(selectedProviderStatus, projectCwd) : [],
+    [projectCwd, selectedProviderStatus],
   );
   const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders, {
     reportFailure: false,
@@ -352,10 +343,7 @@ export function useComposerCommandMenu({
           ? {
               ...selectedProviderStatus,
               slashCommands: getProviderSlashCommandsForSlashMenu(
-                resourcesForGentle(
-                  resolveProviderSlashCommandsForCwd(selectedProviderStatus, projectCwd),
-                  gentleEnabled,
-                ),
+                resolveProviderSlashCommandsForCwd(selectedProviderStatus, projectCwd),
                 visibleSkills,
               ),
             }
@@ -474,7 +462,6 @@ export function useComposerCommandMenu({
 
     return [];
   }, [
-    gentleEnabled,
     hasThread,
     hasCompactableConversation,
     onUpdateInteractionMode,

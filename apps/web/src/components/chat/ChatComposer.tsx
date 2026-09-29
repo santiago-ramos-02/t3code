@@ -35,8 +35,6 @@ import type {
   SnapShotSource,
 } from "@t3tools/contracts";
 import {
-  GENTLE_AI_OPTION_ID,
-  gentleAiEnabled,
   ProviderDriverKind,
   ProviderInstanceId,
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
@@ -44,7 +42,6 @@ import {
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
 } from "@t3tools/contracts";
 import type { EnvironmentConnectionPresentation } from "@t3tools/client-runtime/connection";
-import { resourcesForGentle } from "@t3tools/client-runtime/piGentleComposer";
 import {
   isPasteAsTextShortcut,
   nextPastedTextFileName,
@@ -251,7 +248,6 @@ import { resolveModelPickerSelectedModel } from "./ModelPickerContent";
 import { type ComposerCommandItem, ComposerCommandMenu } from "./ComposerCommandMenu";
 import { ComposerPendingApprovalActions } from "./ComposerPendingApprovalActions";
 import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
-import { GentleComposerActions } from "./GentleComposerActions";
 import { ComposerImageThumbnail } from "./ComposerImageThumbnail";
 import { ComposerPrimaryActions } from "./ComposerPrimaryActions";
 import { ComposerPendingApprovalPanel } from "./ComposerPendingApprovalPanel";
@@ -978,7 +974,6 @@ import {
   getProviderSlashCommandsForSlashMenu,
   getProviderSkillsForSlashMenu,
   resolveProviderSkillsForCwd,
-  resolveProviderForCwd,
   resolveProviderSlashCommandsForCwd,
 } from "@t3tools/client-runtime/providerSkills";
 import { searchProviderSkills } from "../../providerSkillSearch";
@@ -1418,8 +1413,6 @@ export interface ChatComposerProps {
   keybindings: ResolvedKeybindingsConfig;
   terminalOpen: boolean;
   gitCwd: string | null;
-  /** Opens a new draft in this project for a Gentle AI step (see GentleComposerActions). */
-  onStartGentleThread: (prompt: string, modelSelection: ModelSelection) => void;
   pullRequestProjectId: ProjectId | null;
   pullRequestRepository: string | null;
   restingControlsHost: HTMLDivElement | null;
@@ -1472,7 +1465,7 @@ export interface ChatComposerProps {
     model: string,
     options?: { focusComposer?: boolean },
   ) => void;
-  onOpenProviderSetup: (instanceId: ProviderInstanceId, projectCwd?: string) => void;
+  onOpenProviderSetup: (instanceId: ProviderInstanceId) => void;
   getModelDisabledReason: (instanceId: ProviderInstanceId, model: string) => string | null;
   toggleInteractionMode: () => void;
   handleRuntimeModeChange: (mode: RuntimeMode) => void;
@@ -1545,7 +1538,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     keybindings,
     terminalOpen,
     gitCwd,
-    onStartGentleThread,
     pullRequestProjectId,
     pullRequestRepository,
     restingControlsHost,
@@ -1753,10 +1745,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           })
       : null);
   const setComposerDraftPrompt = useComposerDraftStore((store) => store.setPrompt);
-  const setComposerDraftModelSelection = useComposerDraftStore((store) => store.setModelSelection);
-  const setStickyComposerModelSelection = useComposerDraftStore(
-    (store) => store.setStickyModelSelection,
-  );
   const addComposerDraftImages = useComposerDraftStore((store) => store.addImages);
   const removeComposerDraftImage = useComposerDraftStore((store) => store.removeImage);
   const addComposerDraftFiles = useComposerDraftStore((store) => store.addFiles);
@@ -1874,19 +1862,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   // Instance-aware projection of the wire provider list. One entry per
   // configured instance (default built-in + any custom `providerInstances.*`),
   // sorted default-first per driver kind for a stable picker order.
-  const scopedProviderStatuses = useMemo(
-    () => providerStatuses.map((provider) => resolveProviderForCwd(provider, gitCwd)),
-    [gitCwd, providerStatuses],
-  );
   const providerInstanceEntries = useMemo<ReadonlyArray<ProviderInstanceEntry>>(
     () =>
       sortProviderInstanceEntries(
-        applyProviderInstanceSettings(
-          deriveProviderInstanceEntries(scopedProviderStatuses),
-          settings,
-        ),
+        applyProviderInstanceSettings(deriveProviderInstanceEntries(providerStatuses), settings),
       ),
-    [scopedProviderStatuses, settings],
+    [providerStatuses, settings],
   );
   const selectedProviderByThreadId = composerDraft.activeProvider ?? null;
   const {
@@ -1943,7 +1924,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
 
   const { modelOptions: composerModelOptions, selectedModel } = useEffectiveComposerModelState({
     threadRef: composerDraftTarget,
-    providers: scopedProviderStatuses,
+    providers: providerStatuses,
     selectedProvider,
     selectedInstanceId,
     threadModelSelection: activeThreadModelSelection,
@@ -1967,6 +1948,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     [selectedProviderEntry],
   );
   const compactCommandAvailable = providerSupportsManualCompaction(selectedProviderEntry);
+  const selectedProviderSkills = selectedProviderStatus
+    ? resolveProviderSkillsForCwd(selectedProviderStatus, gitCwd)
+    : [];
+  const selectedProviderSlashCommands = selectedProviderStatus
+    ? resolveProviderSlashCommandsForCwd(selectedProviderStatus, gitCwd)
+    : [];
   const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders, {
     reportFailure: false,
   });
@@ -2021,36 +2008,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       }
     }, retryLater);
   }, [environmentId, gitCwd, prompt, refreshProviders, selectedProviderEntry]);
-  const requestedPiWorkspaceModels = useRef(new Set<string>());
-  useEffect(() => {
-    if (!gitCwd) return;
-    for (const provider of providerStatuses) {
-      if (
-        provider.driver !== "pi" ||
-        !provider.enabled ||
-        !provider.installed ||
-        provider.instanceId === selectedProviderEntry?.instanceId ||
-        provider.workspaceSnapshots?.some((snapshot) => snapshot.cwd === gitCwd)
-      ) {
-        continue;
-      }
-      const key = `${environmentId}:${provider.instanceId}:${gitCwd}`;
-      if (requestedPiWorkspaceModels.current.has(key)) continue;
-      requestedPiWorkspaceModels.current.add(key);
-      void refreshProviders({
-        environmentId,
-        input: { instanceId: provider.instanceId, cwd: gitCwd },
-      }).then((result) => {
-        if (result._tag === "Failure") requestedPiWorkspaceModels.current.delete(key);
-      });
-    }
-  }, [
-    environmentId,
-    gitCwd,
-    providerStatuses,
-    refreshProviders,
-    selectedProviderEntry?.instanceId,
-  ]);
   const selectedProviderModels = useMemo<ReadonlyArray<ServerProvider["models"][number]>>(
     () => selectedProviderEntry?.models ?? [],
     [selectedProviderEntry],
@@ -2092,20 +2049,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     () => createModelSelection(selectedInstanceId, selectedModel, selectedModelOptionsForDispatch),
     [selectedInstanceId, selectedModel, selectedModelOptionsForDispatch],
   );
-  const selectedGentleEnabled = gentleAiEnabled(selectedModelSelection.options);
-  // A thread with Gentle AI off loads nothing from it, so its commands are not offered.
-  const selectedProviderSkills = selectedProviderStatus
-    ? resourcesForGentle(
-        resolveProviderSkillsForCwd(selectedProviderStatus, gitCwd),
-        selectedGentleEnabled,
-      )
-    : [];
-  const selectedProviderSlashCommands = selectedProviderStatus
-    ? resourcesForGentle(
-        resolveProviderSlashCommandsForCwd(selectedProviderStatus, gitCwd),
-        selectedGentleEnabled,
-      )
-    : [];
   const selectedModelForPicker = selectedModel;
   // Instance-keyed option list so the picker can show each configured
   // instance (built-in + custom) as a first-class sidebar entry. The
@@ -6404,64 +6347,15 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             </ComposerBanner.Attachment>
           ) : null}
         </ComposerBanner.Column>
-        <div className="ml-auto flex min-w-0 items-end gap-1">
-          {!isComposerApprovalState ? (
-            <ComposerStashBadge
-              count={stashQueue.length}
-              menuOpen={isStashMenuOpen}
-              pulseKey={stashPulse.key}
-              pulsing={stashPulse.active}
-              onToggleMenu={toggleStashMenu}
-            />
-          ) : null}
-          {selectedProviderStatus?.gentleAi === true &&
-          gitCwd !== null &&
-          // A thread that started without Gentle AI keeps it off, so it has nothing to offer.
-          (selectedGentleEnabled || _isLocalDraftThread) ? (
-            <GentleComposerActions
-              key={`${routeKind}:${activeThreadId ?? draftId ?? "new"}:${activeThread?.latestTurn?.turnId ?? ""}:${activeThread?.latestTurn?.completedAt ?? ""}:${selectedInstanceId}:${gitCwd}`}
-              environmentId={environmentId}
-              instanceId={selectedInstanceId}
-              pi={selectedProvider === "pi"}
-              cwd={gitCwd}
-              enabled={selectedGentleEnabled}
-              canChange={_isLocalDraftThread && multipleModelSelections === null}
-              modelSelection={selectedModelSelection}
-              models={selectedProviderModels}
-              modelLocked={providerCatalogPending || isSendBusy || multipleModelSelections !== null}
-              onModelSelectionChange={(selection) => {
-                // A complete selection: the profile's thinking level replaces the thread's.
-                setComposerDraftModelSelection(composerDraftTarget, selection, {
-                  explicit: true,
-                  replaceOptions: true,
-                });
-                setStickyComposerModelSelection(selection);
-              }}
-              onStartThread={(prompt) =>
-                onStartGentleThread(
-                  prompt,
-                  createModelSelection(selectedInstanceId, selectedModel, [
-                    ...(selectedModelSelection.options?.filter(
-                      (option) => option.id !== GENTLE_AI_OPTION_ID,
-                    ) ?? []),
-                    { id: GENTLE_AI_OPTION_ID, value: true },
-                  ]),
-                )
-              }
-              onEnabledChange={(enabled) =>
-                setComposerDraftModelSelection(
-                  composerDraftTarget,
-                  createModelSelection(selectedInstanceId, selectedModel, [
-                    ...(selectedModelSelection.options?.filter(
-                      (option) => option.id !== GENTLE_AI_OPTION_ID,
-                    ) ?? []),
-                    { id: GENTLE_AI_OPTION_ID, value: enabled },
-                  ]),
-                )
-              }
-            />
-          ) : null}
-        </div>
+        {!isComposerApprovalState ? (
+          <ComposerStashBadge
+            count={stashQueue.length}
+            menuOpen={isStashMenuOpen}
+            pulseKey={stashPulse.key}
+            pulsing={stashPulse.active}
+            onToggleMenu={toggleStashMenu}
+          />
+        ) : null}
       </ComposerBanner.Dock>
       <div className="relative">
         <ComposerSurface.Main

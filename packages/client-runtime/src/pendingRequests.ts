@@ -109,7 +109,6 @@ const staleRequestFailureDetails = {
     "unknown pending user-input request",
     "unknown pending user input request",
     "unknown pending codex user input request",
-    "pi user-input request is no longer pending",
   ],
 } as const;
 

@@ -9,7 +9,6 @@ import type {
   CodexFeedbackSubmission,
   EnvironmentThreadStatus,
 } from "@t3tools/client-runtime/state/threads";
-import { providerSessionStartupLabel } from "@t3tools/client-runtime/state/provider-instance-display";
 import { useKeyboardChatComposerInset, useKeyboardScrollToEnd } from "@legendapp/list/keyboard";
 import { resolveProviderSkillsForCwd } from "@t3tools/client-runtime/providerSkills";
 import type { LegendListRef } from "@legendapp/list/react-native";
@@ -369,7 +368,6 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
         return null;
     }
   })();
-  const providerStartupLabel = providerSessionStartupLabel(props.selectedThread.session ?? null);
   // Opening a running thread resyncs for a few frames. The pill shows the
   // sync label only when the sync lasts, so it does not flash before the timer.
   const threadSyncLabel = useDelayedStatus(selectedThreadKey, realThreadSyncLabel);
@@ -400,13 +398,6 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     if (props.creationState?.kind === "failed") {
       return null;
     }
-    if (
-      providerStartupLabel !== null &&
-      props.worktreeSetup?.snapshot.phase !== "running" &&
-      contentPresentationKind === "ready"
-    ) {
-      return { kind: "syncing", label: providerStartupLabel };
-    }
     if (threadSyncLabel !== null) {
       return { kind: "syncing", label: threadSyncLabel };
     }
@@ -415,15 +406,6 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     }
     if (props.activeWorkStartedAt !== null && contentPresentationKind === "ready") {
       return { kind: "working", startedAt: props.activeWorkStartedAt };
-    }
-    if (props.selectedThread.backgroundLiveness != null && contentPresentationKind === "ready") {
-      return {
-        kind: "background",
-        label:
-          props.selectedThread.backgroundLiveness === "working"
-            ? "Background work continues"
-            : "Monitoring background work",
-      };
     }
     return null;
   })();
@@ -448,10 +430,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
           entry.message.text.trim().toLowerCase() !== "/compact"),
     ) ||
     (Boolean(props.loadEarlier) && props.selectedThread.latestUserMessageAt !== null);
-  const [gentleControlsVisible, setGentleControlsVisible] = useState(false);
-  const composerChrome = composerExpanded
-    ? COMPOSER_EXPANDED_CHROME + (gentleControlsVisible ? 48 : 0)
-    : COMPOSER_COLLAPSED_CHROME;
+  const composerChrome = composerExpanded ? COMPOSER_EXPANDED_CHROME : COMPOSER_COLLAPSED_CHROME;
   const composerOverlapHeight = composerChrome + composerBottomInset;
   // While a user-input request is pending, the questionnaire owns the
   // composer slot outright: expanded it is the full card, collapsed it is a
@@ -945,7 +924,6 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
               agentLabel={agentLabel}
               latestTurn={props.selectedThread.latestTurn}
               activeWorkStartedAt={props.activeWorkStartedAt}
-              backgroundWorkContinues={props.selectedThread.backgroundLiveness != null}
               listRef={listRef}
               freeze={freeze}
               anchorMessageId={anchorMessageId}
@@ -1127,7 +1105,6 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                   onUpdateRuntimeMode={props.onUpdateThreadRuntimeMode}
                   onUpdateInteractionMode={props.onUpdateThreadInteractionMode}
                   onExpandedChange={setComposerExpanded}
-                  onGentleControlsVisibilityChange={setGentleControlsVisible}
                   onEditorFocusChange={handleComposerFocusChange}
                 />
               </View>

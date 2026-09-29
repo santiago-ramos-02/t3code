@@ -36,14 +36,6 @@ export const SETTINGS_DEVICE_ONLY_PATHS: ReadonlySet<string> = new Set([
   "/settings/connections",
 ]);
 
-/**
- * Pages that manage one environment's machine state rather than writing settings to a scope.
- * They name the single environment they act on instead of the project and environment scope.
- */
-export const SETTINGS_SINGLE_ENVIRONMENT_PATHS: ReadonlyMap<string, string> = new Map([
-  ["/settings/gentle-ai", "Gentle AI on"],
-]);
-
 interface SettingsScopeMenuProps {
   readonly value: SettingsScopeSearch;
   readonly groups: readonly SidebarProjectSnapshot[];
@@ -63,19 +55,6 @@ export function SettingsScopeSentence() {
   const pathname = useLocation({ select: (location) => location.pathname });
   const { environments } = useEnvironments();
   if (scope === null || SETTINGS_DEVICE_ONLY_PATHS.has(pathname)) return null;
-  const singleEnvironmentLead = SETTINGS_SINGLE_ENVIRONMENT_PATHS.get(pathname);
-  if (singleEnvironmentLead !== undefined)
-    return (
-      <p className="flex min-w-0 flex-wrap items-center gap-1.5 px-3 text-base text-muted-foreground sm:px-4">
-        <span className="shrink-0">{singleEnvironmentLead}</span>
-        <SingleEnvironmentMenu
-          selectedId={scope.environment?.environmentId ?? null}
-          environments={environments}
-          // The project axis does not apply; choosing an environment clears it.
-          onChange={(environmentId) => scope.selectScope(selectEnvironmentAxis({}, environmentId))}
-        />
-      </p>
-    );
   const props: SettingsScopeMenuProps = {
     value: scope.search,
     singleEnvironment: scope.singleEnvironment,
@@ -201,67 +180,6 @@ function EnvironmentScopeMenu({
             </span>
           </MenuRadioItem>
         ))}
-      </MenuRadioGroup>
-    </ScopeMenu>
-  );
-}
-
-/** One environment, never "All": the page acts on the machine it names. */
-function SingleEnvironmentMenu({
-  selectedId,
-  environments,
-  onChange,
-}: {
-  readonly selectedId: string | null;
-  readonly environments: readonly EnvironmentPresentation[];
-  readonly onChange: (environmentId: string) => void;
-}) {
-  const selected = environments.find((environment) => environment.environmentId === selectedId);
-  return (
-    <ScopeMenu
-      ariaLabel="Environment"
-      icon={
-        selected ? (
-          <EnvironmentMachineIcon
-            aria-hidden
-            kind={resolveEnvironmentMachineKind(selected.serverConfig)}
-            className="size-3.5 shrink-0"
-          />
-        ) : null
-      }
-      label={selected ? settingsScopeEnvironmentLabel(selected, environments) : "No environment"}
-    >
-      <MenuRadioGroup
-        value={selectedId ?? ""}
-        onValueChange={(next) => {
-          if (typeof next === "string" && next !== "") onChange(next);
-        }}
-      >
-        {environments.map((environment) => {
-          const connected = environment.connection.phase === "connected";
-          return (
-            <MenuRadioItem
-              key={environment.environmentId}
-              value={environment.environmentId}
-              disabled={!connected}
-            >
-              <span className="flex min-w-0 items-center gap-2">
-                <EnvironmentMachineIcon
-                  aria-hidden
-                  kind={resolveEnvironmentMachineKind(environment.serverConfig)}
-                  className="size-3.5"
-                />
-                <span className="min-w-0 flex-1 truncate">
-                  {settingsScopeEnvironmentLabel(environment, environments)}
-                </span>
-                {connected ? null : (
-                  <span className="shrink-0 text-xs text-muted-foreground">Offline</span>
-                )}
-                <MenuRadioItemIndicator />
-              </span>
-            </MenuRadioItem>
-          );
-        })}
       </MenuRadioGroup>
     </ScopeMenu>
   );
