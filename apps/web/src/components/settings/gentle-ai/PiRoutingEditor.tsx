@@ -326,7 +326,8 @@ function GentleModelSelect({
                   </span>
                   {model ? (
                     <span className="truncate text-xs text-muted-foreground">
-                      {model.subProvider ?? "Pi"} · {slug}
+                      {/* Pi slugs already start with their provider. */}
+                      {model.subProvider ?? slug}
                     </span>
                   ) : null}
                 </span>
