@@ -378,7 +378,7 @@ function GentleAiClaudeProfilePicker(props: {
             ? GENTLE_AI_CLAUDE_PROFILE_NEEDS_PROXY
             : active === null
               ? "Claude Code runs its own models."
-              : (active.description ?? gentleAiClaudeProfileSummary(active))}
+              : gentleAiClaudeProfileSummary(active)}
         </Text>
       </View>
       <ChoiceMenu

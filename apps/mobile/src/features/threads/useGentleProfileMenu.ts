@@ -52,7 +52,7 @@ export function useGentleProfileMenu(input: {
       ? null
       : {
           id: "profile",
-          title: effective?.pinned ? "Profile pinned for this checkout" : "Profile",
+          title: effective?.pinned ? "Profile · pinned here" : "Profile",
           ...(effective === null ? {} : { subtitle: effective.name }),
           image: "slider.horizontal.3",
           subactions: profiles.map((profile) => ({

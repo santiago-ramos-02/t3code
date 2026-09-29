@@ -59,10 +59,12 @@ time it hands work to a subagent. Through a proxy that serves other providers' m
 such as [CLIProxyAPI](./cli-proxy.md), a Claude Code profile sets which model each slot
 really runs and tells Claude what each slot is for, so it chooses a model per task: for
 example Opus for design, Sonnet for code, and an inexpensive model behind `haiku` for
-bounded tasks. Switch profiles from Claude Code's row under **Your agents**, and create or
-edit them from **Open**, then **Edit** next to **Profile**; the slot choices are the models your proxied Claude Code
-providers serve. Keep one profile per situation, such as one for when an account is near
-its usage limit, and switch when it is; **None** puts Claude Code's own models back.
+bounded tasks. Switch profiles from Claude Code's row under **Your agents**, or from the
+Gentle AI chip in a CLIProxyAPI thread's composer. **Open** lists every profile: **Use**
+switches to one, choosing a profile opens it for editing, and **New** starts a copy of the
+one in use. The slot choices are the models your proxied Claude Code providers serve. Keep
+one profile per situation, such as one for when an account is near its usage limit, and
+switch when it is; **None** puts Claude Code's own models back.
 
 A profile applies only to Claude Code providers that go through a proxy, such as the
 CLIProxyAPI provider that **Use in T3 Code** adds. Claude Code that reaches Anthropic
@@ -72,8 +74,8 @@ Gentle AI's phases to slots; phases are shared by every Claude Code, so a phase 
 
 ## Turn Gentle AI off for a thread
 
-In a new thread, open the Gentle AI dropdown in the composer and clear
-**Enable**. The thread's agent then runs on your own configuration without
+In a new thread, open the Gentle AI chip in the composer and clear **Gentle AI**. The
+chip then says **Off**; while Gentle AI is on, it names the profile in use. The thread's agent then runs on your own configuration without
 anything Gentle AI added: its instructions, subagents, skills, commands, hooks,
 and MCP servers. Your own settings, sign-in, and history are unchanged, and
 Gentle AI stays on for your other threads. The choice is stored with the thread

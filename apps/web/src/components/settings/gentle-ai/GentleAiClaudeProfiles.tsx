@@ -9,6 +9,7 @@ import {
   gentleAiClaudeProfileSummary,
   isProxiedClaudeInstance,
 } from "@t3tools/client-runtime/gentle-ai";
+import { ChevronRightIcon } from "lucide-react";
 import { useState } from "react";
 
 import { useEnvironmentSettings } from "../../../hooks/useSettings";
@@ -16,22 +17,20 @@ import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../../ui/select";
 import { Spinner } from "../../ui/spinner";
-import { Switch } from "../../ui/switch";
-import { SettingsRow } from "../settingsLayout";
+import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../../ui/collapsible";
 import {
   profilePhaseModels,
   withPhaseModels,
   withSlotModel,
   withSlotUse,
 } from "./GentleAiClaudeProfiles.logic";
-import { GentleAiFlowFooter, GentleAiFlowHeader, GentleAiFlowPanel } from "./GentleAiFlow";
 import { GentleAiModelEditor } from "./GentleAiModelEditor";
+import { GentleAiProfileList } from "./GentleAiProfileList";
 import type { GentleAiSectionProps } from "./GentleAiSettingsPage";
 import { useGentleAiQuery } from "./useGentleAi";
 
-// Select values for "no profile" and "a new profile", which no profile name can be.
+// Select value for "no profile", which no profile name can be.
 const NONE = "\u0000none";
-const NEW = "\u0000new";
 
 const SLOT_HINTS = {
   fable: "Spare slot, above opus",
@@ -59,7 +58,7 @@ export function useGentleAiClaudeProfiles({
       : data.profiles.length > 0 && !proxied
         ? GENTLE_AI_CLAUDE_PROFILE_NEEDS_PROXY
         : active !== null
-          ? (active.description ?? gentleAiClaudeProfileSummary(active))
+          ? gentleAiClaudeProfileSummary(active)
           : data.profiles.length === 0
             ? "Which models Claude Code's slots run through a proxy, and what it should use each for. Switch profiles to move work off an account near its limit."
             : "Claude Code runs its own models.");
@@ -107,39 +106,13 @@ export function GentleAiClaudeProfileSelect({
   );
 }
 
-/** Which Claude Code profile is applied, switchable in place, and a way into editing them. */
-export function GentleAiClaudeProfileRow(props: GentleAiSectionProps) {
+/**
+ * Claude Code's profiles on its agent page, as the same list Pi's use: what each runs, Use to
+ * switch, and a row opens its editor. Saving the profile in use applies it again.
+ */
+export function GentleAiClaudeProfilesSection(props: GentleAiSectionProps) {
+  const { environmentId, disabled, startJob, onError } = props;
   const profiles = useGentleAiClaudeProfiles(props);
-  return (
-    <SettingsRow
-      title="Profile"
-      description={profiles.summary}
-      control={
-        <div className="flex items-center gap-2">
-          <GentleAiClaudeProfileSelect profiles={profiles} disabled={props.disabled} />
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={props.disabled || profiles.data === null}
-            onClick={() => props.openFlow({ kind: "claudeProfiles" })}
-          >
-            {profiles.data !== null && profiles.data.profiles.length === 0 ? "Create" : "Edit"}
-          </Button>
-        </div>
-      }
-    />
-  );
-}
-
-/** Creates, edits, deletes, and applies Claude Code profiles, in place of the page. */
-export function GentleAiClaudeProfilesFlow({
-  environmentId,
-  disabled,
-  startJob,
-  onError,
-  onClose,
-}: GentleAiSectionProps & { readonly onClose: () => void }) {
-  const profiles = useGentleAiQuery(environmentId, "claude.profiles", {});
   // The phases a profile can pin, and the slots they can be pinned to.
   const models = useGentleAiQuery(environmentId, "models.get", { agent: "claude-code" });
   const providerInstances = useEnvironmentSettings(
@@ -147,107 +120,67 @@ export function GentleAiClaudeProfilesFlow({
     (settings) => settings.providerInstances,
   );
   const slotOptions = claudeProfileSlotModels(providerInstances);
-  const [editing, setEditing] = useState<string | null>(null);
   const data = profiles.data;
-  const run = (promise: Promise<string | null>, after?: () => void) =>
-    void promise.then((error) => (error ? onError(error) : after?.()));
-
-  const selected =
-    editing === NEW
-      ? null
-      : (data?.profiles.find((profile) => profile.name === (editing ?? data.active)) ??
-        data?.profiles[0] ??
-        null);
-  const selectedKey = editing === NEW || selected === null ? NEW : selected.name;
+  const run = async (promise: Promise<string | null>) => {
+    const error = await promise;
+    if (error) onError(error);
+    return error === null;
+  };
 
   return (
-    <section className="space-y-4">
-      <GentleAiFlowHeader
-        title="Claude Code profiles"
-        description="A profile sets which model each of Claude Code's slots runs and tells it what each is for, so it picks per task. It applies to Claude Code providers that go through a proxy, such as CLIProxyAPI; Claude Code reaching Anthropic directly keeps its own models. It can also pin Gentle AI's phases, for every Claude Code."
-        onBack={onClose}
-      />
-      {data === null ? (
-        <GentleAiFlowPanel>
-          <p className="flex items-center gap-2 text-muted-foreground text-sm">
-            {profiles.error ?? (
-              <>
-                <Spinner className="size-3.5" />
-                Reading profiles
-              </>
-            )}
-          </p>
-        </GentleAiFlowPanel>
-      ) : (
-        <>
-          <GentleAiFlowPanel>
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-sm">Profile</span>
-              <Select
-                value={selectedKey}
-                onValueChange={(next) => next !== null && setEditing(next)}
-                disabled={disabled}
-              >
-                <SelectTrigger size="sm" className="w-56" aria-label="Profile to edit">
-                  <SelectValue>
-                    <span className="truncate">
-                      {selectedKey === NEW
-                        ? "New profile"
-                        : `${selectedKey}${selectedKey === data.active ? " · applied" : ""}`}
-                    </span>
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectPopup align="end">
-                  {data.profiles.map((profile) => (
-                    <SelectItem key={profile.name} value={profile.name}>
-                      {profile.name}
-                      {profile.name === data.active ? " · applied" : ""}
-                    </SelectItem>
-                  ))}
-                  <SelectItem value={NEW}>New profile</SelectItem>
-                </SelectPopup>
-              </Select>
-            </div>
-          </GentleAiFlowPanel>
-          <ProfileDraft
-            key={selectedKey}
-            initial={selected}
-            applied={selected !== null && selected.name === data.active}
+    <GentleAiProfileList
+      title="Profiles"
+      profiles={(data?.profiles ?? []).map((profile) => ({
+        name: profile.name,
+        summary: gentleAiClaudeProfileSummary(profile),
+      }))}
+      active={data?.active ?? null}
+      loading={data === null && profiles.error === null}
+      error={profiles.error}
+      emptyText="A profile sets which model each of Claude Code's slots runs through a proxy, such as CLIProxyAPI, and what Claude should use each for."
+      disabled={disabled}
+      none={{
+        label: "None",
+        summary: "Claude Code runs its own models.",
+        onUse: () => profiles.apply(null),
+      }}
+      onUse={(name) => profiles.apply(name)}
+      onCreate={(name) => {
+        const copy = data?.profiles.find((profile) => profile.name === data.active);
+        return run(
+          startJob("claude.profiles.save", {
+            profile: copy === undefined ? { name, slots: {} } : { ...copy, name },
+          }),
+        );
+      }}
+      renderEditor={(name) => {
+        const profile = data?.profiles.find((entry) => entry.name === name);
+        return profile === undefined ? (
+          <Spinner className="size-3.5" />
+        ) : (
+          <ClaudeProfileEditor
+            // A saved profile resets the draft to what gentle-ai now holds.
+            key={JSON.stringify(profile)}
+            profile={profile}
+            inUse={profile.name === data?.active}
             slotOptions={slotOptions}
             config={models.data}
             modelsError={models.error}
             disabled={disabled}
-            onSave={(profile, andApply) =>
-              run(
-                startJob("claude.profiles.save", {
-                  profile,
-                  ...(selected === null ? {} : { replaces: selected.name }),
-                }),
-                () => {
-                  setEditing(profile.name);
-                  if (andApply && profile.name !== data.active)
-                    run(startJob("claude.profiles.apply", { name: profile.name }));
-                },
-              )
+            onSave={(next) =>
+              void run(startJob("claude.profiles.save", { profile: next, replaces: name }))
             }
-            onDelete={
-              selected === null || selected.name === data.active
-                ? null
-                : () =>
-                    run(startJob("claude.profiles.delete", { name: selected.name }), () =>
-                      setEditing(null),
-                    )
-            }
+            onDelete={() => void run(startJob("claude.profiles.delete", { name }))}
           />
-        </>
-      )}
-    </section>
+        );
+      }}
+    />
   );
 }
 
-function ProfileDraft({
-  initial,
-  applied,
+function ClaudeProfileEditor({
+  profile,
+  inUse,
   slotOptions,
   config,
   modelsError,
@@ -255,171 +188,152 @@ function ProfileDraft({
   onSave,
   onDelete,
 }: {
+  readonly profile: GentleAiClaudeProfile;
+  readonly inUse: boolean;
   readonly slotOptions: ReadonlyArray<{ readonly id: string; readonly label: string }>;
-  readonly initial: GentleAiClaudeProfile | null;
-  readonly applied: boolean;
   readonly config: GentleAiModelConfig | null;
   readonly modelsError: string | null;
   readonly disabled: boolean;
-  readonly onSave: (profile: GentleAiClaudeProfile, andApply: boolean) => void;
-  readonly onDelete: (() => void) | null;
+  readonly onSave: (profile: GentleAiClaudeProfile) => void;
+  readonly onDelete: () => void;
 }) {
-  const [draft, setDraft] = useState<GentleAiClaudeProfile>(initial ?? { name: "", slots: {} });
-  const [pinning, setPinning] = useState(Object.keys(initial?.phases ?? {}).length > 0);
+  const [draft, setDraft] = useState(profile);
   const name = draft.name.trim();
-  const profile = { ...draft, name };
-  const canSave = !disabled && /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$/.test(name);
+  const changed = JSON.stringify({ ...draft, name }) !== JSON.stringify(profile);
+  const canSave = !disabled && changed && /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$/.test(name);
+  const pinned = Object.keys(draft.phases ?? {}).length;
 
   return (
-    <>
-      <GentleAiFlowPanel>
-        <div className="grid gap-2 sm:grid-cols-2">
-          <Input
-            size="sm"
-            aria-label="Profile name"
-            placeholder="Name, e.g. Dynamic"
-            value={draft.name}
-            disabled={disabled}
-            onChange={(event) => setDraft({ ...draft, name: event.target.value })}
-          />
-          <Input
-            size="sm"
-            aria-label="Profile description"
-            placeholder="When to use it (optional)"
-            value={draft.description ?? ""}
-            disabled={disabled}
-            onChange={(event) => {
-              const { description: _previous, ...rest } = draft;
-              const text = event.target.value;
-              setDraft(text === "" ? rest : { ...rest, description: text });
-            }}
-          />
-        </div>
-      </GentleAiFlowPanel>
+    <div className="space-y-4">
+      <div className="grid gap-2 sm:grid-cols-[12rem_minmax(0,1fr)]">
+        <Input
+          size="sm"
+          aria-label="Profile name"
+          value={draft.name}
+          disabled={disabled}
+          onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+        />
+        <Input
+          size="sm"
+          aria-label="Profile description"
+          placeholder="When to use it"
+          value={draft.description ?? ""}
+          disabled={disabled}
+          onChange={(event) => {
+            const { description: _previous, ...rest } = draft;
+            const text = event.target.value;
+            setDraft(text === "" ? rest : { ...rest, description: text });
+          }}
+        />
+      </div>
 
-      <GentleAiFlowPanel>
-        <div className="space-y-3">
-          <div>
-            <h3 className="font-medium text-xs uppercase tracking-wide">Slots</h3>
-            <p className="text-muted-foreground text-xs">
-              {slotOptions.length === 0
-                ? "Turn on Use in T3 Code in Settings > CLIProxyAPI to run its models in these slots. Unset slots run Claude Code's own models."
-                : "Unset slots run Claude Code's own models. Say what each slot is for so Claude picks well."}
-            </p>
-          </div>
-          {GENTLE_AI_CLAUDE_SLOTS.map((slot) => {
-            const value = draft.slots[slot];
-            const listed =
-              value === undefined || slotOptions.some((option) => option.id === value.model);
-            const options = listed
-              ? slotOptions
-              : [...slotOptions, { id: value.model, label: value.label ?? value.model }];
-            return (
-              <div
-                key={slot}
-                className="grid grid-cols-1 gap-1 sm:grid-cols-[7rem_minmax(0,1fr)_minmax(0,1.4fr)] sm:items-center sm:gap-2"
+      <div className="space-y-1.5">
+        {slotOptions.length === 0 ? (
+          <p className="text-muted-foreground text-xs">{GENTLE_AI_CLAUDE_PROFILE_NEEDS_PROXY}</p>
+        ) : null}
+        {GENTLE_AI_CLAUDE_SLOTS.map((slot) => {
+          const value = draft.slots[slot];
+          const listed =
+            value === undefined || slotOptions.some((option) => option.id === value.model);
+          const options = listed
+            ? slotOptions
+            : [...slotOptions, { id: value.model, label: value.label ?? value.model }];
+          return (
+            <div
+              key={slot}
+              className="grid grid-cols-[4rem_minmax(0,1fr)] items-center gap-2 sm:grid-cols-[4rem_minmax(0,1fr)_minmax(0,1.3fr)]"
+            >
+              <span className="font-mono text-sm">{slot}</span>
+              <Select
+                value={value?.model ?? NONE}
+                onValueChange={(next) => {
+                  if (next === null) return;
+                  setDraft(
+                    withSlotModel(
+                      draft,
+                      slot,
+                      next === NONE ? null : (options.find((option) => option.id === next) ?? null),
+                    ),
+                  );
+                }}
+                disabled={disabled || options.length === 0}
               >
-                <div className="min-w-0">
-                  <div className="font-mono text-sm">{slot}</div>
-                  <div className="text-muted-foreground text-xs">{SLOT_HINTS[slot]}</div>
-                </div>
-                <Select
-                  value={value?.model ?? NONE}
-                  onValueChange={(next) => {
-                    if (next === null) return;
-                    setDraft(
-                      withSlotModel(
-                        draft,
-                        slot,
-                        next === NONE
-                          ? null
-                          : (options.find((option) => option.id === next) ?? null),
-                      ),
-                    );
-                  }}
-                  disabled={disabled || options.length === 0}
-                >
-                  <SelectTrigger size="sm" className="min-w-0" aria-label={`${slot} model`}>
-                    <SelectValue>
-                      <span className="truncate">
-                        {value?.label ?? value?.model ?? "Claude Code's own"}
-                      </span>
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectPopup>
-                    <SelectItem value={NONE}>Claude Code's own</SelectItem>
-                    {options.map((option) => (
-                      <SelectItem key={option.id} value={option.id}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectPopup>
-                </Select>
-                <Input
-                  size="sm"
-                  aria-label={`Use ${slot} for`}
-                  placeholder={value === undefined ? "Pick a model first" : "Use it for…"}
-                  value={value?.useFor ?? ""}
-                  disabled={disabled || value === undefined}
-                  onChange={(event) => setDraft(withSlotUse(draft, slot, event.target.value))}
-                />
-              </div>
-            );
-          })}
-        </div>
-      </GentleAiFlowPanel>
+                <SelectTrigger size="sm" className="min-w-0" aria-label={`${slot} model`}>
+                  <SelectValue>
+                    <span className="truncate">
+                      {value?.label ?? value?.model ?? "Claude Code's own"}
+                    </span>
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectPopup>
+                  <SelectItem value={NONE}>Claude Code's own</SelectItem>
+                  {options.map((option) => (
+                    <SelectItem key={option.id} value={option.id}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectPopup>
+              </Select>
+              <Input
+                size="sm"
+                className="col-span-2 sm:col-span-1"
+                aria-label={`Use ${slot} for`}
+                placeholder={value === undefined ? SLOT_HINTS[slot] : "Use it for…"}
+                value={value?.useFor ?? ""}
+                disabled={disabled || value === undefined}
+                onChange={(event) => setDraft(withSlotUse(draft, slot, event.target.value))}
+              />
+            </div>
+          );
+        })}
+      </div>
 
-      <GentleAiFlowPanel>
-        <div className="space-y-3">
-          <label className="flex items-center justify-between gap-3">
-            <span>
-              <span className="block text-sm">Pin Gentle AI's phases</span>
-              <span className="block text-muted-foreground text-xs">
-                Off, Claude picks the model for every task itself. On, the phases you set always run
-                on their model; a slot name runs whatever that slot runs.
-              </span>
-            </span>
-            <Switch
-              aria-label="Pin Gentle AI's phases"
-              checked={pinning}
-              disabled={disabled}
-              onCheckedChange={(checked) => {
-                setPinning(checked);
-                if (!checked) setDraft(withPhaseModels(draft, null));
-              }}
-            />
-          </label>
-          {!pinning ? null : config === null ? (
-            <p className="text-muted-foreground text-sm">{modelsError ?? "Reading phases…"}</p>
-          ) : (
-            <GentleAiModelEditor
-              config={config}
-              value={profilePhaseModels(draft)}
-              onChange={(models) => setDraft(withPhaseModels(draft, models))}
-              disabled={disabled}
-            />
-          )}
-        </div>
-      </GentleAiFlowPanel>
+      <Collapsible>
+        <CollapsibleTrigger className="flex items-center gap-1.5 text-sm">
+          <ChevronRightIcon
+            aria-hidden
+            className="size-3.5 text-muted-foreground transition-transform duration-150 in-data-[panel-open]:rotate-90 motion-reduce:transition-none"
+          />
+          Fixed models for Gentle AI's phases
+          <span className="text-muted-foreground text-xs">
+            {pinned === 0 ? "none: Claude picks per task" : `${pinned} set`}
+          </span>
+        </CollapsibleTrigger>
+        <CollapsiblePanel>
+          <div className="pt-3">
+            {config === null ? (
+              <p className="text-muted-foreground text-sm">{modelsError ?? "Reading phases…"}</p>
+            ) : (
+              <GentleAiModelEditor
+                config={config}
+                value={profilePhaseModels(draft)}
+                onChange={(models) => setDraft(withPhaseModels(draft, models))}
+                disabled={disabled}
+              />
+            )}
+          </div>
+        </CollapsiblePanel>
+      </Collapsible>
 
-      <GentleAiFlowFooter
-        leading={
-          onDelete === null ? null : (
-            <Button variant="ghost" disabled={disabled} onClick={onDelete}>
-              Delete
-            </Button>
-          )
-        }
-      >
-        <Button variant="outline" disabled={!canSave} onClick={() => onSave(profile, false)}>
-          Save
-        </Button>
-        {applied ? null : (
-          <Button disabled={!canSave} onClick={() => onSave(profile, true)}>
-            Save and apply
+      <div className="flex items-center justify-between gap-2">
+        {inUse ? (
+          <span />
+        ) : (
+          <Button size="sm" variant="ghost" disabled={disabled} onClick={onDelete}>
+            Delete
           </Button>
         )}
-      </GentleAiFlowFooter>
-    </>
+        {changed ? (
+          <div className="flex gap-2">
+            <Button size="sm" variant="ghost" onClick={() => setDraft(profile)}>
+              Discard
+            </Button>
+            <Button size="sm" disabled={!canSave} onClick={() => onSave({ ...draft, name })}>
+              Save
+            </Button>
+          </div>
+        ) : null}
+      </div>
+    </div>
   );
 }

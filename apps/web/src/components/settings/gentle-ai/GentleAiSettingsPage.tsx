@@ -19,7 +19,6 @@ import {
 } from "./GentleAiAgentsSection";
 import { GentleAiBackupsFlow } from "./GentleAiBackupsFlow";
 import { GentleAiBuilderFlow } from "./GentleAiBuilderFlow";
-import { GentleAiClaudeProfilesFlow } from "./GentleAiClaudeProfiles";
 import { GentleAiFlowHeader, GentleAiFlowPanel } from "./GentleAiFlow";
 import type { GentleAiFlow } from "./gentleAiFlow.logic";
 import { GentleAiJobPanel } from "./GentleAiJobPanel";
@@ -164,8 +163,6 @@ export function GentleAiSettingsPage({
           <GentleAiBuilderFlow {...sectionProps} onClose={close} />
         ) : flow.kind === "backups" ? (
           <GentleAiBackupsFlow {...sectionProps} onClose={close} />
-        ) : flow.kind === "claudeProfiles" ? (
-          <GentleAiClaudeProfilesFlow {...sectionProps} onClose={close} />
         ) : (
           <GentleAiDoctorFlow environmentId={environmentId} onClose={close} />
         )}
@@ -204,7 +201,7 @@ function GentleAiStatusSection({
   const run = (promise: Promise<string | null>) =>
     void promise.then((error) => (error ? onError(error) : undefined));
   const lastSynced = status.state.lastSyncedAt
-    ? `Agent files last synced ${new Date(status.state.lastSyncedAt).toLocaleString()}.`
+    ? `Synced ${new Date(status.state.lastSyncedAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`
     : null;
 
   return (
@@ -253,13 +250,7 @@ function GentleAiStatusSection({
                 ? "Checking for updates…"
                 : "Up to date"
           }
-          description={
-            updates.error ??
-            ([updates.data?.checked === false ? "Checked recently." : null, lastSynced]
-              .filter((part) => part !== null)
-              .join(" ") ||
-              null)
-          }
+          description={updates.error ?? lastSynced}
           control={
             updates.data?.checked === false ? (
               <Button size="sm" variant="outline" onClick={() => setForceCheck(true)}>
@@ -295,7 +286,7 @@ function GentleAiMoreSection({
     <FoldedSettingsSection
       id="gentle-ai-more"
       title="More"
-      summary={anySetUp ? `${summary} · setup, tools, backups, removal` : "Setup, tools, backups"}
+      summary="Setup, tools, backups, removal"
     >
       <SettingsRow
         title="Setup for every agent"

@@ -41,9 +41,7 @@ export function GentleAiReviewRow({
   return (
     <SettingsRow
       title="Review before delivery"
-      description={
-        mode.error ?? "An independent review checks agents' code changes before they hand them off."
-      }
+      description={mode.error ?? "Checks agents' changes before they hand them off."}
       control={
         mode.data === null ? (
           mode.error ? null : (
@@ -155,12 +153,17 @@ function ReviewRows({
         <SettingsRow title="Review unavailable" description={mode.error} />
       ) : mode.data === null ? null : (
         <SettingsRow
-          title="Turn off review for this project"
-          description="Only this checkout, on this machine."
-          status={`Review is ${mode.data.status.effective === "on" ? "on" : "off"} here, from ${SOURCE_LABELS[mode.data.status.source] ?? mode.data.status.source}.`}
+          title="Skip review in this project"
+          description="This checkout only."
+          // Only worth saying when something other than the global switch decides.
+          status={
+            mode.data.status.source === "global" || mode.data.status.source === "default"
+              ? null
+              : `Review is ${mode.data.status.effective === "on" ? "on" : "off"} here, from ${SOURCE_LABELS[mode.data.status.source] ?? mode.data.status.source}.`
+          }
           control={
             <Switch
-              aria-label="Turn off review for this project"
+              aria-label="Skip review in this project"
               checked={gentleAiReviewCloneDisabled(mode.data)}
               disabled={disabled}
               onCheckedChange={(checked) =>
@@ -172,8 +175,7 @@ function ReviewRows({
       )}
       <SettingsRow
         title="Review history"
-        description="What this clone keeps from past reviews."
-        status={storeStatus}
+        description={storeStatus}
         control={
           <Button
             size="sm"

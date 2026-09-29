@@ -107,36 +107,36 @@ export function gentleOddContinuePrompt(
   return `Implement ${feature.path}.`;
 }
 
-/** One line on where a feature stands: its task progress and next step. */
+/** Where a feature stands, short enough for a menu row: its task progress. */
 export function gentleOddFeatureSummary(
-  feature: Pick<GentleAiOddFeatures["features"][number], "tasksDone" | "tasksTotal" | "nextStep">,
+  feature: Pick<GentleAiOddFeatures["features"][number], "tasksDone" | "tasksTotal">,
 ): string {
-  const tasks =
-    feature.tasksTotal === 0
-      ? "No tasks yet"
-      : feature.tasksDone === feature.tasksTotal
-        ? `All ${feature.tasksTotal} tasks done`
-        : `${feature.tasksDone} of ${feature.tasksTotal} tasks done`;
-  return feature.nextStep ? `${tasks} · Next: ${feature.nextStep}` : tasks;
+  if (feature.tasksTotal === 0) return "No tasks";
+  return feature.tasksDone === feature.tasksTotal
+    ? "Done"
+    : `${feature.tasksDone}/${feature.tasksTotal} tasks`;
 }
 
 /**
- * One line on what a Claude Code profile does: what each slot runs, then whether the
- * orchestrator picks the phases' models or the profile pins them.
+ * One line on what a Claude Code profile runs: each set slot's model, then how many phases it
+ * pins, if any.
  */
 export function gentleAiClaudeProfileSummary(
   profile: Pick<GentleAiClaudeProfile, "slots" | "phases">,
 ): string {
   const slots = GENTLE_AI_CLAUDE_SLOTS.flatMap((slot) => {
     const value = profile.slots[slot];
-    return value === undefined ? [] : [`${slot} → ${value.label ?? value.model}`];
+    if (value === undefined) return [];
+    const name = (value.label ?? value.model).replace(/^Claude /, "");
+    // "Opus 5.5" already says it runs in the opus slot; a slot running another model says which.
+    return [name.toLowerCase().includes(slot) ? name : `${slot} ${name}`];
   });
   const pinned = Object.keys(profile.phases ?? {}).length;
-  const phases =
-    pinned === 0
-      ? "Claude picks models per task"
-      : `${pinned} phase${pinned === 1 ? "" : "s"} pinned`;
-  return [...slots, phases].join(" · ");
+  const parts = [
+    ...slots,
+    ...(pinned === 0 ? [] : [`${pinned} phase${pinned === 1 ? "" : "s"} fixed`]),
+  ];
+  return parts.length === 0 ? "Claude Code's own models" : parts.join(" · ");
 }
 
 /** Why a Claude Code profile has no effect yet: no Claude Code provider goes through a proxy. */
@@ -181,19 +181,25 @@ export function claudeProfileSlotModels(
 }
 
 /**
- * What a gentle-pi profile runs, in a line: the orchestrator's model and how many subagent
- * roles it routes. `nameOf` names a model by the ID the profile stores.
+ * What a gentle-pi profile runs, in a line: the orchestrator's model and effort, then the other
+ * models its roles use, most used first. `nameOf` names a model by the ID the profile stores.
  */
 export function gentlePiProfileSummary(
   routing: PiGentleRouting,
   nameOf: (model: string) => string | undefined,
 ): string {
-  const lead = routing[PI_GENTLE_ORCHESTRATOR]?.model;
-  const roles = Object.keys(routing).filter((role) => role !== PI_GENTLE_ORCHESTRATOR).length;
-  const leadName =
-    lead === undefined ? null : (nameOf(lead) ?? lead.slice(lead.lastIndexOf("/") + 1));
-  return [
-    leadName === null ? "Pi's own model leads" : `${leadName} leads`,
-    roles === 0 ? "no subagent roles" : `${roles} subagent ${roles === 1 ? "role" : "roles"}`,
-  ].join(" · ");
+  const short = (model: string) =>
+    (nameOf(model) ?? model.slice(model.lastIndexOf("/") + 1))
+      .replace(/^Claude /, "")
+      .replace(/ 1M$/, "");
+  const lead = routing[PI_GENTLE_ORCHESTRATOR];
+  const leadName = lead?.model === undefined ? "Pi's default" : short(lead.model);
+  const uses = new Map<string, number>();
+  for (const [role, entry] of Object.entries(routing)) {
+    if (role === PI_GENTLE_ORCHESTRATOR || entry.model === undefined) continue;
+    const name = short(entry.model);
+    if (name !== leadName) uses.set(name, (uses.get(name) ?? 0) + 1);
+  }
+  const others = [...uses].sort((left, right) => right[1] - left[1]).map(([name]) => name);
+  return [lead?.thinking ? `${leadName} ${lead.thinking}` : leadName, ...others].join(" · ");
 }

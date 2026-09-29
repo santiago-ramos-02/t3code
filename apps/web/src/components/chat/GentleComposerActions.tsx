@@ -18,6 +18,7 @@ import {
   GENTLE_ODD_NEW_SPEC_PROMPT,
   gentleOddContinuePrompt,
   gentleOddFeatureSummary,
+  isProxiedClaudeInstance,
 } from "@t3tools/client-runtime/gentle-ai";
 import {
   ChevronDownIcon,
@@ -52,13 +53,15 @@ import { Spinner } from "../ui/spinner";
 import { toastManager } from "../ui/toast";
 import { ComposerBanner } from "./ComposerBanner";
 import { useComposerMenuProps } from "./composerEventScope";
-import { useGentleAiQuery } from "../settings/gentle-ai/useGentleAi";
+import { useGentleAiJob, useGentleAiQuery } from "../settings/gentle-ai/useGentleAi";
+import { useEnvironmentSettings } from "../../hooks/useSettings";
 
 /**
- * Gentle AI entry point in the composer of any provider Gentle AI is set up for: the per-thread
- * Enable choice, and the project's ODD feature documents, each handing its next step to a new
- * thread, plus a new spec for a feature. Pi threads also get gentle-pi's profiles, which move the
- * thread onto a profile's orchestrator model.
+ * Gentle AI entry point in the composer of any provider Gentle AI is set up for. The chip names
+ * the profile in use, or says Off; its menu turns Gentle AI on or off for the thread, switches
+ * the profile, and opens the project's ODD feature documents in a new thread. Pi threads switch
+ * gentle-pi's profiles, which also move the thread onto the profile's orchestrator model; Claude
+ * Code threads through a proxy switch Gentle AI's Claude Code profiles.
  */
 export function GentleComposerActions({
   environmentId,
@@ -116,6 +119,21 @@ export function GentleComposerActions({
     { cwd },
     { enabled: menuOpen && oddListed },
   );
+  // Claude Code profiles apply only to Claude Code going through a proxy, so only those
+  // threads offer them.
+  const instanceConfig = useEnvironmentSettings(
+    environmentId,
+    (settings) => settings.providerInstances[instanceId],
+  );
+  const claudeProxied =
+    !pi && instanceConfig !== undefined && isProxiedClaudeInstance(instanceConfig);
+  const claudeProfiles = useGentleAiQuery(
+    environmentId,
+    "claude.profiles",
+    {},
+    { enabled: claudeProxied && gentleAiStatus?.claudeProfiles === true },
+  );
+  const { startJob } = useGentleAiJob(environmentId);
   const requestKey = `${environmentId}:${instanceId}:${cwd}:${refresh}`;
 
   useEffect(() => {
@@ -142,6 +160,18 @@ export function GentleComposerActions({
   const startThread = (prompt: string) => onStartThread(prompt);
   const profiles = enabled ? (loaded?.profiles ?? []) : [];
   const effectiveProfile = loaded?.effectiveProfile ?? null;
+  const claudeData = claudeProxied && enabled ? claudeProfiles.data : null;
+  const currentProfile = pi ? (effectiveProfile?.name ?? null) : (claudeData?.active ?? null);
+  const applyClaudeProfile = (name: string | null) => {
+    setApplying(name ?? "");
+    void startJob("claude.profiles.apply", { name }).then((started) => {
+      setApplying(null);
+      if (started !== null && "error" in started) {
+        setError(started.error);
+        setErrorOpen(true);
+      }
+    });
+  };
   const applyProfile = (profile: GentleProfileOption) => {
     setApplying(profile.name);
     void update({
@@ -183,7 +213,11 @@ export function GentleComposerActions({
             render={
               <ComposerBanner.Row
                 render={<button type="button" />}
-                aria-label="Gentle AI actions"
+                aria-label={
+                  enabled
+                    ? `Gentle AI${currentProfile ? `, profile ${currentProfile}` : ""}`
+                    : "Gentle AI off"
+                }
                 data-composer-shortcut="composer.gentle"
                 className="text-muted-foreground transition-colors duration-200 hover:text-foreground data-popup-open:text-foreground"
               />
@@ -192,27 +226,29 @@ export function GentleComposerActions({
             <ComposerBanner.Icon className="[&>svg]:size-5">
               <GentleRoseIcon />
             </ComposerBanner.Icon>
-            <ComposerBanner.Content>
-              {enabled ? "Gentle AI" : "Gentle AI off"}
-            </ComposerBanner.Content>
+            {!enabled ? (
+              <ComposerBanner.Content>Off</ComposerBanner.Content>
+            ) : currentProfile ? (
+              <ComposerBanner.Content>{currentProfile}</ComposerBanner.Content>
+            ) : null}
             <ComposerBanner.Actions>
               <ChevronDownIcon className="size-3 opacity-60" aria-hidden />
             </ComposerBanner.Actions>
           </MenuTrigger>
           <MenuPopup align="end" side="top" {...floatingLayer}>
             {canChange ? (
-              <MenuCheckboxItem checked={enabled} onCheckedChange={onEnabledChange}>
-                Enable
-              </MenuCheckboxItem>
-            ) : (
-              <MenuItem disabled>{enabled ? "On for this thread" : "Off for this thread"}</MenuItem>
-            )}
-            <MenuSeparator />
+              <>
+                <MenuCheckboxItem checked={enabled} onCheckedChange={onEnabledChange}>
+                  Gentle AI
+                </MenuCheckboxItem>
+                <MenuSeparator />
+              </>
+            ) : null}
             {profiles.length > 0 ? (
               <>
                 <MenuGroup>
                   <MenuGroupLabel>
-                    {effectiveProfile?.pinned ? "Profile pinned for this checkout" : "Profile"}
+                    {effectiveProfile?.pinned ? "Profile · pinned here" : "Profile"}
                   </MenuGroupLabel>
                   <MenuRadioGroup value={effectiveProfile?.name ?? ""}>
                     {profiles.map((profile) => (
@@ -239,6 +275,35 @@ export function GentleComposerActions({
                 <MenuSeparator />
               </>
             ) : null}
+            {claudeData !== null && claudeData.profiles.length > 0 ? (
+              <>
+                <MenuGroup>
+                  <MenuGroupLabel>Profile</MenuGroupLabel>
+                  <MenuRadioGroup value={claudeData.active ?? ""}>
+                    {claudeData.profiles.map((profile) => (
+                      <MenuRadioItem
+                        key={profile.name}
+                        value={profile.name}
+                        disabled={applying !== null}
+                        closeOnClick
+                        onClick={() => applyClaudeProfile(profile.name)}
+                      >
+                        {profile.name}
+                      </MenuRadioItem>
+                    ))}
+                    <MenuRadioItem
+                      value=""
+                      disabled={applying !== null}
+                      closeOnClick
+                      onClick={() => applyClaudeProfile(null)}
+                    >
+                      None
+                    </MenuRadioItem>
+                  </MenuRadioGroup>
+                </MenuGroup>
+                <MenuSeparator />
+              </>
+            ) : null}
             {oddListed ? (
               <MenuSub>
                 <MenuSubTrigger>
@@ -249,15 +314,15 @@ export function GentleComposerActions({
                     <MenuItem disabled>
                       {oddFeatures.error ?? (
                         <>
-                          <Spinner className="size-3.5" /> Reading feature documents
+                          <Spinner className="size-3.5" /> Reading…
                         </>
                       )}
                     </MenuItem>
                   ) : oddFeatures.data.features.length === 0 ? (
-                    <MenuItem disabled>No feature documents in this project yet.</MenuItem>
+                    <MenuItem disabled>None yet</MenuItem>
                   ) : (
                     <MenuGroup>
-                      <MenuGroupLabel>Continue in a new thread</MenuGroupLabel>
+                      <MenuGroupLabel>Continue</MenuGroupLabel>
                       {oddFeatures.data.features.map((feature) => (
                         <MenuItem
                           key={feature.path}
@@ -282,12 +347,12 @@ export function GentleComposerActions({
             ) : null}
             {error ? (
               <MenuItem onClick={() => setErrorOpen(true)}>
-                <ClipboardListIcon aria-hidden /> View Gentle AI error
+                <ClipboardListIcon aria-hidden /> Show error
               </MenuItem>
             ) : null}
             {pi ? (
               <MenuItem onClick={() => setRefresh((value) => value + 1)}>
-                <RefreshCwIcon aria-hidden /> Refresh status
+                <RefreshCwIcon aria-hidden /> Refresh
               </MenuItem>
             ) : null}
           </MenuPopup>

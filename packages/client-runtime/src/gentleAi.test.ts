@@ -81,11 +81,9 @@ describe("ODD features", () => {
     expect(gentleOddContinuePrompt({ path: "odd/tasks/due-dates.md" })).toBe(
       "Implement odd/tasks/due-dates.md.",
     );
-    expect(gentleOddFeatureSummary({ tasksDone: 2, tasksTotal: 3, nextStep: "Start T3." })).toBe(
-      "2 of 3 tasks done · Next: Start T3.",
-    );
-    expect(gentleOddFeatureSummary({ tasksDone: 3, tasksTotal: 3 })).toBe("All 3 tasks done");
-    expect(gentleOddFeatureSummary({ tasksDone: 0, tasksTotal: 0 })).toBe("No tasks yet");
+    expect(gentleOddFeatureSummary({ tasksDone: 2, tasksTotal: 3 })).toBe("2/3 tasks");
+    expect(gentleOddFeatureSummary({ tasksDone: 3, tasksTotal: 3 })).toBe("Done");
+    expect(gentleOddFeatureSummary({ tasksDone: 0, tasksTotal: 0 })).toBe("No tasks");
   });
 });
 
@@ -98,10 +96,11 @@ describe("gentleAiClaudeProfileSummary", () => {
           opus: { model: "claude-opus-5-5" },
         },
       }),
-    ).toBe("opus → claude-opus-5-5 · haiku → GPT-6 Luna · Claude picks models per task");
+    ).toBe("claude-opus-5-5 · haiku GPT-6 Luna");
     expect(
       gentleAiClaudeProfileSummary({ slots: {}, phases: { "odd-worker": { model: "sonnet" } } }),
-    ).toBe("1 phase pinned");
+    ).toBe("1 phase fixed");
+    expect(gentleAiClaudeProfileSummary({ slots: {} })).toBe("Claude Code's own models");
   });
 });
 
@@ -148,23 +147,24 @@ describe("claudeProfileSlotModels", () => {
 });
 
 describe("gentlePiProfileSummary", () => {
-  it("names the orchestrator's model and counts the subagent roles", () => {
-    const names = new Map([["claude-bridge/claude-opus-5-5", "Claude Opus 5.5"]]);
+  it("names the orchestrator's model and effort, then the other models by use", () => {
+    const names = new Map([
+      ["claude-bridge/claude-opus-5-5", "Claude Opus 5.5 1M"],
+      ["claude-bridge/claude-sonnet-5", "Claude Sonnet 5 1M"],
+    ]);
     expect(
       gentlePiProfileSummary(
         {
           orchestrator: { model: "claude-bridge/claude-opus-5-5", thinking: "medium" },
-          "gentle-ai-explore": { model: "claude-bridge/claude-sonnet-5" },
-          "gentle-ai-worker": {},
+          "gentle-ai-explore": { model: "openai-codex/gpt-6-luna" },
+          "gentle-ai-worker": { model: "claude-bridge/claude-sonnet-5" },
+          "jd-fix-agent": { model: "claude-bridge/claude-sonnet-5" },
+          "review-risk": { model: "claude-bridge/claude-opus-5-5" },
+          "review-readability": {},
         },
         (model) => names.get(model),
       ),
-    ).toBe("Claude Opus 5.5 leads · 2 subagent roles");
-    expect(
-      gentlePiProfileSummary({ orchestrator: { model: "x/unknown-model" } }, () => undefined),
-    ).toBe("unknown-model leads · no subagent roles");
-    expect(gentlePiProfileSummary({}, () => undefined)).toBe(
-      "Pi's own model leads · no subagent roles",
-    );
+    ).toBe("Opus 5.5 medium · Sonnet 5 · gpt-6-luna");
+    expect(gentlePiProfileSummary({}, () => undefined)).toBe("Pi's default");
   });
 });

@@ -10,18 +10,10 @@ export type GentleAiFlow =
   | { readonly kind: "models"; readonly agent: string }
   | { readonly kind: "builder" }
   | { readonly kind: "backups" }
-  | { readonly kind: "claudeProfiles" }
   | { readonly kind: "doctor" };
 
 const AGENT_FLOWS = ["agent", "setup", "uninstall", "models"] as const;
-const PLAIN_FLOWS = [
-  "setup",
-  "uninstall",
-  "builder",
-  "backups",
-  "claudeProfiles",
-  "doctor",
-] as const;
+const PLAIN_FLOWS = ["setup", "uninstall", "builder", "backups", "doctor"] as const;
 
 export function gentleAiFlowKey(flow: GentleAiFlow): string {
   return "agent" in flow && flow.agent !== undefined ? `${flow.kind}:${flow.agent}` : flow.kind;
@@ -29,6 +21,8 @@ export function gentleAiFlowKey(flow: GentleAiFlow): string {
 
 export function parseGentleAiFlow(value: unknown): GentleAiFlow | null {
   if (typeof value !== "string") return null;
+  // Claude Code profiles used to open on their own; they now live on its agent page.
+  if (value === "claudeProfiles") return { kind: "agent", agent: "claude-code" };
   const plain = PLAIN_FLOWS.find((kind) => kind === value);
   if (plain !== undefined) return { kind: plain };
   const separator = value.indexOf(":");

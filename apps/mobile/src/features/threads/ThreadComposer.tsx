@@ -459,13 +459,15 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     onApplied: () => setGentleRefresh((value) => value + 1),
   });
   const gentleMenuActions: MenuAction[] = [
-    canChangeGentle
-      ? { id: "enable", title: "Enable", state: gentleEnabled ? "on" : "off" }
-      : {
-          id: "enabled-state",
-          title: gentleEnabled ? "On for this thread" : "Off for this thread",
-          attributes: { disabled: true },
-        },
+    ...(canChangeGentle
+      ? [
+          {
+            id: "enable",
+            title: "Gentle AI",
+            state: gentleEnabled ? ("on" as const) : ("off" as const),
+          },
+        ]
+      : []),
     ...(gentleProfiles.action === null ? [] : [gentleProfiles.action]),
     ...(gentleOddListed
       ? [
@@ -483,7 +485,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                 ? [
                     {
                       id: "odd-unavailable",
-                      title: gentleOdd.error ? "Feature documents unavailable" : "Reading…",
+                      title: gentleOdd.error ? "Unavailable" : "Reading…",
                       ...(gentleOdd.error ? { subtitle: gentleOdd.error } : {}),
                       attributes: { disabled: true },
                     },
@@ -492,7 +494,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                   ? [
                       {
                         id: "odd-empty",
-                        title: "No feature documents yet",
+                        title: "None yet",
                         attributes: { disabled: true },
                       },
                     ]
@@ -503,9 +505,9 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
         ]
       : []),
     ...(gentleError?.key === gentleKey
-      ? [{ id: "error", title: "View Gentle AI error", image: "exclamationmark.triangle" }]
+      ? [{ id: "error", title: "Show error", image: "exclamationmark.triangle" }]
       : []),
-    { id: "refresh", title: "Refresh status", image: "arrow.clockwise" },
+    { id: "refresh", title: "Refresh", image: "arrow.clockwise" },
   ];
   const composerOwnerKey = scopedThreadKey(props.environmentId, props.selectedThread.id);
   const openDraftDocument = (attachment: ComposerDocumentAttachment) => {
@@ -898,7 +900,13 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
               }}
             >
               <ComposerInlineControl
-                label={gentleEnabled ? "Gentle AI" : "Gentle AI off"}
+                // Names the profile in use; Gentle AI being on needs no words, off does.
+                label={gentleEnabled ? (gentleState?.effectiveProfile?.name ?? "") : "Off"}
+                accessibilityLabel={
+                  gentleEnabled
+                    ? `Gentle AI${gentleState?.effectiveProfile ? `, profile ${gentleState.effectiveProfile.name}` : ""}`
+                    : "Gentle AI off"
+                }
                 renderIcon={(size) => (
                   <GentleRoseIcon color={materialTheme["--color-foreground"]} size={size} />
                 )}

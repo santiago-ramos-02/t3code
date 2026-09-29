@@ -194,8 +194,8 @@ export function ModelProxyHeader({
         title="Use in T3 Code"
         description={
           status.connected
-            ? "The CLIProxyAPI provider runs Claude Code through the proxy with every model it serves, and its accounts show in Usage. Your other providers are unchanged."
-            : "Adds a CLIProxyAPI provider: Claude Code through the proxy, with every model and failover model it serves. Your other providers are unchanged."
+            ? "The CLIProxyAPI provider has every model it serves. Your other providers are unchanged."
+            : "Adds a CLIProxyAPI provider with every model it serves. Your other providers are unchanged."
         }
         control={
           <Switch
@@ -221,7 +221,7 @@ export function ModelProxyHeader({
       {status.running && !status.managementReady ? (
         <SettingsRow
           title="Management key needed"
-          description="T3 Code needs the proxy's management key (remote-management's secret-key in its config) to show and change its accounts and models."
+          description="The proxy's remote-management secret-key, so T3 Code can manage its accounts and models."
           control={
             <div className="flex items-center gap-2">
               <Input

@@ -74,5 +74,7 @@ export function gentleProfileModelLabel(
 ): string {
   const change = gentleProfileModelChange(current, profile, models);
   if (change.kind === "switch") return change.label;
-  return change.kind === "unavailable" ? `${change.model} unavailable` : "Keeps model";
+  return change.kind === "unavailable"
+    ? `${change.model.slice(change.model.lastIndexOf("/") + 1)} unavailable`
+    : "Keeps model";
 }

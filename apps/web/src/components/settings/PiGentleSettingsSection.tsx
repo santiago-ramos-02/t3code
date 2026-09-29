@@ -1,49 +1,30 @@
 import {
   PiGentleActionInput,
   type EnvironmentId,
-  type PiGentleRouting,
   type PiGentleState,
   type ProviderInstanceId,
   type ServerProviderModel,
 } from "@t3tools/contracts";
+import { gentlePiProfileSummary } from "@t3tools/client-runtime/gentle-ai";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import { ChevronDownIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { GentleRoseIcon } from "../GentleRoseIcon";
 import { Button } from "../ui/button";
-import {
-  Combobox,
-  ComboboxEmpty,
-  ComboboxItem,
-  ComboboxList,
-  ComboboxPopup,
-  ComboboxSearchInput,
-  ComboboxTrigger,
-} from "../ui/combobox";
-import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
+import { GentleAiProfileList } from "./gentle-ai/GentleAiProfileList";
+import { PiRoutingEditor } from "./gentle-ai/PiRoutingEditor";
 import { SettingsRow, SettingsSection } from "./settingsLayout";
 
 type GentleAction = typeof PiGentleActionInput.Type.action;
 type GentleArea = "global" | "profiles" | "project";
 type ProjectOption = { readonly title: string; readonly workspaceRoot: string };
 
-const THINKING = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
-const THINKING_LABELS = {
-  off: "Off",
-  minimal: "Minimal",
-  low: "Low",
-  medium: "Medium",
-  high: "High",
-  xhigh: "Extra high",
-  max: "Max",
-} satisfies Record<(typeof THINKING)[number], string>;
 const PERSONA_LABELS = { gentleman: "Gentleman", neutral: "Neutral" } as const;
 // Select value for "no local pin": the repository declaration or global profile applies.
 const PROJECT_DEFAULT_PROFILE = "__default__";
@@ -52,92 +33,6 @@ const ROW_CONTROL = "w-full max-w-full @min-[32rem]/settings-row:w-56";
 
 function errorText(failure: unknown): string {
   return failure instanceof Error ? failure.message : "Gentle AI settings could not be updated.";
-}
-
-const INHERIT_MODEL = "__inherit__";
-
-function GentleModelSelect({
-  agent,
-  value,
-  models,
-  disabled,
-  onChange,
-}: {
-  readonly agent: string;
-  readonly value: string | undefined;
-  readonly models: ReadonlyArray<ServerProviderModel>;
-  readonly disabled: boolean;
-  readonly onChange: (model: string | undefined) => void;
-}) {
-  const [query, setQuery] = useState("");
-  const options = [INHERIT_MODEL, ...models.map((model) => model.slug)];
-  if (value && !options.includes(value)) options.push(value);
-  const normalized = query.trim().toLocaleLowerCase();
-  const filtered = normalized
-    ? options.filter((slug) => {
-        if (slug === INHERIT_MODEL) return "inherit model".includes(normalized);
-        const model = models.find((entry) => entry.slug === slug);
-        return `${model?.name ?? ""} ${model?.subProvider ?? ""} ${slug}`
-          .toLocaleLowerCase()
-          .includes(normalized);
-      })
-    : options;
-  const selected = models.find((model) => model.slug === value);
-
-  return (
-    <Combobox
-      items={options}
-      filteredItems={filtered}
-      value={value ?? INHERIT_MODEL}
-      onOpenChange={(open) => {
-        if (!open) setQuery("");
-      }}
-      onValueChange={(model) => {
-        if (model) onChange(model === INHERIT_MODEL ? undefined : model);
-      }}
-    >
-      <ComboboxTrigger
-        render={<Button size="sm" variant="outline" />}
-        className="col-span-3 col-start-1 row-start-2 w-full min-w-0 justify-between @min-[30rem]/gentle-rows:col-span-1 @min-[30rem]/gentle-rows:col-start-2 @min-[30rem]/gentle-rows:row-start-1"
-        aria-label={`${agent} model`}
-        disabled={disabled}
-      >
-        <span className="min-w-0 truncate">
-          {selected?.name ?? (value ? `Unavailable: ${value}` : "Inherit model")}
-        </span>
-        <ChevronDownIcon aria-hidden className="size-3.5 shrink-0 opacity-60" />
-      </ComboboxTrigger>
-      <ComboboxPopup align="start" className="w-80 min-w-0 max-w-[calc(100vw-1rem)]">
-        <ComboboxSearchInput
-          placeholder="Search Pi models…"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-        />
-        <ComboboxEmpty>No matching Pi models.</ComboboxEmpty>
-        <ComboboxList className="max-h-64 min-w-0 overflow-x-hidden">
-          {filtered.map((slug) => {
-            const model = models.find((entry) => entry.slug === slug);
-            return (
-              <ComboboxItem key={slug} value={slug} className="w-full min-w-0">
-                <span className="flex min-w-0 flex-col">
-                  <span className="truncate">
-                    {slug === INHERIT_MODEL
-                      ? "Inherit model"
-                      : (model?.name ?? `Unavailable: ${slug}`)}
-                  </span>
-                  {model ? (
-                    <span className="truncate text-xs text-muted-foreground">
-                      {model.subProvider ?? "Pi"} · {slug}
-                    </span>
-                  ) : null}
-                </span>
-              </ComboboxItem>
-            );
-          })}
-        </ComboboxList>
-      </ComboboxPopup>
-    </Combobox>
-  );
 }
 
 /** A settings-row select over a label map; `value` is one of its keys, or null when unset. */
@@ -218,11 +113,7 @@ export function PiGentleSettingsSection({
   const stateKey = `${environmentId}:${instanceId}:${selectedCwd ?? ""}`;
   const [loaded, setLoaded] = useState<{ key: string; state: PiGentleState } | null>(null);
   const state = loaded?.key === stateKey ? loaded.state : null;
-  const [selectedProfile, setSelectedProfile] = useState<string | null>(null);
   const [refresh, setRefresh] = useState(0);
-  const [newName, setNewName] = useState("");
-  const [newAgent, setNewAgent] = useState("");
-  const [agentFilter, setAgentFilter] = useState("");
   // The action in flight, so its own control can say what is happening.
   const [pending, setPending] = useState<GentleAction["type"] | null>(null);
   const [errorState, setErrorState] = useState<{
@@ -257,11 +148,6 @@ export function PiGentleSettingsSection({
       if (result._tag === "Success") {
         setLoaded({ key: stateKey, state: result.value });
         setErrorState(null);
-        const initial =
-          result.value.profiles.find((entry) => entry.name === result.value.active) ??
-          result.value.profiles.find((entry) => entry.name === result.value.project?.pinned) ??
-          result.value.profiles[0];
-        setSelectedProfile(initial?.name ?? null);
       } else if (!isAtomCommandInterrupted(result)) {
         setErrorState({
           key: stateKey,
@@ -275,8 +161,8 @@ export function PiGentleSettingsSection({
     };
   }, [environmentId, instanceId, read, refresh, refreshKey, selectedCwd, stateKey]);
 
-  async function runAction(action: GentleAction) {
-    if (pending) return;
+  async function runAction(action: GentleAction): Promise<boolean> {
+    if (pending) return false;
     const area: GentleArea =
       action.type === "setPersona" || action.type === "pin" || action.type === "clearPin"
         ? "project"
@@ -291,10 +177,7 @@ export function PiGentleSettingsSection({
       const result = await update({ environmentId, input: { instanceId, action } });
       if (result._tag === "Success") {
         setLoaded({ key: stateKey, state: result.value });
-        if (action.type === "create") {
-          setSelectedProfile(action.name);
-          setNewName("");
-        }
+        return true;
       } else if (!isAtomCommandInterrupted(result)) {
         setErrorState({
           key: stateKey,
@@ -307,6 +190,7 @@ export function PiGentleSettingsSection({
     } finally {
       setPending(null);
     }
+    return false;
   }
 
   const readOnlyProps = {
@@ -371,31 +255,14 @@ export function PiGentleSettingsSection({
     );
   }
 
-  const profile = state.profiles.find((entry) => entry.name === selectedProfile);
-  const routing = profile?.routing ?? {};
-  const visibleRouting = Object.entries(routing).filter(([agent]) =>
-    agent.toLocaleLowerCase().includes(agentFilter.trim().toLocaleLowerCase()),
-  );
-  const saveRouting = (update: (current: PiGentleRouting) => PiGentleRouting) => {
-    if (profile) {
-      void runAction({ type: "save", name: profile.name, routing: update(routing), ...cwdInput });
-    }
-  };
-  const profileNames = Object.fromEntries(
-    state.profiles.map((entry) => [entry.name, entry.name] as const),
-  );
-  const newProfileName = newName.trim();
-  const newAgentName = newAgent.trim();
-  const canCreateProfile =
-    canEdit && newProfileName.length > 0 && !Object.hasOwn(profileNames, newProfileName);
-  const canAddAgent = canEdit && newAgentName.length > 0 && !Object.hasOwn(routing, newAgentName);
-  const createProfile = () => {
-    if (canCreateProfile) void runAction({ type: "create", name: newProfileName, ...cwdInput });
-  };
-  const addAgent = () => {
-    if (!canAddAgent) return;
-    saveRouting((current) => ({ ...current, [newAgentName]: {} }));
-    setNewAgent("");
+  const nameOf = (slug: string) => models.find((model) => model.slug === slug)?.name;
+  const createProfile = async (name: string) => {
+    if (!(await runAction({ type: "create", name, ...cwdInput }))) return false;
+    // A new profile starts as a copy of the active one, not empty.
+    const copy = state.profiles.find((entry) => entry.name === state.active)?.routing;
+    return copy === undefined
+      ? true
+      : runAction({ type: "save", name, routing: copy, ...cwdInput });
   };
 
   const project = selectedCwd ? state.project : null;
@@ -445,190 +312,32 @@ export function PiGentleSettingsSection({
             />
           }
         />
-        <SettingsRow
-          title="Active profile"
-          description="Subagent routing used by every project without its own profile."
-          status={errorFor("global")}
-          control={
-            <GentleSelect
-              label="Active Gentle AI profile"
-              value={state.active}
-              labels={profileNames}
-              placeholder={state.profiles.length ? "None" : "No profiles"}
-              disabled={!canEdit || state.profiles.length === 0}
-              onChange={(name) => void runAction({ type: "activate", name, ...cwdInput })}
-            />
-          }
-        />
       </SettingsSection>
 
-      <SettingsSection title="Profiles" {...readOnlyProps}>
-        <SettingsRow
-          title="Profile"
-          description="The model and effort each role runs. The orchestrator is the thread's main model. Changes apply when Pi reloads."
-          status={errorFor("profiles")}
-          control={
-            <GentleSelect
-              label="Gentle AI profile to edit"
-              value={profile ? profile.name : null}
-              labels={Object.fromEntries(
-                state.profiles.map((entry) => [
-                  entry.name,
-                  entry.name === state.active ? `${entry.name} · active` : entry.name,
-                ]),
-              )}
-              placeholder={state.profiles.length ? "Choose profile" : "No profiles"}
-              disabled={state.profiles.length === 0}
-              onChange={setSelectedProfile}
+      <div {...readOnlyProps}>
+        <GentleAiProfileList
+          title="Profiles"
+          profiles={state.profiles.map((entry) => ({
+            name: entry.name,
+            summary: gentlePiProfileSummary(entry.routing, nameOf),
+          }))}
+          active={state.active}
+          loading={false}
+          error={error?.area === "profiles" || error?.area === "global" ? error.text : null}
+          emptyText="A profile sets the model and effort each of gentle-pi's roles runs."
+          disabled={!canEdit}
+          onUse={(name) => void runAction({ type: "activate", name, ...cwdInput })}
+          onCreate={createProfile}
+          renderEditor={(name) => (
+            <PiRoutingEditor
+              routing={state.profiles.find((entry) => entry.name === name)?.routing ?? {}}
+              models={models}
+              disabled={!canEdit}
+              onChange={(routing) => void runAction({ type: "save", name, routing, ...cwdInput })}
             />
-          }
-        >
-          {profile ? (
-            <div className="@container/gentle-rows mt-3 space-y-2 pb-2">
-              {Object.keys(routing).length > 8 ? (
-                <Input
-                  size="sm"
-                  aria-label="Filter subagents"
-                  placeholder="Find a subagent"
-                  value={agentFilter}
-                  onChange={(event) => setAgentFilter(event.target.value)}
-                />
-              ) : null}
-              <div className="max-h-[min(55vh,32rem)] space-y-2 overflow-y-auto pr-1">
-                {visibleRouting.map(([agent, entry]) => (
-                  <div
-                    key={agent}
-                    className="grid grid-cols-[minmax(0,1fr)_7rem_auto] gap-x-2 gap-y-1.5 @min-[30rem]/gentle-rows:grid-cols-[minmax(7rem,1fr)_minmax(0,2fr)_minmax(7rem,1fr)_auto] @min-[30rem]/gentle-rows:items-center"
-                  >
-                    <span className="col-span-3 col-start-1 row-start-1 min-w-0 wrap-anywhere font-mono text-xs @min-[30rem]/gentle-rows:col-span-1">
-                      {agent}
-                    </span>
-                    <GentleModelSelect
-                      agent={agent}
-                      value={entry.model}
-                      models={models}
-                      disabled={!canEdit}
-                      onChange={(model) =>
-                        saveRouting((current) => {
-                          const { model: _model, ...rest } = current[agent] ?? {};
-                          return { ...current, [agent]: { ...rest, ...(model ? { model } : {}) } };
-                        })
-                      }
-                    />
-                    <span className="col-start-1 row-start-3 self-center text-xs text-muted-foreground @min-[30rem]/gentle-rows:hidden">
-                      Effort
-                    </span>
-                    <Select
-                      value={entry.thinking ?? "inherit"}
-                      onValueChange={(value) => {
-                        if (!value || value === (entry.thinking ?? "inherit")) return;
-                        const thinking = THINKING.find((level) => level === value);
-                        saveRouting((current) => {
-                          const { thinking: _thinking, ...rest } = current[agent] ?? {};
-                          return {
-                            ...current,
-                            [agent]: { ...rest, ...(thinking ? { thinking } : {}) },
-                          };
-                        });
-                      }}
-                      disabled={!canEdit}
-                    >
-                      <SelectTrigger
-                        size="sm"
-                        className="col-start-2 row-start-3 w-full min-w-0 @min-[30rem]/gentle-rows:col-start-3 @min-[30rem]/gentle-rows:row-start-1"
-                        aria-label={`${agent} thinking level`}
-                      >
-                        <SelectValue>
-                          {entry.thinking ? THINKING_LABELS[entry.thinking] : "Inherit effort"}
-                        </SelectValue>
-                      </SelectTrigger>
-                      <SelectPopup>
-                        <SelectItem value="inherit">Inherit effort</SelectItem>
-                        {THINKING.map((level) => (
-                          <SelectItem key={level} value={level}>
-                            {THINKING_LABELS[level]}
-                          </SelectItem>
-                        ))}
-                      </SelectPopup>
-                    </Select>
-                    <Button
-                      size="icon-xs"
-                      variant="ghost"
-                      className="col-start-3 row-start-3 justify-self-end @min-[30rem]/gentle-rows:col-start-4 @min-[30rem]/gentle-rows:row-start-1"
-                      aria-label={`Remove ${agent}`}
-                      disabled={!canEdit}
-                      onClick={() =>
-                        saveRouting((current) => {
-                          const next = { ...current };
-                          delete next[agent];
-                          return next;
-                        })
-                      }
-                    >
-                      <Trash2Icon className="size-3.5" />
-                    </Button>
-                  </div>
-                ))}
-                {visibleRouting.length === 0 ? (
-                  <p className="py-3 text-xs text-muted-foreground">
-                    {agentFilter.trim()
-                      ? "No matching subagents."
-                      : "No subagents in this profile."}
-                  </p>
-                ) : null}
-              </div>
-              <div className="flex min-w-0 items-center gap-1.5">
-                <Input
-                  size="sm"
-                  font="mono"
-                  className="w-full min-w-0 sm:w-44"
-                  aria-label="New subagent name"
-                  placeholder="subagent-name"
-                  value={newAgent}
-                  disabled={!canEdit}
-                  onChange={(event) => setNewAgent(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") addAgent();
-                  }}
-                />
-                <Button size="sm" variant="outline" disabled={!canAddAgent} onClick={addAgent}>
-                  <PlusIcon className="size-3" />
-                  Add subagent
-                </Button>
-              </div>
-            </div>
-          ) : null}
-        </SettingsRow>
-        <SettingsRow
-          title="New profile"
-          description="Create another routing profile to switch between."
-          control={
-            <div className="flex w-full min-w-0 items-center gap-2 @min-[32rem]/settings-row:w-auto">
-              <Input
-                size="sm"
-                className="min-w-0 flex-1 @min-[32rem]/settings-row:w-40 @min-[32rem]/settings-row:flex-none"
-                aria-label="New profile name"
-                placeholder="e.g. review-fast"
-                value={newName}
-                onChange={(event) => setNewName(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") createProfile();
-                }}
-                disabled={!canEdit}
-              />
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={!canCreateProfile}
-                onClick={createProfile}
-              >
-                <PlusIcon className="size-3" />
-                Create
-              </Button>
-            </div>
-          }
+          )}
         />
-      </SettingsSection>
+      </div>
 
       <SettingsSection
         title="Project overrides"
@@ -677,7 +386,7 @@ export function PiGentleSettingsSection({
                   label="Gentle AI profile for this project"
                   value={localPin ?? PROJECT_DEFAULT_PROFILE}
                   labels={{
-                    ...profileNames,
+                    ...Object.fromEntries(state.profiles.map((entry) => [entry.name, entry.name])),
                     [PROJECT_DEFAULT_PROFILE]:
                       project.pinSource === "repo"
                         ? `Repository (${pinned})`

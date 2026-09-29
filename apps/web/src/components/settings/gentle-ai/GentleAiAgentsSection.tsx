@@ -18,7 +18,7 @@ import { Button } from "../../ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../../ui/menu";
 import { SettingsRow, SettingsSection } from "../settingsLayout";
 import {
-  GentleAiClaudeProfileRow,
+  GentleAiClaudeProfilesSection,
   GentleAiClaudeProfileSelect,
   useGentleAiClaudeProfiles,
 } from "./GentleAiClaudeProfiles";
@@ -292,14 +292,13 @@ export function GentleAiAgentFlow({
       />
       {setUp ? (
         <>
-          {modelAgent === null && !(agent.id === "claude-code" && props.claudeProfiles) ? null : (
+          {agent.id === "claude-code" && props.claudeProfiles ? (
+            <GentleAiClaudeProfilesSection {...props} />
+          ) : null}
+          {/* With profiles, Claude Code's phase models are part of each profile. */}
+          {modelAgent === null || (agent.id === "claude-code" && props.claudeProfiles) ? null : (
             <SettingsSection title="Models">
-              {modelAgent === null ? null : (
-                <GentleAiAgentModelsRow {...props} agent={modelAgent} name={agent.name} />
-              )}
-              {agent.id === "claude-code" && props.claudeProfiles ? (
-                <GentleAiClaudeProfileRow {...props} />
-              ) : null}
+              <GentleAiAgentModelsRow {...props} agent={modelAgent} name={agent.name} />
             </SettingsSection>
           )}
           {agent.id === "pi"

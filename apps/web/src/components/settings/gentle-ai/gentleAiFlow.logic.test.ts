@@ -18,6 +18,10 @@ describe("Gentle AI flow keys", () => {
     for (const flow of flows) expect(parseGentleAiFlow(gentleAiFlowKey(flow))).toEqual(flow);
   });
 
+  it("sends old Claude Code profile links to its agent page", () => {
+    expect(parseGentleAiFlow("claudeProfiles")).toEqual({ kind: "agent", agent: "claude-code" });
+  });
+
   it("rejects unknown flows and a models flow without an agent", () => {
     for (const value of [
       "models",
