@@ -91,11 +91,11 @@ export function GentleAiClaudeProfileSelect({
     >
       <SelectTrigger size="sm" className="w-40" aria-label="Claude Code profile">
         <SelectValue>
-          <span className="truncate">{data.active ?? "None"}</span>
+          <span className="truncate">{data.active ?? "Default"}</span>
         </SelectValue>
       </SelectTrigger>
       <SelectPopup align="end">
-        <SelectItem value={NONE}>None</SelectItem>
+        <SelectItem value={NONE}>Default</SelectItem>
         {data.profiles.map((profile) => (
           <SelectItem key={profile.name} value={profile.name}>
             {profile.name}
@@ -139,8 +139,8 @@ export function GentleAiClaudeProfilesSection(props: GentleAiSectionProps) {
       error={profiles.error}
       emptyText="A profile sets which model each of Claude Code's slots runs through a proxy, such as CLIProxyAPI, and what Claude should use each for."
       disabled={disabled}
-      none={{
-        label: "None",
+      builtIn={{
+        label: "Default",
         summary: "Claude Code runs its own models.",
         onUse: () => profiles.apply(null),
       }}

@@ -43,6 +43,7 @@ import {
   MenuPopup,
   MenuRadioGroup,
   MenuRadioItem,
+  MenuRadioItemIndicator,
   MenuSeparator,
   MenuSub,
   MenuSubPopup,
@@ -225,9 +226,7 @@ export function GentleComposerActions({
             <ComposerBanner.Icon className="[&>svg]:size-5">
               <GentleRoseIcon />
             </ComposerBanner.Icon>
-            <ComposerBanner.Content>
-              {enabled ? "Gentle AI" : "Gentle AI off"}
-            </ComposerBanner.Content>
+            <ComposerBanner.Content>Gentle AI</ComposerBanner.Content>
             <ComposerBanner.Actions>
               <ChevronDownIcon className="size-3 opacity-60" aria-hidden />
             </ComposerBanner.Actions>
@@ -257,14 +256,14 @@ export function GentleComposerActions({
                         // Reapplying the current profile also moves the thread back to its model.
                         onClick={() => applyProfile(profile)}
                       >
-                        <span className="flex min-w-0 items-center justify-between gap-4">
-                          <span className="truncate">{profile.name}</span>
-                          <span className="truncate text-muted-foreground text-xs">
-                            {applying === profile.name
+                        <ProfileItemLabel
+                          name={profile.name}
+                          detail={
+                            applying === profile.name
                               ? "Applying…"
-                              : gentleProfileModelLabel(modelSelection, profile, models)}
-                          </span>
-                        </span>
+                              : gentleProfileModelLabel(modelSelection, profile, models)
+                          }
+                        />
                       </MenuRadioItem>
                     ))}
                   </MenuRadioGroup>
@@ -277,6 +276,14 @@ export function GentleComposerActions({
                 <MenuGroup>
                   <MenuGroupLabel>Profile</MenuGroupLabel>
                   <MenuRadioGroup value={claudeData.active ?? ""}>
+                    <MenuRadioItem
+                      value=""
+                      disabled={applying !== null}
+                      closeOnClick
+                      onClick={() => applyClaudeProfile(null)}
+                    >
+                      <ProfileItemLabel name="Default" />
+                    </MenuRadioItem>
                     {claudeData.profiles.map((profile) => (
                       <MenuRadioItem
                         key={profile.name}
@@ -285,17 +292,9 @@ export function GentleComposerActions({
                         closeOnClick
                         onClick={() => applyClaudeProfile(profile.name)}
                       >
-                        {profile.name}
+                        <ProfileItemLabel name={profile.name} />
                       </MenuRadioItem>
                     ))}
-                    <MenuRadioItem
-                      value=""
-                      disabled={applying !== null}
-                      closeOnClick
-                      onClick={() => applyClaudeProfile(null)}
-                    >
-                      None
-                    </MenuRadioItem>
                   </MenuRadioGroup>
                 </MenuGroup>
                 <MenuSeparator />
@@ -366,5 +365,16 @@ export function GentleComposerActions({
         </Dialog>
       </div>
     </ComposerBanner.Root>
+  );
+}
+
+/** A profile in the chip's menu, checked when it is the one in use. */
+function ProfileItemLabel({ name, detail }: { readonly name: string; readonly detail?: string }) {
+  return (
+    <span className="flex min-w-0 items-center gap-2">
+      <span className="flex-1 truncate">{name}</span>
+      {detail ? <span className="truncate text-muted-foreground text-xs">{detail}</span> : null}
+      <MenuRadioItemIndicator />
+    </span>
   );
 }

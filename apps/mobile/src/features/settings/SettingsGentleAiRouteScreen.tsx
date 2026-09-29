@@ -385,7 +385,7 @@ function GentleAiClaudeProfilePicker(props: {
         label="Claude Code profile"
         value={profiles.active ?? ""}
         choices={[
-          { value: "", label: "None" },
+          { value: "", label: "Default" },
           ...profiles.profiles.map((profile) => ({ value: profile.name, label: profile.name })),
         ]}
         disabled={props.disabled}

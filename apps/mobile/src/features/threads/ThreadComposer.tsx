@@ -420,7 +420,9 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     gentleProvider &&
     props.connectionState === "connected" &&
     // In Pi, nothing Gentle-related shows unless the server confirms Pi loads gentle-pi here.
-    (!isPiThread || gentleAvailable);
+    (!isPiThread || gentleAvailable) &&
+    // A thread that started without Gentle AI keeps it off, so it has nothing to offer.
+    (gentleEnabled || canChangeGentle);
   // Hands a Gentle AI step to a new task draft in this project with Gentle on; the user sends it.
   const startGentleTask = (prompt: string) => {
     const draftKey = createNewTaskDraft({
@@ -900,8 +902,8 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
               }}
             >
               <ComposerInlineControl
-                // The profile in use shows in the menu, checked.
-                label={gentleEnabled ? "Gentle AI" : "Gentle AI off"}
+                // On or off, and the profile in use, show in the menu.
+                label="Gentle AI"
                 accessibilityLabel={
                   gentleEnabled
                     ? `Gentle AI${gentleState?.effectiveProfile ? `, profile ${gentleState.effectiveProfile.name}` : ""}`

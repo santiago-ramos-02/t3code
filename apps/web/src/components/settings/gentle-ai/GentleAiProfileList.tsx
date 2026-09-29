@@ -28,7 +28,7 @@ export function GentleAiProfileList({
   error,
   emptyText,
   disabled,
-  none,
+  builtIn,
   onUse,
   onCreate,
   renderEditor,
@@ -40,8 +40,12 @@ export function GentleAiProfileList({
   readonly error: string | null;
   readonly emptyText: string;
   readonly disabled: boolean;
-  /** A last row for using no profile, when the agent allows it; `summary` says what runs then. */
-  readonly none?: { readonly label: string; readonly summary: string; readonly onUse: () => void };
+  /** A first row for the agent's own models, used when no profile is; `summary` says what runs then. */
+  readonly builtIn?: {
+    readonly label: string;
+    readonly summary: string;
+    readonly onUse: () => void;
+  };
   readonly onUse: (name: string) => void;
   /** Creates a profile, a copy of the one in use; resolves once it exists. */
   readonly onCreate: (name: string) => Promise<boolean>;
@@ -126,6 +130,22 @@ export function GentleAiProfileList({
         <SettingsRow title="No profiles yet" description={emptyText} />
       ) : (
         <>
+          {builtIn === undefined ? null : (
+            <SettingsRow
+              // Indented past the chevron the profile rows have.
+              title={<span className="pl-5">{builtIn.label}</span>}
+              description={builtIn.summary}
+              control={
+                active === null ? (
+                  <span className="text-sm text-success">In use</span>
+                ) : (
+                  <Button size="sm" variant="outline" disabled={disabled} onClick={builtIn.onUse}>
+                    Use
+                  </Button>
+                )
+              }
+            />
+          )}
           {profiles.map((profile) => {
             const isOpen = open === profile.name;
             const isActive = profile.name === active;
@@ -169,21 +189,6 @@ export function GentleAiProfileList({
               </SettingsRow>
             );
           })}
-          {none === undefined ? null : (
-            <SettingsRow
-              title={none.label}
-              description={none.summary}
-              control={
-                active === null ? (
-                  <span className="text-sm text-success">In use</span>
-                ) : (
-                  <Button size="sm" variant="outline" disabled={disabled} onClick={none.onUse}>
-                    Use
-                  </Button>
-                )
-              }
-            />
-          )}
         </>
       )}
     </SettingsSection>

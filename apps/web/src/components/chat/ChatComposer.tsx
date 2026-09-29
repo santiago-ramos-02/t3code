@@ -6414,7 +6414,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               onToggleMenu={toggleStashMenu}
             />
           ) : null}
-          {selectedProviderStatus?.gentleAi === true && gitCwd !== null ? (
+          {selectedProviderStatus?.gentleAi === true &&
+          gitCwd !== null &&
+          // A thread that started without Gentle AI keeps it off, so it has nothing to offer.
+          (selectedGentleEnabled || _isLocalDraftThread) ? (
             <GentleComposerActions
               key={`${routeKind}:${activeThreadId ?? draftId ?? "new"}:${activeThread?.latestTurn?.turnId ?? ""}:${activeThread?.latestTurn?.completedAt ?? ""}:${selectedInstanceId}:${gitCwd}`}
               environmentId={environmentId}

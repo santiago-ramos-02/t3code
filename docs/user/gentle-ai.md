@@ -64,7 +64,7 @@ Gentle AI chip in a CLIProxyAPI thread's composer. **Open** lists every profile:
 switches to one, choosing a profile opens it for editing, and **New** starts a copy of the
 one in use. The slot choices are the models your proxied Claude Code providers serve. Keep
 one profile per situation, such as one for when an account is near its usage limit, and
-switch when it is; **None** puts Claude Code's own models back.
+switch when it is; **Default** puts Claude Code's own models back.
 
 A profile applies only to Claude Code providers that go through a proxy, such as the
 CLIProxyAPI provider that **Use in T3 Code** adds. Claude Code that reaches Anthropic
@@ -74,9 +74,9 @@ Gentle AI's phases to slots; phases are shared by every Claude Code, so a phase 
 
 ## Turn Gentle AI off for a thread
 
-In a new thread, open the Gentle AI chip in the composer and clear **Gentle AI**. The
-chip then says **Gentle AI off**. While Gentle AI is on, the chip's menu shows the profile in
-use. The thread's agent then runs on your own configuration without
+In a new thread, open the Gentle AI chip in the composer and clear **Gentle AI**; the
+chip's menu also shows the profile in use. Once the thread starts without Gentle AI, the chip
+goes away. The thread's agent then runs on your own configuration without
 anything Gentle AI added: its instructions, subagents, skills, commands, hooks,
 and MCP servers. Your own settings, sign-in, and history are unchanged, and
 Gentle AI stays on for your other threads. The choice is stored with the thread
