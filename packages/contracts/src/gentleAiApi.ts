@@ -128,6 +128,7 @@ export const GentleAiPlanQuestion = Schema.Literals([
   "skills",
   "communityTools",
   "openCodePlugins",
+  "piPlugins",
   "rdd",
   "openCodeBackground",
   "piBackground",
@@ -158,6 +159,8 @@ export const GentleAiInstallParams = Schema.Struct({
   models: Opt(GentleAiModels),
   communityTools: Opt(Ids),
   openCodePlugins: Opt(Ids),
+  // Optional Pi packages, such as the Claude bridge.
+  piPlugins: Opt(Ids),
   rdd: Opt(Schema.Boolean),
   background: Opt(
     Schema.Struct({ opencode: Opt(GentleAiBackgroundChoice), pi: Opt(GentleAiBackgroundChoice) }),
@@ -308,6 +311,10 @@ export const GentleAiBackup = Schema.Struct({
   pinned: Schema.Boolean,
 });
 export type GentleAiBackup = typeof GentleAiBackup.Type;
+
+/** The agents with plugins gentle-ai manages; OpenCode when a call names none. */
+export const GentleAiPluginAgent = Schema.Literals(["opencode", "pi"]);
+export type GentleAiPluginAgent = typeof GentleAiPluginAgent.Type;
 
 export const GentleAiPlugins = Schema.Struct({
   supported: Schema.Boolean,
@@ -506,7 +513,7 @@ export const GENTLE_AI_METHODS = {
     GentleAiModelConfig,
   ),
   "backups.list": query(Empty, Schema.Struct({ backups: Schema.Array(GentleAiBackup) })),
-  "plugins.list": query(Empty, GentleAiPlugins),
+  "plugins.list": query(Schema.Struct({ agent: Opt(GentleAiPluginAgent) }), GentleAiPlugins),
   "tools.list": query(Schema.Struct({ cwd: Opt(Cwd) }), GentleAiTools),
   "builder.engines": query(
     Empty,
@@ -545,12 +552,15 @@ export const GENTLE_AI_METHODS = {
   "backups.rename": job(Schema.Struct({ id: Id, description: Schema.String }), Empty),
   "backups.pin": job(Schema.Struct({ id: Id, pinned: Schema.Boolean }), Empty),
   "plugins.install": job(
-    Schema.Struct({ ids: Ids }),
+    Schema.Struct({ ids: Ids, agent: Opt(GentleAiPluginAgent) }),
     Schema.Struct({
       results: Schema.Array(Schema.Struct({ id: Id, changed: Schema.Boolean, files: Ids })),
     }),
   ),
-  "plugins.uninstall": job(Schema.Struct({ id: Id }), Schema.Record(Schema.String, Schema.Unknown)),
+  "plugins.uninstall": job(
+    Schema.Struct({ id: Id, agent: Opt(GentleAiPluginAgent) }),
+    Schema.Record(Schema.String, Schema.Unknown),
+  ),
   "tools.install": job(
     Schema.Struct({ ids: Ids, cwd: Cwd }),
     Schema.Struct({

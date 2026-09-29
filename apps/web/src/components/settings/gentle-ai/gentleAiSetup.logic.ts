@@ -16,6 +16,7 @@ export interface GentleAiSetupDraft {
   readonly skills: ReadonlyArray<string>;
   readonly rdd: boolean;
   readonly openCodePlugins: ReadonlyArray<string>;
+  readonly piPlugins: ReadonlyArray<string>;
   readonly background: {
     readonly opencode: "auto" | "on" | "off";
     readonly pi: "auto" | "on" | "off";
@@ -64,6 +65,7 @@ export function initialSetupDraft(
       : status.skills.map((skill) => skill.id),
     rdd: status.state.rddMode !== "off",
     openCodePlugins: [],
+    piPlugins: [],
     background: {
       opencode: backgroundChoice(status.state.background.opencode),
       pi: backgroundChoice(status.state.background.pi),
@@ -137,6 +139,7 @@ export function installParams(
     ...(Object.keys(modelPresets).length > 0 ? { modelPresets } : {}),
     ...(models === undefined ? {} : { models }),
     ...(asks("openCodePlugins") ? { openCodePlugins: [...draft.openCodePlugins] } : {}),
+    ...(asks("piPlugins") ? { piPlugins: [...draft.piPlugins] } : {}),
     ...(asks("rdd") ? { rdd: draft.rdd } : {}),
     ...(asks("openCodeBackground") || asks("piBackground")
       ? {

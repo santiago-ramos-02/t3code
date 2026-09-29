@@ -97,6 +97,14 @@ describe("setup wizard", () => {
     });
   });
 
+  it("sends the chosen Pi plugins only when the plan offers them", () => {
+    const draft = { ...initialSetupDraft(status()), piPlugins: ["claude-bridge"] };
+    expect(installParams(status(), draft, plan(["piPlugins"])).piPlugins).toEqual([
+      "claude-bridge",
+    ]);
+    expect(installParams(status(), draft, plan(["rdd"]))).not.toHaveProperty("piPlugins");
+  });
+
   it("names components and skills only for the custom preset", () => {
     const draft = {
       ...initialSetupDraft(status()),

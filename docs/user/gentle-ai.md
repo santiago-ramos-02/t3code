@@ -21,9 +21,12 @@ environment it runs on, organized around your agents:
 
 - **Agents** lists every agent found on the environment and whether Gentle AI
   is set up in it. Pick one to see what Gentle AI does there: its models,
-  OpenCode's plugins, or gentle-pi's profiles for Pi. **Set up** adds Gentle AI
-  to an agent with the setup your other agents use, and **Remove Gentle AI**
-  takes it out of that agent alone.
+  OpenCode's or Pi's plugins, or gentle-pi's profiles for Pi. **Set up** adds
+  Gentle AI to an agent with the setup your other agents use, and **Remove
+  Gentle AI** takes it out of that agent alone. Pi's **Claude Bridge** plugin
+  runs Claude models in Pi on your Claude Pro or Max subscription through Claude
+  Code, so sign in to Claude Code first; Pi must not have `ANTHROPIC_BASE_URL`
+  or an Anthropic key set, or its requests go there instead.
 - **For every agent** shows what Gentle AI installs everywhere. **Change**
   opens the full setup: agents, persona, preset, and components. **Review before
   delivery** turns on an independent review of agents' code changes, and

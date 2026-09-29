@@ -1,4 +1,9 @@
-import type { GentleAiApiStatus, GentleAiModelAgent, GentleAiPlan } from "@t3tools/contracts";
+import type {
+  GentleAiApiStatus,
+  GentleAiModelAgent,
+  GentleAiPlan,
+  GentleAiPluginAgent,
+} from "@t3tools/contracts";
 import { useState, type ReactNode } from "react";
 
 import { Button } from "../../ui/button";
@@ -35,6 +40,7 @@ const STEP_LABELS = {
 const OPTION_QUESTIONS: ReadonlySet<string> = new Set([
   "rdd",
   "openCodePlugins",
+  "piPlugins",
   "openCodeBackground",
   "piBackground",
 ]);
@@ -338,12 +344,6 @@ function OptionsStep({
   readonly plan: GentleAiPlan | null;
 }) {
   const asks = (question: string) => plan?.questions.includes(question) === true;
-  const plugins = useGentleAiQuery(
-    environmentId,
-    "plugins.list",
-    {},
-    { enabled: asks("openCodePlugins") },
-  );
   return (
     <div className="grid gap-3">
       {asks("rdd") ? (
@@ -393,25 +393,61 @@ function OptionsStep({
         </>
       ) : null}
       {asks("openCodePlugins") ? (
-        <div className="grid gap-1">
-          <StepHeading>OpenCode plugins</StepHeading>
-          {plugins.data === null ? (
-            <Spinner className="size-3.5" />
-          ) : (
-            plugins.data.plugins.map((plugin) => (
-              <CheckRow
-                key={plugin.id}
-                checked={draft.openCodePlugins.includes(plugin.id)}
-                onChange={(on) =>
-                  update({ openCodePlugins: toggled(draft.openCodePlugins, plugin.id, on) })
-                }
-                label={plugin.name}
-                detail={plugin.description}
-              />
-            ))
-          )}
-        </div>
+        <PluginChoices
+          environmentId={environmentId}
+          agent="opencode"
+          chosen={draft.openCodePlugins}
+          onChange={(openCodePlugins) => update({ openCodePlugins })}
+        />
       ) : null}
+      {asks("piPlugins") ? (
+        <PluginChoices
+          environmentId={environmentId}
+          agent="pi"
+          chosen={draft.piPlugins}
+          onChange={(piPlugins) => update({ piPlugins })}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+/** The plugins gentle-ai offers one agent, each a checkbox. */
+function PluginChoices(props: {
+  readonly environmentId: GentleAiSectionProps["environmentId"];
+  readonly agent: GentleAiPluginAgent;
+  readonly chosen: ReadonlyArray<string>;
+  readonly onChange: (chosen: ReadonlyArray<string>) => void;
+}) {
+  const plugins = useGentleAiQuery(props.environmentId, "plugins.list", { agent: props.agent });
+  return (
+    <div className="grid gap-1">
+      <StepHeading>{props.agent === "pi" ? "Pi plugins" : "OpenCode plugins"}</StepHeading>
+      {plugins.data === null ? (
+        <Spinner className="size-3.5" />
+      ) : (
+        plugins.data.plugins.map((plugin) =>
+          // Setup only adds plugins; an installed one is removed from the agent's panel.
+          plugin.installed ? (
+            <CheckRow
+              key={plugin.id}
+              checked
+              disabled
+              onChange={() => undefined}
+              label={plugin.name}
+              detail="Installed. Remove it from the agent's panel."
+            />
+          ) : (
+            <CheckRow
+              key={plugin.id}
+              checked={props.chosen.includes(plugin.id)}
+              onChange={(on) => props.onChange(toggled(props.chosen, plugin.id, on))}
+              label={plugin.name}
+              detail={plugin.description}
+            />
+          ),
+        )
+      )}
     </div>
   );
 }

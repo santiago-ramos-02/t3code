@@ -1,3 +1,4 @@
+import type { GentleAiPluginAgent } from "@t3tools/contracts";
 import { ExternalLinkIcon } from "lucide-react";
 import { useState } from "react";
 
@@ -11,14 +12,20 @@ import { useGentleAiQuery } from "./useGentleAi";
 const runWith = (onError: (message: string) => void) => (promise: Promise<string | null>) =>
   void promise.then((error) => (error ? onError(error) : undefined));
 
-/** OpenCode community plugins Gentle AI can install, shown on OpenCode's agent panel. */
-export function GentleAiOpenCodePlugins({
+const AGENT_NAMES = { opencode: "OpenCode", pi: "Pi" } satisfies Record<
+  GentleAiPluginAgent,
+  string
+>;
+
+/** Plugins Gentle AI can install into one agent, shown on that agent's panel. */
+export function GentleAiPlugins({
+  agent,
   environmentId,
   disabled,
   startJob,
   onError,
-}: GentleAiSectionProps) {
-  const plugins = useGentleAiQuery(environmentId, "plugins.list", {});
+}: GentleAiSectionProps & { readonly agent: GentleAiPluginAgent }) {
+  const plugins = useGentleAiQuery(environmentId, "plugins.list", { agent });
   const [removing, setRemoving] = useState<{ readonly id: string; readonly name: string } | null>(
     null,
   );
@@ -38,10 +45,7 @@ export function GentleAiOpenCodePlugins({
           description={data.reason ?? "This environment cannot install them."}
         />
       ) : data.plugins.length === 0 ? (
-        <SettingsRow
-          title="No community plugins"
-          description="Gentle AI lists none for this version."
-        />
+        <SettingsRow title="No plugins" description="Gentle AI lists none for this version." />
       ) : (
         data.plugins.map((plugin) => (
           <SettingsRow
@@ -77,7 +81,7 @@ export function GentleAiOpenCodePlugins({
                   size="sm"
                   variant="outline"
                   disabled={disabled}
-                  onClick={() => run(startJob("plugins.install", { ids: [plugin.id] }))}
+                  onClick={() => run(startJob("plugins.install", { ids: [plugin.id], agent }))}
                 >
                   Install
                 </Button>
@@ -90,11 +94,11 @@ export function GentleAiOpenCodePlugins({
         open={removing !== null}
         onOpenChange={(open) => (open ? undefined : setRemoving(null))}
         title={`Remove ${removing?.name ?? "plugin"}?`}
-        description="OpenCode stops loading it. You can install it again later."
+        description={`${AGENT_NAMES[agent]} stops loading it. You can install it again later.`}
         confirmLabel="Remove"
         destructive
         onConfirm={() => {
-          if (removing !== null) run(startJob("plugins.uninstall", { id: removing.id }));
+          if (removing !== null) run(startJob("plugins.uninstall", { id: removing.id, agent }));
         }}
       />
     </SettingsSection>

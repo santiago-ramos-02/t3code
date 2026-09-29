@@ -23,7 +23,7 @@ import { SettingsGroup } from "../SettingsGroup";
 import { SettingsRow, SettingsSection } from "../settingsLayout";
 import { GentleAiClaudeProfileRow } from "./GentleAiClaudeProfiles";
 import { GentleAiAgentModelsRow } from "./GentleAiModels";
-import { GentleAiOpenCodePlugins } from "./GentleAiOpenCodePlugins";
+import { GentleAiPlugins } from "./GentleAiPlugins";
 import type { GentleAiSectionProps } from "./GentleAiSettingsPage";
 
 const AGENT_ICONS: Readonly<Record<string, Icon>> = {
@@ -183,8 +183,8 @@ function AgentPanel({
           />
         )}
       </SettingsSection>
-      {agent.id === "opencode" && agent.state === "set-up" ? (
-        <GentleAiOpenCodePlugins {...props} />
+      {(agent.id === "opencode" || agent.id === "pi") && agent.state === "set-up" ? (
+        <GentleAiPlugins {...props} agent={agent.id} />
       ) : null}
       {agent.id === "pi" && extras === undefined ? (
         <SettingsSection title="gentle-pi">
