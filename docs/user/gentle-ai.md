@@ -52,25 +52,21 @@ customize models, and create agents from web or desktop.
 
 ## Other models in Claude Code
 
-Claude Code's Gentle AI subagents normally run on Claude's tiers. When Claude Code
-is connected to a proxy that serves other providers' models, such as CLIProxyAPI,
-through `ANTHROPIC_BASE_URL` in `~/.claude/settings.json`, the proxy's models also
-appear under **Customize** in Claude Code's models. Give a phase one of them to run
-it there, for example the explorer on a lighter model while the main thread stays
-on Opus. This needs a gentle-ai that discovers proxy models; with others, the list
-shows only Claude's tiers.
-
-### Claude Code profiles
-
 Claude Code picks one of four model slots, `fable`, `opus`, `sonnet`, and `haiku`, each
-time it hands work to a subagent. A profile sets which model each slot really runs, and
-tells Claude what each slot is for, so it chooses a model per task: for example Opus for
-design, Sonnet for code, and an inexpensive model behind `haiku` for bounded tasks. A
-profile can also pin Gentle AI's phases to fixed models instead. Pick a profile under
-**Profile** in Claude Code's panel, and create or edit them with **Edit**. Keep one
-profile per situation, such as one for when an account is near its usage limit, and
-switch when it is; **None** puts Claude Code's own models back. A profile changes Claude
-Code everywhere it runs on that computer, not only in T3 Code.
+time it hands work to a subagent. Through a proxy that serves other providers' models,
+such as [CLIProxyAPI](./cli-proxy.md), a Claude Code profile sets which model each slot
+really runs and tells Claude what each slot is for, so it chooses a model per task: for
+example Opus for design, Sonnet for code, and an inexpensive model behind `haiku` for
+bounded tasks. Pick a profile under **Profile** in Claude Code's panel, and create or
+edit them with **Edit**; the slot choices are the models your proxied Claude Code
+providers serve. Keep one profile per situation, such as one for when an account is near
+its usage limit, and switch when it is; **None** puts Claude Code's own models back.
+
+A profile applies only to Claude Code providers that go through a proxy, such as the
+CLIProxyAPI provider that **Use in T3 Code** adds. Claude Code that reaches Anthropic
+directly keeps its own models, and nothing changes in `~/.claude`. A profile can also pin
+Gentle AI's phases to slots; phases are shared by every Claude Code, so a phase pinned to
+`haiku` runs whatever `haiku` is on the provider running it.
 
 ## Turn Gentle AI off for a thread
 

@@ -1,5 +1,7 @@
 import {
+  CustomModelSetting,
   GENTLE_AI_CLAUDE_SLOTS,
+  type ProviderInstanceConfig,
   type GentleAiClaudeProfile,
   type GentleAiApiStatus,
   type GentleAiJobMethod,
@@ -7,6 +9,8 @@ import {
   type GentleAiModels,
   type GentleAiOddFeatures,
 } from "@t3tools/contracts";
+import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 
 /** What each Gentle AI job is called while it runs and after, on every client. */
 export const GENTLE_AI_JOB_LABELS = {
@@ -131,4 +135,45 @@ export function gentleAiClaudeProfileSummary(
       ? "Claude picks models per task"
       : `${pinned} phase${pinned === 1 ? "" : "s"} pinned`;
   return [...slots, phases].join(" · ");
+}
+
+/** Why a Claude Code profile has no effect yet: no Claude Code provider goes through a proxy. */
+export const GENTLE_AI_CLAUDE_PROFILE_NEEDS_PROXY =
+  "Profiles apply to Claude Code providers that go through a proxy. Turn on Use in T3 Code in Settings > CLIProxyAPI.";
+
+/**
+ * Whether a provider is Claude Code talking to a gateway such as CLIProxyAPI. Claude Code
+ * profiles apply only to these, so Claude Code reaching Anthropic directly keeps its own models.
+ */
+export function isProxiedClaudeInstance(instance: ProviderInstanceConfig): boolean {
+  return (
+    instance.driver === "claudeAgent" &&
+    instance.enabled !== false &&
+    (instance.environment ?? []).some(
+      (variable) =>
+        variable.name === "ANTHROPIC_BASE_URL" &&
+        (variable.value.trim() !== "" || variable.valueRedacted === true),
+    )
+  );
+}
+
+const decodeCustomModels = Schema.decodeUnknownOption(
+  Schema.Struct({ customModels: Schema.Array(CustomModelSetting) }),
+);
+
+/** The models a Claude Code profile slot can run: what every proxied Claude Code serves. */
+export function claudeProfileSlotModels(
+  instances: Readonly<Record<string, ProviderInstanceConfig>>,
+): ReadonlyArray<{ readonly id: string; readonly label: string }> {
+  const models = new Map<string, string>();
+  for (const instance of Object.values(instances)) {
+    if (!isProxiedClaudeInstance(instance)) continue;
+    const config = Option.getOrUndefined(decodeCustomModels(instance.config));
+    for (const model of config?.customModels ?? []) {
+      const [id, label] =
+        typeof model === "string" ? [model, model] : [model.slug, model.name ?? model.slug];
+      if (!models.has(id)) models.set(id, label);
+    }
+  }
+  return [...models].map(([id, label]) => ({ id, label }));
 }

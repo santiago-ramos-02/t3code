@@ -3,7 +3,9 @@ import {
   GENTLE_AI_JOB_LABELS,
   gentleAiAgentList,
   gentleAiModelAgent,
+  GENTLE_AI_CLAUDE_PROFILE_NEEDS_PROXY,
   gentleAiClaudeProfileSummary,
+  isProxiedClaudeInstance,
   gentleAiModelsAllDefault,
   gentleAiSyncNeeded,
 } from "@t3tools/client-runtime/gentle-ai";
@@ -360,6 +362,10 @@ function GentleAiClaudeProfilePicker(props: {
   readonly onApply: (name: string | null) => void;
 }) {
   const profiles = useGentleAiQuery(props.environmentId, "claude.profiles", {}).data;
+  const config = useAtomValue(serverEnvironment.configValueAtom(props.environmentId));
+  const proxied = Object.values(config?.settings.providerInstances ?? {}).some(
+    isProxiedClaudeInstance,
+  );
   if (profiles === null || profiles.profiles.length === 0) return null;
   const active = profiles.profiles.find((profile) => profile.name === profiles.active) ?? null;
   return (
@@ -367,9 +373,11 @@ function GentleAiClaudeProfilePicker(props: {
       <View className="min-w-0 flex-1">
         <Text className="text-sm text-foreground">Claude Code profile</Text>
         <Text className="text-xs text-foreground-muted" numberOfLines={2}>
-          {active === null
-            ? "Claude Code runs its own models."
-            : (active.description ?? gentleAiClaudeProfileSummary(active))}
+          {!proxied
+            ? GENTLE_AI_CLAUDE_PROFILE_NEEDS_PROXY
+            : active === null
+              ? "Claude Code runs its own models."
+              : (active.description ?? gentleAiClaudeProfileSummary(active))}
         </Text>
       </View>
       <ChoiceMenu

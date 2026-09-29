@@ -1,7 +1,6 @@
 import { assert, describe, it } from "vite-plus/test";
 
 import {
-  claudeSlotModelOptions,
   profilePhaseModels,
   withPhaseModels,
   withSlotModel,
@@ -11,28 +10,6 @@ import {
 const base = { name: "Dynamic", slots: {} };
 
 describe("Claude Code profiles", () => {
-  it("offers the proxy's models to slots, by the ID Claude Code sends", () => {
-    const options = claudeSlotModelOptions({
-      agent: "claude-code",
-      presets: [],
-      currentPreset: null,
-      phases: [],
-      current: {},
-      options: {
-        claude: {
-          models: [
-            { id: "opus", label: "opus", efforts: [] },
-            { id: "custom:claude-fable-5-dd-anul-6-tpg", label: "GPT 6.0 Luna", efforts: [] },
-          ],
-        },
-      },
-    });
-    assert.deepStrictEqual(options, [
-      { id: "claude-fable-5-dd-anul-6-tpg", label: "GPT 6.0 Luna" },
-    ]);
-    assert.deepStrictEqual(claudeSlotModelOptions(null), []);
-  });
-
   it("keeps a slot's note when its model changes and drops it when cleared", () => {
     let profile = withSlotModel(base, "haiku", { id: "luna", label: "Luna" });
     profile = withSlotUse(profile, "haiku", "bounded | tasks");

@@ -103,6 +103,7 @@ import {
 import { planClaudeSkillDispatch } from "../Drivers/ClaudeSkillDispatch.ts";
 import { discoverClaudeSkills } from "../Drivers/ClaudeSkills.ts";
 import { buildRuntimeInstructions } from "../RuntimeInstructions.ts";
+import { goesThroughProxy, readClaudeGentleProfile } from "../../gentleAi/ClaudeGentleProfile.ts";
 import {
   BUNDLED_CLAUDE_MODEL_CATALOG,
   type ClaudeModelCatalog,
@@ -4944,6 +4945,19 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
             ),
           )
         : undefined;
+      // A Gentle AI Claude Code profile sets the slots only where Claude Code goes through a
+      // proxy, the one place other providers' models are reachable.
+      const gentleProfile =
+        !gentleOff && goesThroughProxy(claudeEnvironment)
+          ? yield* readClaudeGentleProfile(claudeEnvironment, hostPlatform).pipe(
+              Effect.provideService(FileSystem.FileSystem, fileSystem),
+              Effect.provideService(Path.Path, path),
+            )
+          : null;
+      const profileEnv = gentleProfile?.env ?? {};
+      // Settings passed here outrank ~/.claude/settings.json, so the slots hold.
+      const sessionSettings =
+        Object.keys(profileEnv).length > 0 ? { ...settings, env: profileEnv } : settings;
       // The attachments dir grant lets the agent Read/copy pasted images at
       // the paths ProviderService injects into the turn text, without an
       // approval prompt. It is a leaf directory holding only attachment
@@ -4966,7 +4980,9 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
 # User instructions
 
 ${gentleOff.instructions}`
-            : buildRuntimeInstructions({ harness: "Claude Code" }),
+            : [buildRuntimeInstructions({ harness: "Claude Code" }), gentleProfile?.guide ?? ""]
+                .filter((part) => part !== "")
+                .join("\n\n"),
         },
         settingSources: gentleOff ? ["project", "local"] : [...CLAUDE_SETTING_SOURCES],
         ...(gentleOff && Object.keys(gentleOff.agents).length > 0
@@ -4997,8 +5013,8 @@ ${gentleOff.instructions}`
           : {}),
         ...(gentleOff
           ? { settings: { ...gentleOff.settings, ...settings } }
-          : Object.keys(settings).length > 0
-            ? { settings }
+          : Object.keys(sessionSettings).length > 0
+            ? { settings: sessionSettings }
             : {}),
         ...(existingResumeSessionId ? { resume: existingResumeSessionId } : {}),
         ...(newSessionId ? { sessionId: newSessionId } : {}),
@@ -5006,7 +5022,10 @@ ${gentleOff.instructions}`
         canUseTool,
         onUserDialog,
         supportedDialogKinds: ["resume_return"],
-        env: McpProviderSession.withAgentDeviceEnvironment(claudeEnvironment, mcpSession),
+        env: McpProviderSession.withAgentDeviceEnvironment(
+          { ...claudeEnvironment, ...profileEnv },
+          mcpSession,
+        ),
         additionalDirectories,
         ...(Object.keys(extraArgs).length > 0 ? { extraArgs } : {}),
         ...(mcpSession || gentleOff

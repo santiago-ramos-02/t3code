@@ -48,6 +48,7 @@ import * as Stream from "effect/Stream";
 import * as ChildProcess from "effect/unstable/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
 
+import { GENTLE_AI_PROFILE_HOST } from "./ClaudeGentleProfile.ts";
 import { isGentleAiResource } from "./GentleAiFootprint.ts";
 import { DescribeResult, runGentleAiApi, type GentleAiApiEvent } from "./GentleAiApi.ts";
 import { resolveGentleAiBinary } from "./GentleAiBinary.ts";
@@ -55,6 +56,10 @@ import { spawnAndCollect } from "../provider/providerSnapshot.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 
 const isGentleAiError = Schema.is(GentleAiError);
+const HOSTED_PROFILE_METHODS: ReadonlySet<string> = new Set([
+  "claude.profiles.apply",
+  "claude.profiles.save",
+]);
 const FootprintRemoved = Schema.Struct({ removed: Schema.Array(Schema.String) });
 
 export class GentleAi extends Context.Service<
@@ -505,7 +510,14 @@ export const make = Effect.gen(function* () {
       const data = yield* runGentleAiApi({
         binaryPath,
         method,
-        params: encodedParams,
+        // T3 Code applies Claude Code profiles itself, only to Claude Code it runs through a
+        // proxy (see ClaudeGentleProfile), so gentle-ai leaves ~/.claude alone.
+        params:
+          HOSTED_PROFILE_METHODS.has(method) &&
+          typeof encodedParams === "object" &&
+          encodedParams !== null
+            ? { ...encodedParams, host: GENTLE_AI_PROFILE_HOST }
+            : encodedParams,
         environment,
         timeout,
         ...(onEvent ? { onEvent } : {}),

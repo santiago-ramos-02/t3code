@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
 
+import { ProviderDriverKind } from "@t3tools/contracts";
+
 import {
+  claudeProfileSlotModels,
   gentleAiAgentList,
   gentleAiClaudeProfileSummary,
   gentleAiModelAgent,
@@ -98,5 +101,47 @@ describe("gentleAiClaudeProfileSummary", () => {
     expect(
       gentleAiClaudeProfileSummary({ slots: {}, phases: { "odd-worker": { model: "sonnet" } } }),
     ).toBe("1 phase pinned");
+  });
+});
+
+describe("claudeProfileSlotModels", () => {
+  it("offers what Claude Code providers going through a proxy serve, once each", () => {
+    const claude = ProviderDriverKind.make("claudeAgent");
+    const proxy = [
+      { name: "ANTHROPIC_BASE_URL", value: "http://127.0.0.1:8317", sensitive: false },
+    ];
+    expect(
+      claudeProfileSlotModels({
+        cliproxy: {
+          driver: claude,
+          environment: proxy,
+          config: {
+            customModels: [{ slug: "claude-fable-5-dd-anul-6-tpg", name: "GPT 6.0 Luna" }, "muse"],
+          },
+        },
+        other: {
+          driver: claude,
+          environment: [
+            { name: "ANTHROPIC_BASE_URL", value: "", sensitive: false, valueRedacted: true },
+          ],
+          config: { customModels: ["muse"] },
+        },
+        direct: { driver: claude, config: { customModels: ["claude-opus-5-5"] } },
+        off: {
+          driver: claude,
+          environment: proxy,
+          enabled: false,
+          config: { customModels: ["off"] },
+        },
+        codex: {
+          driver: ProviderDriverKind.make("codex"),
+          environment: proxy,
+          config: { customModels: ["gpt"] },
+        },
+      }),
+    ).toEqual([
+      { id: "claude-fable-5-dd-anul-6-tpg", label: "GPT 6.0 Luna" },
+      { id: "muse", label: "muse" },
+    ]);
   });
 });

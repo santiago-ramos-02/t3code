@@ -1,22 +1,4 @@
-import type {
-  GentleAiClaudeProfile,
-  GentleAiClaudeSlot,
-  GentleAiModelConfig,
-  GentleAiModels,
-} from "@t3tools/contracts";
-
-// gentle-ai's prefix for a model Claude Code reaches by ID rather than a slot name.
-const CUSTOM = "custom:";
-
-/**
- * The models a slot can run: every model the proxy Claude Code is connected to serves, by
- * the ID Claude Code sends. Without a proxy there are none; slots then stay Claude Code's own.
- */
-export function claudeSlotModelOptions(config: GentleAiModelConfig | null) {
-  return (config?.options.claude?.models ?? []).flatMap((model) =>
-    model.id.startsWith(CUSTOM) ? [{ id: model.id.slice(CUSTOM.length), label: model.label }] : [],
-  );
-}
+import type { GentleAiClaudeProfile, GentleAiClaudeSlot, GentleAiModels } from "@t3tools/contracts";
 
 /** Sets what one slot runs, carrying the model's name along; null leaves the slot as it is. */
 export function withSlotModel(

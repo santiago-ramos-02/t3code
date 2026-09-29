@@ -3,9 +3,15 @@ import {
   type GentleAiClaudeProfile,
   type GentleAiModelConfig,
 } from "@t3tools/contracts";
-import { gentleAiClaudeProfileSummary } from "@t3tools/client-runtime/gentle-ai";
+import {
+  claudeProfileSlotModels,
+  GENTLE_AI_CLAUDE_PROFILE_NEEDS_PROXY,
+  gentleAiClaudeProfileSummary,
+  isProxiedClaudeInstance,
+} from "@t3tools/client-runtime/gentle-ai";
 import { useState } from "react";
 
+import { useEnvironmentSettings } from "../../../hooks/useSettings";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../../ui/select";
@@ -13,7 +19,6 @@ import { Spinner } from "../../ui/spinner";
 import { Switch } from "../../ui/switch";
 import { SettingsRow } from "../settingsLayout";
 import {
-  claudeSlotModelOptions,
   profilePhaseModels,
   withPhaseModels,
   withSlotModel,
@@ -44,6 +49,9 @@ export function GentleAiClaudeProfileRow({
   openFlow,
 }: GentleAiSectionProps) {
   const profiles = useGentleAiQuery(environmentId, "claude.profiles", {});
+  const proxied = useEnvironmentSettings(environmentId, (settings) =>
+    Object.values(settings.providerInstances).some(isProxiedClaudeInstance),
+  );
   const data = profiles.data;
   const active = data?.profiles.find((profile) => profile.name === data.active) ?? null;
   const apply = (name: string | null) =>
@@ -58,11 +66,13 @@ export function GentleAiClaudeProfileRow({
         profiles.error ??
         (data === null
           ? "Reading profiles…"
-          : active !== null
-            ? (active.description ?? gentleAiClaudeProfileSummary(active))
-            : data.profiles.length === 0
-              ? "Which models Claude Code's slots run and what it should use each for. Switch profiles to move work off an account near its limit."
-              : "Claude Code runs its own models.")
+          : data.profiles.length > 0 && !proxied
+            ? GENTLE_AI_CLAUDE_PROFILE_NEEDS_PROXY
+            : active !== null
+              ? (active.description ?? gentleAiClaudeProfileSummary(active))
+              : data.profiles.length === 0
+                ? "Which models Claude Code's slots run through a proxy, and what it should use each for. Switch profiles to move work off an account near its limit."
+                : "Claude Code runs its own models.")
       }
       control={
         <div className="flex items-center gap-2">
@@ -117,11 +127,13 @@ export function GentleAiClaudeProfilesFlow({
   onClose,
 }: GentleAiSectionProps & { readonly onClose: () => void }) {
   const profiles = useGentleAiQuery(environmentId, "claude.profiles", {});
-  // Discovery lists the models of the proxy Claude Code is connected to.
-  const models = useGentleAiQuery(environmentId, "models.get", {
-    agent: "claude-code",
-    discover: true,
-  });
+  // The phases a profile can pin, and the slots they can be pinned to.
+  const models = useGentleAiQuery(environmentId, "models.get", { agent: "claude-code" });
+  const providerInstances = useEnvironmentSettings(
+    environmentId,
+    (settings) => settings.providerInstances,
+  );
+  const slotOptions = claudeProfileSlotModels(providerInstances);
   const [editing, setEditing] = useState<string | null>(null);
   const data = profiles.data;
   const run = (promise: Promise<string | null>, after?: () => void) =>
@@ -139,7 +151,7 @@ export function GentleAiClaudeProfilesFlow({
     <section className="space-y-4">
       <GentleAiFlowHeader
         title="Claude Code profiles"
-        description="A profile sets which model each of Claude Code's slots runs and tells it what each is for, so it picks per task. It can also pin Gentle AI's phases."
+        description="A profile sets which model each of Claude Code's slots runs and tells it what each is for, so it picks per task. It applies to Claude Code providers that go through a proxy, such as CLIProxyAPI; Claude Code reaching Anthropic directly keeps its own models. It can also pin Gentle AI's phases, for every Claude Code."
         onBack={onClose}
       />
       {data === null ? (
@@ -188,6 +200,7 @@ export function GentleAiClaudeProfilesFlow({
             key={selectedKey}
             initial={selected}
             applied={selected !== null && selected.name === data.active}
+            slotOptions={slotOptions}
             config={models.data}
             modelsError={models.error}
             disabled={disabled}
@@ -222,12 +235,14 @@ export function GentleAiClaudeProfilesFlow({
 function ProfileDraft({
   initial,
   applied,
+  slotOptions,
   config,
   modelsError,
   disabled,
   onSave,
   onDelete,
 }: {
+  readonly slotOptions: ReadonlyArray<{ readonly id: string; readonly label: string }>;
   readonly initial: GentleAiClaudeProfile | null;
   readonly applied: boolean;
   readonly config: GentleAiModelConfig | null;
@@ -238,7 +253,6 @@ function ProfileDraft({
 }) {
   const [draft, setDraft] = useState<GentleAiClaudeProfile>(initial ?? { name: "", slots: {} });
   const [pinning, setPinning] = useState(Object.keys(initial?.phases ?? {}).length > 0);
-  const slotOptions = claudeSlotModelOptions(config);
   const name = draft.name.trim();
   const profile = { ...draft, name };
   const canSave = !disabled && /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$/.test(name);
@@ -275,11 +289,9 @@ function ProfileDraft({
           <div>
             <h3 className="font-medium text-xs uppercase tracking-wide">Slots</h3>
             <p className="text-muted-foreground text-xs">
-              {config === null
-                ? (modelsError ?? "Discovering the models Claude Code can reach…")
-                : slotOptions.length === 0
-                  ? "Connect Claude Code to a proxy to run other models in its slots. Unset slots run Claude Code's own models."
-                  : "Unset slots run Claude Code's own models. Say what each slot is for so Claude picks well."}
+              {slotOptions.length === 0
+                ? "Turn on Use in T3 Code in Settings > CLIProxyAPI to run its models in these slots. Unset slots run Claude Code's own models."
+                : "Unset slots run Claude Code's own models. Say what each slot is for so Claude picks well."}
             </p>
           </div>
           {GENTLE_AI_CLAUDE_SLOTS.map((slot) => {
