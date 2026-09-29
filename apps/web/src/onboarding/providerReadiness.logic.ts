@@ -56,6 +56,8 @@ export function getOnboardingProviderState(
   // Pi uses the installation and credentials already configured on the
   // environment. T3 should report its probe result, never offer managed setup.
   if (provider.driver === "pi") return provider.status === "ready" ? "ready" : "attention";
+  if (!provider.installed && provider.status === "warning" && provider.auth.status === "unknown")
+    return "checking";
   if (!provider.installed) return "install";
   if (provider.auth.status === "unauthenticated") return "signIn";
   if (provider.status === "ready") return "ready";
