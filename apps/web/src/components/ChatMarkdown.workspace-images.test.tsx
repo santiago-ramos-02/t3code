@@ -153,6 +153,22 @@ describe("ChatMarkdown workspace images", () => {
     expect(html).not.toContain("Image unavailable");
   });
 
+  it("keeps every backslash of a Windows drive path, even before a dot folder", () => {
+    // Markdown reads `\.` as an escaped dot, which would turn `\.t3` into `.t3`.
+    const html = render(
+      String.raw`![shot](C:\Users\shawn\.t3\userdata\browser-artifacts\shot_1.png)`,
+    );
+
+    expect(testState.resources).toEqual([
+      {
+        _tag: "media-file",
+        threadId: threadRef.threadId,
+        path: "C:\\Users\\shawn\\.t3\\userdata\\browser-artifacts\\shot_1.png",
+      },
+    ]);
+    expect(html).not.toContain("Image unavailable");
+  });
+
   it("loads a POSIX absolute path and file URI through a signed asset URL", () => {
     const html = renderToStaticMarkup(
       <ChatMarkdown
