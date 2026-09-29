@@ -83,7 +83,6 @@ export function GentleAiSettingsPanel({
   const [report, setReport] = useState<{ title: string; output: string } | null>(null);
   // Bumped after gentle-ai changes agent assets, so the adapter sections re-read theirs.
   const [refreshKey, setRefreshKey] = useState(0);
-  const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
 
   const act = (action: GentleAiAction, reportTitle?: string) => {
     if (pending) return;
@@ -155,7 +154,11 @@ export function GentleAiSettingsPanel({
       key={provider.instanceId}
       environmentId={environmentId}
       instanceId={provider.instanceId}
-      title={piInstances.length > 1 ? `Pi · ${provider.displayName ?? provider.instanceId}` : "Pi"}
+      title={
+        piInstances.length > 1
+          ? `gentle-pi · ${provider.displayName ?? provider.instanceId}`
+          : "gentle-pi"
+      }
       refreshKey={refreshKey}
       models={provider.models}
       initialProjectCwd={projectCwd}
@@ -178,11 +181,14 @@ export function GentleAiSettingsPanel({
             cwd: project.workspaceRoot,
           }))}
           agentExtras={piSections.length > 0 ? { pi: piSections } : {}}
+          piProvider={
+            piInstances[0]
+              ? { instanceId: piInstances[0].instanceId, models: piInstances[0].models }
+              : null
+          }
           claudeProfiles={status?.claudeProfiles === true}
-          selectedAgent={selectedAgent}
-          onSelectAgent={setSelectedAgent}
+          advancedRows={binaryPathRow}
         />
-        {flow === null ? <SettingsSection title="Advanced">{binaryPathRow}</SettingsSection> : null}
       </SettingsPageContainer>
     );
   }

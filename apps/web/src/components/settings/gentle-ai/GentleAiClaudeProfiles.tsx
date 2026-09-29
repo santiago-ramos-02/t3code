@@ -40,77 +40,90 @@ const SLOT_HINTS = {
   haiku: "Cheap, bounded tasks; also titles and other background work",
 } as const;
 
-/** Which Claude Code profile is applied, switchable in place. */
-export function GentleAiClaudeProfileRow({
+/** The Claude Code profiles, which one is applied, and what that means in a line. */
+export function useGentleAiClaudeProfiles({
   environmentId,
-  disabled,
   startJob,
   onError,
-  openFlow,
-}: GentleAiSectionProps) {
+}: Pick<GentleAiSectionProps, "environmentId" | "startJob" | "onError">) {
   const profiles = useGentleAiQuery(environmentId, "claude.profiles", {});
   const proxied = useEnvironmentSettings(environmentId, (settings) =>
     Object.values(settings.providerInstances).some(isProxiedClaudeInstance),
   );
   const data = profiles.data;
   const active = data?.profiles.find((profile) => profile.name === data.active) ?? null;
+  const summary =
+    profiles.error ??
+    (data === null
+      ? "Reading profiles…"
+      : data.profiles.length > 0 && !proxied
+        ? GENTLE_AI_CLAUDE_PROFILE_NEEDS_PROXY
+        : active !== null
+          ? (active.description ?? gentleAiClaudeProfileSummary(active))
+          : data.profiles.length === 0
+            ? "Which models Claude Code's slots run through a proxy, and what it should use each for. Switch profiles to move work off an account near its limit."
+            : "Claude Code runs its own models.");
   const apply = (name: string | null) =>
     void startJob("claude.profiles.apply", { name }).then((error) =>
       error ? onError(error) : undefined,
     );
+  return { data, error: profiles.error, summary, apply };
+}
 
+/** Switches the applied Claude Code profile; nothing while there are none. */
+export function GentleAiClaudeProfileSelect({
+  profiles,
+  disabled,
+}: {
+  readonly profiles: ReturnType<typeof useGentleAiClaudeProfiles>;
+  readonly disabled: boolean;
+}) {
+  const { data, error, apply } = profiles;
+  if (data === null) return error ? null : <Spinner className="size-3.5" />;
+  if (data.profiles.length === 0) return null;
+  return (
+    <Select
+      value={data.active ?? NONE}
+      onValueChange={(next) => {
+        if (next === null || next === (data.active ?? NONE)) return;
+        apply(next === NONE ? null : next);
+      }}
+      disabled={disabled}
+    >
+      <SelectTrigger size="sm" className="w-40" aria-label="Claude Code profile">
+        <SelectValue>
+          <span className="truncate">{data.active ?? "None"}</span>
+        </SelectValue>
+      </SelectTrigger>
+      <SelectPopup align="end">
+        <SelectItem value={NONE}>None</SelectItem>
+        {data.profiles.map((profile) => (
+          <SelectItem key={profile.name} value={profile.name}>
+            {profile.name}
+          </SelectItem>
+        ))}
+      </SelectPopup>
+    </Select>
+  );
+}
+
+/** Which Claude Code profile is applied, switchable in place, and a way into editing them. */
+export function GentleAiClaudeProfileRow(props: GentleAiSectionProps) {
+  const profiles = useGentleAiClaudeProfiles(props);
   return (
     <SettingsRow
       title="Profile"
-      description={
-        profiles.error ??
-        (data === null
-          ? "Reading profiles…"
-          : data.profiles.length > 0 && !proxied
-            ? GENTLE_AI_CLAUDE_PROFILE_NEEDS_PROXY
-            : active !== null
-              ? (active.description ?? gentleAiClaudeProfileSummary(active))
-              : data.profiles.length === 0
-                ? "Which models Claude Code's slots run through a proxy, and what it should use each for. Switch profiles to move work off an account near its limit."
-                : "Claude Code runs its own models.")
-      }
+      description={profiles.summary}
       control={
         <div className="flex items-center gap-2">
-          {data === null ? (
-            profiles.error ? null : (
-              <Spinner className="size-3.5" />
-            )
-          ) : data.profiles.length === 0 ? null : (
-            <Select
-              value={data.active ?? NONE}
-              onValueChange={(next) => {
-                if (next === null || next === (data.active ?? NONE)) return;
-                apply(next === NONE ? null : next);
-              }}
-              disabled={disabled}
-            >
-              <SelectTrigger size="sm" className="w-40" aria-label="Claude Code profile">
-                <SelectValue>
-                  <span className="truncate">{data.active ?? "None"}</span>
-                </SelectValue>
-              </SelectTrigger>
-              <SelectPopup align="end">
-                <SelectItem value={NONE}>None</SelectItem>
-                {data.profiles.map((profile) => (
-                  <SelectItem key={profile.name} value={profile.name}>
-                    {profile.name}
-                  </SelectItem>
-                ))}
-              </SelectPopup>
-            </Select>
-          )}
+          <GentleAiClaudeProfileSelect profiles={profiles} disabled={props.disabled} />
           <Button
             size="sm"
             variant="outline"
-            disabled={disabled || data === null}
-            onClick={() => openFlow({ kind: "claudeProfiles" })}
+            disabled={props.disabled || profiles.data === null}
+            onClick={() => props.openFlow({ kind: "claudeProfiles" })}
           >
-            {data !== null && data.profiles.length === 0 ? "Create" : "Edit"}
+            {profiles.data !== null && profiles.data.profiles.length === 0 ? "Create" : "Edit"}
           </Button>
         </div>
       }

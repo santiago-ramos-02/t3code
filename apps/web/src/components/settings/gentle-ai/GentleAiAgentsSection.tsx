@@ -1,12 +1,8 @@
-import {
-  gentleAiAgentList,
-  gentleAiModelAgent,
-  type GentleAiAgentState,
-} from "@t3tools/client-runtime/gentle-ai";
-import { BotIcon } from "lucide-react";
-import { useRef, type ReactNode } from "react";
+import { gentleAiAgentList, gentleAiModelAgent } from "@t3tools/client-runtime/gentle-ai";
+import type { ProviderInstanceId, ServerProviderModel } from "@t3tools/contracts";
+import { BotIcon, ChevronRightIcon, PlusIcon } from "lucide-react";
+import type { ReactNode } from "react";
 
-import { cn } from "../../../lib/utils";
 import {
   ClaudeAI,
   CursorIcon,
@@ -19,12 +15,22 @@ import {
   PiAgentIcon,
 } from "../../Icons";
 import { Button } from "../../ui/button";
-import { SettingsGroup } from "../SettingsGroup";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../../ui/menu";
 import { SettingsRow, SettingsSection } from "../settingsLayout";
-import { GentleAiClaudeProfileRow } from "./GentleAiClaudeProfiles";
-import { GentleAiAgentModelsRow } from "./GentleAiModels";
+import {
+  GentleAiClaudeProfileRow,
+  GentleAiClaudeProfileSelect,
+  useGentleAiClaudeProfiles,
+} from "./GentleAiClaudeProfiles";
+import { GentleAiFlowHeader } from "./GentleAiFlow";
+import {
+  GentleAiAgentModelsRow,
+  GentleAiModelPresetSelect,
+  useGentleAiModelPreset,
+} from "./GentleAiModels";
 import { GentleAiPlugins } from "./GentleAiPlugins";
 import type { GentleAiSectionProps } from "./GentleAiSettingsPage";
+import { PiGentleProfileSelect, usePiGentleProfiles } from "./PiGentleProfileSelect";
 
 const AGENT_ICONS: Readonly<Record<string, Icon>> = {
   "claude-code": ClaudeAI,
@@ -37,119 +43,282 @@ const AGENT_ICONS: Readonly<Record<string, Icon>> = {
   "vscode-copilot": GithubCopilotIcon,
 };
 
-const STATE_LABELS = {
-  "set-up": "Set up",
-  available: "Not set up",
-  unsupported: "Not supported on this system",
-} satisfies Record<GentleAiAgentState, string>;
-
 function AgentIcon({ id }: { readonly id: string }) {
   const Glyph = AGENT_ICONS[id] ?? BotIcon;
   return <Glyph aria-hidden className="size-4 shrink-0 text-foreground/80" />;
 }
 
+/** A Pi provider that runs with Gentle AI, whose gentle-pi profiles the page can switch. */
+export interface GentleAiPiProvider {
+  readonly instanceId: ProviderInstanceId;
+  readonly models: ReadonlyArray<ServerProviderModel>;
+}
+
+type Agent = ReturnType<typeof gentleAiAgentList>[number];
+
 /**
- * Every agent Gentle AI set up or can set up, like the Providers list: pick one on the left, see
- * and change what Gentle AI does in it on the right. Narrow layouts stack the two.
+ * The agents Gentle AI is set up in, each with the profile or models it runs and a switch for
+ * them, so everyday changes happen without opening anything. Agents it could still set up sit
+ * in the Add menu.
  */
 export function GentleAiAgentsSection({
-  selectedAgent,
-  onSelectAgent,
-  agentExtras,
+  piProvider,
   ...props
-}: GentleAiSectionProps & {
-  readonly selectedAgent: string | null;
-  readonly onSelectAgent: (agent: string) => void;
-  /** Settings an agent brings along, such as gentle-pi's for Pi. */
-  readonly agentExtras: Readonly<Record<string, ReactNode>>;
-}) {
+}: GentleAiSectionProps & { readonly piProvider: GentleAiPiProvider | null }) {
   const agents = gentleAiAgentList(props.status);
-  const selected = agents.find((agent) => agent.id === selectedAgent) ?? agents[0] ?? null;
-  // Narrow layouts stack the panel under the list; bring it into view when an agent is picked.
-  const panelRef = useRef<HTMLDivElement>(null);
+  const setUp = agents.filter((agent) => agent.state === "set-up");
+  const available = agents.filter((agent) => agent.state === "available");
 
   return (
-    <SettingsSection title="Agents" variant="plain">
-      <SettingsGroup
-        divided={false}
-        className="overflow-hidden @min-[40rem]/providers:grid @min-[40rem]/providers:min-h-80 @min-[40rem]/providers:grid-cols-[14rem_minmax(0,1fr)]"
-      >
-        <div className="divide-y divide-border/50 border-b border-border/60 bg-muted/10 @min-[40rem]/providers:border-r @min-[40rem]/providers:border-b-0">
-          {agents.length === 0 ? (
-            <p className="px-4 py-3 text-muted-foreground text-sm">
-              No agents found on this environment.
-            </p>
+    <SettingsSection
+      title="Your agents"
+      headerAction={
+        available.length === 0 ? null : (
+          <Menu>
+            <MenuTrigger render={<Button size="xs" variant="outline" disabled={props.disabled} />}>
+              <PlusIcon className="size-3" aria-hidden />
+              Add agent
+            </MenuTrigger>
+            <MenuPopup align="end">
+              {available.map((agent) => (
+                <MenuItem
+                  key={agent.id}
+                  onClick={() => props.openFlow({ kind: "setup", agent: agent.id })}
+                >
+                  <AgentIcon id={agent.id} />
+                  {agent.name}
+                </MenuItem>
+              ))}
+            </MenuPopup>
+          </Menu>
+        )
+      }
+    >
+      {setUp.length === 0 ? (
+        <SettingsRow
+          title="Gentle AI isn't set up in any agent yet"
+          description="It adds memory, skills, a review before delivery, and a workflow for bigger changes to the agents you use."
+          control={
+            <Button
+              size="sm"
+              disabled={props.disabled}
+              onClick={() => props.openFlow({ kind: "setup" })}
+            >
+              Set up
+            </Button>
+          }
+        />
+      ) : (
+        setUp.map((agent) =>
+          agent.id === "claude-code" && props.claudeProfiles ? (
+            <ClaudeAgentRow key={agent.id} {...props} agent={agent} />
+          ) : agent.id === "pi" ? (
+            <PiAgentRow key={agent.id} {...props} agent={agent} piProvider={piProvider} />
           ) : (
-            agents.map((agent) => (
-              <button
-                key={agent.id}
-                type="button"
-                aria-current={agent.id === selected?.id ? "true" : undefined}
-                onClick={() => {
-                  onSelectAgent(agent.id);
-                  panelRef.current?.scrollIntoView({ block: "nearest" });
-                }}
-                className={cn(
-                  "flex w-full items-center gap-3 px-3 py-2.5 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset sm:px-4",
-                  agent.id === selected?.id ? "bg-muted/45" : "hover:bg-muted/25",
-                )}
-              >
-                <AgentIcon id={agent.id} />
-                <span className="min-w-0">
-                  <span className="block truncate font-medium text-foreground text-sm">
-                    {agent.name}
-                  </span>
-                  <span
-                    className={cn(
-                      "block truncate text-xs",
-                      agent.state === "set-up" ? "text-success" : "text-muted-foreground",
-                    )}
-                  >
-                    {STATE_LABELS[agent.state]}
-                  </span>
-                </span>
-              </button>
-            ))
-          )}
-        </div>
-        <div ref={panelRef} className="min-w-0 scroll-mt-4 space-y-6 p-4">
-          {selected === null ? null : (
-            <AgentPanel
-              {...props}
-              key={selected.id}
-              agent={selected}
-              extras={agentExtras[selected.id]}
-            />
-          )}
-        </div>
-      </SettingsGroup>
+            <PresetAgentRow key={agent.id} {...props} agent={agent} />
+          ),
+        )
+      )}
     </SettingsSection>
   );
 }
 
-function AgentPanel({
+function AgentRow({
   agent,
-  extras,
+  summary,
+  switcher,
+  props,
+}: {
+  readonly agent: Agent;
+  readonly summary: ReactNode;
+  readonly switcher: ReactNode;
+  readonly props: GentleAiSectionProps;
+}) {
+  return (
+    <SettingsRow
+      title={
+        <span className="flex items-center gap-2">
+          <AgentIcon id={agent.id} />
+          {agent.name}
+        </span>
+      }
+      description={summary}
+      control={
+        <div className="flex items-center gap-2">
+          {switcher}
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => props.openFlow({ kind: "agent", agent: agent.id })}
+          >
+            Open
+            <ChevronRightIcon aria-hidden />
+          </Button>
+        </div>
+      }
+    />
+  );
+}
+
+function ClaudeAgentRow({ agent, ...props }: GentleAiSectionProps & { readonly agent: Agent }) {
+  const profiles = useGentleAiClaudeProfiles(props);
+  return (
+    <AgentRow
+      agent={agent}
+      props={props}
+      summary={profiles.summary}
+      switcher={<GentleAiClaudeProfileSelect profiles={profiles} disabled={props.disabled} />}
+    />
+  );
+}
+
+function PiAgentRow({
+  agent,
+  piProvider,
   ...props
 }: GentleAiSectionProps & {
-  readonly agent: ReturnType<typeof gentleAiAgentList>[number];
-  readonly extras: ReactNode;
+  readonly agent: Agent;
+  readonly piProvider: GentleAiPiProvider | null;
 }) {
-  const modelAgent = gentleAiModelAgent(agent.id);
+  if (piProvider === null) {
+    return (
+      <AgentRow
+        agent={agent}
+        props={props}
+        summary="Turn on the Pi provider in Providers to switch gentle-pi profiles here."
+        switcher={null}
+      />
+    );
+  }
+  return <PiProfileAgentRow {...props} agent={agent} piProvider={piProvider} />;
+}
+
+function PiProfileAgentRow({
+  agent,
+  piProvider,
+  ...props
+}: GentleAiSectionProps & { readonly agent: Agent; readonly piProvider: GentleAiPiProvider }) {
+  const profiles = usePiGentleProfiles({
+    environmentId: props.environmentId,
+    instanceId: piProvider.instanceId,
+    models: piProvider.models,
+  });
   return (
-    <>
-      <SettingsSection title={agent.name} icon={<AgentIcon id={agent.id} />}>
-        {agent.state === "set-up" ? (
-          <>
-            {modelAgent === null ? null : (
-              <GentleAiAgentModelsRow {...props} agent={modelAgent} name={agent.name} />
-            )}
-            {agent.id === "claude-code" && props.claudeProfiles ? (
-              <GentleAiClaudeProfileRow {...props} />
-            ) : null}
+    <AgentRow
+      agent={agent}
+      props={props}
+      summary={profiles.summary}
+      switcher={<PiGentleProfileSelect profiles={profiles} disabled={props.disabled} />}
+    />
+  );
+}
+
+function PresetAgentRow({ agent, ...props }: GentleAiSectionProps & { readonly agent: Agent }) {
+  const modelAgent = gentleAiModelAgent(agent.id);
+  if (modelAgent === null) {
+    return (
+      <AgentRow
+        agent={agent}
+        props={props}
+        summary="Gentle AI's memory, skills, and workflow."
+        switcher={null}
+      />
+    );
+  }
+  return <ModelPresetAgentRow {...props} agent={agent} modelAgent={modelAgent} />;
+}
+
+function ModelPresetAgentRow({
+  agent,
+  modelAgent,
+  ...props
+}: GentleAiSectionProps & {
+  readonly agent: Agent;
+  readonly modelAgent: NonNullable<ReturnType<typeof gentleAiModelAgent>>;
+}) {
+  const preset = useGentleAiModelPreset({ ...props, agent: modelAgent });
+  return (
+    <AgentRow
+      agent={agent}
+      props={props}
+      summary={preset.summary}
+      switcher={
+        <GentleAiModelPresetSelect preset={preset} name={agent.name} disabled={props.disabled} />
+      }
+    />
+  );
+}
+
+/**
+ * One agent's own page, in place of the list: its models or profiles, plugins, what it brings
+ * along (gentle-pi's profiles, persona, and project overrides for Pi), and removing Gentle AI
+ * from it alone.
+ */
+export function GentleAiAgentFlow({
+  agentId,
+  extras,
+  onClose,
+  ...props
+}: GentleAiSectionProps & {
+  readonly agentId: string;
+  /** Settings the agent brings along, such as gentle-pi's for Pi. */
+  readonly extras: ReactNode;
+  readonly onClose: () => void;
+}) {
+  const agent = gentleAiAgentList(props.status).find((entry) => entry.id === agentId) ?? null;
+  if (agent === null) {
+    return (
+      <section className="space-y-4">
+        <GentleAiFlowHeader
+          title="Agent not found"
+          description="Gentle AI does not know this agent."
+          onBack={onClose}
+        />
+      </section>
+    );
+  }
+  const modelAgent = gentleAiModelAgent(agent.id);
+  const setUp = agent.state === "set-up";
+  return (
+    <section className="space-y-6">
+      <GentleAiFlowHeader
+        title={agent.name}
+        description={
+          setUp
+            ? `What Gentle AI does in ${agent.name}.`
+            : `Gentle AI isn't set up in ${agent.name}.`
+        }
+        onBack={onClose}
+      />
+      {setUp ? (
+        <>
+          {modelAgent === null && !(agent.id === "claude-code" && props.claudeProfiles) ? null : (
+            <SettingsSection title="Models">
+              {modelAgent === null ? null : (
+                <GentleAiAgentModelsRow {...props} agent={modelAgent} name={agent.name} />
+              )}
+              {agent.id === "claude-code" && props.claudeProfiles ? (
+                <GentleAiClaudeProfileRow {...props} />
+              ) : null}
+            </SettingsSection>
+          )}
+          {agent.id === "pi"
+            ? (extras ?? (
+                <SettingsSection title="Profiles and persona">
+                  <SettingsRow
+                    title="Pi provider is off"
+                    description="Gentle AI works in Pi through gentle-pi. Turn on the Pi provider in Providers to manage its profiles and persona here."
+                  />
+                </SettingsSection>
+              ))
+            : extras}
+          {agent.id === "opencode" || agent.id === "pi" ? (
+            <GentleAiPlugins {...props} agent={agent.id} />
+          ) : null}
+          <SettingsSection title="Remove">
             <SettingsRow
-              title="Remove Gentle AI"
-              description={`Removes what Gentle AI added to ${agent.name}. Other agents keep their setup.`}
+              title={`Remove Gentle AI from ${agent.name}`}
+              description="Other agents keep their setup."
               control={
                 <Button
                   size="sm"
@@ -161,41 +330,31 @@ function AgentPanel({
                 </Button>
               }
             />
-          </>
-        ) : agent.state === "available" ? (
+          </SettingsSection>
+        </>
+      ) : (
+        <SettingsSection title={agent.name}>
           <SettingsRow
-            title="Not set up"
-            description={`Adds Gentle AI's memory, skills, and workflow to ${agent.name}, with the setup your other agents use.`}
+            title={agent.state === "available" ? "Not set up" : "Not supported"}
+            description={
+              agent.state === "available"
+                ? `Adds Gentle AI's memory, skills, and workflow to ${agent.name}, with the setup your other agents use.`
+                : `Gentle AI can't set up ${agent.name} on this system.`
+            }
             control={
-              <Button
-                size="sm"
-                disabled={props.disabled}
-                onClick={() => props.openFlow({ kind: "setup", agent: agent.id })}
-              >
-                Set up
-              </Button>
+              agent.state === "available" ? (
+                <Button
+                  size="sm"
+                  disabled={props.disabled}
+                  onClick={() => props.openFlow({ kind: "setup", agent: agent.id })}
+                >
+                  Set up
+                </Button>
+              ) : null
             }
           />
-        ) : (
-          <SettingsRow
-            title="Not supported"
-            description={`Gentle AI can't set up ${agent.name} on this system.`}
-          />
-        )}
-      </SettingsSection>
-      {(agent.id === "opencode" || agent.id === "pi") && agent.state === "set-up" ? (
-        <GentleAiPlugins {...props} agent={agent.id} />
-      ) : null}
-      {agent.id === "pi" && extras === undefined ? (
-        <SettingsSection title="gentle-pi">
-          <SettingsRow
-            title="Profiles and persona"
-            description="Gentle AI works in Pi through gentle-pi. Turn on the Pi provider in Providers to manage its profiles and persona here."
-          />
         </SettingsSection>
-      ) : (
-        extras
       )}
-    </>
+    </section>
   );
 }

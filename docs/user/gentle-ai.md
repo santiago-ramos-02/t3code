@@ -17,28 +17,27 @@ environment, or a provider runs with it. What it offers depends on the gentle-ai
 version.
 
 With a gentle-ai that has the headless API, the page manages Gentle AI on the
-environment it runs on, organized around your agents:
+environment it runs on:
 
-- **Agents** lists every agent found on the environment and whether Gentle AI
-  is set up in it. Pick one to see what Gentle AI does there: its models,
-  OpenCode's or Pi's plugins, or gentle-pi's profiles for Pi. **Set up** adds
-  Gentle AI to an agent with the setup your other agents use, and **Remove
-  Gentle AI** takes it out of that agent alone. Pi's **Claude Bridge** plugin
-  runs Claude models in Pi on your Claude Pro or Max subscription through Claude
-  Code, so sign in to Claude Code first; Pi must not have `ANTHROPIC_BASE_URL`
-  or an Anthropic key set, or its requests go there instead.
-- **For every agent** shows what Gentle AI installs everywhere. **Change**
-  opens the full setup: agents, persona, preset, and components. **Review before
-  delivery** turns on an independent review of agents' code changes, and
-  **Custom agents** has an installed agent write a new one from your
-  description.
-- **Project** holds what applies to one project: skipping the review there, its
-  review history, and community tools such as CodeGraph.
-- **Maintenance** has backups of the files Gentle AI changed, a health check,
-  and removing Gentle AI from some or all agents.
-
-**Update** appears when Gentle AI or its tools have a new version, and also
-brings your agents' files up to date. **Sync** does only the latter.
+- The top row says whether Gentle AI is up to date. **Update** appears when
+  Gentle AI or its tools have a new version, and also brings your agents' files
+  up to date; **Sync** appears when only the files are behind.
+- **Your agents** lists the agents Gentle AI is set up in, each with the profile
+  or model preset it runs and a switch for it. **Add agent** sets Gentle AI up
+  in another agent found on the environment, with the setup your other agents
+  use. **Open** shows one agent's page: its models or profiles, its plugins,
+  gentle-pi's persona and project overrides for Pi, and removing Gentle AI
+  from that agent alone. Pi's **Claude Bridge** plugin runs Claude models in Pi
+  on your Claude Pro or Max subscription through Claude Code, so sign in to
+  Claude Code first; Pi must not have `ANTHROPIC_BASE_URL` or an Anthropic key
+  set, or its requests go there instead.
+- **Review** turns on an independent review of agents' code changes before
+  delivery, and, for the project picked in its header, turns it off there or
+  clears its review history.
+- **More** holds what you set once: the setup every agent shares (persona,
+  preset, and components), custom agents written from your description,
+  project tools such as CodeGraph, backups of the files Gentle AI changed, a
+  health check, re-syncing, and removing Gentle AI from some or all agents.
 
 Long tasks run on the environment and show their progress at the top of the
 page, so you can leave and come back, or follow them from another device.
@@ -50,8 +49,8 @@ doctor. Set **Binary path** when `gentle-ai` is not on the environment's `PATH`.
 Left empty, T3 Code also finds the copy gentle-pi bundles.
 
 On mobile, **Settings > Gentle AI** shows task progress, updates, sync, your
-agents with their model presets, and backups. Set up or remove agents,
-customize models, and create agents from web or desktop.
+agents with their model presets and Claude Code profile, and backups. Add or
+remove agents, edit profiles and models, and create agents from web or desktop.
 
 ## Other models in Claude Code
 
@@ -60,8 +59,8 @@ time it hands work to a subagent. Through a proxy that serves other providers' m
 such as [CLIProxyAPI](./cli-proxy.md), a Claude Code profile sets which model each slot
 really runs and tells Claude what each slot is for, so it chooses a model per task: for
 example Opus for design, Sonnet for code, and an inexpensive model behind `haiku` for
-bounded tasks. Pick a profile under **Profile** in Claude Code's panel, and create or
-edit them with **Edit**; the slot choices are the models your proxied Claude Code
+bounded tasks. Switch profiles from Claude Code's row under **Your agents**, and create or
+edit them from **Open**, then **Edit** next to **Profile**; the slot choices are the models your proxied Claude Code
 providers serve. Keep one profile per situation, such as one for when an account is near
 its usage limit, and switch when it is; **None** puts Claude Code's own models back.
 

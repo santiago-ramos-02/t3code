@@ -1,6 +1,8 @@
 import {
   CustomModelSetting,
   GENTLE_AI_CLAUDE_SLOTS,
+  PI_GENTLE_ORCHESTRATOR,
+  type PiGentleRouting,
   type ProviderInstanceConfig,
   type GentleAiClaudeProfile,
   type GentleAiApiStatus,
@@ -176,4 +178,22 @@ export function claudeProfileSlotModels(
     }
   }
   return [...models].map(([id, label]) => ({ id, label }));
+}
+
+/**
+ * What a gentle-pi profile runs, in a line: the orchestrator's model and how many subagent
+ * roles it routes. `nameOf` names a model by the ID the profile stores.
+ */
+export function gentlePiProfileSummary(
+  routing: PiGentleRouting,
+  nameOf: (model: string) => string | undefined,
+): string {
+  const lead = routing[PI_GENTLE_ORCHESTRATOR]?.model;
+  const roles = Object.keys(routing).filter((role) => role !== PI_GENTLE_ORCHESTRATOR).length;
+  const leadName =
+    lead === undefined ? null : (nameOf(lead) ?? lead.slice(lead.lastIndexOf("/") + 1));
+  return [
+    leadName === null ? "Pi's own model leads" : `${leadName} leads`,
+    roles === 0 ? "no subagent roles" : `${roles} subagent ${roles === 1 ? "role" : "roles"}`,
+  ].join(" · ");
 }

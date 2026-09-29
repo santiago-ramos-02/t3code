@@ -18,78 +18,97 @@ const DISCOVERS: ReadonlySet<GentleAiModelAgent> = new Set(["codex", "opencode"]
 // Select value shown while the agent's choices match no preset.
 const CUSTOM = "__custom__";
 
-/** Which model each phase of Gentle AI's workflow runs on in one agent: a preset, or custom. */
-export function GentleAiAgentModelsRow({
+/** One agent's model choice: its preset, or custom, and what that means in a line. */
+export function useGentleAiModelPreset({
   environmentId,
-  disabled,
   startJob,
   onError,
-  openFlow,
   agent,
-  name,
-}: GentleAiSectionProps & { readonly agent: GentleAiModelAgent; readonly name: string }) {
+}: Pick<GentleAiSectionProps, "environmentId" | "startJob" | "onError"> & {
+  readonly agent: GentleAiModelAgent;
+}) {
   const config = useGentleAiQuery(environmentId, "models.get", { agent });
-  const run = (promise: Promise<string | null>) =>
-    void promise.then((error) => (error ? onError(error) : undefined));
   const data = config.data;
   const preset = data?.presets.find((entry) => entry.id === data.currentPreset);
   // gentle-ai reports no preset both for custom choices and for none at all.
   const allDefault =
     data !== null && data.currentPreset === null && gentleAiModelsAllDefault(data.current);
-  const presetLabel = preset?.label ?? data?.currentPreset ?? (allDefault ? "Default" : "Custom");
+  const label = preset?.label ?? data?.currentPreset ?? (allDefault ? "Default" : "Custom");
+  const summary =
+    config.error ??
+    (data === null
+      ? "Reading model choices…"
+      : allDefault
+        ? "Every phase uses Gentle AI's default model."
+        : data.currentPreset === null
+          ? "Custom models per phase."
+          : (preset?.description ?? "The model each phase of Gentle AI's workflow uses."));
+  const choose = (next: string) =>
+    void startJob("models.set", { agent, preset: next }).then((error) =>
+      error ? onError(error) : undefined,
+    );
+  return { agent, data, error: config.error, label, summary, choose };
+}
 
+/** Switches an agent's model preset. */
+export function GentleAiModelPresetSelect({
+  preset,
+  name,
+  disabled,
+}: {
+  readonly preset: ReturnType<typeof useGentleAiModelPreset>;
+  readonly name: string;
+  readonly disabled: boolean;
+}) {
+  const { data, error, label, choose } = preset;
+  if (data === null) return error ? null : <Spinner className="size-3.5" />;
+  return (
+    <Select
+      value={data.currentPreset ?? CUSTOM}
+      onValueChange={(next) => {
+        if (next === null || next === CUSTOM || next === data.currentPreset) return;
+        choose(next);
+      }}
+      disabled={disabled}
+    >
+      <SelectTrigger size="sm" className="w-40" aria-label={`${name} model preset`}>
+        <SelectValue>
+          <span className="truncate">{label}</span>
+        </SelectValue>
+      </SelectTrigger>
+      <SelectPopup align="end">
+        {data.currentPreset === null ? (
+          <SelectItem value={CUSTOM} disabled>
+            {label}
+          </SelectItem>
+        ) : null}
+        {data.presets.map((entry) => (
+          <SelectItem key={entry.id} value={entry.id}>
+            {entry.label}
+          </SelectItem>
+        ))}
+      </SelectPopup>
+    </Select>
+  );
+}
+
+/** Which model each phase of Gentle AI's workflow runs on in one agent: a preset, or custom. */
+export function GentleAiAgentModelsRow(
+  props: GentleAiSectionProps & { readonly agent: GentleAiModelAgent; readonly name: string },
+) {
+  const preset = useGentleAiModelPreset(props);
   return (
     <SettingsRow
       title="Models"
-      description={
-        config.error ??
-        (data === null
-          ? "Reading model choices…"
-          : allDefault
-            ? "Every phase uses Gentle AI's default model."
-            : data.currentPreset === null
-              ? "Custom models per phase."
-              : (preset?.description ?? "The model each phase of Gentle AI's workflow uses."))
-      }
+      description={preset.summary}
       control={
         <div className="flex items-center gap-2">
-          {data === null ? (
-            config.error ? null : (
-              <Spinner className="size-3.5" />
-            )
-          ) : (
-            <Select
-              value={data.currentPreset ?? CUSTOM}
-              onValueChange={(next) => {
-                if (next === null || next === CUSTOM || next === data.currentPreset) return;
-                run(startJob("models.set", { agent, preset: next }));
-              }}
-              disabled={disabled}
-            >
-              <SelectTrigger size="sm" className="w-40" aria-label={`${name} model preset`}>
-                <SelectValue>
-                  <span className="truncate">{presetLabel}</span>
-                </SelectValue>
-              </SelectTrigger>
-              <SelectPopup align="end">
-                {data.currentPreset === null ? (
-                  <SelectItem value={CUSTOM} disabled>
-                    {presetLabel}
-                  </SelectItem>
-                ) : null}
-                {data.presets.map((entry) => (
-                  <SelectItem key={entry.id} value={entry.id}>
-                    {entry.label}
-                  </SelectItem>
-                ))}
-              </SelectPopup>
-            </Select>
-          )}
+          <GentleAiModelPresetSelect preset={preset} name={props.name} disabled={props.disabled} />
           <Button
             size="sm"
             variant="outline"
-            disabled={disabled || data === null}
-            onClick={() => openFlow({ kind: "models", agent })}
+            disabled={props.disabled || preset.data === null}
+            onClick={() => props.openFlow({ kind: "models", agent: props.agent })}
           >
             Customize
           </Button>

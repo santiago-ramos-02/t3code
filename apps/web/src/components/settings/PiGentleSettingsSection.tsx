@@ -1,14 +1,11 @@
 import {
-  PI_GENTLE_ORCHESTRATOR,
   PiGentleActionInput,
   type EnvironmentId,
   type PiGentleRouting,
-  type PiGentleSddPreferences,
   type PiGentleState,
   type ProviderInstanceId,
   type ServerProviderModel,
 } from "@t3tools/contracts";
-import { GENTLE_SDD_DEFAULTS, GENTLE_SDD_LABELS } from "@t3tools/client-runtime/piGentleComposer";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -29,13 +26,12 @@ import {
   ComboboxSearchInput,
   ComboboxTrigger,
 } from "../ui/combobox";
-import { DraftInput } from "../ui/draft-input";
 import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { SettingsRow, SettingsSection } from "./settingsLayout";
 
 type GentleAction = typeof PiGentleActionInput.Type.action;
-type GentleArea = "global" | "profiles" | "project" | "sdd";
+type GentleArea = "global" | "profiles" | "project";
 type ProjectOption = { readonly title: string; readonly workspaceRoot: string };
 
 const THINKING = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
@@ -190,7 +186,7 @@ function GentleSelect<T extends string>({
 
 /**
  * What gentle-pi adds to Gentle AI for one Pi provider instance: model profiles, persona, and
- * project SDD choices. Rendered on the Gentle AI settings page. Every change is written to
+ * per-project overrides. Rendered on the Gentle AI settings page. Every change is written to
  * gentle-pi's config immediately, like other settings.
  */
 export function PiGentleSettingsSection({
@@ -227,7 +223,6 @@ export function PiGentleSettingsSection({
   const [newName, setNewName] = useState("");
   const [newAgent, setNewAgent] = useState("");
   const [agentFilter, setAgentFilter] = useState("");
-  const [customizing, setCustomizing] = useState(false);
   // The action in flight, so its own control can say what is happening.
   const [pending, setPending] = useState<GentleAction["type"] | null>(null);
   const [errorState, setErrorState] = useState<{
@@ -283,15 +278,13 @@ export function PiGentleSettingsSection({
   async function runAction(action: GentleAction) {
     if (pending) return;
     const area: GentleArea =
-      action.type === "saveSdd"
-        ? "sdd"
-        : action.type === "setPersona" || action.type === "pin" || action.type === "clearPin"
-          ? "project"
-          : action.type === "setGlobalPersona" ||
-              action.type === "activate" ||
-              action.type === "update"
-            ? "global"
-            : "profiles";
+      action.type === "setPersona" || action.type === "pin" || action.type === "clearPin"
+        ? "project"
+        : action.type === "setGlobalPersona" ||
+            action.type === "activate" ||
+            action.type === "update"
+          ? "global"
+          : "profiles";
     setPending(action.type);
     setErrorState(null);
     try {
@@ -409,13 +402,6 @@ export function PiGentleSettingsSection({
   const pinned = project?.pinned ?? null;
   const localPin = project?.pinSource === "local" ? pinned : null;
   const selectedProject = projects.find((entry) => entry.workspaceRoot === selectedCwd);
-  const sdd = project?.sdd ?? GENTLE_SDD_DEFAULTS;
-  const saveSdd = (patch: Partial<PiGentleSddPreferences>) => {
-    if (selectedCwd) {
-      void runAction({ type: "saveSdd", cwd: selectedCwd, preferences: { ...sdd, ...patch } });
-    }
-  };
-
   return (
     <>
       <SettingsSection
@@ -476,10 +462,10 @@ export function PiGentleSettingsSection({
         />
       </SettingsSection>
 
-      <SettingsSection title="Subagent models" {...readOnlyProps}>
+      <SettingsSection title="Profiles" {...readOnlyProps}>
         <SettingsRow
           title="Profile"
-          description="Model and effort for each subagent. The main model stays in the composer. Changes apply when Pi reloads."
+          description="The model and effort each role runs. The orchestrator is the thread's main model. Changes apply when Pi reloads."
           status={errorFor("profiles")}
           control={
             <GentleSelect
@@ -497,18 +483,7 @@ export function PiGentleSettingsSection({
             />
           }
         >
-          {profile && !customizing ? (
-            <div className="mt-1 flex items-center justify-between gap-2 pb-2">
-              <span className="text-xs text-muted-foreground">
-                {Object.keys(routing).filter((agent) => agent !== PI_GENTLE_ORCHESTRATOR).length}{" "}
-                subagents routed
-              </span>
-              <Button size="xs" variant="ghost" onClick={() => setCustomizing(true)}>
-                Customize
-              </Button>
-            </div>
-          ) : null}
-          {profile && customizing ? (
+          {profile ? (
             <div className="@container/gentle-rows mt-3 space-y-2 pb-2">
               {Object.keys(routing).length > 8 ? (
                 <Input
@@ -619,14 +594,6 @@ export function PiGentleSettingsSection({
                 <Button size="sm" variant="outline" disabled={!canAddAgent} onClick={addAgent}>
                   <PlusIcon className="size-3" />
                   Add subagent
-                </Button>
-                <Button
-                  size="xs"
-                  variant="ghost"
-                  className="ml-auto"
-                  onClick={() => setCustomizing(false)}
-                >
-                  Done
                 </Button>
               </div>
             </div>
@@ -747,70 +714,6 @@ export function PiGentleSettingsSection({
                     })
                   }
                 />
-              }
-            />
-            <SettingsRow
-              title="SDD execution"
-              description="How Gentle AI moves between spec-driven development phases. SDD settings are saved in .pi/gentle-ai/sdd-preflight.json; commit it to share them with your team."
-              status={errorFor("sdd")}
-              control={
-                <GentleSelect
-                  label="SDD execution mode"
-                  value={sdd.executionMode}
-                  labels={GENTLE_SDD_LABELS.executionMode}
-                  disabled={!canEdit}
-                  onChange={(executionMode) => saveSdd({ executionMode })}
-                />
-              }
-            />
-            <SettingsRow
-              title="SDD artifacts"
-              description="Where proposals, specs, and tasks are saved."
-              control={
-                <GentleSelect
-                  label="SDD artifact store"
-                  value={sdd.artifactStore}
-                  labels={GENTLE_SDD_LABELS.artifactStore}
-                  disabled={!canEdit}
-                  onChange={(artifactStore) => saveSdd({ artifactStore })}
-                />
-              }
-            />
-            <SettingsRow
-              title="SDD delivery"
-              description="How large changes are split into pull requests."
-              control={
-                <GentleSelect
-                  label="SDD delivery strategy"
-                  value={sdd.chainedPrStrategy}
-                  labels={GENTLE_SDD_LABELS.chainedPrStrategy}
-                  disabled={!canEdit}
-                  onChange={(chainedPrStrategy) => saveSdd({ chainedPrStrategy })}
-                />
-              }
-            />
-            <SettingsRow
-              title="Review budget"
-              description="Changed lines per pull request before delivery applies."
-              control={
-                <div className="flex w-full items-center gap-2 @min-[32rem]/settings-row:w-auto">
-                  <DraftInput
-                    type="number"
-                    min={1}
-                    step={1}
-                    size="sm"
-                    className="min-w-0 flex-1 @min-[32rem]/settings-row:w-24 @min-[32rem]/settings-row:flex-none"
-                    aria-label="SDD review budget in lines"
-                    value={String(sdd.reviewBudgetLines)}
-                    disabled={!canEdit}
-                    onCommit={(next) => {
-                      const lines = Number(next);
-                      if (Number.isInteger(lines) && lines > 0)
-                        saveSdd({ reviewBudgetLines: lines });
-                    }}
-                  />
-                  <span className="text-xs text-muted-foreground">lines</span>
-                </div>
               }
             />
           </>

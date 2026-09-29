@@ -1,15 +1,9 @@
 import { useAtomValue } from "@effect/atom-react";
-import type {
-  EnvironmentId,
-  PiGentleSddPreferences,
-  PiGentleState,
-  ProviderInstanceId,
-} from "@t3tools/contracts";
+import type { EnvironmentId, PiGentleState, ProviderInstanceId } from "@t3tools/contracts";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import { GENTLE_SDD_DEFAULTS } from "@t3tools/client-runtime/piGentleComposer";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { useEffect, useState } from "react";
 import { Pressable, View } from "react-native";
@@ -20,7 +14,7 @@ import { environmentSession } from "../../state/session";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { SettingsSection } from "./components/SettingsSection";
 import { canMaintainEnvironment } from "./environment-maintenance";
-import { ChoiceMenu, GentleSddChoices } from "./GentleSddChoices";
+import { ChoiceMenu } from "./GentleSddChoices";
 
 // Choice value for "no checkout pin": the repository declaration or the active profile applies.
 const PROJECT_DEFAULT_PROFILE = "__default__";
@@ -29,8 +23,7 @@ type ProjectAction =
   | { readonly type: "create" | "pin"; readonly name: string }
   | { readonly type: "activate"; readonly name: string }
   | { readonly type: "clearPin" }
-  | { readonly type: "setPersona"; readonly mode: "gentleman" | "neutral" | null }
-  | { readonly type: "saveSdd"; readonly preferences: PiGentleSddPreferences };
+  | { readonly type: "setPersona"; readonly mode: "gentleman" | "neutral" | null };
 
 export function PiGentleProjectSettings(props: {
   readonly environmentId: EnvironmentId;
@@ -106,11 +99,8 @@ function PiGentleInstanceSettings(props: {
   if (state === null ? error === null : !state.available) return null;
 
   // Every choice saves as soon as it changes, like the web Pi settings.
-  const sdd = state?.project?.sdd ?? GENTLE_SDD_DEFAULTS;
   const localPin = state?.project?.pinSource === "local" ? state.project.pinned : null;
   const editable = canEdit && !pending;
-  const saveSdd = (patch: Partial<PiGentleSddPreferences>) =>
-    void act({ type: "saveSdd", preferences: { ...sdd, ...patch } });
 
   async function act(action: ProjectAction) {
     if (pending) return;
@@ -236,13 +226,6 @@ function PiGentleInstanceSettings(props: {
                 onPress={() => void act({ type: "create", name: newName.trim() })}
               />
             </View>
-            <View className="pt-3">
-              <Text className="text-base font-t3-semibold text-foreground">SDD preferences</Text>
-              <Text className="text-sm text-foreground-muted">
-                Saved in .pi/gentle-ai/sdd-preflight.json; commit it to share them with your team.
-              </Text>
-            </View>
-            <GentleSddChoices value={sdd} disabled={!editable} onChange={saveSdd} />
             {error ? <Text className="text-sm text-danger-foreground">{error}</Text> : null}
           </>
         )}

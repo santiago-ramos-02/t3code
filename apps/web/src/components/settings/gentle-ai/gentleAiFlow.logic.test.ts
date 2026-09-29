@@ -5,6 +5,7 @@ import { gentleAiFlowKey, parseGentleAiFlow, type GentleAiFlow } from "./gentleA
 describe("Gentle AI flow keys", () => {
   it("round-trips every flow through the URL", () => {
     const flows: ReadonlyArray<GentleAiFlow> = [
+      { kind: "agent", agent: "pi" },
       { kind: "setup" },
       { kind: "setup", agent: "codex" },
       { kind: "uninstall" },
@@ -18,7 +19,17 @@ describe("Gentle AI flow keys", () => {
   });
 
   it("rejects unknown flows and a models flow without an agent", () => {
-    for (const value of ["models", "models:", "profiles", "doctor:codex", "", 1, undefined]) {
+    for (const value of [
+      "models",
+      "models:",
+      "agent",
+      "agent:",
+      "profiles",
+      "doctor:codex",
+      "",
+      1,
+      undefined,
+    ]) {
       expect(parseGentleAiFlow(value)).toBeNull();
     }
   });

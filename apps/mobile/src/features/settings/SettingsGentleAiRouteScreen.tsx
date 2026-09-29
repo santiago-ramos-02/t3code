@@ -303,13 +303,14 @@ function GentleAiAgents(props: {
   readonly claudeProfiles: boolean;
   readonly onApplyProfile: (name: string | null) => void;
 }) {
-  const agents = gentleAiAgentList(props.status);
+  // Like web: the agents Gentle AI is set up in; setting up another happens on web or desktop.
+  const agents = gentleAiAgentList(props.status).filter((agent) => agent.state === "set-up");
   return (
-    <SettingsSection title="Agents">
+    <SettingsSection title="Your agents">
       <View className="px-4 pb-2">
         {agents.length === 0 ? (
           <Text className="py-3 text-sm text-foreground-muted">
-            No agents found on this environment.
+            Gentle AI isn't set up in any agent yet.
           </Text>
         ) : (
           agents.map((agent) => {
@@ -347,8 +348,8 @@ function GentleAiAgents(props: {
           })
         )}
         <Text className="py-3 text-xs text-foreground-muted">
-          Set up agents, customize models per phase, edit Claude Code profiles, and remove Gentle AI
-          from T3 Code on web or desktop.
+          Add agents, edit profiles and models per role, and remove Gentle AI from T3 Code on web or
+          desktop.
         </Text>
       </View>
     </SettingsSection>

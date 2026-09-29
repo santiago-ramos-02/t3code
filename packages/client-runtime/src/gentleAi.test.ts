@@ -11,6 +11,7 @@ import {
   gentleAiSyncNeeded,
   gentleOddContinuePrompt,
   gentleOddFeatureSummary,
+  gentlePiProfileSummary,
 } from "./gentleAi.ts";
 
 const agent = (
@@ -143,5 +144,27 @@ describe("claudeProfileSlotModels", () => {
       { id: "claude-fable-5-dd-anul-6-tpg", label: "GPT 6.0 Luna" },
       { id: "muse", label: "muse" },
     ]);
+  });
+});
+
+describe("gentlePiProfileSummary", () => {
+  it("names the orchestrator's model and counts the subagent roles", () => {
+    const names = new Map([["claude-bridge/claude-opus-5-5", "Claude Opus 5.5"]]);
+    expect(
+      gentlePiProfileSummary(
+        {
+          orchestrator: { model: "claude-bridge/claude-opus-5-5", thinking: "medium" },
+          "gentle-ai-explore": { model: "claude-bridge/claude-sonnet-5" },
+          "gentle-ai-worker": {},
+        },
+        (model) => names.get(model),
+      ),
+    ).toBe("Claude Opus 5.5 leads · 2 subagent roles");
+    expect(
+      gentlePiProfileSummary({ orchestrator: { model: "x/unknown-model" } }, () => undefined),
+    ).toBe("unknown-model leads · no subagent roles");
+    expect(gentlePiProfileSummary({}, () => undefined)).toBe(
+      "Pi's own model leads · no subagent roles",
+    );
   });
 });

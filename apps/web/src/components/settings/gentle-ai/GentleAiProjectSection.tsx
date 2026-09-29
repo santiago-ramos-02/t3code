@@ -67,31 +67,51 @@ export function GentleAiReviewRow({
 }
 
 /**
- * What gentle-ai reads through a project folder: whether this project skips the review, its
- * review history, and the community tools wired into its agents. One picker scopes all of it.
+ * The review of agents' changes before delivery, in one place: the switch for every agent, then
+ * the picked project's own override and its review history.
  */
-export function GentleAiProjectSection(props: GentleAiSectionProps) {
+export function GentleAiReviewSection(props: GentleAiSectionProps) {
   const { projects } = props;
   const { cwd, setCwd } = useGentleAiProject(projects);
   return (
     <SettingsSection
-      title="Project"
+      title="Review"
       headerAction={
         <GentleAiProjectPicker projects={projects} cwd={cwd} onChange={setCwd} label="Project" />
       }
     >
-      {cwd === null ? (
-        <SettingsRow
-          title="Add a project first"
-          description="Reviews and community tools are set up per project. Add a project to this environment to manage them."
-        />
-      ) : (
-        <>
-          <ReviewRows {...props} cwd={cwd} />
-          <ToolRows {...props} cwd={cwd} />
-        </>
-      )}
+      <GentleAiReviewRow {...props} />
+      {cwd === null ? null : <ReviewRows {...props} cwd={cwd} />}
     </SettingsSection>
+  );
+}
+
+/**
+ * Community tools Gentle AI wires into one project's agents, such as CodeGraph, as rows with
+ * their own project picker, for a folded section.
+ */
+export function GentleAiProjectToolRows(props: GentleAiSectionProps) {
+  const { projects } = props;
+  const { cwd, setCwd } = useGentleAiProject(projects);
+  if (cwd === null) {
+    return (
+      <SettingsRow
+        title="Project tools"
+        description="Tools such as CodeGraph are set up per project. Add a project to this environment first."
+      />
+    );
+  }
+  return (
+    <>
+      <SettingsRow
+        title="Project tools"
+        description="Community tools Gentle AI wires into this project's agents."
+        control={
+          <GentleAiProjectPicker projects={projects} cwd={cwd} onChange={setCwd} label="Project" />
+        }
+      />
+      <ToolRows {...props} cwd={cwd} />
+    </>
   );
 }
 

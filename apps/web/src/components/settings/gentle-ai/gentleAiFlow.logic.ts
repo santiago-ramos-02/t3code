@@ -1,9 +1,10 @@
 /**
- * Every flow the Gentle AI page can open in place, keyed for the URL. `setup` and `uninstall`
- * carry an agent when they act on that one agent: setting it up alongside the agents already
- * set up, or removing Gentle AI from it alone.
+ * Every flow the Gentle AI page can open in place, keyed for the URL. `agent` is one agent's
+ * own page. `setup` and `uninstall` carry an agent when they act on that one agent: setting it
+ * up alongside the agents already set up, or removing Gentle AI from it alone.
  */
 export type GentleAiFlow =
+  | { readonly kind: "agent"; readonly agent: string }
   | { readonly kind: "setup"; readonly agent?: string }
   | { readonly kind: "uninstall"; readonly agent?: string }
   | { readonly kind: "models"; readonly agent: string }
@@ -12,7 +13,7 @@ export type GentleAiFlow =
   | { readonly kind: "claudeProfiles" }
   | { readonly kind: "doctor" };
 
-const AGENT_FLOWS = ["setup", "uninstall", "models"] as const;
+const AGENT_FLOWS = ["agent", "setup", "uninstall", "models"] as const;
 const PLAIN_FLOWS = [
   "setup",
   "uninstall",
