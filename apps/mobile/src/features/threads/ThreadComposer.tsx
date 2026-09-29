@@ -900,8 +900,8 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
               }}
             >
               <ComposerInlineControl
-                // Names the profile in use; Gentle AI being on needs no words, off does.
-                label={gentleEnabled ? (gentleState?.effectiveProfile?.name ?? "") : "Off"}
+                // The profile in use shows in the menu, checked.
+                label={gentleEnabled ? "Gentle AI" : "Gentle AI off"}
                 accessibilityLabel={
                   gentleEnabled
                     ? `Gentle AI${gentleState?.effectiveProfile ? `, profile ${gentleState.effectiveProfile.name}` : ""}`

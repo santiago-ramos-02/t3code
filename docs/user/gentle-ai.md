@@ -75,7 +75,8 @@ Gentle AI's phases to slots; phases are shared by every Claude Code, so a phase 
 ## Turn Gentle AI off for a thread
 
 In a new thread, open the Gentle AI chip in the composer and clear **Gentle AI**. The
-chip then says **Off**; while Gentle AI is on, it names the profile in use. The thread's agent then runs on your own configuration without
+chip then says **Gentle AI off**. While Gentle AI is on, the chip's menu shows the profile in
+use. The thread's agent then runs on your own configuration without
 anything Gentle AI added: its instructions, subagents, skills, commands, hooks,
 and MCP servers. Your own settings, sign-in, and history are unchanged, and
 Gentle AI stays on for your other threads. The choice is stored with the thread

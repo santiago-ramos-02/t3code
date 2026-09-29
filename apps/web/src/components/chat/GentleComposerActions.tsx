@@ -57,9 +57,8 @@ import { useGentleAiJob, useGentleAiQuery } from "../settings/gentle-ai/useGentl
 import { useEnvironmentSettings } from "../../hooks/useSettings";
 
 /**
- * Gentle AI entry point in the composer of any provider Gentle AI is set up for. The chip names
- * the profile in use, or says Off; its menu turns Gentle AI on or off for the thread, switches
- * the profile, and opens the project's ODD feature documents in a new thread. Pi threads switch
+ * Gentle AI entry point in the composer of any provider Gentle AI is set up for. Its menu shows
+ * the profile in use and turns Gentle AI on or off for the thread, switches the profile, and opens the project's ODD feature documents in a new thread. Pi threads switch
  * gentle-pi's profiles, which also move the thread onto the profile's orchestrator model; Claude
  * Code threads through a proxy switch Gentle AI's Claude Code profiles.
  */
@@ -226,11 +225,9 @@ export function GentleComposerActions({
             <ComposerBanner.Icon className="[&>svg]:size-5">
               <GentleRoseIcon />
             </ComposerBanner.Icon>
-            {!enabled ? (
-              <ComposerBanner.Content>Off</ComposerBanner.Content>
-            ) : currentProfile ? (
-              <ComposerBanner.Content>{currentProfile}</ComposerBanner.Content>
-            ) : null}
+            <ComposerBanner.Content>
+              {enabled ? "Gentle AI" : "Gentle AI off"}
+            </ComposerBanner.Content>
             <ComposerBanner.Actions>
               <ChevronDownIcon className="size-3 opacity-60" aria-hidden />
             </ComposerBanner.Actions>
