@@ -2,6 +2,7 @@ import { assert, describe, it } from "vite-plus/test";
 
 import {
   agentModels,
+  claudePhaseModelOptions,
   groupPhases,
   readPhase,
   writeOpenCodePhases,
@@ -73,5 +74,13 @@ describe("phase choices", () => {
       agentModels("kiro-ide", { kiroModelAssignments: { a: "x" }, modelAssignments: {} }),
       { kiroModelAssignments: { a: "x" } },
     );
+  });
+});
+
+describe("claudePhaseModelOptions", () => {
+  it("offers a proxy's models to named phases but only Claude's tiers to general delegation", () => {
+    const models = [{ id: "sonnet" }, { id: "custom:gpt-5.6-sol" }];
+    assert.deepStrictEqual(claudePhaseModelOptions(models, "odd-explorer"), models);
+    assert.deepStrictEqual(claudePhaseModelOptions(models, "default"), [{ id: "sonnet" }]);
   });
 });

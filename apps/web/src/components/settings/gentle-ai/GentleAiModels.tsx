@@ -12,8 +12,9 @@ import { agentModels, resetAgentModels } from "./GentleAiModelEditor.logic";
 import type { GentleAiSectionProps } from "./GentleAiSettingsPage";
 import { useGentleAiQuery } from "./useGentleAi";
 
-// Codex and OpenCode list the models their CLI can reach, which takes a moment to discover.
-const DISCOVERS: ReadonlySet<GentleAiModelAgent> = new Set(["codex", "opencode"]);
+// Codex and OpenCode list the models their CLI can reach, and Claude Code the models of the
+// proxy it is connected to, if any; discovering them takes a moment.
+const DISCOVERS: ReadonlySet<GentleAiModelAgent> = new Set(["claude-code", "codex", "opencode"]);
 // Select value shown while the agent's choices match no preset.
 const CUSTOM = "__custom__";
 

@@ -50,6 +50,16 @@ On mobile, **Settings > Gentle AI** shows task progress, updates, sync, your
 agents with their model presets, and backups. Set up or remove agents,
 customize models, and create agents from web or desktop.
 
+## Other models in Claude Code
+
+Claude Code's Gentle AI subagents normally run on Claude's tiers. When Claude Code
+is connected to a proxy that serves other providers' models, such as CLIProxyAPI,
+through `ANTHROPIC_BASE_URL` in `~/.claude/settings.json`, the proxy's models also
+appear under **Customize** in Claude Code's models. Give a phase one of them to run
+it there, for example the explorer on a lighter model while the main thread stays
+on Opus. This needs a gentle-ai that discovers proxy models; with others, the list
+shows only Claude's tiers.
+
 ## Turn Gentle AI off for a thread
 
 In a new thread, open the Gentle AI dropdown in the composer and clear

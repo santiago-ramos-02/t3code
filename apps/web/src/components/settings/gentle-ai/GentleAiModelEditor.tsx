@@ -19,6 +19,7 @@ import {
 } from "../../ui/combobox";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../../ui/select";
 import {
+  claudePhaseModelOptions,
   type GentleAiFixedModelAgent,
   groupPhases,
   phaseChoice,
@@ -97,6 +98,7 @@ export function GentleAiModelEditor({
                 <FixedPhaseControls
                   agent={agent}
                   config={config}
+                  phaseId={phase.id}
                   label={phase.label}
                   value={readPhase(agent, value, phase.id)}
                   disabled={disabled}
@@ -115,6 +117,7 @@ export function GentleAiModelEditor({
 function FixedPhaseControls({
   agent,
   config,
+  phaseId,
   label,
   value,
   disabled,
@@ -122,6 +125,7 @@ function FixedPhaseControls({
 }: {
   readonly agent: GentleAiFixedModelAgent;
   readonly config: GentleAiModelConfig;
+  readonly phaseId: string;
   readonly label: string;
   readonly value: ReturnType<typeof readPhase>;
   readonly disabled: boolean;
@@ -130,7 +134,7 @@ function FixedPhaseControls({
   const { options } = config;
   const models: ReadonlyArray<Option & { readonly efforts?: ReadonlyArray<string> }> =
     agent === "claude-code"
-      ? (options.claude?.models ?? [])
+      ? claudePhaseModelOptions(options.claude?.models ?? [], phaseId)
       : agent === "codex"
         ? (options.codex?.models ?? [])
         : (options.kiro?.models ?? []);

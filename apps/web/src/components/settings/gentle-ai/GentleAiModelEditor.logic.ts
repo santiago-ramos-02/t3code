@@ -160,6 +160,18 @@ export function resetAgentModels(agent: GentleAiModelAgent): GentleAiModels {
   }
 }
 
+/**
+ * The models a Claude Code phase can run on. General delegation passes its model with each
+ * Agent tool call, which takes only Claude's tiers, so models a proxy serves (`custom:`
+ * choices) are offered to the named worker and review phases only.
+ */
+export function claudePhaseModelOptions<Model extends { readonly id: string }>(
+  models: ReadonlyArray<Model>,
+  phaseId: string,
+): ReadonlyArray<Model> {
+  return phaseId === "default" ? models.filter((model) => !model.id.startsWith("custom:")) : models;
+}
+
 export function formatOpenCodeModel(model: GentleAiOpenCodeModel): string {
   return `${model.providerId}/${model.modelId}${model.effort ? ` · ${model.effort}` : ""}`;
 }
