@@ -307,6 +307,37 @@ describe("readTranscriptRecords resume", () => {
     );
   });
 
+  it("parses a Pi assistant message whose line is past the streaming threshold", async () => {
+    // A tool-heavy Pi turn is one long message line; streaming it keeps only the usage fields.
+    const path = NodePath.join(dir, "pi-big.jsonl");
+    const usage = piUsageEntry("big", 42, "2026-08-01T10:00:02Z").usage;
+    await NodeFSP.writeFile(
+      path,
+      piLine({
+        type: "message",
+        id: "big",
+        parentId: null,
+        timestamp: "2026-08-01T10:00:02Z",
+        message: {
+          role: "assistant",
+          provider: "anthropic",
+          model: "opus",
+          content: [{ type: "text", text: "x".repeat(64 * 1024) }],
+          usage,
+        },
+      }),
+    );
+
+    const parsed = await readTranscriptRecords(path, "pi", undefined, {
+      streamingThresholdBytes: 1024,
+    });
+    assert.isNotNull(parsed);
+    assert.deepStrictEqual(
+      parsed.records.map((record) => [record.model, record.totals.outputTokens]),
+      [["anthropic/opus", 42]],
+    );
+  });
+
   it("returns null for an unreadable file", async () => {
     assert.isNull(await readTranscriptRecords(NodePath.join(dir, "missing.jsonl"), "claude"));
   });

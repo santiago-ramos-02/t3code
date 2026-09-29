@@ -125,6 +125,10 @@ export function parseClaudeLine(line: string): UsageRecord | null {
   } catch {
     return null;
   }
+  return parseClaudeRecord(parsed);
+}
+
+export function parseClaudeRecord(parsed: unknown): UsageRecord | null {
   if (typeof parsed !== "object" || parsed === null) return null;
 
   const record = parsed as Record<string, unknown>;
@@ -240,6 +244,10 @@ export function parseCodexLine(line: string, state: CodexScanState): UsageRecord
   } catch {
     return null;
   }
+  return parseCodexRecord(parsed, state);
+}
+
+export function parseCodexRecord(parsed: unknown, state: CodexScanState): UsageRecord | null {
   if (typeof parsed !== "object" || parsed === null) return null;
 
   const record = parsed as Record<string, unknown>;
@@ -404,6 +412,7 @@ const PiTranscriptLineSchema = Schema.Union([
 const decodePiTranscriptLine = Schema.decodeUnknownOption(
   Schema.fromJsonString(PiTranscriptLineSchema),
 );
+const decodePiTranscriptEntry = Schema.decodeUnknownOption(PiTranscriptLineSchema);
 
 export interface PiScanState {
   sessionId: string;
@@ -479,9 +488,18 @@ function piDedupeKey(input: {
  */
 export function parsePiLine(line: string, state: PiScanState): UsageRecord | null {
   const decoded = decodePiTranscriptLine(line);
-  if (Option.isNone(decoded)) return null;
-  const entry = decoded.value;
+  return Option.isNone(decoded) ? null : reducePiEntry(decoded.value, state);
+}
 
+export function parsePiRecord(parsed: unknown, state: PiScanState): UsageRecord | null {
+  const decoded = decodePiTranscriptEntry(parsed);
+  return Option.isNone(decoded) ? null : reducePiEntry(decoded.value, state);
+}
+
+function reducePiEntry(
+  entry: typeof PiTranscriptLineSchema.Type,
+  state: PiScanState,
+): UsageRecord | null {
   if (entry.type === "session") {
     if (entry.id.trim().length > 0) state.sessionId = entry.id;
     return null;
@@ -598,6 +616,10 @@ export function parseGrokLine(line: string): readonly UsageRecord[] {
   } catch {
     return [];
   }
+  return parseGrokRecord(parsed);
+}
+
+export function parseGrokRecord(parsed: unknown): readonly UsageRecord[] {
   if (typeof parsed !== "object" || parsed === null) return [];
 
   const record = parsed as Record<string, unknown>;
