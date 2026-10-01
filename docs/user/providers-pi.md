@@ -25,7 +25,9 @@ providers and models in Pi settings. Select any of those models in
 T3 Code's model picker. Models registered by a project-local Pi extension appear
 in that project's picker. T3 Code also reuses Pi's skills and custom commands.
 Installed Pi extensions also run in T3 Code threads, and their questions and
-confirmations appear in the thread.
+confirmations appear in the thread. In a **Full access** thread, T3 Code confirms
+them for you, such as gentle-pi's prompt before a command that deletes files, and
+lists each one in the thread; commands an extension blocks outright stay blocked.
 T3-managed Pi threads use Pi's native persisted sessions for resume behavior;
 T3 Code does not discover or import arbitrary standalone Pi sessions.
 

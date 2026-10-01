@@ -4,6 +4,7 @@ import {
   ProviderInstanceId,
   ThreadId,
   type ProviderRuntimeEvent,
+  type RuntimeMode,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
@@ -262,11 +263,13 @@ function startSession(
     readonly model: string;
     readonly options?: ReadonlyArray<{ readonly id: string; readonly value: string | boolean }>;
   },
+  // Full access answers Pi's prompts itself; the default asks, so prompts reach the test.
+  runtimeMode: RuntimeMode = "approval-required",
 ) {
   return adapter.startSession({
     threadId,
     cwd: "/work/project",
-    runtimeMode: "full-access",
+    runtimeMode,
     ...(modelSelection === undefined ? {} : { modelSelection }),
   });
 }
@@ -412,8 +415,8 @@ describe("PiAdapter session runtime", () => {
 
         const harness = makeRpcHarness();
         const adapter = yield* makeAdapter(harness);
-        yield* startSession(adapter, THREAD_ID);
-        yield* startSession(adapter, SECOND_THREAD_ID);
+        yield* startSession(adapter, THREAD_ID, undefined, "full-access");
+        yield* startSession(adapter, SECOND_THREAD_ID, undefined, "full-access");
         yield* takeEvents(adapter, SESSION_EVENTS * 2);
 
         const first = harness.transports[0]!.options;
@@ -509,6 +512,62 @@ describe("PiAdapter session runtime", () => {
     ),
   );
 
+  it.effect("confirms Pi's permission prompts itself in full access, and still logs them", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const answered = yield* Deferred.make<unknown>();
+        const harness = makeRpcHarness({
+          onRequest: (request, transport) => {
+            const type = recordString(request, "type");
+            if (type === "get_state")
+              return Effect.succeed(successResponse(request, sessionState(0)));
+            if (type === "set_model") {
+              return offerNative(transport, {
+                type: "extension_ui_request",
+                id: "data-loss-confirm",
+                method: "confirm",
+                title: "Allow recognized data-loss command?",
+                message: "rm -rf build",
+              }).pipe(
+                Effect.andThen(Deferred.await(answered)),
+                Effect.as(successResponse(request)),
+              );
+            }
+            return Effect.succeed(successResponse(request));
+          },
+          onNotify: (record) =>
+            recordString(record, "type") === "extension_ui_response"
+              ? Deferred.succeed(answered, record).pipe(Effect.asVoid)
+              : Effect.void,
+        });
+        const adapter = yield* makeAdapter(harness);
+
+        yield* startSession(
+          adapter,
+          THREAD_ID,
+          { instanceId: INSTANCE_ID, model: "openai/gpt-5.2" },
+          "full-access",
+        );
+        const [opened, resolved] = yield* takeEvents(adapter, 2);
+
+        expect(yield* Deferred.await(answered)).toMatchObject({
+          id: "data-loss-confirm",
+          confirmed: true,
+        });
+        expect(opened).toMatchObject({
+          type: "request.opened",
+          requestId: "data-loss-confirm",
+          payload: { requestType: "permission_approval" },
+        });
+        expect(resolved).toMatchObject({
+          type: "request.resolved",
+          requestId: "data-loss-confirm",
+          payload: { requestType: "permission_approval", decision: "accept" },
+        });
+      }),
+    ),
+  );
+
   it.effect("resumes by cwd-scoped session id and routes startup model hooks", () =>
     Effect.scoped(
       Effect.gen(function* () {
@@ -543,7 +602,7 @@ describe("PiAdapter session runtime", () => {
           .startSession({
             threadId: THREAD_ID,
             cwd: "/work/./project",
-            runtimeMode: "full-access",
+            runtimeMode: "approval-required",
             resumeCursor: cursor,
             modelSelection: {
               instanceId: INSTANCE_ID,

@@ -846,6 +846,36 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
       yield* scheduleRequestTimeout(context, requestId, event.timeout);
       return;
     }
+    if (event.method === "confirm" && context.session.runtimeMode === "full-access") {
+      // Full access means no permission prompts, as for every other provider. Pi has no
+      // permission mode of its own, so its extensions' confirmations (such as gentle-pi's
+      // data-loss guard) are answered here; opened then resolved keeps them in the work log.
+      const detail = boundedText(`${nonEmpty(event.title, "Pi confirmation")}\n${event.message}`);
+      const base = {
+        requestId: RuntimeRequestId.make(event.id),
+        ...(context.activeTurn ? { turnId: context.activeTurn.turnId } : {}),
+      };
+      yield* emit({
+        ...(yield* eventBase(context)),
+        ...base,
+        type: "request.opened",
+        payload: {
+          requestType: "permission_approval",
+          detail,
+          options: [{ decision: "accept", label: "Confirm" }],
+        },
+      });
+      yield* context.rpc
+        .notify({ type: "extension_ui_response", id: event.id, confirmed: true })
+        .pipe(Effect.ignoreCause({ log: true }));
+      yield* emit({
+        ...(yield* eventBase(context)),
+        ...base,
+        type: "request.resolved",
+        payload: { requestType: "permission_approval", decision: "accept" },
+      });
+      return;
+    }
     if (event.method === "confirm") {
       context.pendingApprovals.set(requestId, {
         method: "confirm",
