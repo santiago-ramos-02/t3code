@@ -50,7 +50,6 @@ import {
   type SettingsPath,
   type SettingsSearchItem,
 } from "./settingsSearch";
-import { useGentleAiInstalledOnAny } from "./gentle-ai/gentleAiAvailability";
 import { useAvailableSettingsSearchItems } from "./useAvailableSettingsSearchItems";
 import { validateSettingsScopeSearch } from "./settingsScope";
 
@@ -116,16 +115,8 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
   const currentSearch = useLocation({ select: (location) => location.search });
   const scopeSearch = useMemo(() => validateSettingsScopeSearch(currentSearch), [currentSearch]);
   const { environments } = useEnvironments();
-  // Gentle AI is optional; its page appears once a connected environment has gentle-ai
-  // installed, so it can be set up from here, or runs a provider with it (gentle-pi).
-  const gentleAiInstalled = useGentleAiInstalledOnAny(
-    environments.map((environment) => environment.environmentId),
-  );
-  const gentleAiVisible =
-    gentleAiInstalled ||
-    environments.some((environment) =>
-      environment.serverConfig?.providers.some((provider) => provider.gentleAi === true),
-    );
+  // Gentle AI's page is where it is installed when missing, so it shows for any environment.
+  const gentleAiVisible = environments.length > 0;
   const navItems = SETTINGS_NAV_ITEMS.filter(
     (item) =>
       (item.to !== "/settings/projects" || isSettingsOverviewVisible(scopeSearch)) &&

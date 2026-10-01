@@ -109,7 +109,9 @@ export function GentleAiSettingsPanel({
     <Button
       size="sm"
       variant="outline"
-      disabled={!canEdit || (action !== "refresh" && status?.installed !== true)}
+      disabled={
+        !canEdit || (action !== "refresh" && action !== "install" && status?.installed !== true)
+      }
       onClick={() => act(action, reportTitle)}
     >
       {pending === action ? (
@@ -130,7 +132,7 @@ export function GentleAiSettingsPanel({
   const binaryPathRow = (
     <SettingsRow
       title="Binary path"
-      description="Leave blank to use gentle-ai on PATH, then the copy gentle-pi bundles."
+      description="Leave blank to use gentle-ai on PATH, then the one T3 Code installed, then the copy gentle-pi bundles."
       control={
         <DraftInput
           size="sm"
@@ -234,11 +236,17 @@ export function GentleAiSettingsPanel({
           <SettingsRow title="Reading Gentle AI" control={<Spinner className="size-3.5" />} />
         ) : !status.installed ? (
           <SettingsRow
-            title="gentle-ai not found"
-            description="Profiles and persona still work through gentle-pi. Install gentle-ai or set its binary path for ecosystem commands."
+            title="Install Gentle AI"
+            description="Gentle AI isn't on this environment yet. T3 Code downloads the latest release for this computer and checks it before installing; then you set it up in your agents here."
+            control={actionButton("install", "Install")}
           />
         ) : (
           <>
+            <SettingsRow
+              title="Install the current Gentle AI"
+              description="This gentle-ai is too old for T3 Code to manage. Install the current release to set up agents, models, and review from here."
+              control={actionButton("install", "Install")}
+            />
             <SettingsRow
               title="Setup"
               description={

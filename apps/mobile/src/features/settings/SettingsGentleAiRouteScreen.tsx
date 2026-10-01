@@ -28,7 +28,6 @@ import {
   type GentleAiStatus,
 } from "@t3tools/contracts";
 import * as Option from "effect/Option";
-import { Atom } from "effect/unstable/reactivity";
 import { Fragment, useState } from "react";
 import { ActivityIndicator, Alert, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -48,34 +47,6 @@ import { SettingsSection } from "./components/SettingsSection";
 import { useSettingsEnvironmentFilter, type SettingsTarget } from "./settings-environment-filter";
 
 type GentleAiAction = GentleAiActionInput["action"];
-
-/** Whether Gentle AI runs with any provider on an environment. */
-export function environmentRunsGentleAi(target: SettingsTarget): boolean {
-  return target.serverConfig.providers.some((provider) => provider.gentleAi === true);
-}
-
-// Keyed by the environments' ids so each set of environments shares one derived atom.
-const installedOnAnyFamily = Atom.family((key: string) =>
-  Atom.make((get) =>
-    key
-      .split("|")
-      .filter((id) => id.length > 0)
-      .some((environmentId) => {
-        const status = get(
-          serverEnvironment.gentleAiStatus({
-            environmentId: EnvironmentId.make(environmentId),
-            input: {},
-          }),
-        );
-        return status._tag === "Success" && status.value.installed;
-      }),
-  ),
-);
-
-/** Whether gentle-ai is installed on any of these environments, even with nothing set up yet. */
-export function useGentleAiInstalledOnAny(environmentIds: ReadonlyArray<EnvironmentId>): boolean {
-  return useAtomValue(installedOnAnyFamily([...environmentIds].sort().join("|")));
-}
 
 /**
  * Gentle AI on each selected environment. With a gentle-ai that has the headless API this follows
@@ -118,7 +89,6 @@ function GentleAiEnvironmentSettings(props: {
     serverEnvironment.gentleAiStatus({ environmentId, input: {} }),
   ).data;
   if (status === null) return null;
-  if (!status.installed && !environmentRunsGentleAi(props.target)) return null;
   const title = ["Gentle AI", status.version, props.showLabel ? props.target.label : null]
     .filter((part) => part !== null)
     .join(" · ");
@@ -462,12 +432,23 @@ function GentleAiLegacySettings(props: {
         {providers.length > 0 ? (
           <Text className="text-sm text-foreground-muted">Runs with {providers.join(", ")}</Text>
         ) : null}
-        {!props.status.installed ? (
-          <Text className="text-sm text-foreground-muted">
-            gentle-ai was not found on this environment. Set its binary path in web or desktop
-            settings for ecosystem commands.
-          </Text>
-        ) : (
+        {!props.status.installed || props.status.apiVersion === null ? (
+          <>
+            <Text className="text-sm text-foreground-muted">
+              {props.status.installed
+                ? "This gentle-ai is too old for T3 Code to manage. Install the current release to set up agents, models, and review."
+                : "Gentle AI isn't on this environment yet. T3 Code downloads the latest release for that computer and checks it before installing."}
+            </Text>
+            <View className="flex-row flex-wrap gap-2">
+              <Action
+                label={pending === "install" ? "Installing…" : "Install Gentle AI"}
+                disabled={pending !== null}
+                onPress={() => act("install", "Install Gentle AI")}
+              />
+            </View>
+          </>
+        ) : null}
+        {!props.status.installed ? null : (
           <>
             {props.status.syncNeeded ? (
               <Text className="text-sm text-foreground-muted">
