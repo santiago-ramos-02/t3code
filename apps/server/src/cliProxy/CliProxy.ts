@@ -45,6 +45,7 @@ import {
   HostProcessPlatform,
 } from "@t3tools/shared/hostProcess";
 
+import { makeGitHubReleases } from "../githubRelease.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 
 const REPOSITORY = "router-for-me/CLIProxyAPI";
@@ -245,6 +246,7 @@ const make = Effect.gen(function* () {
   const environment = yield* HostProcessEnvironment;
   const serverSettings = yield* ServerSettingsService;
   const httpClient = yield* HttpClient.HttpClient;
+  const releases = yield* makeGitHubReleases;
 
   /** One HTTP request; its status and body are read by the caller. */
   const request = (input: {
@@ -424,17 +426,7 @@ const make = Effect.gen(function* () {
     const cached = yield* Ref.get(latest);
     const now = yield* Clock.currentTimeMillis;
     if (cached.version !== null && now - cached.at < LATEST_TTL_MS) return cached.version;
-    const version = yield* request({
-      method: "GET",
-      url: `https://api.github.com/repos/${REPOSITORY}/releases/latest`,
-      headers: { accept: "application/vnd.github+json" },
-      timeout: "10 seconds",
-      failure: "GitHub could not be reached.",
-    }).pipe(
-      Effect.flatMap((response) => response.text),
-      Effect.map((text) => /"tag_name"\s*:\s*"v?([^"]+)"/.exec(text)?.[1] ?? null),
-      Effect.orElseSucceed(() => cached.version),
-    );
+    const version = (yield* releases.latestVersion(REPOSITORY)) ?? cached.version;
     yield* Ref.set(latest, { version, at: now });
     return version;
   });
@@ -640,102 +632,56 @@ const make = Effect.gen(function* () {
     const previous = yield* readVersion;
     if (installed && previous === version) return;
 
-    const work = yield* attempt("A download folder could not be made", () =>
-      NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-cliproxy-")),
-    );
-    yield* Effect.gen(function* () {
-      const base = `https://github.com/${REPOSITORY}/releases/download/v${version}`;
-      const archive = NodePath.join(work, asset);
-      const download = (name: string, timeout: `${number} seconds`) =>
-        request({
-          method: "GET",
-          url: `${base}/${name}`,
-          timeout,
-          failure: `${name} could not be downloaded.`,
-        }).pipe(
-          Effect.filterOrFail(
-            (response) => response.status >= 200 && response.status < 300,
-            (response) => fail(`${name} could not be downloaded (HTTP ${response.status}).`),
-          ),
-        );
-      const checksums = yield* download("checksums.txt", "30 seconds").pipe(
-        Effect.flatMap((response) => response.text),
-        Effect.mapError(() => fail("The release checksums could not be downloaded.")),
-      );
-      const expected = checksums
-        .split("\n")
-        .find((entry) => entry.trim().endsWith(` ${asset}`))
-        ?.trim()
-        .split(/\s+/)[0]
-        ?.toLowerCase();
-      if (!expected) return yield* fail(`${asset} is not listed in the release checksums.`);
-      const bytes = yield* download(asset, "300 seconds").pipe(
-        Effect.flatMap((response) => response.arrayBuffer),
-        Effect.map((buffer) => Buffer.from(buffer)),
-        Effect.mapError(() => fail("CLIProxyAPI could not be downloaded.")),
-      );
-      if (NodeCrypto.createHash("sha256").update(bytes).digest("hex") !== expected) {
-        return yield* fail("The download does not match its checksum, so nothing was installed.");
-      }
-      yield* attempt("The download could not be saved", () => NodeFSP.writeFile(archive, bytes));
-      const unpacked = NodePath.join(work, "unpacked");
-      yield* attempt("The download could not be unpacked", () => NodeFSP.mkdir(unpacked));
-      // tar unpacks both .zip and .tar.gz on Windows 10+, macOS, and Linux. On Windows the
-      // bundled bsdtar is named by path: a GNU tar earlier on PATH, such as Git's, cannot read zips.
-      const tar =
-        platform === "win32"
-          ? NodePath.join(environment.SystemRoot ?? "C:\\Windows", "System32", "tar.exe")
-          : "tar";
-      if ((yield* run(tar, ["-xf", archive, "-C", unpacked])) === null) {
-        return yield* fail("The download could not be unpacked; tar is needed.");
-      }
-      const fresh = NodePath.join(unpacked, binaryName(platform));
-      if (!(yield* Effect.promise(() => exists(fresh)))) {
-        return yield* fail("The download does not contain the CLIProxyAPI program.");
-      }
+    yield* releases.withVerifiedRelease(
+      { repository: REPOSITORY, version, asset, label: "CLIProxyAPI", fail },
+      (unpacked) =>
+        Effect.gen(function* () {
+          const fresh = NodePath.join(unpacked, binaryName(platform));
+          if (!(yield* Effect.promise(() => exists(fresh)))) {
+            return yield* fail("The download does not contain the CLIProxyAPI program.");
+          }
 
-      const wasRunning = installed && (yield* ownProcess) !== null;
-      // Another proxy may already hold the default port; a fresh install takes the next free one.
-      let freePort = DEFAULT_PORT;
-      while (
-        freePort < DEFAULT_PORT + 20 &&
-        (yield* Effect.promise(() => isListening("127.0.0.1", freePort)))
-      ) {
-        freePort += 1;
-      }
-      if (wasRunning) yield* stop;
-      yield* attempt("The new version could not be installed", async () => {
-        await NodeFSP.mkdir(dir, { recursive: true });
-        if (installed) {
-          const keep = NodePath.join(dir, "previous");
-          await NodeFSP.rm(keep, { recursive: true, force: true });
-          await NodeFSP.mkdir(keep);
-          await NodeFSP.copyFile(binary, NodePath.join(keep, binaryName(platform)));
-          await NodeFSP.writeFile(NodePath.join(keep, "VERSION"), `${previous ?? "unknown"}\n`);
-        }
-        await NodeFSP.copyFile(fresh, binary);
-        if (platform !== "win32") await NodeFSP.chmod(binary, 0o755);
-        for (const extra of ["config.example.yaml", "README.md", "LICENSE"]) {
-          const source = NodePath.join(unpacked, extra);
-          if (await exists(source)) await NodeFSP.copyFile(source, NodePath.join(dir, extra));
-        }
-        if (!(await exists(configPath))) {
-          const managementKey = `t3-${NodeCrypto.randomBytes(24).toString("hex")}`;
-          await writeFileAtomic(
-            configPath,
-            freshConfig({
-              port: freePort,
-              authDir: NodePath.join(dir, "auth"),
-              clientKey: `sk-t3-${NodeCrypto.randomBytes(24).toString("hex")}`,
-              managementKey,
-            }),
-          );
-          await writeFileAtomic(keyPath, `${managementKey}\n`);
-        }
-      });
-      if (wasRunning || !installed) yield* start;
-    }).pipe(
-      Effect.ensuring(Effect.promise(() => NodeFSP.rm(work, { recursive: true, force: true }))),
+          const wasRunning = installed && (yield* ownProcess) !== null;
+          // Another proxy may already hold the default port; a fresh install takes the next free one.
+          let freePort = DEFAULT_PORT;
+          while (
+            freePort < DEFAULT_PORT + 20 &&
+            (yield* Effect.promise(() => isListening("127.0.0.1", freePort)))
+          ) {
+            freePort += 1;
+          }
+          if (wasRunning) yield* stop;
+          yield* attempt("The new version could not be installed", async () => {
+            await NodeFSP.mkdir(dir, { recursive: true });
+            if (installed) {
+              const keep = NodePath.join(dir, "previous");
+              await NodeFSP.rm(keep, { recursive: true, force: true });
+              await NodeFSP.mkdir(keep);
+              await NodeFSP.copyFile(binary, NodePath.join(keep, binaryName(platform)));
+              await NodeFSP.writeFile(NodePath.join(keep, "VERSION"), `${previous ?? "unknown"}\n`);
+            }
+            await NodeFSP.copyFile(fresh, binary);
+            if (platform !== "win32") await NodeFSP.chmod(binary, 0o755);
+            for (const extra of ["config.example.yaml", "README.md", "LICENSE"]) {
+              const source = NodePath.join(unpacked, extra);
+              if (await exists(source)) await NodeFSP.copyFile(source, NodePath.join(dir, extra));
+            }
+            if (!(await exists(configPath))) {
+              const managementKey = `t3-${NodeCrypto.randomBytes(24).toString("hex")}`;
+              await writeFileAtomic(
+                configPath,
+                freshConfig({
+                  port: freePort,
+                  authDir: NodePath.join(dir, "auth"),
+                  clientKey: `sk-t3-${NodeCrypto.randomBytes(24).toString("hex")}`,
+                  managementKey,
+                }),
+              );
+              await writeFileAtomic(keyPath, `${managementKey}\n`);
+            }
+          });
+          if (wasRunning || !installed) yield* start;
+        }),
     );
   });
 
