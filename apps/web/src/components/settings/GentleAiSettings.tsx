@@ -9,7 +9,7 @@ import {
   type GentleAiActionInput,
   type ServerConfig,
 } from "@t3tools/contracts";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
 import { useEnvironmentQuery } from "../../state/query";
 import { serverEnvironment } from "../../state/server";
@@ -152,23 +152,26 @@ export function GentleAiSettingsPanel({
       }
     />
   );
-  const piSections = piInstances.map((provider) => (
-    <PiGentleSettingsSection
-      key={provider.instanceId}
-      environmentId={environmentId}
-      instanceId={provider.instanceId}
-      title={
-        piInstances.length > 1
-          ? `gentle-pi · ${provider.displayName ?? provider.instanceId}`
-          : "gentle-pi"
-      }
-      refreshKey={refreshKey}
-      models={provider.models}
-      initialProjectCwd={projectCwd}
-      projects={projects}
-      readOnly={readOnly}
-    />
-  ));
+  // Rows Gentle AI adds for Pi, its plugins, go in the first instance's card.
+  const piSections = (extraRows: ReactNode) =>
+    piInstances.map((provider, index) => (
+      <PiGentleSettingsSection
+        key={provider.instanceId}
+        extraRows={index === 0 ? extraRows : null}
+        environmentId={environmentId}
+        instanceId={provider.instanceId}
+        title={
+          piInstances.length > 1
+            ? `gentle-pi · ${provider.displayName ?? provider.instanceId}`
+            : "gentle-pi"
+        }
+        refreshKey={refreshKey}
+        models={provider.models}
+        initialProjectCwd={projectCwd}
+        projects={projects}
+        readOnly={readOnly}
+      />
+    ));
 
   // A gentle-ai with the headless API gets the full GUI; older ones keep the basic commands.
   if (status?.apiVersion != null) {
@@ -183,7 +186,7 @@ export function GentleAiSettingsPanel({
             title: project.title,
             cwd: project.workspaceRoot,
           }))}
-          agentExtras={piSections.length > 0 ? { pi: piSections } : {}}
+          agentExtras={piInstances.length > 0 ? { pi: piSections } : {}}
           piProvider={
             piInstances[0]
               ? { instanceId: piInstances[0].instanceId, models: piInstances[0].models }
@@ -293,7 +296,7 @@ export function GentleAiSettingsPanel({
         )}
         {binaryPathRow}
       </SettingsSection>
-      {piSections}
+      {piSections(null)}
       <Dialog open={report !== null} onOpenChange={(open) => (open ? undefined : setReport(null))}>
         <DialogPopup className="max-w-2xl">
           <DialogHeader>

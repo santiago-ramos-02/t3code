@@ -28,7 +28,7 @@ import {
   GentleAiModelPresetSelect,
   useGentleAiModelPreset,
 } from "./GentleAiModels";
-import { GentleAiPlugins } from "./GentleAiPlugins";
+import { GentleAiPluginRows, GentleAiPlugins } from "./GentleAiPlugins";
 import type { GentleAiSectionProps } from "./GentleAiSettingsPage";
 import { PiGentleProfileSelect, usePiGentleProfiles } from "./PiGentleProfileSelect";
 
@@ -261,8 +261,8 @@ export function GentleAiAgentFlow({
   ...props
 }: GentleAiSectionProps & {
   readonly agentId: string;
-  /** Settings the agent brings along, such as gentle-pi's for Pi. */
-  readonly extras: ReactNode;
+  /** Settings the agent brings along, such as gentle-pi's for Pi, given rows to show with them. */
+  readonly extras: ((extraRows: ReactNode) => ReactNode) | undefined;
   readonly onClose: () => void;
 }) {
   const agent = gentleAiAgentList(props.status).find((entry) => entry.id === agentId) ?? null;
@@ -289,6 +289,18 @@ export function GentleAiAgentFlow({
             : `Gentle AI isn't set up in ${agent.name}.`
         }
         onBack={onClose}
+        action={
+          setUp ? (
+            <Button
+              size="sm"
+              variant="destructive-outline"
+              disabled={props.disabled}
+              onClick={() => props.openFlow({ kind: "uninstall", agent: agent.id })}
+            >
+              Remove from {agent.name}
+            </Button>
+          ) : null
+        }
       />
       {setUp ? (
         <>
@@ -301,35 +313,23 @@ export function GentleAiAgentFlow({
               <GentleAiAgentModelsRow {...props} agent={modelAgent} name={agent.name} />
             </SettingsSection>
           )}
-          {agent.id === "pi"
-            ? (extras ?? (
-                <SettingsSection title="Profiles and persona">
-                  <SettingsRow
-                    title="Pi provider is off"
-                    description="Gentle AI works in Pi through gentle-pi. Turn on the Pi provider in Providers to manage its profiles and persona here."
-                  />
-                </SettingsSection>
-              ))
-            : extras}
-          {agent.id === "opencode" || agent.id === "pi" ? (
-            <GentleAiPlugins {...props} agent={agent.id} />
-          ) : null}
-          <SettingsSection title="Remove">
-            <SettingsRow
-              title={`Remove Gentle AI from ${agent.name}`}
-              description="Other agents keep their setup."
-              control={
-                <Button
-                  size="sm"
-                  variant="destructive-outline"
-                  disabled={props.disabled}
-                  onClick={() => props.openFlow({ kind: "uninstall", agent: agent.id })}
-                >
-                  Remove
-                </Button>
-              }
-            />
-          </SettingsSection>
+          {/* Pi's plugins join gentle-pi's settings, so a single plugin is not a card of its own. */}
+          {agent.id === "pi" ? (
+            extras ? (
+              extras(<GentleAiPluginRows {...props} agent="pi" />)
+            ) : (
+              <SettingsSection title="gentle-pi">
+                <SettingsRow
+                  title="Pi provider is off"
+                  description="Gentle AI works in Pi through gentle-pi. Turn on the Pi provider in Providers to manage its profiles and persona here."
+                />
+                <GentleAiPluginRows {...props} agent="pi" />
+              </SettingsSection>
+            )
+          ) : (
+            extras?.(null)
+          )}
+          {agent.id === "opencode" ? <GentleAiPlugins {...props} agent="opencode" /> : null}
         </>
       ) : (
         <SettingsSection title={agent.name}>

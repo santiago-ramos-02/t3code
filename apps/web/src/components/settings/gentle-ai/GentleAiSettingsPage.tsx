@@ -71,7 +71,8 @@ export function GentleAiSettingsPage({
   readonly flow: GentleAiFlow | null;
   readonly onFlowChange: (flow: GentleAiFlow | null) => void;
   /** Settings an agent brings along, shown on its own page, such as gentle-pi's for Pi. */
-  readonly agentExtras: Readonly<Record<string, ReactNode>>;
+  /** Settings an agent brings along, given rows (such as its plugins) to show with them. */
+  readonly agentExtras: Readonly<Record<string, (extraRows: ReactNode) => ReactNode>>;
   /** The Pi provider whose gentle-pi profiles the agent list switches, when one is on. */
   readonly piProvider: GentleAiPiProvider | null;
   /** Whether this gentle-ai keeps Claude Code profiles. */
@@ -174,7 +175,7 @@ export function GentleAiSettingsPage({
     <>
       {errorBanner}
       <GentleAiJobPanel job={job} names={names} />
-      <GentleAiStatusSection {...sectionProps} />
+      <GentleAiStatusLine {...sectionProps} />
       <GentleAiAgentsSection {...sectionProps} piProvider={piProvider} />
       <GentleAiReviewSection {...sectionProps} />
       <GentleAiMoreSection {...sectionProps} advancedRows={advancedRows} />
@@ -183,10 +184,11 @@ export function GentleAiSettingsPage({
 }
 
 /**
- * Whether Gentle AI is current: one row while it is, and a row per thing to do when it is not,
- * an update to install or agent files to bring up to date.
+ * Whether Gentle AI is current, as the page's first line rather than a card of its own: the
+ * version and when it last synced, and the one thing to do when there is one, an update to
+ * install or agent files to bring up to date.
  */
-function GentleAiStatusSection({
+function GentleAiStatusLine({
   environmentId,
   status,
   disabled,
@@ -204,63 +206,49 @@ function GentleAiStatusSection({
     ? `Synced ${new Date(status.state.lastSyncedAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`
     : null;
 
+  const state =
+    outdated.length > 0
+      ? `Update available: ${outdated
+          .map((tool) => `${tool.name} ${tool.installed ?? "?"} → ${tool.latest ?? "?"}`)
+          .join(", ")}`
+      : syncNeeded
+        ? "Your agents' files are out of date"
+        : updates.error
+          ? `Updates could not be checked: ${updates.error}`
+          : updates.data === null || updates.isPending
+            ? "Checking for updates…"
+            : "Up to date";
+
   return (
-    <SettingsSection
-      title="Gentle AI"
-      headerAction={
-        <span className="font-mono text-xs text-muted-foreground">v{status.version}</span>
-      }
-    >
+    <div className="flex min-h-7 flex-wrap items-center justify-between gap-x-4 gap-y-2 px-3 text-sm text-foreground/70 sm:px-4">
+      <p className="min-w-0">
+        <span className="font-mono text-xs">v{status.version}</span>
+        {" · "}
+        <span className={outdated.length > 0 || syncNeeded ? "text-foreground" : undefined}>
+          {state}
+        </span>
+        {lastSynced && outdated.length === 0 && !syncNeeded ? ` · ${lastSynced}` : null}
+      </p>
       {outdated.length > 0 ? (
-        <SettingsRow
-          title="Update available"
-          description={outdated
-            .map((tool) => `${tool.name} ${tool.installed ?? "?"} → ${tool.latest ?? "?"}`)
-            .join(" · ")}
-          control={
-            <Button
-              size="sm"
-              disabled={disabled}
-              // Updating also refreshes the agents' files; when gentle-ai updates itself, it
-              // does that on its next run instead.
-              onClick={() => run(startJob("upgrade", { sync: true }))}
-            >
-              Update
-            </Button>
-          }
-        />
+        <Button
+          size="sm"
+          disabled={disabled}
+          // Updating also refreshes the agents' files; when gentle-ai updates itself, it does
+          // that on its next run instead.
+          onClick={() => run(startJob("upgrade", { sync: true }))}
+        >
+          Update
+        </Button>
+      ) : syncNeeded ? (
+        <Button size="sm" disabled={disabled} onClick={() => run(startJob("sync", {}))}>
+          Sync
+        </Button>
+      ) : updates.data?.checked === false ? (
+        <Button size="xs" variant="ghost" onClick={() => setForceCheck(true)}>
+          Check now
+        </Button>
       ) : null}
-      {syncNeeded ? (
-        <SettingsRow
-          title="Agent files are out of date"
-          description="Gentle AI changed since it last updated your agents. Sync brings them up to date."
-          control={
-            <Button size="sm" disabled={disabled} onClick={() => run(startJob("sync", {}))}>
-              Sync
-            </Button>
-          }
-        />
-      ) : null}
-      {outdated.length > 0 || syncNeeded ? null : (
-        <SettingsRow
-          title={
-            updates.error
-              ? "Updates could not be checked"
-              : updates.data === null || updates.isPending
-                ? "Checking for updates…"
-                : "Up to date"
-          }
-          description={updates.error ?? lastSynced}
-          control={
-            updates.data?.checked === false ? (
-              <Button size="sm" variant="outline" onClick={() => setForceCheck(true)}>
-                Check now
-              </Button>
-            ) : null
-          }
-        />
-      )}
-    </SettingsSection>
+    </div>
   );
 }
 
@@ -287,6 +275,7 @@ function GentleAiMoreSection({
       id="gentle-ai-more"
       title="More"
       summary="Setup, tools, backups, removal"
+      headerPlacement="outside"
     >
       <SettingsRow
         title="Setup for every agent"

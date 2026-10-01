@@ -12,11 +12,14 @@ export function GentleAiFlowHeader({
   title,
   description,
   onBack,
+  action,
   children,
 }: {
   readonly title: ReactNode;
   readonly description?: ReactNode;
   readonly onBack: () => void;
+  /** A control for the whole page, such as removing what it shows, at the title's end. */
+  readonly action?: ReactNode;
   /** Step indicator or other context under the title. */
   readonly children?: ReactNode;
 }) {
@@ -26,10 +29,11 @@ export function GentleAiFlowHeader({
         <Button size="icon-sm" variant="ghost" aria-label="Back to Gentle AI" onClick={onBack}>
           <ArrowLeftIcon aria-hidden />
         </Button>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <h2 className="font-medium text-base text-foreground">{title}</h2>
           {description ? <p className="text-muted-foreground text-sm">{description}</p> : null}
         </div>
+        {action ? <div className="flex shrink-0 items-center">{action}</div> : null}
       </div>
       {children}
     </header>

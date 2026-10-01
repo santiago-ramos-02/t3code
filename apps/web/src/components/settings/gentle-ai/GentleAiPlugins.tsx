@@ -17,8 +17,28 @@ const AGENT_NAMES = { opencode: "OpenCode", pi: "Pi" } satisfies Record<
   string
 >;
 
-/** Plugins Gentle AI can install into one agent, shown on that agent's panel. */
-export function GentleAiPlugins({
+/** Plugins Gentle AI can install into one agent, as their own section on that agent's panel. */
+export function GentleAiPlugins(
+  props: GentleAiSectionProps & { readonly agent: GentleAiPluginAgent },
+) {
+  const plugins = useGentleAiQuery(props.environmentId, "plugins.list", { agent: props.agent });
+  return (
+    <SettingsSection
+      title="Plugins"
+      headerAction={
+        plugins.isPending && plugins.data === null ? <Spinner className="size-3.5" /> : null
+      }
+    >
+      <GentleAiPluginRows {...props} />
+    </SettingsSection>
+  );
+}
+
+/**
+ * One row per plugin Gentle AI can install into an agent, for a card that holds the agent's
+ * other settings too, as gentle-pi's does for Pi.
+ */
+export function GentleAiPluginRows({
   agent,
   environmentId,
   disabled,
@@ -33,10 +53,7 @@ export function GentleAiPlugins({
   const data = plugins.data;
 
   return (
-    <SettingsSection
-      title="Plugins"
-      headerAction={plugins.isPending && data === null ? <Spinner className="size-3.5" /> : null}
-    >
+    <>
       {plugins.error ? (
         <SettingsRow title="Plugins unavailable" description={plugins.error} />
       ) : data === null ? null : !data.supported ? (
@@ -101,6 +118,6 @@ export function GentleAiPlugins({
           if (removing !== null) run(startJob("plugins.uninstall", { id: removing.id, agent }));
         }}
       />
-    </SettingsSection>
+    </>
   );
 }

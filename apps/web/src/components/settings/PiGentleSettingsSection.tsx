@@ -10,7 +10,7 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -93,6 +93,7 @@ export function PiGentleSettingsSection({
   projects,
   initialProjectCwd,
   readOnly,
+  extraRows,
 }: {
   readonly environmentId: EnvironmentId;
   readonly instanceId: ProviderInstanceId;
@@ -103,6 +104,8 @@ export function PiGentleSettingsSection({
   readonly projects: ReadonlyArray<ProjectOption>;
   readonly initialProjectCwd?: string | undefined;
   readonly readOnly: boolean;
+  /** Rows Gentle AI adds for Pi, such as its plugins, shown with the persona. */
+  readonly extraRows?: ReactNode;
 }) {
   const [selectedCwdChoice, setSelectedCwdChoice] = useState<string | null>(
     initialProjectCwd ?? null,
@@ -312,6 +315,7 @@ export function PiGentleSettingsSection({
             />
           }
         />
+        {extraRows}
       </SettingsSection>
 
       <div {...readOnlyProps}>
