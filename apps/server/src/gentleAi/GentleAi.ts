@@ -24,7 +24,11 @@ import {
   type GentleAiStatus,
   type ServerProvider,
 } from "@t3tools/contracts";
-import { HostProcessEnvironment, HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import {
+  HostProcessArchitecture,
+  HostProcessEnvironment,
+  HostProcessPlatform,
+} from "@t3tools/shared/hostProcess";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
@@ -48,7 +52,13 @@ import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawne
 import { GENTLE_AI_PROFILE_HOST } from "./ClaudeGentleProfile.ts";
 import { isGentleAiResource } from "./GentleAiFootprint.ts";
 import { DescribeResult, runGentleAiApi, type GentleAiApiEvent } from "./GentleAiApi.ts";
-import { resolveGentleAiBinary } from "./GentleAiBinary.ts";
+import {
+  GENTLE_AI_RELEASE_REPOSITORY,
+  gentleAiInstallPath,
+  gentleAiReleaseAsset,
+  resolveGentleAiBinary,
+} from "./GentleAiBinary.ts";
+import { makeGitHubReleases } from "../githubRelease.ts";
 import { spawnAndCollect } from "../provider/providerSnapshot.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 
@@ -202,6 +212,9 @@ export const make = Effect.gen(function* () {
   const hostPlatform = yield* HostProcessPlatform;
   const environment = yield* HostProcessEnvironment;
   const crypto = yield* Crypto.Crypto;
+  const arch = yield* HostProcessArchitecture;
+  const releases = yield* makeGitHubReleases;
+  const installLock = yield* Semaphore.make(1);
   const stateRef = yield* Ref.make<GentleAiStatus>(NOT_INSTALLED);
   const changes = yield* Effect.acquireRelease(PubSub.unbounded<GentleAiStatus>(), PubSub.shutdown);
 
@@ -370,9 +383,51 @@ export const make = Effect.gen(function* () {
     Effect.ignoreCause({ log: true }),
   );
 
+  /**
+   * Installs the latest gentle-ai release where gentle-ai's own install scripts put it (see
+   * gentleAiInstallPath), which the binary lookup checks after PATH. Nothing changes PATH.
+   */
+  const install = Effect.gen(function* () {
+    const current = yield* Ref.get(stateRef);
+    if (current.installed && current.apiVersion !== null) return;
+    const fail = (detail: string) => new GentleAiError({ detail });
+    const target = gentleAiInstallPath(path, hostPlatform, environment);
+    if (target === null) return yield* fail("This system has no folder to install gentle-ai in.");
+    const version = yield* releases.latestVersion(GENTLE_AI_RELEASE_REPOSITORY);
+    if (version === null) {
+      return yield* fail("The latest gentle-ai release could not be found. Check the connection.");
+    }
+    const asset = gentleAiReleaseAsset(version, hostPlatform, arch);
+    if (asset === null) return yield* fail("gentle-ai has no build for this system.");
+    yield* releases.withVerifiedRelease(
+      { repository: GENTLE_AI_RELEASE_REPOSITORY, version, asset, label: "gentle-ai", fail },
+      (unpacked) =>
+        Effect.gen(function* () {
+          const fresh = path.join(unpacked, asset.replace(/\.tar\.gz$/, ""), path.basename(target));
+          if (!(yield* fileSystem.exists(fresh).pipe(Effect.orElseSucceed(() => false)))) {
+            return yield* fail("The download does not contain the gentle-ai program.");
+          }
+          yield* fileSystem.makeDirectory(path.dirname(target), { recursive: true }).pipe(
+            Effect.andThen(fileSystem.copyFile(fresh, target)),
+            Effect.andThen(
+              hostPlatform === "win32" ? Effect.void : fileSystem.chmod(target, 0o755),
+            ),
+            Effect.mapError(() =>
+              fail(`gentle-ai could not be installed in ${path.dirname(target)}.`),
+            ),
+          );
+        }),
+    );
+  }).pipe(installLock.withPermits(1));
+
   const action = (input: GentleAiActionInput) =>
     Effect.gen(function* () {
       if (input.action === "refresh") {
+        yield* refresh;
+        return { status: yield* Ref.get(stateRef) } satisfies GentleAiActionResult;
+      }
+      if (input.action === "install") {
+        yield* install;
         yield* refresh;
         return { status: yield* Ref.get(stateRef) } satisfies GentleAiActionResult;
       }

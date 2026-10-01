@@ -1,6 +1,12 @@
+import * as NodeCrypto from "node:crypto";
+
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ProviderDriverKind, type GentleAiJob, type ServerProvider } from "@t3tools/contracts";
-import { HostProcessEnvironment, HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import {
+  HostProcessArchitecture,
+  HostProcessEnvironment,
+  HostProcessPlatform,
+} from "@t3tools/shared/hostProcess";
 import { expect, it } from "@effect/vitest";
 import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";
@@ -11,6 +17,9 @@ import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
+import * as ChildProcess from "effect/unstable/process/ChildProcess";
+import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
+import { FetchHttpClient, HttpClient, HttpClientResponse } from "effect/unstable/http";
 
 import * as ServerSettings from "../serverSettings.ts";
 import {
@@ -21,6 +30,7 @@ import {
   NOT_INSTALLED,
   withGentleAi,
 } from "./GentleAi.ts";
+import { gentleAiReleaseAsset } from "./GentleAiBinary.ts";
 
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
@@ -69,7 +79,7 @@ it("tags the skills and commands gentle-ai installed, so threads with it off can
   ]);
 });
 
-it.layer(NodeServices.layer)("GentleAi service", (it) => {
+it.layer(Layer.mergeAll(NodeServices.layer, FetchHttpClient.layer))("GentleAi service", (it) => {
   it.effect("reads the binary's version and what gentle-ai recorded", () =>
     Effect.scoped(
       Effect.gen(function* () {
@@ -285,6 +295,87 @@ else line({ type: "error", error: { code: "unsupported", message: "unknown metho
         expect(failures.at(-1)).toMatchObject({ phase: "failed", error: "No backup b9." });
       }),
     ),
+  );
+
+  it.effect(
+    "installs gentle-ai from its release where its install scripts do, checksum first",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const fileSystem = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const platform = yield* HostProcessPlatform;
+          const home = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-gentle-install-" });
+          const asset = gentleAiReleaseAsset("9.9.9", platform, yield* HostProcessArchitecture);
+          if (asset === null) return;
+          const program = platform === "win32" ? "gentle-ai.exe" : "gentle-ai";
+          const folder = asset.replace(/\.tar\.gz$/, "");
+          yield* fileSystem.makeDirectory(path.join(home, "build", folder), { recursive: true });
+          yield* fileSystem.writeFileString(path.join(home, "build", folder, program), "program");
+          const tar =
+            platform === "win32"
+              ? path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe")
+              : "tar";
+          const archive = path.join(home, asset);
+          const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+          yield* spawner.string(
+            ChildProcess.make(tar, ["-czf", archive, "-C", path.join(home, "build"), folder]),
+          );
+          const bytes = yield* fileSystem.readFile(archive);
+          const digest = NodeCrypto.createHash("sha256").update(bytes).digest("hex");
+
+          // A release server: the latest tag, its checksums, and the archive.
+          const release = (checksum: string) =>
+            HttpClient.make((request) => {
+              const url = request.url;
+              const body = url.endsWith("/releases/latest")
+                ? '{"tag_name":"v9.9.9"}'
+                : url.endsWith("/checksums.txt")
+                  ? `${checksum}  ${asset}\n`
+                  : url.endsWith(`/${asset}`)
+                    ? bytes
+                    : null;
+              return Effect.succeed(
+                HttpClientResponse.fromWeb(
+                  request,
+                  new Response(body, { status: body === null ? 404 : 200 }),
+                ),
+              );
+            });
+          const environment = {
+            ...process.env,
+            PATH: home,
+            Path: home,
+            HOME: home,
+            USERPROFILE: home,
+            LOCALAPPDATA: path.join(home, "local"),
+          };
+          const target =
+            platform === "win32"
+              ? path.join(home, "local", "Programs", "gentle-ai", program)
+              : path.join(home, ".local", "bin", program);
+          const installWith = (checksum: string) =>
+            Effect.gen(function* () {
+              const gentleAi = yield* GentleAi;
+              return yield* gentleAi.action({ action: "install" });
+            }).pipe(
+              Effect.provide(
+                layer.pipe(Layer.provide(ServerSettings.layerTest({ gentleAiBinaryPath: "" }))),
+              ),
+              Effect.provideService(HttpClient.HttpClient, release(checksum)),
+              Effect.provideService(HostProcessEnvironment, environment),
+            );
+
+          const tampered = yield* Effect.flip(installWith("0".repeat(64)));
+          expect(tampered).toMatchObject({
+            detail: expect.stringContaining("does not match its checksum"),
+          });
+          expect(yield* fileSystem.exists(target)).toBe(false);
+
+          yield* installWith(digest);
+          expect(yield* fileSystem.readFileString(target)).toBe("program");
+        }),
+      ),
   );
 });
 

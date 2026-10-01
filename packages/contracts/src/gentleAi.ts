@@ -64,9 +64,10 @@ export const GentleAiStatus = Schema.Struct({
 export type GentleAiStatus = typeof GentleAiStatus.Type;
 
 export const GentleAiActionInput = Schema.Struct({
-  // refresh re-reads status; the rest run the gentle-ai command of the same name: update
-  // checks for new versions, upgrade installs them, sync refreshes agent assets, doctor reports.
-  action: Schema.Literals(["refresh", "update", "upgrade", "sync", "doctor"]),
+  // refresh re-reads status; install downloads gentle-ai when it is missing; the rest run the
+  // gentle-ai command of the same name: update checks for new versions, upgrade installs them,
+  // sync refreshes agent assets, doctor reports.
+  action: Schema.Literals(["refresh", "install", "update", "upgrade", "sync", "doctor"]),
 });
 export type GentleAiActionInput = typeof GentleAiActionInput.Type;
 

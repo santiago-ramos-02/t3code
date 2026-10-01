@@ -30,6 +30,7 @@ type GentleAiAction = GentleAiActionInput["action"];
 const ROW_CONTROL = "w-full max-w-full @min-[32rem]/settings-row:w-56";
 const ACTION_LABELS = {
   refresh: "Refreshing…",
+  install: "Installing…",
   update: "Checking…",
   upgrade: "Upgrading…",
   sync: "Syncing…",
