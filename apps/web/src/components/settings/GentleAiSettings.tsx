@@ -217,21 +217,23 @@ export function GentleAiSettingsPanel({
             }
           />
         ) : null}
-        <SettingsRow
-          title="Runs with"
-          description={
-            gentleProviders.length > 0
-              ? gentleProviders
-                  .map(
-                    (provider) =>
-                      provider.displayName ??
-                      PROVIDER_DISPLAY_NAMES[provider.driver] ??
-                      provider.driver,
-                  )
-                  .join(", ")
-              : "No provider on this environment runs with Gentle AI."
-          }
-        />
+        {status?.installed !== true ? null : (
+          <SettingsRow
+            title="Runs with"
+            description={
+              gentleProviders.length > 0
+                ? gentleProviders
+                    .map(
+                      (provider) =>
+                        provider.displayName ??
+                        PROVIDER_DISPLAY_NAMES[provider.driver] ??
+                        provider.driver,
+                    )
+                    .join(", ")
+                : "No provider on this environment runs with Gentle AI."
+            }
+          />
+        )}
         {status === null || status === undefined ? (
           <SettingsRow title="Reading Gentle AI" control={<Spinner className="size-3.5" />} />
         ) : !status.installed ? (

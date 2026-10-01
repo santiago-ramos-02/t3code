@@ -37,6 +37,7 @@ import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Equal from "effect/Equal";
 import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -427,8 +428,10 @@ export const make = Effect.gen(function* () {
         return { status: yield* Ref.get(stateRef) } satisfies GentleAiActionResult;
       }
       if (input.action === "install") {
-        yield* install;
-        yield* refresh;
+        // Detached, so a client that leaves mid-install stops waiting without cancelling the
+        // install or the status read that follows it.
+        const installing = yield* install.pipe(Effect.andThen(refresh), Effect.forkDetach);
+        yield* Fiber.join(installing);
         return { status: yield* Ref.get(stateRef) } satisfies GentleAiActionResult;
       }
       const binaryPath = yield* binary;
