@@ -1,3 +1,5 @@
+import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
+import * as NodePath from "@effect/platform-node/NodePath";
 import { describe, it, assert } from "@effect/vitest";
 import {
   ProviderDriverKind,
@@ -10,7 +12,9 @@ import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Path from "effect/Path";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Sink from "effect/Sink";
@@ -237,6 +241,8 @@ const makeTestRunner = (
             }),
             // Fresh per runner so a version cached by one test cannot leak into another.
             Layer.sync(ProviderVersionCache, () => new Map()),
+            NodeFileSystem.layer,
+            NodePath.layer,
           ),
         ),
       ),
@@ -930,6 +936,111 @@ describe("providerMaintenanceRunner", () => {
       ),
     );
   });
+});
+
+describe("installing a missing provider", () => {
+  const installCapabilities = {
+    provider: CURSOR_DRIVER,
+    packageName: "@example/cursor",
+    update: {
+      command: "npm install -g @example/cursor@latest",
+      executable: "npm",
+      args: ["install", "-g", "@example/cursor@latest"],
+      lockKey: "npm-global:install",
+      installs: true as const,
+    },
+  };
+  const missingProvider: ServerProvider = {
+    ...baseCursorProvider,
+    installed: false,
+    version: null,
+  };
+  const registryInstalling = Effect.gen(function* () {
+    const made = yield* makeRegistry(missingProvider);
+    return {
+      ...made,
+      registry: {
+        ...made.registry,
+        getProviderMaintenanceCapabilitiesForInstance: () => Effect.succeed(installCapabilities),
+        // The install put the CLI in place, so the next check finds it.
+        refreshInstance: () =>
+          Ref.updateAndGet(made.providersRef, (providers) =>
+            providers.map((provider) => ({ ...provider, installed: true, version: "1.0.0" })),
+          ),
+      },
+    };
+  });
+  // A folder holding a stand-in npm, for the npm lookup that runs before installing.
+  const pathWithNpm = Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const platform = yield* HostProcessPlatform;
+    const dir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-npm-" });
+    const npm = path.join(dir, platform === "win32" ? "npm.cmd" : "npm");
+    yield* fileSystem.writeFileString(npm, platform === "win32" ? "@echo off\r\n" : "#!/bin/sh\n");
+    if (platform !== "win32") yield* fileSystem.chmod(npm, 0o755);
+    return dir;
+  });
+
+  it.effect("runs npm's global install and reports the provider installed", () => {
+    const calls: Array<ReadonlyArray<string>> = [];
+    return Effect.gen(function* () {
+      const dir = yield* pathWithNpm;
+      const { registry, updateStatesRef } = yield* registryInstalling;
+      const runner = yield* makeTestRunner(registry);
+      const result = yield* runner
+        .updateProvider(CURSOR_DRIVER)
+        .pipe(
+          Effect.provideService(HostProcessEnvironment, { PATH: dir, Path: dir, PATHEXT: ".CMD" }),
+        );
+      assert.deepStrictEqual(calls, [["install", "-g", "@example/cursor@latest"]]);
+      assert.strictEqual(result.providers[0]?.installed, true);
+      assert.deepStrictEqual(
+        (yield* Ref.get(updateStatesRef)).map((state) => state.message),
+        [
+          "Waiting for another provider update to finish.",
+          "Installing provider.",
+          "Provider installed.",
+        ],
+      );
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        Layer.mergeAll(
+          NodeFileSystem.layer,
+          NodePath.layer,
+          latestVersionHttpClient("1.0.0"),
+          mockSpawnerLayer((_command, args) => {
+            // On Windows npm is npm.cmd, run through the shell with escaped arguments.
+            calls.push(args.map((arg) => arg.replace(/[\^"]/g, "")));
+            return { stdout: "added 1 package" };
+          }),
+        ),
+      ),
+    );
+  });
+
+  it.effect("says npm is needed when the environment has none", () =>
+    Effect.gen(function* () {
+      const { registry } = yield* registryInstalling;
+      const runner = yield* makeTestRunner(registry);
+      const failure = yield* Effect.flip(
+        runner
+          .updateProvider(CURSOR_DRIVER)
+          .pipe(Effect.provideService(HostProcessEnvironment, { PATH: "", Path: "" })),
+      );
+      assert.include(failure.reason, "needs npm");
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          NodeFileSystem.layer,
+          NodePath.layer,
+          latestVersionHttpClient("1.0.0"),
+          mockSpawnerLayer(() => ({ stdout: "" })),
+        ),
+      ),
+    ),
+  );
 });
 
 it.effect("refuses incompatible latest versions and unapproved or unpinnable targets", () => {

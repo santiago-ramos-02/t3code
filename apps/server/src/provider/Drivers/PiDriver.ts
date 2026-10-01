@@ -49,7 +49,11 @@ import {
   providerModelsFromSettings,
   spawnAndCollect,
 } from "../providerSnapshot.ts";
-import { makeManualOnlyProviderMaintenanceCapabilities } from "../providerMaintenance.ts";
+import {
+  makeCachedProviderMaintenanceResolution,
+  makePackageManagedProviderMaintenanceResolver,
+  resolveProviderMaintenanceCapabilitiesEffect,
+} from "../providerMaintenance.ts";
 import {
   defaultProviderContinuationIdentity,
   type ProviderDriver,
@@ -108,9 +112,11 @@ const decodeCommandsResponse = Schema.decodeUnknownEffect(
   }),
 );
 
-const MAINTENANCE_CAPABILITIES = makeManualOnlyProviderMaintenanceCapabilities({
+// Pi updates through the package manager that installed it, and installs with npm when missing.
+const UPDATE = makePackageManagedProviderMaintenanceResolver({
   provider: DRIVER_KIND,
-  packageName: "@earendil-works/pi-coding-agent",
+  npmPackageName: "@earendil-works/pi-coding-agent",
+  nativeUpdate: null,
 });
 
 export type PiDriverEnv =
@@ -307,6 +313,16 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
       const hostPlatform = yield* HostProcessPlatform;
       const processEnv = mergeProviderInstanceEnvironment(environment);
       const effectiveConfig = { ...config, enabled } satisfies PiSettings;
+      const resolveMaintenance = yield* makeCachedProviderMaintenanceResolution(
+        resolveProviderMaintenanceCapabilitiesEffect(UPDATE, {
+          binaryPath: effectiveConfig.binaryPath,
+          env: processEnv,
+        }).pipe(
+          Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+          Effect.provideService(FileSystem.FileSystem, fileSystem),
+          Effect.provideService(Path.Path, path),
+        ),
+      );
       // Global model discovery loads user extensions, some of which initialize
       // project-local files. Keep that probe out of the server's source checkout.
       const discoveryCwd = path.join(serverConfig.stateDir, "pi-discovery");
@@ -569,7 +585,7 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
           );
 
       const snapshot = {
-        resolveMaintenance: () => Effect.succeed(MAINTENANCE_CAPABILITIES),
+        resolveMaintenance,
         getSnapshot: Ref.get(snapshotRef),
         refresh: discoverySemaphore.withPermits(1)(checkAndPublishVersion).pipe(Effect.orDie),
         applyUsageLimits: () => Effect.void,

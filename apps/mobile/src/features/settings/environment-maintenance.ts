@@ -44,6 +44,17 @@ export function canUpdateEnvironmentProvider(provider: ServerProvider) {
   );
 }
 
+/** Pi can be installed from the app when it is enabled but missing, as on web and desktop. */
+export function canInstallEnvironmentProvider(provider: ServerProvider) {
+  return (
+    provider.driver === "pi" &&
+    provider.enabled &&
+    !provider.installed &&
+    provider.updateState?.status !== "running" &&
+    provider.updateState?.status !== "queued"
+  );
+}
+
 const Releases = Schema.Array(
   Schema.Struct({
     tag_name: Schema.String,

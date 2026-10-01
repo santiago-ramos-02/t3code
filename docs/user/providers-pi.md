@@ -7,7 +7,10 @@ or provider-managed installation.
 ## Set up Pi
 
 Install Pi on the machine that runs your projects, not on the phone or remote
-browser you use to control T3 Code:
+browser you use to control T3 Code. When Pi is enabled but missing, its card in
+**Settings > Providers** offers **Install**, which installs it with npm on that
+machine; it needs Node.js there. The mobile app offers the same in the
+environment's provider list. Or run it yourself:
 
 ```bash
 npm install -g @earendil-works/pi-coding-agent@latest

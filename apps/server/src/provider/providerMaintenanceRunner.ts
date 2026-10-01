@@ -7,13 +7,19 @@ import {
   type ServerProviderUpdatedPayload,
   type ServerProviderUpdateState,
 } from "@t3tools/contracts";
-import { resolveSpawnCommand } from "@t3tools/shared/shell";
+import {
+  CommandResolutionCache,
+  resolveCommandPath,
+  resolveSpawnCommand,
+} from "@t3tools/shared/shell";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Data from "effect/Data";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
@@ -182,14 +188,17 @@ function commandOutput(result: ProviderMaintenanceCommandResult): string | null 
   return truncateText(output, UPDATE_OUTPUT_MAX_BYTES);
 }
 
-function failureMessage(result: ProviderMaintenanceCommandResult): string {
+function failureMessage(
+  result: ProviderMaintenanceCommandResult,
+  verb: "Install" | "Update",
+): string {
   if (result.timedOut) {
-    return "Update timed out.";
+    return `${verb} timed out.`;
   }
   if (result.exitCode !== null && result.exitCode !== 0) {
-    return `Update command exited with code ${result.exitCode}.`;
+    return `${verb} command exited with code ${result.exitCode}.`;
   }
-  return "Update command failed.";
+  return `${verb} command failed.`;
 }
 
 function isOutdatedProvider(provider: ServerProvider | undefined): boolean {
@@ -222,6 +231,8 @@ export const make = Effect.fn("ProviderMaintenanceRunner.make")(function* () {
   const manifestService = yield* ModelManifest.ModelManifest;
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const httpClient = yield* HttpClient.HttpClient;
+  const fileSystem = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
   const versionCache = yield* ProviderVersionCache;
   const runMaintenanceCommand = (update: ProviderMaintenanceCommandAction) =>
     runProviderMaintenanceCommandWithSpawner({
@@ -329,6 +340,22 @@ export const make = Effect.fn("ProviderMaintenanceRunner.make")(function* () {
         reason: "This provider does not support one-click updates.",
       });
     }
+    // A missing provider is installed with the same pipeline; only the wording differs.
+    const verb = update.installs ? "Install" : "Update";
+    if (
+      update.installs &&
+      (yield* resolveCommandPath("npm").pipe(
+        Effect.provideService(FileSystem.FileSystem, fileSystem),
+        Effect.provideService(Path.Path, path),
+        Effect.orElseSucceed(() => null),
+      )) === null
+    ) {
+      return yield* new ServerProviderUpdateError({
+        provider,
+        reason:
+          "Installing it needs npm on this environment. Install Node.js, which includes npm, then try again.",
+      });
+    }
 
     const setUpdateState = (state: ServerProviderUpdateState | null) =>
       providerRegistry.setProviderMaintenanceActionState({
@@ -360,7 +387,7 @@ export const make = Effect.fn("ProviderMaintenanceRunner.make")(function* () {
                 status: "running",
                 startedAt,
                 finishedAt: null,
-                message: "Updating provider.",
+                message: update.installs ? "Installing provider." : "Updating provider.",
               }),
             );
 
@@ -428,12 +455,14 @@ export const make = Effect.fn("ProviderMaintenanceRunner.make")(function* () {
                   status: "failed",
                   startedAt,
                   finishedAt,
-                  message: failureMessage(result),
+                  message: failureMessage(result, verb),
                   output: commandOutput(result),
                 }),
               );
             }
 
+            // A provider that was missing a moment ago is cached as not found; look again.
+            if (update.installs) (yield* CommandResolutionCache).clear();
             // Homebrew's "latest" moves once the upgrade lands; read it again.
             const verified = yield* providerRegistry.getProviderMaintenanceCapabilitiesForInstance(
               instanceId,
@@ -466,10 +495,14 @@ export const make = Effect.fn("ProviderMaintenanceRunner.make")(function* () {
                 startedAt,
                 finishedAt,
                 message: couldNotVerify
-                  ? "Update command completed, but T3 Code could not verify the provider version."
+                  ? update.installs
+                    ? "Install command completed, but T3 Code could not find the provider. Its folder may not be on this environment's PATH."
+                    : "Update command completed, but T3 Code could not verify the provider version."
                   : stillOutdated
                     ? "Update command completed, but T3 Code still detects an outdated provider version."
-                    : "Provider updated.",
+                    : update.installs
+                      ? "Provider installed."
+                      : "Provider updated.",
                 output: commandOutput(result),
               }),
             );

@@ -780,10 +780,14 @@ export function EnvironmentProviderSettings({
       });
       if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
         const error = squashAtomCommandFailure(result);
+        // A missing provider runs the same pipeline as an install.
+        const installed = serverProviders.find(
+          (provider) => provider.instanceId === candidate.instanceId,
+        )?.installed;
         toastManager.add(
           stackedThreadToast({
             type: "error",
-            title: `Could not update ${PROVIDER_DISPLAY_NAMES[candidate.driver] ?? candidate.driver}`,
+            title: `Could not ${installed === false ? "install" : "update"} ${PROVIDER_DISPLAY_NAMES[candidate.driver] ?? candidate.driver}`,
             description:
               error instanceof Error
                 ? error.message
@@ -801,7 +805,7 @@ export function EnvironmentProviderSettings({
         return next;
       });
     },
-    [environmentId, updateProvider],
+    [environmentId, serverProviders, updateProvider],
   );
 
   interface InstanceRow {
@@ -1073,7 +1077,14 @@ export function EnvironmentProviderSettings({
               }
             />
           ) : mode === "editor" && row.driver === "pi" && piSetupSteps(liveProvider).length > 0 ? (
-            <PiSetupSection steps={piSetupSteps(liveProvider)} />
+            <PiSetupSection
+              steps={piSetupSteps(liveProvider)}
+              provider={liveProvider}
+              installing={isInstanceUpdateRunning}
+              onInstall={() =>
+                void runProviderUpdate({ driver: row.driver, instanceId: row.instanceId })
+              }
+            />
           ) : null
         }
         integration={

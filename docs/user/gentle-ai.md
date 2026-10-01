@@ -7,14 +7,15 @@ Antigravity, or Pi.
 
 ## Set up Gentle AI
 
-Install Gentle AI on the machine that runs your projects and set it up for the
-agents you use, following its own instructions. Pi gets it through the gentle-pi
-package instead; see [Pi](./providers-pi.md#gentle-ai). Remote clients do not
-need their own installation.
+Open **Settings > Gentle AI**. When gentle-ai is missing from the environment, or too
+old for T3 Code to manage, choose **Install**: T3 Code downloads the latest release for
+that computer, checks it, and installs it, with no restart. Then set it up in your
+agents from the same page, under **Your agents > Add agent**. Setting it up in Pi also
+installs the gentle-pi package; see [Pi](./providers-pi.md#gentle-ai). Remote clients,
+including the mobile app, install it on the environment they are connected to; they
+do not need their own copy.
 
-**Settings > Gentle AI** appears once gentle-ai is installed on a connected
-environment, or a provider runs with it. What it offers depends on the gentle-ai
-version.
+What the page offers depends on the gentle-ai version.
 
 With a gentle-ai that has the headless API, the page manages Gentle AI on the
 environment it runs on:
@@ -45,8 +46,9 @@ Setting up and other multi-step tasks open in place of the page; the back arrow
 returns to it.
 
 With an older gentle-ai, the page offers sync, update checks, upgrade, and
-doctor. Set **Binary path** when `gentle-ai` is not on the environment's `PATH`.
-Left empty, T3 Code also finds the copy gentle-pi bundles.
+doctor, plus **Install** for the current release. Set **Binary path** to use a
+particular gentle-ai. Left empty, T3 Code uses `gentle-ai` on the environment's
+`PATH`, then the one it installed, then the copy gentle-pi bundles.
 
 On mobile, **Settings > Gentle AI** shows task progress, updates, sync, your
 agents with their model presets and Claude Code profile, and backups. Add or
