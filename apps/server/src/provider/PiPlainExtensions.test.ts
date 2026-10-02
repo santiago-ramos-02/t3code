@@ -56,4 +56,31 @@ it.layer(NodeServices.layer)("plain Pi extension loading", (it) => {
       }),
     ),
   );
+
+  it.effect("passes settings toggles to Pi instead of loading them as paths", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const root = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-plain-pi-" });
+        const agentHome = path.join(root, "agent");
+        const cwd = path.join(root, "project");
+        const own = path.join(agentHome, "own.ts");
+        yield* fileSystem.makeDirectory(agentHome, { recursive: true });
+        yield* fileSystem.makeDirectory(cwd, { recursive: true });
+        yield* fileSystem.writeFileString(own, "export default () => {};");
+        // "-builtin:codemode" turns a built-in off; it is not a file.
+        yield* fileSystem.writeFileString(
+          path.join(agentHome, "settings.json"),
+          '{"extensions":["-builtin:codemode","+builtin:review","./own.ts"],"skills":["-legacy"]}',
+        );
+        const args = yield* plainPiExtensionArgs({
+          cwd,
+          environment: { PI_CODING_AGENT_DIR: agentHome },
+        });
+        expect(args).toContain(own);
+        expect(args.some((arg) => arg.includes("builtin:") || arg.endsWith("legacy"))).toBe(false);
+      }),
+    ),
+  );
 });

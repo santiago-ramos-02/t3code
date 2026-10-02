@@ -99,6 +99,12 @@ export const piPackages = Effect.fn("piPackages")(function* (input: {
 });
 
 /**
+ * Settings list entries that name a resource. Others toggle one by name, such as
+ * "-builtin:codemode", and are not paths Pi can load.
+ */
+const isResourcePath = (entry: string) => !/^[-+!]/.test(entry) && !entry.startsWith("builtin:");
+
+/**
  * Pi launch arguments that load every installed extension, skill, and prompt template except
  * gentle-pi, for threads that run with Gentle AI disabled. Pi offers no per-package opt-out, so
  * this resolves resources the way Pi's own loader does and passes them explicitly.
@@ -162,18 +168,18 @@ export const plainPiExtensionArgs = Effect.fn("plainPiExtensionArgs")(function* 
     const settingsPath = path.join(root, "settings.json");
     if (yield* fileSystem.exists(settingsPath)) {
       const settings = yield* decodeSettings(yield* fileSystem.readFileString(settingsPath));
-      for (const extension of settings.extensions ?? []) {
+      for (const extension of (settings.extensions ?? []).filter(isResourcePath)) {
         const candidate = extension.startsWith("~")
           ? path.join(NodeOS.homedir(), extension.slice(1))
           : path.resolve(root, extension);
         if (!candidate.includes(`${path.sep}gentle-pi${path.sep}`)) sources.push(candidate);
       }
-      for (const skill of settings.skills ?? []) {
+      for (const skill of (settings.skills ?? []).filter(isResourcePath)) {
         const candidate = path.resolve(root, skill);
         if (!candidate.includes(`${path.sep}gentle-pi${path.sep}`))
           yield* addResource(candidate, skills);
       }
-      for (const prompt of settings.prompts ?? []) {
+      for (const prompt of (settings.prompts ?? []).filter(isResourcePath)) {
         const candidate = path.resolve(root, prompt);
         if (!candidate.includes(`${path.sep}gentle-pi${path.sep}`))
           yield* addResource(candidate, prompts);
