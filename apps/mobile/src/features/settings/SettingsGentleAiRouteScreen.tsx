@@ -88,7 +88,15 @@ function GentleAiEnvironmentSettings(props: {
   const status = useEnvironmentQuery(
     serverEnvironment.gentleAiStatus({ environmentId, input: {} }),
   ).data;
-  if (status === null) return null;
+  if (status === null)
+    return (
+      <SettingsSection title={props.showLabel ? `Gentle AI · ${props.target.label}` : "Gentle AI"}>
+        <View className="flex-row items-center gap-2 p-4">
+          <ActivityIndicator size="small" />
+          <Text className="text-sm text-foreground-muted">Reading Gentle AI…</Text>
+        </View>
+      </SettingsSection>
+    );
   const title = ["Gentle AI", status.version, props.showLabel ? props.target.label : null]
     .filter((part) => part !== null)
     .join(" · ");

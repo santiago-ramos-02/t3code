@@ -10,6 +10,8 @@ import {
   type GentleAiModelAgent,
   type GentleAiModels,
   type GentleAiOddFeatures,
+  type GentleAiReviewMode,
+  type GentleAiReviewStore,
 } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -247,4 +249,69 @@ export function gentlePiProfileSummary(
   }
   const others = [...uses].sort((left, right) => right[1] - left[1]).map(([name]) => name);
   return [lead?.thinking ? `${leadName} ${lead.thinking}` : leadName, ...others].join(" · ");
+}
+
+// ---- Review ----------------------------------------------------------------------------------
+
+/** RDD is on unless the global switch was turned off; "" means it was never chosen. */
+export function gentleAiReviewGlobalEnabled(mode: GentleAiReviewMode): boolean {
+  return mode.status.global !== "off";
+}
+
+/** What a reset would remove now, and how many open reviews would block it. */
+export function gentleAiReviewStoreSummary(store: GentleAiReviewStore) {
+  const removable = store.report.removable.filter((entry) => entry.present);
+  return {
+    removable: removable.length,
+    removableBytes: removable.reduce((total, entry) => total + entry.bytes, 0),
+    inFlight: store.report.in_flight.length,
+  };
+}
+
+const BYTE_UNITS = ["B", "KB", "MB", "GB", "TB"] as const;
+
+export function formatGentleAiBytes(bytes: number): string {
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < BYTE_UNITS.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${unit === 0 ? value : value.toFixed(1)} ${BYTE_UNITS[unit]}`;
+}
+
+/**
+ * Review for one project: it follows the switch for every project unless the project turned it
+ * off here. gentle-ai only keeps an "off" per project, so it cannot be on here while off for
+ * every project.
+ */
+export function gentleAiProjectReview(mode: GentleAiReviewMode) {
+  return {
+    checked: mode.status.effective === "on",
+    overridden: mode.status.clone_local === "off",
+    canTurnOn: mode.status.global !== "off",
+  };
+}
+
+/**
+ * One line on a project's review history: what clearing it would remove, reviews still open,
+ * and what the last clear removed when that is known.
+ */
+export function gentleAiReviewHistoryLabel(
+  counts: ReturnType<typeof gentleAiReviewStoreSummary>,
+  lastRemovedFiles: number | null = null,
+): string {
+  const count = (value: number, one: string, many: string) =>
+    `${value} ${value === 1 ? one : many}`;
+  return [
+    counts.removable === 0 && counts.inFlight === 0
+      ? "Nothing to clear"
+      : `${count(counts.removable, "entry", "entries")} (${formatGentleAiBytes(counts.removableBytes)})`,
+    counts.inFlight > 0 ? `${count(counts.inFlight, "review", "reviews")} in progress` : null,
+    lastRemovedFiles === null
+      ? null
+      : `Last clear removed ${count(lastRemovedFiles, "file", "files")}`,
+  ]
+    .filter((part) => part !== null)
+    .join(" · ");
 }

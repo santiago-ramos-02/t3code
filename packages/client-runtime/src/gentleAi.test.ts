@@ -10,6 +10,11 @@ import {
   gentleAiModelAgent,
   gentleAiModelsAllDefault,
   gentleAiSyncNeeded,
+  formatGentleAiBytes,
+  gentleAiProjectReview,
+  gentleAiReviewGlobalEnabled,
+  gentleAiReviewHistoryLabel,
+  gentleAiReviewStoreSummary,
   gentleOddContinuePrompt,
   gentleOddFeatureSummary,
   gentleOddMenuFeatures,
@@ -203,5 +208,82 @@ describe("gentlePiProfileSummary", () => {
       ),
     ).toBe("Opus 5.5 medium · Sonnet 5 · gpt-6-luna");
     expect(gentlePiProfileSummary({}, () => undefined)).toBe("Pi's default");
+  });
+});
+
+const reviewMode = (global: string, clone_local: string) => ({
+  scope: "global",
+  status: { global, clone_local, effective: "on", source: "default" },
+});
+
+describe("gentleAiProjectReview", () => {
+  const mode = (global: string, cloneLocal: string, effective: string) => ({
+    scope: "both",
+    status: { global, clone_local: cloneLocal, effective, source: "global" },
+  });
+
+  it("follows the setting for every project until this project turns it off", () => {
+    expect(gentleAiProjectReview(mode("on", "", "on"))).toEqual({
+      checked: true,
+      overridden: false,
+      canTurnOn: true,
+    });
+    expect(gentleAiProjectReview(mode("on", "off", "off"))).toEqual({
+      checked: false,
+      overridden: true,
+      canTurnOn: true,
+    });
+  });
+
+  it("cannot turn review on for one project while it is off everywhere", () => {
+    expect(gentleAiProjectReview(mode("off", "", "off"))).toEqual({
+      checked: false,
+      overridden: false,
+      canTurnOn: false,
+    });
+  });
+});
+
+describe("review mode", () => {
+  it("treats an unchosen global switch as on", () => {
+    expect(gentleAiReviewGlobalEnabled(reviewMode("", ""))).toBe(true);
+    expect(gentleAiReviewGlobalEnabled(reviewMode("off", ""))).toBe(false);
+  });
+});
+
+describe("gentleAiReviewStoreSummary", () => {
+  const entry = (present: boolean, bytes: number) => ({
+    name: "n",
+    path: "p",
+    reason: "",
+    present,
+    files: 1,
+    bytes,
+    removed: false,
+  });
+
+  it("counts only removable entries still on disk", () => {
+    expect(
+      gentleAiReviewStoreSummary({
+        report: {
+          operation: "review/store-reset",
+          repository: "/a",
+          store_root: "/a/.git/gentle",
+          removable: [entry(true, 1024), entry(false, 99), entry(true, 1024)],
+          preserved: [entry(true, 5)],
+          unrecognized: [],
+          in_flight: [{}],
+          settled_lineages: 0,
+          removed_files: 0,
+          removed_bytes: 0,
+          complete: false,
+        },
+      }),
+    ).toEqual({ removable: 2, removableBytes: 2048, inFlight: 1 });
+  });
+
+  it("formats sizes", () => {
+    expect(formatGentleAiBytes(512)).toBe("512 B");
+    expect(formatGentleAiBytes(2048)).toBe("2.0 KB");
   });
 });

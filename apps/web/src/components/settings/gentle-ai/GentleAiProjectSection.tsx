@@ -8,11 +8,13 @@ import { Switch } from "../../ui/switch";
 import { SettingResetButton, SettingsRow, SettingsSection } from "../settingsLayout";
 import { GentleAiConfirm } from "./GentleAiConfirm";
 import {
-  formatGentleAiBytes,
-  gentleAiNames,
   gentleAiProjectReview,
   gentleAiReviewGlobalEnabled,
+  gentleAiReviewHistoryLabel,
   gentleAiReviewStoreSummary,
+} from "@t3tools/client-runtime/gentle-ai";
+import {
+  gentleAiNames,
   gentleAiToolInstalled,
   gentleAiToolSummary,
 } from "./gentleAiSections.logic";
@@ -20,10 +22,6 @@ import type { GentleAiSectionProps } from "./GentleAiSettingsPage";
 import { gentleAiJobResult, useGentleAiJob, useGentleAiQuery } from "./useGentleAi";
 
 type Project = { readonly title: string; readonly cwd: string };
-
-function count(value: number, one: string, many: string): string {
-  return `${value} ${value === 1 ? one : many}`;
-}
 
 const controlSkeleton = <Skeleton className="h-5 w-9" />;
 
@@ -119,17 +117,7 @@ function ProjectReviewRows({
     ? store.error
     : counts === null
       ? null
-      : [
-          counts.removable === 0 && counts.inFlight === 0
-            ? "Nothing to clear"
-            : `${count(counts.removable, "entry", "entries")} (${formatGentleAiBytes(counts.removableBytes)})`,
-          counts.inFlight > 0 ? `${count(counts.inFlight, "review", "reviews")} in progress` : null,
-          lastReset === null
-            ? null
-            : `Last clear removed ${count(lastReset.report.removed_files, "file", "files")}`,
-        ]
-          .filter((part) => part !== null)
-          .join(" · ");
+      : gentleAiReviewHistoryLabel(counts, lastReset?.report.removed_files ?? null);
 
   return (
     <>

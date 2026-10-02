@@ -1,7 +1,5 @@
 import type {
   GentleAiApiStatus,
-  GentleAiReviewMode,
-  GentleAiReviewStore,
   GentleAiTools,
   GentleAiUninstallMode,
   GentleAiUninstallParams,
@@ -44,19 +42,6 @@ export function gentleAiScopeProject(
   return { title: scope.group.displayName, cwd: member.workspaceRoot };
 }
 
-/**
- * Review for one project: it follows the switch for every project unless the project turned it
- * off here. gentle-ai only keeps an "off" per project, so it cannot be on here while off for
- * every project.
- */
-export function gentleAiProjectReview(mode: GentleAiReviewMode) {
-  return {
-    checked: mode.status.effective === "on",
-    overridden: mode.status.clone_local === "off",
-    canTurnOn: mode.status.global !== "off",
-  };
-}
-
 /** Agent and component names by id, for showing what gentle-ai reports by id. */
 export function gentleAiNames(status: GentleAiApiStatus): ReadonlyMap<string, string> {
   return new Map([
@@ -89,35 +74,6 @@ export function gentleAiToolSummary(
 /** Whether installing would change nothing the tool reports: CLI present and every detected agent wired. */
 export function gentleAiToolInstalled(tool: GentleAiTools["tools"][number]): boolean {
   return tool.cliAvailable && tool.agents.every((agent) => !agent.detected || agent.configured);
-}
-
-// ---- Review ----------------------------------------------------------------------------------
-
-/** RDD is on unless the global switch was turned off; "" means it was never chosen. */
-export function gentleAiReviewGlobalEnabled(mode: GentleAiReviewMode): boolean {
-  return mode.status.global !== "off";
-}
-
-/** What a reset would remove now, and how many open reviews would block it. */
-export function gentleAiReviewStoreSummary(store: GentleAiReviewStore) {
-  const removable = store.report.removable.filter((entry) => entry.present);
-  return {
-    removable: removable.length,
-    removableBytes: removable.reduce((total, entry) => total + entry.bytes, 0),
-    inFlight: store.report.in_flight.length,
-  };
-}
-
-const BYTE_UNITS = ["B", "KB", "MB", "GB", "TB"] as const;
-
-export function formatGentleAiBytes(bytes: number): string {
-  let value = bytes;
-  let unit = 0;
-  while (value >= 1024 && unit < BYTE_UNITS.length - 1) {
-    value /= 1024;
-    unit += 1;
-  }
-  return `${unit === 0 ? value : value.toFixed(1)} ${BYTE_UNITS[unit]}`;
 }
 
 // ---- Uninstall -------------------------------------------------------------------------------
