@@ -13,6 +13,7 @@ import {
 import * as Cache from "effect/Cache";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
@@ -479,7 +480,7 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
       );
     });
 
-  const read = (cwd?: string) =>
+  const readFresh = (cwd?: string) =>
     Effect.gen(function* () {
       const found = yield* gentlePackage(cwd);
       const version = found?.version ?? null;
@@ -548,7 +549,7 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
       } satisfies PiGentleState;
     }).pipe(Effect.mapError(toGentleError));
 
-  const readComposer = (cwd: string) =>
+  const readComposerFresh = (cwd: string) =>
     Effect.gen(function* () {
       const found = yield* gentlePackage(cwd);
       if (!isSupported(found?.version)) return { available: false } satisfies PiGentleComposerState;
@@ -606,6 +607,29 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
         ...profiles,
       } satisfies PiGentleComposerState;
     }).pipe(Effect.mapError(toGentleError));
+
+  // Each read runs gentle-pi's API (Node) and git, and settings pages and composers read on
+  // every open. Repeat reads reuse the answer briefly; T3's own changes clear it at once, and
+  // changes made in Pi itself show up within the time to live. Without a usable gentle-pi a
+  // read runs nothing, so that answer is never kept and an install shows up straight away.
+  const keepAvailable = (exit: Exit.Exit<{ readonly available: boolean }, unknown>) =>
+    Exit.isSuccess(exit) && exit.value.available ? Duration.seconds(30) : Duration.zero;
+  const readCache = yield* Cache.makeWith(
+    (cwd: string) => readFresh(cwd === "" ? undefined : cwd),
+    { capacity: 64, timeToLive: keepAvailable },
+  );
+  const composerCache = yield* Cache.makeWith(readComposerFresh, {
+    capacity: 64,
+    timeToLive: keepAvailable,
+  });
+  const read = (cwd?: string) => Cache.get(readCache, cwd ?? "");
+  const readComposer = (cwd: string) => Cache.get(composerCache, cwd);
+  const forgetReads = Effect.all([
+    Cache.invalidateAll(readCache),
+    Cache.invalidateAll(composerCache),
+  ]).pipe(Effect.asVoid);
+  /** What a change reads back: gentle-pi's state from after it, never a kept answer. */
+  const readAfterChange = (cwd?: string) => forgetReads.pipe(Effect.andThen(read(cwd)));
 
   /**
    * Makes a profile's orchestrator entry Pi's default model, as Gentle AI's own apply does. A
@@ -695,7 +719,7 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
           failure: "Gentle AI update failed.",
         });
         yield* Cache.invalidateAll(latestCache);
-        return yield* read(command.cwd);
+        return yield* readAfterChange(command.cwd);
       }
       const found = yield* gentlePackage(command.cwd);
       if (!isSupported(found?.version))
@@ -706,7 +730,7 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
       if (script !== null) {
         const [method, params] = apiCall(command);
         yield* callApi(script, method, params);
-        return yield* read(command.cwd);
+        return yield* readAfterChange(command.cwd);
       }
       const store = yield* loadProfiles;
       if (command.type === "create") {
@@ -785,8 +809,12 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
           yield* writeAtomic(personaPath, { mode: command.mode });
         }
       }
-      return yield* read(command.cwd);
-    }).pipe(Effect.mapError(toGentleError));
+      return yield* readAfterChange(command.cwd);
+    }).pipe(
+      // A change that failed partway may still have written something.
+      Effect.onError(() => forgetReads),
+      Effect.mapError(toGentleError),
+    );
 
   return { read, readComposer, action };
 });

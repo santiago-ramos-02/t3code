@@ -485,8 +485,27 @@ process.stdout.write(JSON.stringify({ schema: "gentle-pi.api/v1", ...line }) + "
           profiles: [{ name: "deep", orchestrator: { model: "anthropic/opus" } }],
           effectiveProfile: { name: "deep", pinned: true },
         });
+        const stateReads = recorded.pipe(
+          Effect.map(
+            (all) =>
+              all.filter(
+                (call) =>
+                  typeof call === "object" &&
+                  call !== null &&
+                  "method" in call &&
+                  call.method === "state",
+              ).length,
+          ),
+        );
+        // Settings pages and composers read this often; repeat reads reuse the last answer.
+        const settled = yield* stateReads;
+        yield* gentle.read(cwd);
+        yield* gentle.readComposer(cwd);
+        expect(yield* stateReads).toBe(settled);
 
         yield* gentle.action({ type: "apply", name: "deep", cwd });
+        // A change reads gentle-pi again rather than answering from before it.
+        expect(yield* stateReads).toBe(settled + 1);
         yield* gentle.action({ type: "activate", name: "deep", cwd });
         yield* gentle.action({ type: "setPersona", cwd, mode: null });
         const failure = yield* Effect.flip(gentle.action({ type: "pin", name: "missing", cwd }));
