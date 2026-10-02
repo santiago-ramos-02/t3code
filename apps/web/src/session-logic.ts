@@ -350,6 +350,34 @@ export function deriveActivePlanState(
   return addPlanStepDurations(plan, matchingActivities.slice(latestClearIndex + 1));
 }
 
+/**
+ * The composer task list for the user's latest request. It follows the request
+ * rather than one provider turn: a provider can continue in turns of its own
+ * (Pi resumes when a background subagent reports) and keep working in the
+ * background after a turn ends.
+ */
+export function deriveComposerTasks(
+  plan: ActivePlanState | null,
+  input: { readonly latestUserMessageAt: string | null; readonly workContinues: boolean },
+) {
+  if (plan === null || !input.workContinues) return null;
+  if (input.latestUserMessageAt !== null && plan.createdAt < input.latestUserMessageAt) {
+    return null;
+  }
+  const currentStep =
+    plan.steps.find((step) => step.status === "inProgress") ??
+    plan.steps.find((step) => step.status === "pending");
+  if (!currentStep) return null;
+  return {
+    progress: {
+      step: currentStep.step,
+      completedSteps: plan.steps.filter((step) => step.status === "completed").length,
+      totalSteps: plan.steps.length,
+    },
+    steps: plan.steps,
+  };
+}
+
 export function findLatestProposedPlan(
   proposedPlans: ReadonlyArray<ProposedPlan>,
   latestTurnId: TurnId | string | null | undefined,

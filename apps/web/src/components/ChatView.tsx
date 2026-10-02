@@ -133,6 +133,7 @@ import {
   deriveTimelineEntriesWithState,
   deriveActiveWorkStartedAt,
   deriveActivePlanState,
+  deriveComposerTasks,
   findLatestProposedPlan,
   deriveWorkLogEntries,
   hasActionableProposedPlan,
@@ -5893,24 +5894,17 @@ export default function ChatView(props: ChatViewProps) {
         : null,
     [activeThreadBranch, activeWorktreePath, envMode, gitStatusQuery.data?.refName, isServerThread],
   );
-  const activeComposerTasksProgress = useMemo(() => {
-    if (!activeLatestTurn || latestTurnSettled || activePlan?.turnId !== activeLatestTurn.turnId) {
-      return null;
-    }
-    const currentStep =
-      activePlan.steps.find((step) => step.status === "inProgress") ??
-      activePlan.steps.find((step) => step.status === "pending");
-    if (!currentStep) return null;
-    return {
-      step: currentStep.step,
-      completedSteps: activePlan.steps.filter((step) => step.status === "completed").length,
-      totalSteps: activePlan.steps.length,
-    };
-  }, [activeLatestTurn, activePlan, latestTurnSettled]);
-  const activeComposerTaskSteps =
-    activeComposerTasksProgress && activePlan && activePlan.turnId === activeLatestTurn?.turnId
-      ? activePlan.steps
-      : null;
+  const hasBackgroundLiveness = activeThreadShell?.backgroundLiveness != null;
+  const activeComposerTasks = useMemo(
+    () =>
+      deriveComposerTasks(activePlan, {
+        latestUserMessageAt,
+        workContinues: !latestTurnSettled || hasBackgroundLiveness,
+      }),
+    [activePlan, hasBackgroundLiveness, latestTurnSettled, latestUserMessageAt],
+  );
+  const activeComposerTasksProgress = activeComposerTasks?.progress ?? null;
+  const activeComposerTaskSteps = activeComposerTasks?.steps ?? null;
 
   const publishScrollToEndClearance = useCallback(
     (overlayHeight: number) => {

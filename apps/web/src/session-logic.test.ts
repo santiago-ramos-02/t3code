@@ -13,6 +13,7 @@ import {
   createMessageAttachmentPreviewProjector,
   deriveActiveWorkStartedAt,
   deriveActivePlanState,
+  deriveComposerTasks,
   deriveTimelineEntries,
   deriveTimelineEntriesWithState,
   deriveWorkLogEntries,
@@ -329,6 +330,47 @@ describe("deriveActivePlanState", () => {
       }),
     ];
     expect(deriveActivePlanState(activities, TurnId.make("turn-1"))).toBeNull();
+  });
+});
+
+describe("deriveComposerTasks", () => {
+  const plan = {
+    createdAt: "2026-01-01T00:00:05.000Z",
+    turnId: TurnId.make("turn-2"),
+    steps: [
+      { step: "Export cells", status: "completed" as const },
+      { step: "Stream tiles", status: "inProgress" as const },
+      { step: "Redeploy", status: "pending" as const },
+    ],
+  };
+
+  it("keeps the request's tasks across follow-up turns and background work", () => {
+    // Pi ends its turn while a subagent works, then resumes in a new turn when it
+    // reports, so the plan may come from an earlier turn of the same request.
+    expect(
+      deriveComposerTasks(plan, {
+        latestUserMessageAt: "2026-01-01T00:00:01.000Z",
+        workContinues: true,
+      }),
+    ).toEqual({
+      progress: { step: "Stream tiles", completedSteps: 1, totalSteps: 3 },
+      steps: plan.steps,
+    });
+  });
+
+  it("hides tasks once work stops, for an earlier request, or when nothing is left", () => {
+    const input = { latestUserMessageAt: "2026-01-01T00:00:01.000Z", workContinues: true };
+    expect(deriveComposerTasks(plan, { ...input, workContinues: false })).toBeNull();
+    expect(
+      deriveComposerTasks(plan, { ...input, latestUserMessageAt: "2026-01-01T00:00:09.000Z" }),
+    ).toBeNull();
+    expect(
+      deriveComposerTasks(
+        { ...plan, steps: plan.steps.map((step) => ({ ...step, status: "completed" as const })) },
+        input,
+      ),
+    ).toBeNull();
+    expect(deriveComposerTasks(null, input)).toBeNull();
   });
 });
 
