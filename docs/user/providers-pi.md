@@ -59,14 +59,15 @@ that only drive Pi's terminal interface, such as `/gentle:profiles`, are not
 offered; T3 Code's own profile and model routing settings replace them.
 
 Switch gentle-pi's profile from Pi's row under **Your agents** in **Settings >
-Gentle AI**. **Open** on that row shows the global persona, every profile as a
-table of roles with the model and effort each runs, and project overrides.
-With an older gentle-ai, these settings are on the page itself. The active global profile applies unless the repository declares one
-or the local clone has a pin. The **Project overrides** section shows which
-source applies and lets you pin a profile or override the persona. As in Pi,
-activating a profile also makes its `orchestrator` entry Pi's default model.
-Changes to routing and persona take effect when a Pi session starts or reloads.
-On mobile, project profile and persona controls are in **Project overview**.
+Gentle AI**. **Open** on that row shows the global persona and every profile as
+a table of roles with the model and effort each runs. The active global profile
+applies unless the repository declares one or the local checkout has a pin. To
+pin a profile or override the persona for one project, choose the project at
+the top of **Settings > Gentle AI**; its section shows which source applies. As
+in Pi, activating a profile also makes its `orchestrator` entry Pi's default
+model. Changes to routing and persona take effect when a Pi session starts or
+reloads. On mobile, project profile and persona controls are in **Project
+overview**.
 
 To switch profiles from a Pi thread, open the Gentle AI dropdown and choose one
 under **Profile**. This applies it the way Pi's `/gentle:profiles` does: it

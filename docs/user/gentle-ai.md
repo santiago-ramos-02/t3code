@@ -27,18 +27,33 @@ environment it runs on:
   or model preset it runs and a switch for it. **Add agent** sets Gentle AI up
   in another agent found on the environment, with the setup your other agents
   use. **Open** shows one agent's page: its models or profiles, its plugins,
-  gentle-pi's persona and project overrides for Pi, and removing Gentle AI
-  from that agent alone. Pi's **Claude Bridge** plugin runs Claude models in Pi
+  gentle-pi's persona for Pi, and removing Gentle AI from that agent alone. Pi's **Claude Bridge** plugin runs Claude models in Pi
   on your Claude Pro or Max subscription through Claude Code, so sign in to
   Claude Code first; Pi must not have `ANTHROPIC_BASE_URL` or an Anthropic key
   set, or its requests go there instead.
 - **Review** turns on an independent review of agents' code changes before
-  delivery, and, for the project picked in its header, turns it off there or
-  clears its review history.
+  delivery, in every project.
 - **More** holds what you set once: the setup every agent shares (persona,
   preset, and components), custom agents written from your description,
-  project tools such as CodeGraph, backups of the files Gentle AI changed, a
-  health check, re-syncing, and removing Gentle AI from some or all agents.
+  backups of the files Gentle AI changed, a health check, re-syncing, and
+  removing Gentle AI from some or all agents.
+
+### Settings for one project
+
+Choose a project at the top of the page, as on other settings pages. A section
+named after the project then holds what Gentle AI keeps for it on that
+environment:
+
+- **Review before delivery** follows the setting for every project until you
+  turn it off here. The reset button returns it to the shared setting. A
+  project cannot turn review on while it is off for every project.
+- **Review history** shows what clearing it would remove, and clears it.
+- **Pi profile** pins a gentle-pi profile for this checkout, and **Pi persona**
+  overrides the persona for the project, when Pi has gentle-pi.
+- Community tools such as CodeGraph install into the project's agents.
+
+**Settings > Projects** links to this section from each project. Choosing **All
+projects** at the top returns to the settings for every project.
 
 Long tasks run on the environment and show their progress at the top of the
 page, so you can leave and come back, or follow them from another device.
@@ -51,7 +66,9 @@ particular gentle-ai. Left empty, T3 Code uses `gentle-ai` on the environment's
 `PATH`, then the one it installed, then the copy gentle-pi bundles.
 
 On mobile, **Settings > Gentle AI** shows task progress, updates, sync, your
-agents with their model presets and Claude Code profile, and backups. Add or
+agents with their model presets and Claude Code profile, and backups. A
+project's **Project overview** has its review, review history, and Pi profile
+and persona. Add or
 remove agents, edit profiles and models, and create agents from web or desktop.
 
 ## Other models in Claude Code
@@ -101,11 +118,15 @@ document under the project's `odd/tasks/` folder: the objective, scope, tasks
 with acceptance criteria, and progress.
 
 Open the Gentle AI dropdown in the composer and choose **Feature documents** to
-see the project's features with their task progress and next step. Choose one
-to continue it in a new thread, where Gentle AI resumes from the document.
+see the project's unfinished features with their task progress. The ones the
+current thread mentions or edits come first, under **In this thread**. Choose
+one to continue it in a new thread, which references the document the way **@**
+does, and Gentle AI resumes from it.
 **New spec** opens a thread that asks Gentle AI to write only the feature
 document for a feature you describe, without changing code. This lets someone
 who plans work, such as a product manager, write specs that others then build.
 
 The list appears with a gentle-ai that reports feature documents. ODD replaced the
-earlier spec-driven development (SDD) workflow and needs no setup.
+earlier spec-driven development (SDD) workflow and needs no setup: there is no
+artifact store or review budget to choose. Gentle AI keeps each document in the
+project and, with Engram set up, a copy in Engram.
