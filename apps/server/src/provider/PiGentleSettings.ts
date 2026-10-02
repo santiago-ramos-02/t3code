@@ -622,7 +622,11 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
     capacity: 64,
     timeToLive: keepAvailable,
   });
-  const read = (cwd?: string) => Cache.get(readCache, cwd ?? "");
+  /** gentle-pi's state for a folder; `refresh` skips a kept answer, as after a Gentle AI job. */
+  const read = (cwd?: string, options?: { readonly refresh?: boolean }) =>
+    (options?.refresh === true ? Cache.invalidate(readCache, cwd ?? "") : Effect.void).pipe(
+      Effect.andThen(Cache.get(readCache, cwd ?? "")),
+    );
   const readComposer = (cwd: string) => Cache.get(composerCache, cwd);
   const forgetReads = Effect.all([
     Cache.invalidateAll(readCache),

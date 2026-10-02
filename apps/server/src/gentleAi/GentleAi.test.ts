@@ -260,11 +260,17 @@ else line({ type: "error", error: { code: "unsupported", message: "unknown metho
 
         const updates: Array<GentleAiJob | null> = [];
         const logged = yield* Deferred.make<void>();
+        // What a client reads the moment it hears the job finished, as settings pages do.
+        let readOnFinish: number | null = null;
         const watching = yield* service.streamJob.pipe(
           Stream.tap((job) =>
             Effect.gen(function* () {
               updates.push(job);
               if (job?.log.length === 1) yield* Deferred.succeed(logged, undefined);
+              if (job?.phase === "succeeded") {
+                yield* service.query("backups.list", {});
+                readOnFinish = yield* runs("backups.list");
+              }
             }),
           ),
           Stream.takeUntil((job) => job !== null && job.phase !== "running"),
@@ -292,10 +298,9 @@ else line({ type: "error", error: { code: "unsupported", message: "unknown metho
           log: ["writing AGENTS.md"],
           result: { files: ["AGENTS.md"] },
         });
-        expect(yield* runs("backups.list")).toBe(1);
-        // A finished job can change any answer, so the next read runs gentle-ai again.
-        yield* service.query("backups.list", {});
-        expect(yield* runs("backups.list")).toBe(2);
+        // A finished job can change any answer, so even a read made the moment it finishes runs
+        // gentle-ai again instead of answering from before the job.
+        expect(readOnFinish).toBe(2);
 
         // A failed job carries gentle-ai's own message, and the next one can start.
         const failures: Array<GentleAiJob | null> = [];

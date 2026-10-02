@@ -76,6 +76,7 @@ export interface ProviderInstance {
   readonly piGentle?: {
     readonly read: (
       cwd?: string,
+      options?: { readonly refresh?: boolean },
     ) => Effect.Effect<PiGentleState, import("./PiGentleSettings.ts").PiGentleSettingsError>;
     readonly readComposer: (
       cwd: string,

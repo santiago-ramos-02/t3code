@@ -77,6 +77,8 @@ export type PiGentleState = typeof PiGentleState.Type;
 export const PiGentleReadInput = Schema.Struct({
   instanceId: ProviderInstanceId,
   cwd: Schema.optionalKey(TrimmedNonEmptyString),
+  // Read gentle-pi again instead of a recently kept answer.
+  refresh: Schema.optionalKey(Schema.Boolean),
 });
 export const PiGentleActionInput = Schema.Struct({
   instanceId: ProviderInstanceId,

@@ -2795,7 +2795,9 @@ const makeWsRpcLayer = (
         [WS_METHODS.providerPiGentleRead]: (input) =>
           observeRpcEffect(
             WS_METHODS.providerPiGentleRead,
-            runPiGentle(input.instanceId, "pi-gentle-read", (gentle) => gentle.read(input.cwd)),
+            runPiGentle(input.instanceId, "pi-gentle-read", (gentle) =>
+              gentle.read(input.cwd, { refresh: input.refresh === true }),
+            ),
             { "rpc.aggregate": "provider" },
           ),
         [WS_METHODS.providerPiGentleComposerRead]: (input) =>

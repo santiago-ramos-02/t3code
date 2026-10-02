@@ -83,6 +83,15 @@ export function GentleAiSettingsPanel({
   const [report, setReport] = useState<{ title: string; output: string } | null>(null);
   // Bumped after gentle-ai changes agent assets, so the adapter sections re-read theirs.
   const [refreshKey, setRefreshKey] = useState(0);
+  // A finished Gentle AI job (a sync, an install, a plugin) can change what gentle-pi reports.
+  const job = useEnvironmentQuery(serverEnvironment.gentleAiJob({ environmentId, input: {} })).data;
+  const finishedJob = job !== null && job.phase !== "running" ? job.id : null;
+  // Only jobs that finish while the page is open; one from before is already in what it read.
+  const [seenJob, setSeenJob] = useState(finishedJob);
+  if (finishedJob !== seenJob) {
+    setSeenJob(finishedJob);
+    if (finishedJob !== null) setRefreshKey((value) => value + 1);
+  }
 
   const act = (action: GentleAiAction, reportTitle?: string) => {
     if (pending) return;

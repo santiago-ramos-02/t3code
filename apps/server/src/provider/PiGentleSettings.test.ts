@@ -502,10 +502,13 @@ process.stdout.write(JSON.stringify({ schema: "gentle-pi.api/v1", ...line }) + "
         yield* gentle.read(cwd);
         yield* gentle.readComposer(cwd);
         expect(yield* stateReads).toBe(settled);
+        // A refresh asked for (after a Gentle AI job, or Retry) reads gentle-pi again.
+        yield* gentle.read(cwd, { refresh: true });
+        expect(yield* stateReads).toBe(settled + 1);
 
         yield* gentle.action({ type: "apply", name: "deep", cwd });
         // A change reads gentle-pi again rather than answering from before it.
-        expect(yield* stateReads).toBe(settled + 1);
+        expect(yield* stateReads).toBe(settled + 2);
         yield* gentle.action({ type: "activate", name: "deep", cwd });
         yield* gentle.action({ type: "setPersona", cwd, mode: null });
         const failure = yield* Effect.flip(gentle.action({ type: "pin", name: "missing", cwd }));

@@ -57,10 +57,11 @@ export function gentleAiToolSummary(
   tool: GentleAiTools["tools"][number],
   names: ReadonlyMap<string, string>,
 ): string {
-  const name = (id: string) => names.get(id) ?? id;
+  const name = (agent: GentleAiTools["tools"][number]["agents"][number]) =>
+    agent.name ?? names.get(agent.agent) ?? agent.agent;
   const detected = tool.agents.filter((agent) => agent.detected);
-  const configured = detected.filter((agent) => agent.configured).map((agent) => name(agent.agent));
-  const missing = detected.filter((agent) => !agent.configured).map((agent) => name(agent.agent));
+  const configured = detected.filter((agent) => agent.configured).map(name);
+  const missing = detected.filter((agent) => !agent.configured).map(name);
   return [
     tool.cliAvailable ? "CLI installed" : "CLI not installed",
     configured.length > 0 ? `Configured for ${configured.join(", ")}` : null,
@@ -71,9 +72,15 @@ export function gentleAiToolSummary(
     .join(" · ");
 }
 
-/** Whether installing would change nothing the tool reports: CLI present and every detected agent wired. */
+/**
+ * Whether a tool is installed, as gentle-ai decides it. Older gentle-ai does not say, so then it
+ * is installed when its CLI is present and every detected agent is wired.
+ */
 export function gentleAiToolInstalled(tool: GentleAiTools["tools"][number]): boolean {
-  return tool.cliAvailable && tool.agents.every((agent) => !agent.detected || agent.configured);
+  return (
+    tool.installed ??
+    (tool.cliAvailable && tool.agents.every((agent) => !agent.detected || agent.configured))
+  );
 }
 
 // ---- Uninstall -------------------------------------------------------------------------------

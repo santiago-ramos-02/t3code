@@ -623,6 +623,9 @@ export const make = Effect.gen(function* () {
           Effect.gen(function* () {
             const finishedAt = DateTime.formatIso(yield* DateTime.now);
             const failure = Exit.findErrorOption(exit);
+            // Clients re-read as soon as they hear a job finished, so answers from before it go
+            // first. The refresh below clears them again along with status.
+            yield* Cache.invalidateAll(queryCache);
             yield* updateJob((job) =>
               Exit.isSuccess(exit)
                 ? { ...job, phase: "succeeded", finishedAt, result: exit.value }

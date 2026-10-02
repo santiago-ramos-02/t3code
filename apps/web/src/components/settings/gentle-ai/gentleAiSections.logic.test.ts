@@ -61,11 +61,26 @@ describe("community tools", () => {
     );
   });
 
-  it("counts a tool installed only when every detected agent is wired", () => {
+  it("takes gentle-ai's word for whether a tool is installed", () => {
+    // Pi's wiring cannot be verified, so a tool can be installed with an agent unconfirmed.
+    expect(gentleAiToolInstalled({ ...tool, installed: true })).toBe(true);
+    expect(gentleAiToolInstalled({ ...tool, cliAvailable: false, installed: false })).toBe(false);
+  });
+
+  it("works it out from the agents when gentle-ai does not say", () => {
     expect(gentleAiToolInstalled(tool)).toBe(false);
     expect(
       gentleAiToolInstalled({ ...tool, agents: tool.agents.filter((a) => a.agent !== "codex") }),
     ).toBe(true);
+  });
+
+  it("names agents the way gentle-ai does", () => {
+    expect(
+      gentleAiToolSummary(
+        { ...tool, agents: [{ agent: "codex", name: "Codex", detected: true, configured: false }] },
+        new Map(),
+      ),
+    ).toBe("CLI installed · Not configured for Codex");
   });
 });
 

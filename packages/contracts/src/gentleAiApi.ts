@@ -343,12 +343,17 @@ export const GentleAiTools = Schema.Struct({
       agents: Schema.Array(
         Schema.Struct({
           agent: Id,
+          name: Opt(Schema.String),
+          // gentle-ai's verdict: configured, missing, or unavailable.
+          status: Opt(Schema.String),
           detected: Schema.Boolean,
           configured: Schema.Boolean,
           path: Opt(Schema.String),
           reason: Opt(Schema.String),
         }),
       ),
+      // gentle-ai's own answer; an agent whose wiring it cannot verify (Pi) does not unset it.
+      installed: Opt(Schema.Boolean),
     }),
   ),
 });

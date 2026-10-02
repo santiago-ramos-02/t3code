@@ -127,11 +127,13 @@ function usePiGentle({
 
   // A refresh from the page, or a retry, reads again for the same folder.
   const requestKey = `${stateKey}:${refreshKey}:${retry}`;
+  // A re-read (after a Gentle AI job, or Retry) skips the server's kept answer.
+  const reread = refreshKey > 0 || retry > 0;
   useEffect(() => {
     let liveRequest: string | null = requestKey;
     void read({
       environmentId,
-      input: { instanceId, ...(cwd ? { cwd } : {}) },
+      input: { instanceId, ...(cwd ? { cwd } : {}), ...(reread ? { refresh: true } : {}) },
     }).then((result) => {
       if (liveRequest !== requestKey) return;
       if (result._tag === "Success") {
@@ -148,7 +150,7 @@ function usePiGentle({
     return () => {
       liveRequest = null;
     };
-  }, [cwd, environmentId, instanceId, read, requestKey, stateKey]);
+  }, [cwd, environmentId, instanceId, read, requestKey, reread, stateKey]);
 
   async function runAction(action: GentleAction): Promise<boolean> {
     if (pending) return false;
