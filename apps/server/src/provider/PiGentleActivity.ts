@@ -1,26 +1,21 @@
 import {
-  RuntimeTaskId,
   TrimmedNonEmptyString,
-  type TaskCompletedPayload,
-  type TaskProgressPayload,
-  type TaskStartedPayload,
-  type TurnPlanUpdatedPayload,
+  type OrchestrationV2PlanStep,
+  type OrchestrationV2Subagent,
 } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
-import { nonEmpty } from "./PiText.ts";
+import { boundedText, nonEmpty } from "./PiText.ts";
 
 /**
  * gentle-pi publishes subagent activity to RPC hosts as a single JSON line in its
- * `gentle-agents` TUI widget. These limits bound what one update can carry to clients.
+ * `gentle-agents` TUI widget, a full snapshot on every redraw.
  */
 export const GENTLE_ACTIVITY_WIDGET_KEY = "gentle-agents";
 const MAX_WIDGET_LINE_CHARS = 256 * 1024;
-const MAX_RECENT_ITEMS = 40;
-const MAX_RECENT_ITEM_CHARS = 2_048;
-const MAX_RECENT_TOOL_NAME_CHARS = 120;
-const MAX_RECENT_THREAD_CHARS = 24 * 1024;
+const MAX_PROGRESS_CHARS = 200;
+const MAX_RESULT_CHARS = 10_000;
 
 const GentleActivitySchema = Schema.Struct({
   schema: Schema.Literal("gentle-agents.activity/v1"),
@@ -67,20 +62,34 @@ const decodeGentleActivity = Schema.decodeUnknownOption(
 );
 
 type GentleTaskStatus = (typeof GentleActivitySchema.Type)["tasks"][number]["summary"]["status"];
-type RecentThreadItem = NonNullable<TaskProgressPayload["recentThread"]>[number];
 
 /** What was last published for a subagent, so unchanged widget redraws emit nothing. */
 export interface GentleTaskSnapshot {
   readonly status: GentleTaskStatus;
   readonly progress: string;
-  readonly lastToolName: string;
   readonly threadVersion: number;
 }
 
-export type GentleTaskEvent =
-  | { readonly type: "task.started"; readonly payload: TaskStartedPayload }
-  | { readonly type: "task.progress"; readonly payload: TaskProgressPayload }
-  | { readonly type: "task.completed"; readonly payload: TaskCompletedPayload };
+/** One gentle-pi subagent as a V2 subagent. */
+export interface GentleSubagentUpdate {
+  readonly id: string;
+  readonly title: string;
+  readonly prompt: string;
+  readonly status: OrchestrationV2Subagent["status"];
+  readonly terminal: boolean;
+  readonly progress: string;
+  readonly result: string | null;
+}
+
+const V2_STATUS = {
+  queued: "pending",
+  running: "running",
+  waiting: "waiting",
+  completed: "completed",
+  failed: "failed",
+  timed_out: "failed",
+  cancelled: "cancelled",
+} as const satisfies Record<GentleTaskStatus, OrchestrationV2Subagent["status"]>;
 
 const TERMINAL_STATUSES: ReadonlySet<GentleTaskStatus> = new Set([
   "completed",
@@ -89,121 +98,62 @@ const TERMINAL_STATUSES: ReadonlySet<GentleTaskStatus> = new Set([
   "timed_out",
 ]);
 
-function liveStatus(status: GentleTaskStatus) {
-  return status === "queued" ? "pending" : status === "running" ? "running" : "waiting";
-}
-
-function itemChars(item: RecentThreadItem): number {
-  return item.kind === "tool" ? item.name.length + item.output.length : item.text.length;
-}
-
-/** The newest transcript items that fit the per-update budget, oldest dropped first. */
-function recentThread(
-  items: (typeof GentleActivitySchema.Type)["tasks"][number]["thread"]["items"],
-) {
-  const recent: Array<RecentThreadItem> = items.slice(-MAX_RECENT_ITEMS).map((item) =>
-    item.kind === "tool"
-      ? {
-          kind: "tool" as const,
-          name: item.name.slice(0, MAX_RECENT_TOOL_NAME_CHARS),
-          output: item.output.slice(0, MAX_RECENT_ITEM_CHARS),
-        }
-      : { kind: item.kind, text: item.text.slice(0, MAX_RECENT_ITEM_CHARS) },
-  );
-  let total = recent.reduce((sum, item) => sum + itemChars(item), 0);
-  while (total > MAX_RECENT_THREAD_CHARS && recent.length > 1) {
-    total -= itemChars(recent.shift()!);
-  }
-  return recent;
-}
-
 /**
- * Translates one `gentle-agents` widget update into T3 task events. `published` holds what was
- * last emitted per subagent and is updated in place; unchanged subagents produce no events.
+ * Reads one `gentle-agents` widget snapshot. `updates` are the subagents that changed since
+ * `published`, which is updated in place; `live` lists every unfinished subagent, the work that
+ * keeps the thread running after its turn.
  */
-export function gentleActivityEvents(
+export function gentleActivityUpdates(
   widgetLines: ReadonlyArray<string> | undefined,
   published: Map<string, GentleTaskSnapshot>,
-): ReadonlyArray<GentleTaskEvent> {
+): {
+  readonly updates: ReadonlyArray<GentleSubagentUpdate>;
+  readonly live: ReadonlyArray<{ readonly id: string; readonly title: string }>;
+} {
   const line = widgetLines?.length === 1 ? widgetLines[0] : undefined;
-  if (line === undefined || line.length > MAX_WIDGET_LINE_CHARS) return [];
+  if (line === undefined || line.length > MAX_WIDGET_LINE_CHARS) return { updates: [], live: [] };
   const activity = decodeGentleActivity(line);
-  if (Option.isNone(activity)) return [];
+  if (Option.isNone(activity)) return { updates: [], live: [] };
 
-  const events: Array<GentleTaskEvent> = [];
+  const updates: Array<GentleSubagentUpdate> = [];
+  const live: Array<{ readonly id: string; readonly title: string }> = [];
   for (const task of activity.value.tasks) {
     const summary = task.summary;
     const title = nonEmpty(summary.label, summary.agent || "Pi subagent");
+    const terminal = TERMINAL_STATUSES.has(summary.status);
+    if (!terminal) live.push({ id: summary.id, title });
     const lastItem = task.thread.items.at(-1);
     const output = lastItem?.kind === "tool" ? lastItem.output : lastItem?.text;
-    const resultItem = task.thread.items.findLast((item) => item.kind === "text");
-    const result = resultItem?.kind === "text" ? resultItem.text : undefined;
-    const lastToolName = lastItem?.kind === "tool" ? lastItem.name : "";
     const progress = nonEmpty(
       lastItem?.kind === "text" && output?.trim() ? output : summary.lastStep || output,
       title,
-    );
-    const identity = {
-      taskId: RuntimeTaskId.make(summary.id),
-      taskType: "subagent",
-      taskSource: "gentle-pi" as const,
-      title,
-      role: nonEmpty(summary.agent, "Pi subagent"),
-    };
-    const toolName = lastToolName ? { lastToolName: nonEmpty(lastToolName, "Pi tool") } : {};
-
+    ).slice(0, MAX_PROGRESS_CHARS);
     const previous = published.get(summary.id);
-    if (previous === undefined) {
-      events.push({ type: "task.started", payload: { ...identity, description: title } });
-    } else if (
-      previous.status === summary.status &&
+    if (
+      previous?.status === summary.status &&
       previous.progress === progress &&
-      previous.lastToolName === lastToolName &&
       previous.threadVersion === task.thread.version
     ) {
       continue;
     }
-
-    const terminal = TERMINAL_STATUSES.has(summary.status);
-    const thread = recentThread(task.thread.items);
-    // Terminal tasks still publish their final transcript before completing.
-    if (thread.length > 0 || !terminal) {
-      events.push({
-        type: "task.progress",
-        payload: {
-          ...identity,
-          description: title,
-          summary: progress,
-          ...(thread.length > 0 ? { recentThread: thread } : {}),
-          ...toolName,
-          ...(terminal ? {} : { status: liveStatus(summary.status) }),
-        },
-      });
-    }
-    if (terminal) {
-      const finalText = summary.error || result;
-      events.push({
-        type: "task.completed",
-        payload: {
-          ...identity,
-          status:
-            summary.status === "completed"
-              ? "completed"
-              : summary.status === "cancelled"
-                ? "stopped"
-                : "failed",
-          ...(finalText ? { summary: nonEmpty(finalText, progress) } : {}),
-        },
-      });
-    }
+    const resultItem = task.thread.items.findLast((item) => item.kind === "text");
+    const finalText = summary.error || (resultItem?.kind === "text" ? resultItem.text : "");
+    updates.push({
+      id: summary.id,
+      title,
+      prompt: nonEmpty(summary.prompt, title),
+      status: V2_STATUS[summary.status],
+      terminal,
+      progress,
+      result: terminal && finalText.trim() ? boundedText(finalText.trim(), MAX_RESULT_CHARS) : null,
+    });
     published.set(summary.id, {
       status: summary.status,
       progress,
-      lastToolName,
       threadVersion: task.thread.version,
     });
   }
-  return events;
+  return { updates, live };
 }
 
 /**
@@ -224,23 +174,18 @@ const decodeGentleTodo = Schema.decodeUnknownOption(
   }),
 );
 
-/** The plan a gentle-pi todo result sets, or undefined for any other tool result. */
-export function gentleTodoPlan(
+/** The plan steps a gentle-pi todo result sets, or undefined for any other tool result. */
+export function gentleTodoSteps(
   toolName: string,
   details: unknown,
-): TurnPlanUpdatedPayload | undefined {
+): ReadonlyArray<OrchestrationV2PlanStep> | undefined {
   if (toolName !== GENTLE_TODO_TOOL) return undefined;
   const todo = decodeGentleTodo(details);
   if (Option.isNone(todo)) return undefined;
-  return {
-    plan: todo.value.gentleTodo.tasks.map((task) => ({
-      step: nonEmpty(task.title, "Task"),
-      status:
-        task.status === "done"
-          ? "completed"
-          : task.status === "in_progress"
-            ? "inProgress"
-            : "pending",
-    })),
-  };
+  return todo.value.gentleTodo.tasks.map((task, index) => ({
+    id: `todo-${index}`,
+    text: nonEmpty(task.title, "Task"),
+    status:
+      task.status === "done" ? "completed" : task.status === "in_progress" ? "running" : "pending",
+  }));
 }

@@ -32,6 +32,9 @@ import {
   type ChatAttachment,
   type ModelSelection,
   type OrchestrationV2ExecutionNode,
+  type OrchestrationV2PlanArtifact,
+  type OrchestrationV2PlanStep,
+  type PlanId,
   type OrchestrationV2ProviderCapabilities,
   type OrchestrationV2ProviderFailure,
   type OrchestrationV2ProviderRef,
@@ -72,6 +75,12 @@ import { mergeProviderInstanceEnvironment } from "../../provider/ProviderInstanc
 import * as IdAllocator from "../IdAllocator.ts";
 import * as ProviderAdapter from "../ProviderAdapter.ts";
 import type { PrepareProviderSession } from "../../gentleAi/GentleAiSessions.ts";
+import {
+  GENTLE_ACTIVITY_WIDGET_KEY,
+  gentleActivityUpdates,
+  gentleTodoSteps,
+  type GentleTaskSnapshot,
+} from "../../provider/PiGentleActivity.ts";
 import {
   ProviderAdapterDriverCreateError,
   type ProviderAdapterDriver,
@@ -1027,6 +1036,10 @@ export function makePiAdapterV2(
         if (toolName === "subagent") {
           yield* emitSubagentTasks(turn, toolCallId, resultRecord, completed);
         }
+        const gentleTodo = completed
+          ? gentleTodoSteps(toolName, recordField(resultRecord, "details"))
+          : undefined;
+        if (gentleTodo !== undefined) yield* emitGentleTodo(turn, gentleTodo);
       });
 
       /**
@@ -1125,6 +1138,165 @@ export function makePiAdapterV2(
         }
       });
 
+      // ── gentle-pi activity ────────────────────────────────
+      // gentle-pi reports its background subagents as a widget snapshot. A changed subagent is
+      // upserted on the turn that first saw it, or the last finished turn when none is running;
+      // unfinished ones keep the thread working through the provider thread's background roster,
+      // which also covers redraws after the turn settles.
+      const gentlePublished = new Map<string, GentleTaskSnapshot>();
+      const gentleTaskTurns = new Map<string, ActivePiTurn>();
+      let gentleLastTurn: ActivePiTurn | null = null;
+      const gentlePlanIds = new Map<string, PlanId>();
+      let gentleLatestPlan: OrchestrationV2PlanArtifact | null = null;
+
+      const resetGentleActivity = () => {
+        gentlePublished.clear();
+        gentleTaskTurns.clear();
+        gentleLastTurn = null;
+        gentlePlanIds.clear();
+        gentleLatestPlan = null;
+      };
+
+      const emitGentleActivity = Effect.fnUntraced(function* (
+        widgetLines: ReadonlyArray<string> | undefined,
+      ) {
+        const state = threadState;
+        if (state === null) return;
+        const { updates, live } = gentleActivityUpdates(widgetLines, gentlePublished);
+        const emittedAt = yield* DateTime.now;
+        for (const update of updates) {
+          const turn = gentleTaskTurns.get(update.id) ?? state.activeTurn ?? gentleLastTurn;
+          if (turn === null) continue;
+          gentleTaskTurns.set(update.id, turn);
+          const nativeTaskId = `gentle:${update.id}`;
+          const subagentId = idAllocator.derive.nodeFromProviderItem({
+            driver: PI_PROVIDER,
+            nativeItemId: nativeTaskId,
+          });
+          const startedAt = turn.toolStartedAt.get(nativeTaskId) ?? emittedAt;
+          turn.toolStartedAt.set(nativeTaskId, startedAt);
+          const progress = update.terminal ? {} : { progress: update.progress };
+          const completedAt = update.terminal ? emittedAt : null;
+          yield* emit({
+            type: "subagent.updated",
+            driver: PI_PROVIDER,
+            subagent: {
+              id: subagentId,
+              threadId: turn.turnInput.threadId,
+              runId: turn.turnInput.runId,
+              parentNodeId: turn.turnInput.rootNodeId,
+              origin: "provider_native",
+              createdBy: "agent",
+              driver: PI_PROVIDER,
+              providerInstanceId: options.instanceId,
+              providerThreadId: turn.turnInput.providerThread.id,
+              childThreadId: null,
+              nativeTaskRef: providerRef(nativeTaskId),
+              prompt: update.prompt,
+              title: update.title,
+              model: null,
+              status: update.status,
+              ...progress,
+              result: update.result,
+              startedAt,
+              completedAt,
+              updatedAt: emittedAt,
+            },
+          });
+          yield* emit({
+            type: "turn_item.updated",
+            driver: PI_PROVIDER,
+            turnItem: {
+              ...baseItemFields(turn, nativeTaskId, startedAt, emittedAt),
+              status: update.status,
+              title: update.title,
+              completedAt,
+              type: "subagent",
+              subagentId,
+              origin: "provider_native",
+              driver: PI_PROVIDER,
+              providerInstanceId: options.instanceId,
+              childThreadId: null,
+              prompt: update.prompt,
+              ...progress,
+              result: update.result,
+            },
+          });
+        }
+        const others = (state.providerThread.pendingBackgroundTasks ?? []).filter(
+          (task) => !task.taskId.startsWith("gentle:"),
+        );
+        const roster = [
+          ...others,
+          ...live.map((entry) => ({
+            taskId: `gentle:${entry.id}`,
+            kind: "subagent" as const,
+            description: entry.title,
+          })),
+        ];
+        const current = state.providerThread.pendingBackgroundTasks ?? [];
+        if (
+          roster.length !== current.length ||
+          roster.some((task, index) => task.taskId !== current[index]?.taskId)
+        ) {
+          yield* updateProviderThread(state, { pendingBackgroundTasks: roster });
+        }
+      });
+
+      // gentle-pi's todo tool returns the whole list each time; it is the turn's task list.
+      const emitGentleTodo = Effect.fnUntraced(function* (
+        turn: ActivePiTurn,
+        steps: ReadonlyArray<OrchestrationV2PlanStep>,
+      ) {
+        const updatedAt = yield* DateTime.now;
+        const nativeItemId = `gentle-todo:${turn.providerTurn.id}`;
+        const planId =
+          gentlePlanIds.get(nativeItemId) ??
+          (yield* idAllocator.allocate.plan({
+            threadId: turn.turnInput.threadId,
+            runId: turn.turnInput.runId,
+            driver: PI_PROVIDER,
+          }));
+        gentlePlanIds.set(nativeItemId, planId);
+        const nodeId = idAllocator.derive.nodeFromProviderItem({
+          driver: PI_PROVIDER,
+          nativeItemId,
+        });
+        const plan: OrchestrationV2PlanArtifact = {
+          id: planId,
+          threadId: turn.turnInput.threadId,
+          runId: turn.turnInput.runId,
+          nodeId,
+          kind: "todo_list",
+          status: steps.every((step) => step.status === "completed") ? "completed" : "active",
+          steps: [...steps],
+        };
+        const previous = gentleLatestPlan;
+        if (previous !== null && previous.id !== plan.id && previous.status !== "completed") {
+          yield* emit({
+            type: "plan.updated",
+            driver: PI_PROVIDER,
+            plan: { ...previous, status: "superseded" },
+          });
+        }
+        gentleLatestPlan = plan;
+        yield* emitItemNode(turn, nativeItemId, "todo_list", "completed", updatedAt, updatedAt);
+        yield* emit({ type: "plan.updated", driver: PI_PROVIDER, plan });
+        yield* emit({
+          type: "turn_item.updated",
+          driver: PI_PROVIDER,
+          turnItem: {
+            ...baseItemFields(turn, nativeItemId, updatedAt, updatedAt),
+            status: "completed",
+            title: null,
+            completedAt: updatedAt,
+            type: "todo_list",
+            planId,
+            steps: [...steps],
+          },
+        });
+      });
+
       // ── extension UI prompts ──────────────────────────────
 
       const cancelPrompt = (pending: PendingPiPrompt, resolvedAt: DateTime.Utc) =>
@@ -1177,6 +1349,16 @@ export function makePiAdapterV2(
         const method = recordString(event, "method");
         const nativeRequestId = recordString(event, "id");
         if (method === undefined) return;
+        if (
+          method === "setWidget" &&
+          recordString(event, "widgetKey") === GENTLE_ACTIVITY_WIDGET_KEY
+        ) {
+          const lines = recordField(event, "widgetLines");
+          yield* emitGentleActivity(
+            Array.isArray(lines) ? lines.filter((line) => typeof line === "string") : undefined,
+          );
+          return;
+        }
         if (method === "notify") {
           const state = threadState;
           const turn = state?.activeTurn ?? null;
@@ -1412,6 +1594,7 @@ export function makePiAdapterV2(
         const turn = state.activeTurn;
         if (turn === null) return;
         state.activeTurn = null;
+        gentleLastTurn = turn;
         const completedAt = yield* DateTime.now;
         yield* completeOpenStreamItems(turn);
         if (turn.activeCompaction !== null) {
@@ -2012,6 +2195,7 @@ export function makePiAdapterV2(
           // Even a failed lifecycle operation can change Pi's native session.
           // Never leave the old app binding or model defaults usable afterward.
           threadState = null;
+          resetGentleActivity();
           appliedModel = null;
           appliedThinking = null;
           appliedSessionName = null;

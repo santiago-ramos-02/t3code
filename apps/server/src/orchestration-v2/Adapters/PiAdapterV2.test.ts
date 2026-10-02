@@ -1160,6 +1160,110 @@ describe("PiAdapterV2", () => {
     }).pipe(Effect.scoped, Effect.provide(testLayer)),
   );
 
+  it.effect("shows gentle-pi subagents and keeps the thread working until they finish", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakePi;
+      const { runtime, takeEvent } = yield* openRuntime(fake);
+      const providerThread = yield* runtime.ensureThread({
+        threadId: THREAD_ID,
+        modelSelection: modelSelection("default"),
+        runtimePolicy,
+      });
+      yield* startTurn(runtime, providerThread);
+      yield* fake.takeRequest("prompt");
+      yield* fake.emit({ type: "agent_start" });
+      const widget = (status: string, items: ReadonlyArray<Record<string, string>>) => ({
+        type: "extension_ui_request",
+        id: `widget-${status}`,
+        method: "setWidget",
+        widgetKey: "gentle-agents",
+        widgetLines: [
+          JSON.stringify({
+            schema: "gentle-agents.activity/v1",
+            tasks: [
+              {
+                summary: {
+                  id: "task-1",
+                  agent: "explorer",
+                  label: "Map the repo",
+                  prompt: "Find the reducer",
+                  status,
+                  lastStep: "Reading",
+                  error: null,
+                },
+                thread: { version: items.length, items },
+              },
+            ],
+          }),
+        ],
+      });
+
+      yield* fake.emit(widget("running", [{ kind: "text", text: "scanning" }]));
+      const running = yield* takeEvent(
+        (event) => event.type === "subagent.updated" && event.subagent.status === "running",
+      );
+      assert.isTrue(
+        running.type === "subagent.updated" &&
+          running.subagent.title === "Map the repo" &&
+          running.subagent.progress === "scanning",
+      );
+      const roster = yield* takeEvent(
+        (event) =>
+          event.type === "provider_thread.updated" &&
+          (event.providerThread.pendingBackgroundTasks?.length ?? 0) > 0,
+      );
+      assert.isTrue(
+        roster.type === "provider_thread.updated" &&
+          roster.providerThread.pendingBackgroundTasks?.[0]?.taskId === "gentle:task-1",
+      );
+
+      yield* fake.emit({
+        type: "tool_execution_end",
+        toolCallId: "call_todo",
+        toolName: "todo",
+        isError: false,
+        result: {
+          content: [{ type: "text", text: "ok" }],
+          details: {
+            gentleTodo: {
+              tasks: [
+                { title: "Plan", status: "done" },
+                { title: "Build", status: "in_progress" },
+              ],
+            },
+          },
+        },
+      });
+      const plan = yield* takeEvent((event) => event.type === "plan.updated");
+      assert.isTrue(
+        plan.type === "plan.updated" &&
+          plan.plan.kind === "todo_list" &&
+          plan.plan.status === "active" &&
+          plan.plan.steps.map((step) => step.status).join() === "completed,running",
+      );
+
+      yield* fake.emit(
+        widget("completed", [
+          { kind: "text", text: "scanning" },
+          { kind: "text", text: "The reducer lives in state.ts" },
+        ]),
+      );
+      const done = yield* takeEvent(
+        (event) => event.type === "subagent.updated" && event.subagent.status === "completed",
+      );
+      assert.isTrue(
+        done.type === "subagent.updated" &&
+          done.subagent.result === "The reducer lives in state.ts",
+      );
+      const cleared = yield* takeEvent(
+        (event) =>
+          event.type === "provider_thread.updated" &&
+          event.providerThread.pendingBackgroundTasks?.length === 0,
+      );
+      assert.equal(cleared.type, "provider_thread.updated");
+    }).pipe(Effect.scoped, Effect.provide(testLayer)),
+  );
+
   it.effect("settles a command-only prompt from its deferred ack and idle probe", () =>
     Effect.gen(function* () {
       const fake = yield* makeFakePi;
