@@ -13,6 +13,7 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 
+import { withGentleAiSessionRestart } from "../gentleAi/GentleAiSessionPolicy.ts";
 import * as ProviderInstanceRegistry from "../provider/Services/ProviderInstanceRegistry.ts";
 import {
   ProviderAdapterDriverCreateError,
@@ -85,7 +86,7 @@ export const layerFromProviderInstanceRegistry: Layer.Layer<
           Effect.flatMap((instance) => {
             if (instance === undefined)
               return new ProviderAdapterRegistryLookupError({ instanceId });
-            const adapter = instance.orchestrationAdapter;
+            const adapter = withGentleAiSessionRestart(instance.orchestrationAdapter);
             const auth = instance.auth;
             if (!auth) return Effect.succeed(adapter);
             return Effect.succeed({

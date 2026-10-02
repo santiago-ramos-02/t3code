@@ -18,8 +18,10 @@ import * as BackgroundPolicy from "../../background/BackgroundPolicy.ts";
 import * as ServerConfig from "../../config.ts";
 import * as ServerSettings from "../../serverSettings.ts";
 import { makePiTextGeneration } from "../../textGeneration/PiTextGeneration.ts";
+import { makePiGentleSession } from "../../gentleAi/GentleAiSessions.ts";
+import { makePiGentleSettings } from "../PiGentleSettings.ts";
 import {
-  PiAdapterV2Driver,
+  createPiAdapterV2,
   type PiAdapterV2DriverEnv,
 } from "../../orchestration-v2/Adapters/PiAdapterV2.ts";
 import { ProviderDriverError } from "../Errors.ts";
@@ -121,14 +123,17 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
         ),
       );
 
-      const orchestrationAdapter = yield* PiAdapterV2Driver.create({
-        instanceId,
-        displayName,
-        accentColor,
-        environment,
-        enabled,
-        config,
-      }).pipe(
+      const orchestrationAdapter = yield* createPiAdapterV2(
+        {
+          instanceId,
+          displayName,
+          accentColor,
+          environment,
+          enabled,
+          config,
+        },
+        { prepareSession: yield* makePiGentleSession(DRIVER_KIND) },
+      ).pipe(
         Effect.mapError(
           (cause) =>
             new ProviderDriverError({
@@ -140,6 +145,15 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
         ),
       );
       const textGeneration = yield* makePiTextGeneration(effectiveConfig, processEnv);
+      // gentle-pi settings, profiles, and setup, read through its own API.
+      const piGentle = yield* makePiGentleSettings({
+        environment: processEnv,
+        httpClient,
+        piBinaryPath: effectiveConfig.binaryPath,
+        fileSystem,
+        path: pathService,
+        spawner,
+      });
 
       const checkProvider = checkPiProviderStatus(effectiveConfig, processEnv, cwd).pipe(
         Effect.map(stampIdentity),
@@ -186,6 +200,7 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
         displayName,
         accentColor,
         enabled,
+        piGentle,
         snapshot,
         orchestrationAdapter,
         textGeneration,

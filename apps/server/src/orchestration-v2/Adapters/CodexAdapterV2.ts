@@ -156,6 +156,7 @@ import {
   makeSubagentConversationArtifacts,
   subagentThreadTitle,
 } from "../SubagentProjection.ts";
+import type { PrepareProviderSession } from "../../gentleAi/GentleAiSessions.ts";
 
 const CODEX_PROVIDER = ProviderDriverKind.make("codex");
 export const CODEX_DRIVER_KIND = CODEX_PROVIDER;
@@ -1443,7 +1444,7 @@ export type CodexAdapterV2DriverEnv =
 
 export const createCodexAdapterV2 = (
   { instanceId, environment, enabled, config }: ProviderAdapterDriverCreateInput<CodexSettings>,
-  hooks: Pick<CodexAdapterV2Options, "onUsageLimits" | "resolveRuntime"> = {},
+  hooks: Pick<CodexAdapterV2Options, "onUsageLimits" | "resolveRuntime" | "prepareSession"> = {},
 ) =>
   Effect.gen(function* () {
     const clientFactory = yield* CodexAppServerClientFactory;
@@ -1532,6 +1533,11 @@ export interface CodexAdapterV2Options {
    * Codex with a current access token.
    */
   readonly resolveRuntime?: Effect.Effect<CodexEffectiveRuntime, ProviderSetupError, Scope.Scope>;
+  /** Adjusts the launch for one session, after `resolveRuntime`. */
+  readonly prepareSession?: PrepareProviderSession<{
+    readonly settings: CodexSettings;
+    readonly environment: NodeJS.ProcessEnv;
+  }>;
   readonly fileSystem: FileSystem.FileSystem;
   readonly idAllocator: IdAllocatorV2Shape;
   readonly serverConfig: ServerConfig["Service"];
@@ -1570,13 +1576,20 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
                     }),
                 ),
               );
+        const baseRuntime = {
+          settings: resolvedRuntime?.config ?? adapterOptions.settings,
+          environment: resolvedRuntime?.environment ?? adapterOptions.environment,
+        };
+        const sessionRuntime = adapterOptions.prepareSession
+          ? yield* adapterOptions.prepareSession(input, baseRuntime)
+          : baseRuntime;
         const client = yield* clientFactory.open({
           instanceId: adapterOptions.instanceId,
           threadId: input.threadId,
           providerSessionId: input.providerSessionId,
           runtimePolicy: input.runtimePolicy,
-          settings: resolvedRuntime?.config ?? adapterOptions.settings,
-          environment: resolvedRuntime?.environment ?? adapterOptions.environment,
+          settings: sessionRuntime.settings,
+          environment: sessionRuntime.environment,
         });
         const additionalContextByThread = yield* Ref.make(
           new Map<

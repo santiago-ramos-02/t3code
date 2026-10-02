@@ -134,6 +134,8 @@ export interface AcpAdapterV2RuntimeInput {
    * so flavors that encode permissions in the launch command (Grok) read it here.
    */
   readonly runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy;
+  /** Selection the session opened with; a change that needs a new process reopens it. */
+  readonly modelSelection: ModelSelection;
   readonly mcpServers: ReadonlyArray<EffectAcpSchema.McpServer>;
   readonly acpMcpServers?: ReadonlyArray<EffectAcpSchema.McpServer>;
   /** Scoped credentials for terminal fallback when an ACP agent drops `mcpServers`. */
@@ -2015,6 +2017,7 @@ export function makeAcpAdapterV2(
           return {
             cwd: input.runtimePolicy.cwd ?? process.cwd(),
             runtimePolicy: input.runtimePolicy,
+            modelSelection: input.modelSelection,
             mcpServers: mcpContext.servers,
             acpMcpServers: mcpContext.acpServers,
             ...(mcpContext.processEnvironment === undefined

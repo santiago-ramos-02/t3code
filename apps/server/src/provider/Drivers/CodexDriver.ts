@@ -22,6 +22,7 @@
  * @module provider/Drivers/CodexDriver
  */
 import { CodexSettings, ProviderDriverKind } from "@t3tools/contracts";
+import { makeCodexGentleOffSession } from "../../gentleAi/GentleAiSessions.ts";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -200,7 +201,10 @@ export const CodexDriver: ProviderDriver<CodexSettings, CodexDriverEnv> = {
           enabled,
           config,
         },
-        { onUsageLimits: (update) => snapshot.applyUsageLimits(update) },
+        {
+          onUsageLimits: (update) => snapshot.applyUsageLimits(update),
+          prepareSession: yield* makeCodexGentleOffSession(DRIVER_KIND),
+        },
       ).pipe(
         Effect.mapError(
           (cause) =>

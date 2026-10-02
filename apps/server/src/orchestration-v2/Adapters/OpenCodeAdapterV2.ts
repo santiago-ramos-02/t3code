@@ -72,6 +72,7 @@ import { makeProviderFailure } from "../ProviderFailure.ts";
 import { turnScopedSelectionTransition } from "../ProviderSelectionTransition.ts";
 import { providerMessageTextWithAttachmentPaths } from "../AttachmentPrompt.ts";
 import * as ProviderAdapter from "../ProviderAdapter.ts";
+import type { PrepareProviderSession } from "../../gentleAi/GentleAiSessions.ts";
 import {
   ProviderAdapterDriverCreateError,
   type ProviderAdapterDriver,
@@ -438,6 +439,11 @@ export interface OpenCodeAdapterV2Options {
   readonly idAllocator: IdAllocator.IdAllocatorV2Shape;
   readonly serverConfig: ServerConfig.ServerConfig["Service"];
   readonly nativeEventLogger?: EventNdjsonLogger;
+  /** Adjusts the server launch for one session. */
+  readonly prepareSession?: PrepareProviderSession<{
+    readonly environment: NodeJS.ProcessEnv;
+    readonly serverUrl: OpenCodeSettings["serverUrl"];
+  }>;
 }
 
 export interface OpenCodeProtocolLogEvent {
@@ -954,11 +960,18 @@ export function makeOpenCodeAdapterV2(
       function* (input: ProviderAdapter.ProviderAdapterV2OpenSessionInput) {
         const scope = yield* Effect.scope;
         const cwd = input.runtimePolicy.cwd ?? serverConfig.cwd;
+        const baseLaunch = {
+          environment: options.environment,
+          serverUrl: options.settings.serverUrl,
+        };
+        const launch = options.prepareSession
+          ? yield* options.prepareSession(input, baseLaunch)
+          : baseLaunch;
         const connection = yield* runtime.connectToOpenCodeServer({
           binaryPath: options.settings.binaryPath,
           directory: cwd,
-          serverUrl: options.settings.serverUrl,
-          environment: options.environment,
+          serverUrl: launch.serverUrl,
+          environment: launch.environment,
         });
         const client = runtime.createOpenCodeSdkClient({
           baseUrl: connection.url,
@@ -3700,39 +3713,43 @@ export const OpenCodeAdapterV2Driver: ProviderAdapterDriver<
   driverKind: OPENCODE_PROVIDER,
   configSchema: OpenCodeSettingsSchema,
   defaultConfig: (): OpenCodeSettings => DEFAULT_OPENCODE_SETTINGS,
-  create: Effect.fn("OpenCodeAdapterV2Driver.create")(
-    function* (input: ProviderAdapterDriverCreateInput<OpenCodeSettings>) {
-      const hostEnvironment = yield* HostProcessEnvironment;
-      const openCodeRuntime = yield* OpenCodeRuntime.OpenCodeRuntime;
-      const idAllocator = yield* IdAllocator.IdAllocatorV2;
-      const providerEventLoggers = yield* ProviderEventLoggers.ProviderEventLoggers;
-      const serverConfig = yield* ServerConfig.ServerConfig;
-      return makeOpenCodeAdapterV2({
-        instanceId: input.instanceId,
-        settings: { ...input.config, enabled: input.enabled },
-        environment: mergeProviderInstanceEnvironment(input.environment, hostEnvironment),
-        runtime: openCodeRuntime,
-        idAllocator,
-        serverConfig,
-        ...(providerEventLoggers.native === undefined
-          ? {}
-          : { nativeEventLogger: providerEventLoggers.native }),
-      });
-    },
-    (effect, input) =>
-      effect.pipe(
-        Effect.mapError(
-          (cause) =>
-            new ProviderAdapterDriverCreateError({
-              driver: OPENCODE_PROVIDER,
-              instanceId: input.instanceId,
-              detail: "Failed to create OpenCode v2 adapter.",
-              cause,
-            }),
-        ),
-      ),
-  ),
+  create: (input) => createOpenCodeAdapterV2(input),
 };
+
+export const createOpenCodeAdapterV2 = (
+  input: ProviderAdapterDriverCreateInput<OpenCodeSettings>,
+  hooks: Pick<OpenCodeAdapterV2Options, "prepareSession"> = {},
+) =>
+  Effect.gen(function* () {
+    const hostEnvironment = yield* HostProcessEnvironment;
+    const openCodeRuntime = yield* OpenCodeRuntime.OpenCodeRuntime;
+    const idAllocator = yield* IdAllocator.IdAllocatorV2;
+    const providerEventLoggers = yield* ProviderEventLoggers.ProviderEventLoggers;
+    const serverConfig = yield* ServerConfig.ServerConfig;
+    return makeOpenCodeAdapterV2({
+      instanceId: input.instanceId,
+      settings: { ...input.config, enabled: input.enabled },
+      environment: mergeProviderInstanceEnvironment(input.environment, hostEnvironment),
+      runtime: openCodeRuntime,
+      idAllocator,
+      serverConfig,
+      ...(providerEventLoggers.native === undefined
+        ? {}
+        : { nativeEventLogger: providerEventLoggers.native }),
+      ...hooks,
+    });
+  }).pipe(
+    Effect.mapError(
+      (cause) =>
+        new ProviderAdapterDriverCreateError({
+          driver: OPENCODE_PROVIDER,
+          instanceId: input.instanceId,
+          detail: "Failed to create OpenCode v2 adapter.",
+          cause,
+        }),
+    ),
+    Effect.withSpan("OpenCodeAdapterV2Driver.create"),
+  );
 
 const layer: Layer.Layer<ProviderAdapter.ProviderAdapterV2, never, OpenCodeAdapterV2DriverEnv> =
   Layer.effect(

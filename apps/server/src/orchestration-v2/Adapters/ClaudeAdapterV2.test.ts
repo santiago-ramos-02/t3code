@@ -461,6 +461,45 @@ describe("ClaudeAdapterV2 runtime query policy", () => {
   });
 });
 
+describe("ClaudeAdapterV2 session launch", () => {
+  it("loads a Gentle AI off launch beside T3 Code's own MCP server", () => {
+    const options = ClaudeAdapterV2.makeClaudeQueryOptions({
+      modelSelection: CLAUDE_TEST_MODEL_SELECTION,
+      nativeThreadId: "gentle-off-thread",
+      resume: false,
+      cwd: "/workspace",
+      mcpServers: { "t3-code": { type: "http", url: "http://127.0.0.1:1/mcp" } },
+      launch: {
+        settingSources: ["project", "local"],
+        appendSystemPrompt: "# User instructions\n\nPrefer small diffs.",
+        strictMcpConfig: true,
+        mcpServers: { own: { command: "own-mcp" } },
+      },
+    });
+    assert.deepEqual(options.settingSources, ["project", "local"]);
+    assert.isTrue(options.strictMcpConfig);
+    assert.deepEqual(Object.keys(options.mcpServers ?? {}), ["own", "t3-code"]);
+    const append = options.systemPrompt;
+    assert.isTrue(
+      typeof append === "object" &&
+        append !== null &&
+        "append" in append &&
+        String(append.append).endsWith("# User instructions\n\nPrefer small diffs."),
+    );
+  });
+
+  it("keeps every settings source without a launch", () => {
+    const options = ClaudeAdapterV2.makeClaudeQueryOptions({
+      modelSelection: CLAUDE_TEST_MODEL_SELECTION,
+      nativeThreadId: "plain-thread",
+      resume: false,
+      cwd: "/workspace",
+    });
+    assert.isUndefined(options.settingSources);
+    assert.isUndefined(options.strictMcpConfig);
+  });
+});
+
 describe("ClaudeAdapterV2 MCP query overrides", () => {
   const T3_MCP_SERVERS = {
     "t3-code": {

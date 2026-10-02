@@ -13,6 +13,11 @@
  * @module provider/Drivers/OpenCodeDriver
  */
 import { OpenCodeSettings, ProviderDriverKind } from "@t3tools/contracts";
+import { withoutGentleAiOff } from "../../gentleAi/GentleAiSessionPolicy.ts";
+import {
+  makeOpenCodeGentleOffSession,
+  OPENCODE_SERVER_GENTLE_OFF_UNSUPPORTED,
+} from "../../gentleAi/GentleAiSessions.ts";
 import * as Crypto from "effect/Crypto";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
@@ -257,14 +262,17 @@ export const OpenCodeDriver: ProviderDriver<OpenCodeSettings, OpenCodeDriverEnv>
                 Effect.andThen(cachedMaintenance({ fresh: true })),
               )
             : cachedMaintenance();
-      const openCodeV1Adapter = yield* OpenCodeAdapterV2.OpenCodeAdapterV2Driver.create({
-        instanceId,
-        displayName,
-        accentColor,
-        environment,
-        enabled,
-        config,
-      }).pipe(
+      const openCodeV1Adapter = yield* OpenCodeAdapterV2.createOpenCodeAdapterV2(
+        {
+          instanceId,
+          displayName,
+          accentColor,
+          environment,
+          enabled,
+          config,
+        },
+        { prepareSession: yield* makeOpenCodeGentleOffSession(DRIVER_KIND, instanceId) },
+      ).pipe(
         Effect.mapError(
           (cause) =>
             new ProviderDriverError({
@@ -294,8 +302,12 @@ export const OpenCodeDriver: ProviderDriver<OpenCodeSettings, OpenCodeDriverEnv>
       const orchestrationAdapter = selectOpenCodeRuntimeAdapter({
         probe: runtimeProbe,
         v1: openCodeV1Adapter,
-        v2: yield* OpenCode2AdapterV2.make(instanceId).pipe(
-          Effect.provideService(OpenCode2Server.OpenCode2Server, openCode2Server),
+        // OpenCode 2 serves every thread from one server, so it cannot drop gentle-ai per thread.
+        v2: withoutGentleAiOff(
+          yield* OpenCode2AdapterV2.make(instanceId).pipe(
+            Effect.provideService(OpenCode2Server.OpenCode2Server, openCode2Server),
+          ),
+          OPENCODE_SERVER_GENTLE_OFF_UNSUPPORTED,
         ),
       });
       const loadOpenCode2Models = yield* makeOpenCode2ModelLoader(

@@ -71,6 +71,7 @@ import {
 import { mergeProviderInstanceEnvironment } from "../../provider/ProviderInstanceEnvironment.ts";
 import * as IdAllocator from "../IdAllocator.ts";
 import * as ProviderAdapter from "../ProviderAdapter.ts";
+import type { PrepareProviderSession } from "../../gentleAi/GentleAiSessions.ts";
 import {
   ProviderAdapterDriverCreateError,
   type ProviderAdapterDriver,
@@ -227,6 +228,12 @@ export interface PiAdapterV2Options {
   readonly fileSystem: FileSystem.FileSystem;
   readonly idAllocator: IdAllocator.IdAllocatorV2["Service"];
   readonly serverConfig: ServerConfig.ServerConfig["Service"];
+  /** Adjusts the process launch for one session. */
+  readonly prepareSession?: PrepareProviderSession<{
+    readonly args: ReadonlyArray<string>;
+    readonly environment: NodeJS.ProcessEnv;
+    readonly cwd: string;
+  }>;
 }
 
 /** Concatenate the `text` fields of a Pi content-block array. */
@@ -419,11 +426,15 @@ export function makePiAdapterV2(
         extensionPath,
         runtimeMode: input.runtimePolicy.runtimeMode,
       });
+      const baseLaunch = { args: launch.args, environment: launch.env, cwd };
+      const sessionLaunch = options.prepareSession
+        ? yield* options.prepareSession(input, baseLaunch)
+        : baseLaunch;
       const connection: PiRpcConnection = yield* makePiRpcConnection({
         command: options.settings.binaryPath || "pi",
-        args: launch.args,
+        args: sessionLaunch.args,
         cwd,
-        env: launch.env,
+        env: sessionLaunch.environment,
       }).pipe(
         Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, options.spawner),
         Effect.mapError(
@@ -2953,37 +2964,43 @@ export const PiAdapterV2Driver: ProviderAdapterDriver<PiSettings, PiAdapterV2Dri
   driverKind: PI_DRIVER_KIND,
   configSchema: PiSettings,
   defaultConfig: (): PiSettings => DEFAULT_PI_SETTINGS,
-  create: Effect.fn("PiAdapterV2Driver.create")(
-    function* (input: ProviderAdapterDriverCreateInput<PiSettings>) {
-      const hostEnvironment = yield* HostProcessEnvironment;
-      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-      const fileSystem = yield* FileSystem.FileSystem;
-      const idAllocator = yield* IdAllocator.IdAllocatorV2;
-      const serverConfig = yield* ServerConfig.ServerConfig;
-      return makePiAdapterV2({
-        instanceId: input.instanceId,
-        settings: { ...input.config, enabled: input.enabled },
-        environment: mergeProviderInstanceEnvironment(input.environment, hostEnvironment),
-        spawner,
-        fileSystem,
-        idAllocator,
-        serverConfig,
-      });
-    },
-    (effect, input) =>
-      effect.pipe(
-        Effect.mapError(
-          (cause) =>
-            new ProviderAdapterDriverCreateError({
-              driver: PI_DRIVER_KIND,
-              instanceId: input.instanceId,
-              detail: "Failed to create Pi adapter.",
-              cause,
-            }),
-        ),
-      ),
-  ),
+  create: (input) => createPiAdapterV2(input, {}),
 };
+
+export const createPiAdapterV2 = Effect.fn("PiAdapterV2Driver.create")(
+  function* (
+    input: ProviderAdapterDriverCreateInput<PiSettings>,
+    hooks: Pick<PiAdapterV2Options, "prepareSession"> = {},
+  ) {
+    const hostEnvironment = yield* HostProcessEnvironment;
+    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+    const fileSystem = yield* FileSystem.FileSystem;
+    const idAllocator = yield* IdAllocator.IdAllocatorV2;
+    const serverConfig = yield* ServerConfig.ServerConfig;
+    return makePiAdapterV2({
+      instanceId: input.instanceId,
+      settings: { ...input.config, enabled: input.enabled },
+      environment: mergeProviderInstanceEnvironment(input.environment, hostEnvironment),
+      spawner,
+      fileSystem,
+      idAllocator,
+      serverConfig,
+      ...hooks,
+    });
+  },
+  (effect, input, _hooks) =>
+    effect.pipe(
+      Effect.mapError(
+        (cause) =>
+          new ProviderAdapterDriverCreateError({
+            driver: PI_DRIVER_KIND,
+            instanceId: input.instanceId,
+            detail: "Failed to create Pi adapter.",
+            cause,
+          }),
+      ),
+    ),
+);
 
 const layer: Layer.Layer<ProviderAdapter.ProviderAdapterV2, never, PiAdapterV2DriverEnv> =
   Layer.effect(

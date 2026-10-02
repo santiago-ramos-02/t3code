@@ -11,6 +11,7 @@ import type {
 import { formatReadToolLabel, formatSearchToolLabel } from "@t3tools/shared/toolActivity";
 import { HostProcessEnvironment } from "@t3tools/shared/hostProcess";
 import {
+  gentleAiEnabled,
   CursorSettings,
   isOrchestrationV2WorkActive,
   defaultInstanceIdForDriver,
@@ -317,7 +318,13 @@ export function makeCursorAgentOptions(input: {
     local: {
       ...(input.runtimePolicy.cwd === null ? {} : { cwd: input.runtimePolicy.cwd }),
       autoReview: policy.autoReview,
-      settingSources: [...CURSOR_AGENT_SETTING_SOURCES],
+      // gentle-ai installs its Cursor rules, skills, and MCP servers in the user and plugin
+      // layers; the SDK loads layers whole, so a thread with Gentle AI off skips both.
+      settingSources: gentleAiEnabled(input.modelSelection.options)
+        ? [...CURSOR_AGENT_SETTING_SOURCES]
+        : CURSOR_AGENT_SETTING_SOURCES.filter(
+            (source) => source !== "user" && source !== "plugins",
+          ),
       sandboxOptions: {
         enabled: policy.sandboxEnabled,
       },

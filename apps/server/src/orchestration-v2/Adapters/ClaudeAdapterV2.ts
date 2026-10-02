@@ -111,6 +111,11 @@ import type { ServerProviderShape } from "../../provider/Services/ServerProvider
 import { mergeProviderInstanceEnvironment } from "../../provider/ProviderInstanceEnvironment.ts";
 import { T3_CODE_ORCHESTRATION_INSTRUCTIONS } from "../../provider/T3OrchestrationInstructions.ts";
 import { buildRuntimeInstructions } from "../../provider/RuntimeInstructions.ts";
+import type {
+  ClaudeLaunchQuery,
+  ClaudeSessionLaunch,
+  PrepareProviderSession,
+} from "../../gentleAi/GentleAiSessions.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import * as IdAllocator from "../IdAllocator.ts";
 import { makeProviderFailure, makeProviderRetryTurnItem } from "../ProviderFailure.ts";
@@ -776,6 +781,8 @@ export function makeClaudeQueryOptions(input: {
   readonly sdkSettings?: string | ClaudeSdkSettings;
   readonly environment?: NodeJS.ProcessEnv;
   readonly mcpServers?: ClaudeQueryOptions["mcpServers"];
+  /** What the session's launch adds, such as a Gentle AI off settings source. */
+  readonly launch?: ClaudeLaunchQuery;
   readonly tools?: ClaudeAgentSdkQueryTools;
   readonly allowedTools?: ReadonlyArray<string>;
   readonly disallowedTools?: ReadonlyArray<string>;
@@ -862,13 +869,22 @@ export function makeClaudeQueryOptions(input: {
       ? { pathToClaudeCodeExecutable: input.settings.binaryPath }
       : {}),
     ...(input.environment === undefined ? {} : { env: input.environment }),
-    ...(input.mcpServers === undefined ? {} : { mcpServers: input.mcpServers }),
+    ...(input.mcpServers === undefined && input.launch?.mcpServers === undefined
+      ? {}
+      : { mcpServers: { ...input.launch?.mcpServers, ...input.mcpServers } }),
+    ...(input.launch?.settingSources === undefined
+      ? {}
+      : { settingSources: input.launch.settingSources }),
+    ...(input.launch?.agents === undefined ? {} : { agents: input.launch.agents }),
+    ...(input.launch?.plugins === undefined ? {} : { plugins: input.launch.plugins }),
+    ...(input.launch?.strictMcpConfig ? { strictMcpConfig: true } : {}),
     systemPrompt: {
       type: "preset" as const,
       preset: "claude_code" as const,
       append:
         buildRuntimeInstructions({ harness: "Claude Code" }) +
-        (input.mcpServers === undefined ? "" : T3_CODE_ORCHESTRATION_INSTRUCTIONS),
+        (input.mcpServers === undefined ? "" : T3_CODE_ORCHESTRATION_INSTRUCTIONS) +
+        (input.launch?.appendSystemPrompt ? `\n\n${input.launch.appendSystemPrompt}` : ""),
     },
     ...(Object.keys(extraArgs).length === 0 ? {} : { extraArgs }),
   };
@@ -2868,6 +2884,8 @@ export interface ClaudeAdapterV2Options {
   readonly queryRunner: ClaudeAgentSdkQueryRunnerShape;
   readonly scopedLimitNames?: Ref.Ref<ClaudeScopedLimitNames>;
   readonly onUsageLimits?: ServerProviderShape["applyUsageLimits"];
+  /** Adjusts the launch for one session. */
+  readonly prepareSession?: PrepareProviderSession<ClaudeSessionLaunch>;
   /** Sink for wake-turn continuation requests; defaults to dropping them. */
   readonly continuationRequests?: {
     readonly offer: (
@@ -2913,6 +2931,13 @@ export function makeClaudeAdapterV2(
     planSelectionTransition: () => Effect.succeed(turnScopedSelectionTransition()),
     openSession: Effect.fn("ClaudeAdapterV2.openSession")(
       function* (input: ProviderAdapter.ProviderAdapterV2OpenSessionInput) {
+        const baseLaunch: ClaudeSessionLaunch = {
+          environment: adapterOptions.environment,
+          query: {},
+        };
+        const launch = adapterOptions.prepareSession
+          ? yield* adapterOptions.prepareSession(input, baseLaunch)
+          : baseLaunch;
         const sessionScope = yield* Effect.scope;
         const now = yield* DateTime.now;
         const session = providerSession({
@@ -6816,7 +6841,11 @@ export function makeClaudeAdapterV2(
                 cwd: turnInput.runtimePolicy.cwd,
                 attachmentsDir,
                 settings: adapterOptions.settings,
-                environment: adapterOptions.environment,
+                environment: launch.environment,
+                ...(launch.query.sdkSettings === undefined
+                  ? {}
+                  : { sdkSettings: launch.query.sdkSettings as ClaudeSdkSettings }),
+                launch: launch.query,
                 tools: queryPolicy.tools ?? CLAUDE_CODE_PRESET_TOOLS,
                 ...mcpOverrides,
                 permissionMode: queryPolicy.permissionMode,
@@ -7577,7 +7606,10 @@ export type ClaudeAdapterV2DriverEnv =
 export const createClaudeAdapterV2 = Effect.fn("ClaudeAdapterV2Driver.create")(
   function* (
     input: ProviderAdapterDriverCreateInput<ClaudeSettings>,
-    hooks: Pick<ClaudeAdapterV2Options, "scopedLimitNames" | "onUsageLimits"> = {},
+    hooks: Pick<
+      ClaudeAdapterV2Options,
+      "scopedLimitNames" | "onUsageLimits" | "prepareSession"
+    > = {},
   ) {
     const { instanceId, environment, enabled, config } = input;
     const fileSystem = yield* FileSystem.FileSystem;
