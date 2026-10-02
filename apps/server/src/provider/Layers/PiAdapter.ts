@@ -1993,7 +1993,7 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
           return yield* new ProviderAdapterRequestError({
             provider: PROVIDER,
             method: "extension_ui_response",
-            detail: "This Pi approval request is no longer pending.",
+            detail: `Unknown pending approval request: ${requestId}`,
           });
         }
         yield* context.rpc
@@ -2031,7 +2031,7 @@ export const makePiAdapter = Effect.fn("PiAdapter.make")(function* (
           return yield* new ProviderAdapterRequestError({
             provider: PROVIDER,
             method: "extension_ui_response",
-            detail: "This Pi user-input request is no longer pending.",
+            detail: `Unknown pending user-input request: ${requestId}`,
           });
         }
         const answer = answerValue(answers, requestId);

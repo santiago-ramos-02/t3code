@@ -1667,6 +1667,12 @@ describe("PiAdapter session runtime", () => {
           })
           .pipe(Effect.flip);
         expect(duplicate._tag).toBe("ProviderAdapterRequestError");
+        // Orchestration clears a prompt as stale only for this shared wording; any other
+        // detail leaves the thread blocked on a prompt Pi no longer waits for.
+        const staleApproval = yield* adapter
+          .respondToRequest(THREAD_ID, ApprovalRequestId.make("confirm-1"), "accept")
+          .pipe(Effect.flip);
+        expect(staleApproval.message).toContain("Unknown pending approval request: confirm-1");
       }),
     ),
   );
