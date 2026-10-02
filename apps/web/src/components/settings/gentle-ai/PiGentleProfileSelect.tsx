@@ -72,19 +72,15 @@ export function usePiGentleProfiles({
   const nameOf = (slug: string) => models.find((model) => model.slug === slug)?.name;
   const summary =
     current?.error ??
-    (state === null ? (
-      <Skeleton className="h-4 w-48" />
-    ) : !state.available ? (
-      "gentle-pi is not installed in Pi."
-    ) : active === null ? (
-      state.profiles.length === 0 ? (
-        "No profiles yet. Pi runs its own models."
-      ) : (
-        "No profile active. Pi runs its own models."
-      )
-    ) : (
-      gentlePiProfileSummary(active.routing, nameOf)
-    ));
+    (state === null
+      ? null
+      : !state.available
+        ? "gentle-pi is not installed in Pi."
+        : active === null
+          ? state.profiles.length === 0
+            ? "No profiles yet. Pi runs its own models."
+            : "No profile active. Pi runs its own models."
+          : gentlePiProfileSummary(active.routing, nameOf));
 
   const activate = (name: string) => {
     setSwitching(true);

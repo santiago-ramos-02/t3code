@@ -284,7 +284,7 @@ function GentleAiMoreSection({
     <FoldedSettingsSection
       id="gentle-ai-more"
       title="More"
-      summary="Setup, tools, backups, removal"
+      summary="Setup, backups, removal"
       headerPlacement="outside"
     >
       <SettingsRow

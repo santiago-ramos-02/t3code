@@ -54,17 +54,15 @@ export function useGentleAiClaudeProfiles({
   const active = data?.profiles.find((profile) => profile.name === data.active) ?? null;
   const summary =
     profiles.error ??
-    (data === null ? (
-      <Skeleton className="h-4 w-48" />
-    ) : data.profiles.length > 0 && !proxied ? (
-      GENTLE_AI_CLAUDE_PROFILE_NEEDS_PROXY
-    ) : active !== null ? (
-      gentleAiClaudeProfileSummary(active)
-    ) : data.profiles.length === 0 ? (
-      "Which models Claude Code's slots run through a proxy, and what it should use each for. Switch profiles to move work off an account near its limit."
-    ) : (
-      "Claude Code runs its own models."
-    ));
+    (data === null
+      ? null
+      : data.profiles.length > 0 && !proxied
+        ? GENTLE_AI_CLAUDE_PROFILE_NEEDS_PROXY
+        : active !== null
+          ? gentleAiClaudeProfileSummary(active)
+          : data.profiles.length === 0
+            ? "Which models Claude Code's slots run through a proxy, and what it should use each for. Switch profiles to move work off an account near its limit."
+            : "Claude Code runs its own models.");
   const apply = (name: string | null) =>
     void startJob("claude.profiles.apply", { name }).then((error) =>
       error ? onError(error) : undefined,

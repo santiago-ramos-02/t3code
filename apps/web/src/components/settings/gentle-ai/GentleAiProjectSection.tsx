@@ -23,7 +23,7 @@ import { gentleAiJobResult, useGentleAiJob, useGentleAiQuery } from "./useGentle
 
 type Project = { readonly title: string; readonly cwd: string };
 
-const controlSkeleton = <Skeleton className="h-5 w-9" />;
+const controlSkeleton = <Skeleton shape="pill" className="h-5 w-9" />;
 
 /** The switch for reviewing agents' changes before delivery, for every project. */
 function GentleAiReviewRow({ environmentId, disabled, startJob, onError }: GentleAiSectionProps) {
@@ -160,7 +160,7 @@ function ProjectReviewRows({
       />
       <SettingsRow
         title="Review history"
-        description={storeStatus ?? <Skeleton className="h-4 w-40" />}
+        description={storeStatus}
         control={
           <Button
             size="sm"

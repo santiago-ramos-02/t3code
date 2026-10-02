@@ -37,15 +37,13 @@ export function useGentleAiModelPreset({
   const label = preset?.label ?? data?.currentPreset ?? (allDefault ? "Default" : "Custom");
   const summary =
     config.error ??
-    (data === null ? (
-      <Skeleton className="h-4 w-48" />
-    ) : allDefault ? (
-      "Every phase uses Gentle AI's default model."
-    ) : data.currentPreset === null ? (
-      "Custom models per phase."
-    ) : (
-      (preset?.description ?? "The model each phase of Gentle AI's workflow uses.")
-    ));
+    (data === null
+      ? null
+      : allDefault
+        ? "Every phase uses Gentle AI's default model."
+        : data.currentPreset === null
+          ? "Custom models per phase."
+          : (preset?.description ?? "The model each phase of Gentle AI's workflow uses."));
   const choose = (next: string) =>
     void startJob("models.set", { agent, preset: next }).then((error) =>
       error ? onError(error) : undefined,
