@@ -8,8 +8,7 @@
 import {
   defaultInstanceIdForDriver,
   PROVIDER_DISPLAY_NAMES,
-  ProviderDriverKind,
-  type OrchestrationSession,
+  type ProviderDriverKind,
   type ServerProvider,
 } from "@t3tools/contracts";
 
@@ -24,19 +23,6 @@ function humanizeSlug(slug: string): string {
     .replace(/[_-]+/g, " ")
     .trim()
     .replace(/\b\w/g, (char) => char.toUpperCase());
-}
-
-/** Use the projected session state so every client clears startup text on success or failure. */
-export function providerSessionStartupLabel(
-  session: Pick<OrchestrationSession, "status" | "providerName"> | null,
-): string | null {
-  if (session?.status !== "starting") return null;
-  if (session.providerName === "pi") return "Starting Pi";
-  const providerName = session.providerName;
-  const name = providerName
-    ? (PROVIDER_DISPLAY_NAMES[ProviderDriverKind.make(providerName)] ?? humanizeSlug(providerName))
-    : "agent";
-  return `Starting ${name}`;
 }
 
 /**
@@ -86,17 +72,32 @@ export function normalizeProviderAccentColor(value: string | undefined): string 
 
 /**
  * Whether an instance's icon carries the account badge: accent color set, or
- * several instances sharing a driver so the brand glyph alone is ambiguous.
+ * several instances sharing a provider so the brand glyph alone is ambiguous.
+ * ACP agents have distinct glyphs even though they share the registry driver.
  * Shared by the composer trigger, the picker rail, and sidebar/thread rows.
  */
 export function shouldShowInstanceBadge(
-  entry: { readonly driverKind: ProviderDriverKind; readonly accentColor?: string | undefined },
-  entries: Iterable<{ readonly driverKind: ProviderDriverKind }>,
+  entry: {
+    readonly driverKind: ProviderDriverKind;
+    readonly accentColor?: string | undefined;
+    readonly acpRegistryAgentId?: string | undefined;
+  },
+  entries: Iterable<{
+    readonly driverKind: ProviderDriverKind;
+    readonly acpRegistryAgentId?: string | undefined;
+  }>,
 ): boolean {
   if (entry.accentColor) return true;
-  let sharedDriverCount = 0;
+  let sharedProviderCount = 0;
   for (const candidate of entries) {
-    if (candidate.driverKind === entry.driverKind && ++sharedDriverCount > 1) return true;
+    if (candidate.driverKind !== entry.driverKind) continue;
+    if (
+      entry.driverKind === "acpRegistry" &&
+      candidate.acpRegistryAgentId !== entry.acpRegistryAgentId
+    ) {
+      continue;
+    }
+    if (++sharedProviderCount > 1) return true;
   }
   return false;
 }

@@ -1,118 +1,55 @@
-import {
-  PiSettings,
-  ProviderDriverKind,
-  TrimmedNonEmptyString,
-  type ModelCapabilities,
-  type ServerProvider,
-  type ServerProviderModel,
-  type ServerProviderSkill,
-  type ServerProviderSlashCommand,
-} from "@t3tools/contracts";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
-import { compareSemverVersions } from "@t3tools/shared/semver";
-import { resolveSpawnCommand } from "@t3tools/shared/shell";
-import * as DateTime from "effect/DateTime";
+/**
+ * PiDriver — v1 `ProviderDriver` for the Pi coding agent, composing the
+ * orchestrator-v2 adapter (`PiAdapterV2`), the snapshot/probe layer
+ * (`PiProvider`), and Pi-backed text generation.
+ *
+ * Pi state (sessions, settings, extensions, auth) lives in the user's own
+ * `~/.pi/agent`, so continuation identity uses the default instance grouping.
+ */
+import { PiSettings, ProviderDriverKind, type ServerProvider } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
-import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
-import * as Option from "effect/Option";
 import * as Path from "effect/Path";
-import * as PubSub from "effect/PubSub";
-import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
-import * as Semaphore from "effect/Semaphore";
-import * as Stream from "effect/Stream";
 import { HttpClient } from "effect/unstable/http";
-import * as ChildProcess from "effect/unstable/process/ChildProcess";
-import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
+import { ChildProcessSpawner } from "effect/unstable/process";
 
+import * as BackgroundPolicy from "../../background/BackgroundPolicy.ts";
 import * as ServerConfig from "../../config.ts";
+import * as ServerSettings from "../../serverSettings.ts";
 import { makePiTextGeneration } from "../../textGeneration/PiTextGeneration.ts";
+import {
+  PiAdapterV2Driver,
+  type PiAdapterV2DriverEnv,
+} from "../../orchestration-v2/Adapters/PiAdapterV2.ts";
 import { ProviderDriverError } from "../Errors.ts";
-import { makePiAdapter, PiAdapterAttachmentReadError } from "../Layers/PiAdapter.ts";
-import { materializePiMcpExtension } from "../pi-mcp/PiMcpBridgeMaterializer.ts";
+import {
+  buildInitialPiProviderSnapshot,
+  checkPiProviderStatus,
+  enrichPiSnapshot,
+} from "../Layers/PiProvider.ts";
+import { makeManagedServerProvider } from "../makeManagedServerProvider.ts";
+import {
+  defaultProviderContinuationIdentity,
+  type ProviderDriver,
+  type ProviderInstance,
+} from "../ProviderDriver.ts";
+import type { ServerProviderDraft } from "../providerSnapshot.ts";
 import { mergeProviderInstanceEnvironment } from "../ProviderInstanceEnvironment.ts";
-import { makePiGentleSettings } from "../PiGentleSettings.ts";
-import { PiPlainExtensionError, piPackages, plainPiExtensionArgs } from "../PiPlainExtensions.ts";
-import {
-  makePiRpc,
-  PI_STARTUP_REQUEST_TIMEOUT,
-  PI_THINKING_LEVELS,
-  type PiRpcOptions,
-  type PiThinkingLevel,
-} from "../PiRpc.ts";
-import {
-  buildServerProvider,
-  COMPACT_SLASH_COMMAND,
-  isCommandMissingCause,
-  parseGenericCliVersion,
-  providerModelsFromSettings,
-  spawnAndCollect,
-} from "../providerSnapshot.ts";
 import {
   makeCachedProviderMaintenanceResolution,
   makePackageManagedProviderMaintenanceResolver,
   resolveProviderMaintenanceCapabilitiesEffect,
 } from "../providerMaintenance.ts";
 import {
-  defaultProviderContinuationIdentity,
-  type ProviderDriver,
-  type ProviderInstance,
-} from "../ProviderDriver.ts";
-import { withInstanceIdentity } from "./instanceIdentity.ts";
+  haveProviderSnapshotSettingsChanged,
+  makeProviderSnapshotSettingsSource,
+  type ProviderSnapshotSettings,
+} from "../providerUpdateSettings.ts";
+
+const decodePiSettings = Schema.decodeSync(PiSettings);
 
 const DRIVER_KIND = ProviderDriverKind.make("pi");
-const MINIMUM_PI_VERSION = "0.86.1";
-const PI_RPC_ARGS = ["--no-session"] as const;
-const VERSION_TIMEOUT = "4 seconds";
-const PROCESS_FORCE_KILL_AFTER = "1 second";
-const decodePiSettings = Schema.decodeSync(PiSettings);
-const PiModelSchema = Schema.Struct({
-  id: TrimmedNonEmptyString,
-  name: TrimmedNonEmptyString,
-  provider: TrimmedNonEmptyString,
-  reasoning: Schema.Boolean,
-  thinkingLevelMap: Schema.optionalKey(
-    Schema.Struct({
-      off: Schema.optionalKey(Schema.NullOr(Schema.String)),
-      minimal: Schema.optionalKey(Schema.NullOr(Schema.String)),
-      low: Schema.optionalKey(Schema.NullOr(Schema.String)),
-      medium: Schema.optionalKey(Schema.NullOr(Schema.String)),
-      high: Schema.optionalKey(Schema.NullOr(Schema.String)),
-      xhigh: Schema.optionalKey(Schema.NullOr(Schema.String)),
-      max: Schema.optionalKey(Schema.NullOr(Schema.String)),
-    }),
-  ),
-  input: Schema.Array(Schema.Literals(["text", "image"])),
-});
-const decodeModelsResponse = Schema.decodeUnknownEffect(
-  Schema.Struct({
-    data: Schema.Struct({
-      models: Schema.Array(PiModelSchema),
-    }),
-  }),
-);
-const PiCommandSchema = Schema.Struct({
-  name: TrimmedNonEmptyString,
-  description: Schema.optionalKey(TrimmedNonEmptyString),
-  source: Schema.Literals(["extension", "prompt", "skill"]),
-  sourceInfo: Schema.Struct({
-    path: TrimmedNonEmptyString,
-    source: TrimmedNonEmptyString,
-    scope: Schema.Literals(["user", "project", "temporary"]),
-    origin: Schema.Literals(["package", "top-level"]),
-    baseDir: Schema.optionalKey(TrimmedNonEmptyString),
-  }),
-});
-const decodeCommandsResponse = Schema.decodeUnknownEffect(
-  Schema.Struct({
-    data: Schema.Struct({
-      commands: Schema.Array(PiCommandSchema),
-    }),
-  }),
-);
-
-// Pi updates through the package manager that installed it, and installs with npm when missing.
 const UPDATE = makePackageManagedProviderMaintenanceResolver({
   provider: DRIVER_KIND,
   npmPackageName: "@earendil-works/pi-coding-agent",
@@ -120,181 +57,30 @@ const UPDATE = makePackageManagedProviderMaintenanceResolver({
 });
 
 export type PiDriverEnv =
+  | PiAdapterV2DriverEnv
+  | BackgroundPolicy.BackgroundPolicy
   | ChildProcessSpawner.ChildProcessSpawner
   | FileSystem.FileSystem
   | HttpClient.HttpClient
   | Path.Path
-  | ServerConfig.ServerConfig;
+  | ServerConfig.ServerConfig
+  | ServerSettings.ServerSettingsService;
 
-type PiModel = typeof PiModelSchema.Type;
-type PiCommand = typeof PiCommandSchema.Type;
-
-function titleCase(value: string): string {
-  return value
-    .split(/[-_]+/)
-    .filter((part) => part.length > 0)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
-function thinkingLevelsForModel(model: PiModel): ReadonlyArray<PiThinkingLevel> {
-  if (!model.reasoning) return ["off"];
-  return PI_THINKING_LEVELS.filter((level) => {
-    const mapped = model.thinkingLevelMap?.[level];
-    if (mapped === null) return false;
-    return level !== "xhigh" && level !== "max" ? true : mapped !== undefined;
-  });
-}
-
-function modelCapabilities(model: PiModel): ModelCapabilities | null {
-  if (!model.reasoning) return null;
-  const levels = thinkingLevelsForModel(model);
-  if (levels.length === 0) return { optionDescriptors: [] };
-  const defaultLevel = levels.includes("medium")
-    ? "medium"
-    : (levels.find((level) => level !== "off") ?? levels[0]);
-  return {
-    optionDescriptors: [
-      {
-        id: "thinkingLevel",
-        label: "Thinking level",
-        type: "select",
-        options: levels.map((level) => ({
-          id: level,
-          label: titleCase(level),
-          ...(level === defaultLevel ? { isDefault: true } : {}),
-        })),
-        ...(defaultLevel === undefined ? {} : { currentValue: defaultLevel }),
-      },
-    ],
-  };
-}
-
-function toServerProviderModel(model: PiModel): ServerProviderModel {
-  return {
-    slug: `${model.provider}/${model.id}`,
-    name: model.name,
-    subProvider: model.provider,
-    isCustom: false,
-    capabilities: modelCapabilities(model),
-  };
-}
-
-function dedupeSlashCommands(
-  commands: ReadonlyArray<ServerProviderSlashCommand>,
-): ReadonlyArray<ServerProviderSlashCommand> {
-  const byName = new Map<string, ServerProviderSlashCommand>();
-  byName.set(COMPACT_SLASH_COMMAND.name, COMPACT_SLASH_COMMAND);
-  for (const command of commands) {
-    if (!byName.has(command.name)) byName.set(command.name, command);
-  }
-  return [...byName.values()];
-}
-
-function commandName(command: PiCommand): string {
-  return command.name.startsWith("/") ? command.name.slice(1) : command.name;
-}
-
-function skillName(command: PiCommand): string {
-  const name = commandName(command);
-  return name.startsWith("skill:") ? name.slice("skill:".length) : name;
-}
-
-/**
- * gentle-pi commands that only drive its terminal UI: panels Pi cannot show over RPC, and
- * preferences for its TUI chrome. T3 Code offers native equivalents for profiles, model routing,
- * and subagents, so these stay out of the composer.
- */
-const GENTLE_TUI_ONLY_COMMANDS = new Set([
-  "gentle:models",
-  "gentle:profiles",
-  "gentle:agents",
-  "gentle:usage",
-  "gentle:changes",
-  "gentle:commands",
-  "gentle:animations",
-  "gentle:double-esc-cancel",
-  "gentle:banner",
-  "gentle:banner-color",
-  "gentle:toggle-rose",
-  "gentle:toggle-text-logo",
-  "gentle:customize",
-  "gentle:vim",
-  "history",
-]);
-
-function isGentleTuiOnlyCommand(command: PiCommand): boolean {
-  return (
-    GENTLE_TUI_ONLY_COMMANDS.has(commandName(command)) &&
-    [command.sourceInfo.source, command.sourceInfo.path].some((location) =>
-      /(?:^|[:/\\])gentle-pi(?:$|[@/\\])/.test(location),
-    )
-  );
-}
-
-/** The package a command or skill comes from, by its manifest name when Pi installed it. */
-function commandPackage(
-  command: PiCommand,
-  packageNames: ReadonlyMap<string, string>,
-): { readonly package?: string } {
-  if (command.sourceInfo.origin !== "package") return {};
-  const source = command.sourceInfo.source;
-  const npmName = /^npm:((?:@[^/@]+\/)?[^/@]+)/.exec(source)?.[1];
-  return { package: packageNames.get(source) ?? npmName ?? source };
-}
-
-function workspaceInventory(
-  commands: ReadonlyArray<PiCommand>,
-  packageNames: ReadonlyMap<string, string>,
-): {
-  readonly slashCommands: ReadonlyArray<ServerProviderSlashCommand>;
-  readonly skills: ReadonlyArray<ServerProviderSkill>;
-} {
-  return {
-    slashCommands: dedupeSlashCommands(
-      commands.flatMap((command) => {
-        const name = commandName(command);
-        return command.source === "skill" || name.length === 0 || isGentleTuiOnlyCommand(command)
-          ? []
-          : [
-              {
-                name,
-                ...(command.description === undefined ? {} : { description: command.description }),
-                ...commandPackage(command, packageNames),
-              },
-            ];
-      }),
-    ),
-    skills: commands.flatMap((command) => {
-      const name = skillName(command);
-      return command.source !== "skill" || name.length === 0
-        ? []
-        : [
-            {
-              name,
-              ...(command.description === undefined ? {} : { description: command.description }),
-              path: command.sourceInfo.path,
-              scope: command.sourceInfo.scope,
-              enabled: true,
-              ...commandPackage(command, packageNames),
-            },
-          ];
-    }),
-  };
-}
-
-function discoveryError(input: {
-  readonly instanceId: ProviderInstance["instanceId"];
-  readonly detail: string;
-  readonly cause?: unknown;
-}): ProviderDriverError {
-  return new ProviderDriverError({
-    driver: DRIVER_KIND,
+const withInstanceIdentity =
+  (input: {
+    readonly instanceId: ProviderInstance["instanceId"];
+    readonly displayName: string | undefined;
+    readonly accentColor: string | undefined;
+    readonly continuationGroupKey: string;
+  }) =>
+  (snapshot: ServerProviderDraft): ServerProvider => ({
+    ...snapshot,
     instanceId: input.instanceId,
-    detail: input.detail,
-    ...(input.cause === undefined ? {} : { cause: input.cause }),
+    driver: DRIVER_KIND,
+    ...(input.displayName ? { displayName: input.displayName } : {}),
+    ...(input.accentColor ? { accentColor: input.accentColor } : {}),
+    continuation: { groupKey: input.continuationGroupKey },
   });
-}
 
 export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
   driverKind: DRIVER_KIND,
@@ -308,10 +94,21 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
     Effect.gen(function* () {
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
       const fileSystem = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const serverConfig = yield* ServerConfig.ServerConfig;
-      const hostPlatform = yield* HostProcessPlatform;
+      const pathService = yield* Path.Path;
+      const httpClient = yield* HttpClient.HttpClient;
+      const { cwd } = yield* ServerConfig.ServerConfig;
+      const serverSettings = yield* ServerSettings.ServerSettingsService;
       const processEnv = mergeProviderInstanceEnvironment(environment);
+      const continuationIdentity = defaultProviderContinuationIdentity({
+        driverKind: DRIVER_KIND,
+        instanceId,
+      });
+      const stampIdentity = withInstanceIdentity({
+        instanceId,
+        displayName,
+        accentColor,
+        continuationGroupKey: continuationIdentity.continuationKey,
+      });
       const effectiveConfig = { ...config, enabled } satisfies PiSettings;
       const resolveMaintenance = yield* makeCachedProviderMaintenanceResolution(
         resolveProviderMaintenanceCapabilitiesEffect(UPDATE, {
@@ -320,408 +117,67 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
         }).pipe(
           Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
           Effect.provideService(FileSystem.FileSystem, fileSystem),
-          Effect.provideService(Path.Path, path),
+          Effect.provideService(Path.Path, pathService),
         ),
       );
-      // Global model discovery loads user extensions, some of which initialize
-      // project-local files. Keep that probe out of the server's source checkout.
-      const discoveryCwd = path.join(serverConfig.stateDir, "pi-discovery");
-      yield* fileSystem.makeDirectory(discoveryCwd, { recursive: true }).pipe(
-        Effect.mapError(
-          (cause) =>
-            new ProviderDriverError({
-              driver: DRIVER_KIND,
-              instanceId,
-              detail: "Pi discovery directory creation failed.",
-              cause,
-            }),
-        ),
-      );
-      const piMcpExtensionPath = yield* materializePiMcpExtension(serverConfig.stateDir).pipe(
-        Effect.mapError(
-          (cause) =>
-            new ProviderDriverError({
-              driver: DRIVER_KIND,
-              instanceId,
-              detail: "Pi MCP bridge materialization failed.",
-              cause,
-            }),
-        ),
-      );
-      const continuationIdentity = defaultProviderContinuationIdentity({
-        driverKind: DRIVER_KIND,
+
+      const orchestrationAdapter = yield* PiAdapterV2Driver.create({
         instanceId,
-      });
-      const stampIdentity = withInstanceIdentity({
-        instanceId,
-        driverKind: DRIVER_KIND,
         displayName,
         accentColor,
-        continuationGroupKey: continuationIdentity.continuationKey,
-      });
-      const changes = yield* Effect.acquireRelease(
-        PubSub.unbounded<ServerProvider>(),
-        PubSub.shutdown,
-      );
-      const discoverySemaphore = yield* Semaphore.make(1);
-
-      // Whether Pi loads gentle-pi, from its last successful version check; null until then.
-      const gentleAiRef = yield* Ref.make<boolean | null>(null);
-      const makeSnapshot = Effect.fn("PiDriver.makeSnapshot")(function* (input: {
-        readonly installed: boolean;
-        readonly version: string | null;
-        readonly status: "ready" | "warning" | "error";
-        readonly message?: string;
-        readonly models: ReadonlyArray<ServerProviderModel>;
-        readonly auth?: ServerProvider["auth"];
-      }) {
-        const checkedAt = DateTime.formatIso(yield* DateTime.now);
-        const gentleAi = yield* Ref.get(gentleAiRef);
-        const provider = stampIdentity(
-          buildServerProvider({
-            presentation: { displayName: "Pi", showInteractionModeToggle: false },
-            enabled: effectiveConfig.enabled,
-            checkedAt,
-            models: input.models,
-            slashCommands: [COMPACT_SLASH_COMMAND],
-            skills: [],
-            probe: {
-              installed: input.installed,
-              version: input.version,
-              status: input.status,
-              auth: input.auth ?? { status: "unknown" },
-              ...(input.message === undefined ? {} : { message: input.message }),
-            },
-          }),
-        );
-        // Pi answers either way, so gentle-ai's own record never speaks for it.
-        return gentleAi === null || !input.installed ? provider : { ...provider, gentleAi };
-      });
-
-      const initialModels = providerModelsFromSettings([], effectiveConfig.customModels, {});
-      const initialSnapshot = yield* makeSnapshot({
-        installed: false,
-        version: null,
-        status: "error",
-        ...(effectiveConfig.enabled
-          ? { message: "Pi version has not been checked yet." }
-          : { message: "Pi is disabled." }),
-        models: initialModels,
-      });
-      const snapshotRef = yield* Ref.make(initialSnapshot);
-
-      const publish = Effect.fn("PiDriver.publish")(function* (next: ServerProvider) {
-        yield* Ref.set(snapshotRef, next);
-        yield* PubSub.publish(changes, next);
-        return next;
-      });
-
-      const checkVersion = Effect.fn("PiDriver.checkVersion")(
-        function* () {
-          const current = yield* Ref.get(snapshotRef);
-          if (!effectiveConfig.enabled) {
-            return yield* makeSnapshot({
-              installed: false,
-              version: null,
-              status: "error",
-              message: "Pi is disabled.",
-              models: current.models,
-            });
-          }
-
-          const execution = yield* Effect.gen(function* () {
-            const resolved = yield* resolveSpawnCommand(effectiveConfig.binaryPath, ["--version"], {
-              env: processEnv,
-            });
-            return yield* spawnAndCollect(
-              effectiveConfig.binaryPath,
-              ChildProcess.make(resolved.command, resolved.args, {
-                cwd: discoveryCwd,
-                detached: hostPlatform !== "win32",
-                env: processEnv,
-                extendEnv: false,
-                forceKillAfter: PROCESS_FORCE_KILL_AFTER,
-                shell: resolved.shell,
-              }),
-            );
-          }).pipe(
-            Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
-            Effect.provideService(HostProcessPlatform, hostPlatform),
-            Effect.timeoutOption(VERSION_TIMEOUT),
-          );
-
-          if (Option.isNone(execution)) {
-            return yield* makeSnapshot({
-              installed: true,
-              version: null,
-              status: "error",
-              message: "Pi version check timed out.",
-              models: current.models,
-            });
-          }
-
-          const result = execution.value;
-          if (result.code !== 0) {
-            return yield* makeSnapshot({
-              installed: true,
-              version: null,
-              status: "error",
-              message: `Pi version check exited with code ${result.code}.`,
-              models: current.models,
-            });
-          }
-          const version = parseGenericCliVersion(result.stdout);
-          if (version === null) {
-            return yield* makeSnapshot({
-              installed: true,
-              version: null,
-              status: "error",
-              message: "Pi returned an unrecognized version.",
-              models: current.models,
-            });
-          }
-          if (compareSemverVersions(version, MINIMUM_PI_VERSION) < 0) {
-            return yield* makeSnapshot({
-              installed: true,
-              version,
-              status: "error",
-              message: `Pi ${MINIMUM_PI_VERSION} or newer is required.`,
-              models: current.models,
-            });
-          }
-          // Pi gets Gentle AI through the gentle-pi package, so Pi's own packages decide.
-          yield* Ref.set(
-            gentleAiRef,
-            yield* piPackages({ environment: processEnv }).pipe(
-              Effect.provideService(FileSystem.FileSystem, fileSystem),
-              Effect.provideService(Path.Path, path),
-              Effect.map((packages) =>
-                packages.some((entry) => entry.manifest?.name === "gentle-pi"),
-              ),
-              Effect.orElseSucceed(() => false),
-            ),
-          );
-          return yield* makeSnapshot({
-            installed: true,
-            version,
-            status: "ready",
-            models: current.models,
-            auth: current.auth,
-          });
-        },
-        Effect.catch((cause) =>
-          Ref.get(snapshotRef).pipe(
-            Effect.flatMap((current) =>
-              makeSnapshot({
-                installed: !isCommandMissingCause(cause),
-                version: null,
-                status: "error",
-                message: isCommandMissingCause(cause)
-                  ? `Pi CLI (${effectiveConfig.binaryPath}) is not installed or not on PATH.`
-                  : "Pi version check failed.",
-                models: current.models,
-              }),
-            ),
-          ),
+        environment,
+        enabled,
+        config,
+      }).pipe(
+        Effect.mapError(
+          (cause) =>
+            new ProviderDriverError({
+              driver: DRIVER_KIND,
+              instanceId,
+              detail: "Failed to build Pi orchestration adapter.",
+              cause,
+            }),
         ),
       );
+      const textGeneration = yield* makePiTextGeneration(effectiveConfig, processEnv);
 
-      // Unlocked version check plus publication. Callers must hold
-      // `discoverySemaphore` so a concurrent model discovery cannot be
-      // overwritten by a stale `current.models` read.
-      const checkAndPublishVersion = checkVersion().pipe(Effect.flatMap(publish));
+      const checkProvider = checkPiProviderStatus(effectiveConfig, processEnv, cwd).pipe(
+        Effect.map(stampIdentity),
+        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+      );
 
-      // Unlocked model discovery plus publication. Callers must hold
-      // `discoverySemaphore` for the same reason as above.
-      const discoverAndPublishModels = !effectiveConfig.enabled
-        ? Effect.fail(
-            discoveryError({
-              instanceId,
-              detail: "Cannot discover Pi models while the instance is disabled.",
-            }),
-          )
-        : Effect.scoped(
-            Effect.gen(function* () {
-              const rpc = yield* makePiRpc({
-                binaryPath: effectiveConfig.binaryPath,
-                cwd: discoveryCwd,
-                args: PI_RPC_ARGS,
-                environment: processEnv,
-              });
-              const modelsResponse = yield* rpc.request(
-                { type: "get_available_models" },
-                { timeout: PI_STARTUP_REQUEST_TIMEOUT },
-              );
-              const { data: modelsData } = yield* decodeModelsResponse(modelsResponse);
-              const discoveredModels = modelsData.models.map(toServerProviderModel);
-              const models = providerModelsFromSettings(
-                discoveredModels,
-                effectiveConfig.customModels,
-                {},
-              );
-              const current = yield* Ref.get(snapshotRef);
-              const upstreamCount = new Set(modelsData.models.map((model) => model.provider)).size;
-              yield* publish({
-                ...current,
-                models,
-                status: upstreamCount > 0 ? "ready" : "warning",
-                auth: { status: "unknown" },
-                message:
-                  upstreamCount > 0
-                    ? `${upstreamCount} model provider${upstreamCount === 1 ? "" : "s"}.`
-                    : "Pi found no available models. Connect a model provider in Pi, then refresh status.",
-              });
-            }),
-          ).pipe(
-            Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
-            Effect.provideService(HostProcessPlatform, hostPlatform),
-            Effect.mapError((cause) =>
-              discoveryError({
-                instanceId,
-                detail: "Pi model discovery failed.",
-                cause,
-              }),
-            ),
-          );
-
-      const snapshot = {
+      const snapshotSettings = makeProviderSnapshotSettingsSource(effectiveConfig, serverSettings);
+      const snapshot = yield* makeManagedServerProvider<ProviderSnapshotSettings<PiSettings>>({
         resolveMaintenance,
-        getSnapshot: Ref.get(snapshotRef),
-        refresh: discoverySemaphore.withPermits(1)(checkAndPublishVersion).pipe(Effect.orDie),
-        applyUsageLimits: () => Effect.void,
-        get streamChanges() {
-          return Stream.fromPubSub(changes);
-        },
-      } satisfies ProviderInstance["snapshot"];
-
-      const refreshModels = () => discoverySemaphore.withPermits(1)(discoverAndPublishModels);
-
-      // Startup holds the discovery semaphore once for the whole version
-      // check plus model discovery so a concurrent refresh cannot publish a
-      // stale model list in between. Inner effects are used directly to
-      // avoid re-acquiring the semaphore (which would deadlock).
-      const startupDiscovery = discoverySemaphore
-        .withPermits(1)(
-          Effect.gen(function* () {
-            const next = yield* checkAndPublishVersion;
-            if (next.status !== "ready") return;
-            const discoveryExit = yield* Effect.exit(discoverAndPublishModels);
-            if (Exit.isFailure(discoveryExit)) {
-              const current = yield* Ref.get(snapshotRef);
-              const warning = yield* makeSnapshot({
-                installed: current.installed,
-                version: current.version,
-                status: "warning",
-                message: "Pi model discovery failed.",
-                models: current.models,
-              });
-              yield* publish(warning);
-            }
-          }),
-        )
-        .pipe(Effect.ignoreCause());
-      if (effectiveConfig.enabled) {
-        yield* Effect.forkScoped(startupDiscovery);
-      }
-
-      const snapshotForCwd = (cwd: string) =>
-        !effectiveConfig.enabled
-          ? snapshot.getSnapshot
-          : Effect.scoped(
-              Effect.gen(function* () {
-                const rpc = yield* makePiRpc({
-                  binaryPath: effectiveConfig.binaryPath,
-                  cwd,
-                  args: PI_RPC_ARGS,
-                  environment: processEnv,
-                });
-                const response = yield* rpc.request(
-                  { type: "get_commands" },
-                  { timeout: PI_STARTUP_REQUEST_TIMEOUT },
-                );
-                const { data } = yield* decodeCommandsResponse(response);
-                const modelsResponse = yield* rpc.request(
-                  { type: "get_available_models" },
-                  { timeout: PI_STARTUP_REQUEST_TIMEOUT },
-                );
-                const { data: modelsData } = yield* decodeModelsResponse(modelsResponse);
-                const packageNames = new Map(
-                  (yield* piPackages({ cwd, environment: processEnv }).pipe(
-                    Effect.provideService(FileSystem.FileSystem, fileSystem),
-                    Effect.provideService(Path.Path, path),
-                    Effect.orElseSucceed(() => []),
-                  )).flatMap((entry) =>
-                    entry.manifest?.name === undefined ? [] : [[entry.source, entry.manifest.name]],
-                  ),
-                );
-                const inventory = workspaceInventory(data.commands, packageNames);
-                const base = yield* snapshot.getSnapshot;
-                return {
-                  ...base,
-                  models: providerModelsFromSettings(
-                    modelsData.models.map(toServerProviderModel),
-                    effectiveConfig.customModels,
-                    {},
-                  ),
-                  slashCommands: inventory.slashCommands,
-                  skills: inventory.skills,
-                };
+        getSettings: snapshotSettings.getSettings,
+        streamSettings: snapshotSettings.streamSettings,
+        haveSettingsChanged: haveProviderSnapshotSettingsChanged,
+        initialSnapshot: (settings) =>
+          buildInitialPiProviderSnapshot(settings.provider).pipe(Effect.map(stampIdentity)),
+        checkProvider,
+        enrichSnapshot: ({ settings, snapshot: currentSnapshot, publishSnapshot }) =>
+          resolveMaintenance().pipe(
+            Effect.flatMap((maintenanceCapabilities) =>
+              enrichPiSnapshot({
+                snapshot: currentSnapshot,
+                maintenanceCapabilities,
+                enableProviderUpdateChecks: settings.enableProviderUpdateChecks,
+                publishSnapshot,
+                httpClient,
               }),
-            ).pipe(
-              Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
-              Effect.provideService(HostProcessPlatform, hostPlatform),
-              Effect.mapError((cause) =>
-                discoveryError({
-                  instanceId,
-                  detail: `Pi workspace discovery failed for '${cwd}'.`,
-                  cause,
-                }),
-              ),
-            );
-
-      const rpcFactory = (rpcOptions: PiRpcOptions) =>
-        makePiRpc(rpcOptions).pipe(
-          Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
-          Effect.provideService(HostProcessPlatform, hostPlatform),
-        );
-      const adapter = yield* makePiAdapter({
-        instanceId,
-        binaryPath: effectiveConfig.binaryPath,
-        environment: processEnv,
-        mcpExtensionPath: piMcpExtensionPath,
-        attachmentsDir: serverConfig.attachmentsDir,
-        normalizeWorkspaceCwd: path.resolve,
-        rpcFactory,
-        readFile: (path) =>
-          fileSystem
-            .readFile(path)
-            .pipe(Effect.mapError((cause) => new PiAdapterAttachmentReadError({ cause }))),
-        plainExtensionArgs: (cwd) =>
-          plainPiExtensionArgs({ cwd, environment: processEnv }).pipe(
-            Effect.provideService(FileSystem.FileSystem, fileSystem),
-            Effect.provideService(Path.Path, path),
-            Effect.mapError(
-              (cause) =>
-                new PiPlainExtensionError({
-                  detail: "Pi extensions could not be resolved for this thread.",
-                  cause,
-                }),
             ),
           ),
-      });
-      const textGeneration = yield* makePiTextGeneration({
-        binaryPath: effectiveConfig.binaryPath,
-        environment: processEnv,
-        rpcFactory,
-      });
-      const piGentle = yield* makePiGentleSettings({
-        environment: processEnv,
-        httpClient: yield* HttpClient.HttpClient,
-        piBinaryPath: effectiveConfig.binaryPath,
-        fileSystem,
-        path,
-        spawner,
-      });
+      }).pipe(
+        Effect.mapError(
+          (cause) =>
+            new ProviderDriverError({
+              driver: DRIVER_KIND,
+              instanceId,
+              detail: "Failed to build Pi snapshot.",
+              cause,
+            }),
+        ),
+      );
 
       return {
         instanceId,
@@ -730,11 +186,8 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
         displayName,
         accentColor,
         enabled,
-        piGentle,
         snapshot,
-        snapshotForCwd,
-        refreshModels,
-        adapter,
+        orchestrationAdapter,
         textGeneration,
       } satisfies ProviderInstance;
     }),

@@ -1,89 +1,67 @@
 # Pi
 
-T3 Code uses the Pi installation and configuration already present on the selected
-environment. Pi 0.86.1 or newer is required. There is no separate T3 Code sign-in
-or provider-managed installation.
+T3 Code can use your existing Pi coding agent installation while keeping Pi's models, auth,
+extensions, skills, context files, and native session history.
 
-## Set up Pi
+## Set Up Pi
 
-Install Pi on the machine that runs your projects, not on the phone or remote
-browser you use to control T3 Code. When Pi is enabled but missing, its card in
-**Settings > Providers** offers **Install**, which installs it with npm on that
-machine; it needs Node.js there. The mobile app offers the same in the
-environment's provider list. Or run it yourself:
+1. Install Pi on the machine running the T3 Code server. Pi 1.0 is recommended; 0.80.5 is the
+   oldest version T3 Code supports.
+2. Run Pi once in a terminal and finish the provider login or API-key setup you normally use.
+3. Open T3 Code Settings, enable Pi, and refresh the provider.
 
-```bash
-npm install -g @earendil-works/pi-coding-agent@latest
-pi --version
-```
+If `pi` is not on the server's `PATH`, set Pi's binary path to the executable. Provider environment
+variables and launch arguments are also available for installations that need a custom agent
+directory, endpoint, or model configuration. `--provider` must be paired with `--model`. T3 Code
+rejects launch arguments that change Pi's execution mode or select a session because T3 owns those
+parts of the process lifecycle.
 
-Set up credentials and other Pi preferences with Pi as usual. Pi can use several
-upstream model providers. Run `pi` on the project environment and use `/login`
-to connect one, or set that provider's API key in **Settings > Providers > Pi >
-Environment**. T3 Code reuses Pi's configuration and shows its available model
-providers and models in Pi settings. Select any of those models in
-T3 Code's model picker. Models registered by a project-local Pi extension appear
-in that project's picker. T3 Code also reuses Pi's skills and custom commands.
-Installed Pi extensions also run in T3 Code threads, and their questions and
-confirmations appear in the thread. In a **Full access** thread, T3 Code confirms
-them for you, such as gentle-pi's prompt before a command that deletes files, and
-lists each one in the thread; commands an extension blocks outright stay blocked.
-T3-managed Pi threads use Pi's native persisted sessions for resume behavior;
-T3 Code does not discover or import arbitrary standalone Pi sessions.
+## What Carries Over
 
-In the web or desktop app, open **Settings > Providers**, select the environment,
-and enable **Pi**. Pi must be on that environment's `PATH`. If it was installed by
-a version manager or lives elsewhere, set **Binary path** to its executable. While
-Pi is missing or has no model provider yet, the Pi card's **Setup** section shows
-the command to run.
+T3 Code discovers the models reported by Pi and exposes their supported thinking levels. The
+thinking picker marks Pi's current configured level as the default without overriding it. Threads
+use Pi's native session files for resume, rollback, and forks within the same Pi instance. Forks
+preserve the native conversation through the selected turn in the destination workspace.
+Switching providers uses portable conversation context. Extension
+dialogs appear in the T3 Code composer, and the composer context meter follows Pi's own usage
+reporting while a response streams and after it settles.
 
-Choose **Refresh provider status** after changing Pi configuration. The provider
-card shows the detected version, available model providers, and status. A refresh
-reloads Pi's current available model catalog after changing credentials.
-Mobile uses the same provider and models from the connected environment. Set
-Pi's binary path and credentials in web or desktop settings.
+Pi skills appear in the composer's `$` menu. This includes user skills and project skills that Pi
+loads for the current workspace; selecting one uses Pi's native skill expansion.
 
-## Gentle AI
+Pi loads its normal user and project extensions. Blocking `select`, `confirm`, `input`, and `editor`
+dialogs work in T3 Code. Notifications appear in the work log. Pi terminal decoration such as
+titles, status lines, and widgets does not have a T3 Code equivalent.
 
-Pi gets [Gentle AI](./gentle-ai.md) through the optional gentle-pi package. T3
-Code shows its controls only when Pi on the project environment loads it,
-globally or for that project. Install it with Pi, for example
-`pi install npm:gentle-pi`, then choose **Refresh provider status**. When an
-installed copy is older than 3.5, **Settings > Gentle AI** offers to update it.
+## Permission Modes
 
-Its subagents appear in the thread's Agents panel with live progress and
-results, and its todo list appears as the composer's task progress while the
-turn runs. Its slash commands work in threads; commands that report a result,
-such as `/gentle:status` or `/gentle:doctor`, show it in the thread. Commands
-that only drive Pi's terminal interface, such as `/gentle:profiles`, are not
-offered; T3 Code's own profile and model routing settings replace them.
+T3 Code applies the composer permission mode through Pi's blocking tool hook:
 
-Switch gentle-pi's profile from Pi's row under **Your agents** in **Settings >
-Gentle AI**. **Open** on that row shows the global persona and every profile as
-a table of roles with the model and effort each runs. The active global profile
-applies unless the repository declares one or the local checkout has a pin. To
-pin a profile or override the persona for one project, choose the project at
-the top of **Settings > Gentle AI**; its section shows which source applies. As
-in Pi, activating a profile also makes its `orchestrator` entry Pi's default
-model. Changes to routing and persona take effect when a Pi session starts or
-reloads. On mobile, project profile and persona controls are in **Project
-overview**.
+- **Supervised** asks before commands, file changes, and extension tools. Read-only tools continue.
+- **Auto-accept edits** allows Pi's edit and write tools, but asks before commands and extension
+  tools.
+- **Full access** allows tools without T3 Code approval prompts.
 
-To switch profiles from a Pi thread, open the Gentle AI dropdown and choose one
-under **Profile**. This applies it the way Pi's `/gentle:profiles` does: it
-becomes the active profile, or, if the project has a pin, the pin moves to it.
-The thread also switches to the profile's orchestrator model and thinking level
-for its next message. You can still pick a different model for the thread
-afterward. Choosing the current profile again moves the thread back to its
-orchestrator. A profile without an orchestrator keeps the thread's model.
+The **Auto** option is not shown for Pi because Pi does not expose an AI approval reviewer.
+Threads that already stored Auto before Pi support was added behave and display as Supervised.
 
-A Pi thread with Gentle AI off loads none of its packages. Other installed Pi
-extensions, skills, and prompts remain available.
+Changing the mode restarts the Pi provider session and resumes the same native conversation. The
+policy covers Pi tool calls; it is not an operating-system sandbox, and code that a trusted Pi
+extension runs outside a tool call remains governed by Pi's own extension trust model.
 
-A profile pinned for a checkout stays on your machine.
+T3 Code's `delegate_task` tool creates durable child threads in the shared subagent UI. If the user
+installs Pi's example `subagent` extension, T3 Code also shows its task progress and results in that
+UI. Pi runs those children without a session, so they cannot be opened or resumed as T3 Code
+threads.
 
-## T3 Code tools
+## Troubleshooting
 
-Each Pi thread automatically receives T3 Code's tools for that thread. No Pi
-extension or MCP configuration is required. Tool access ends with the thread and
-does not change your global Pi configuration.
+- If Pi is unavailable, confirm that the configured binary runs on the server machine, then refresh
+  the provider in Settings.
+- If no models appear, open Pi directly and confirm its authentication and model configuration.
+- If discovery cannot complete, T3 Code keeps Pi available with the `Pi default` model. Start a
+  thread to let the interactive Pi session handle any startup prompt.
+- If a project extension is missing, approve the project in Pi, then start a fresh provider session.
+- If a project skill is missing from the `$` menu, approve the project in Pi and refresh the provider.
+- The context meter appears once Pi reports usage for the thread. Some model providers only
+  report usage when a response completes, so the meter can wait for the first reply.
