@@ -30,8 +30,10 @@ import {
   HostProcessPlatform,
 } from "@t3tools/shared/hostProcess";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
+import * as Cache from "effect/Cache";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
+import * as Data from "effect/Data";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -69,6 +71,41 @@ const HOSTED_PROFILE_METHODS: ReadonlySet<string> = new Set([
   "claude.profiles.save",
 ]);
 const FootprintRemoved = Schema.Struct({ removed: Schema.Array(Schema.String) });
+
+/** One read of gentle-ai's API; equal method and params are the same read. */
+class QueryKey extends Data.Class<{
+  readonly method: GentleAiQueryMethod;
+  /** The params as JSON, so equal params compare equal. */
+  readonly params: string;
+  /** Asked to skip what gentle-ai remembers, such as "Check now" for updates. */
+  readonly forced: boolean;
+}> {}
+const queryKey = (method: GentleAiQueryMethod, params: unknown) =>
+  new QueryKey({
+    method,
+    params: JSON.stringify(params ?? {}),
+    forced:
+      typeof params === "object" && params !== null && "force" in params && params.force === true,
+  });
+
+/** How long a read's answer stands in for running gentle-ai again. */
+function queryTimeToLive({ method, forced }: QueryKey): Duration.Input {
+  if (forced) return Duration.zero;
+  switch (method) {
+    // Diagnostics and the feature list (which agents write as they work) are read fresh.
+    case "doctor":
+    case "odd.features":
+      return Duration.zero;
+    // Checking for updates asks the network.
+    case "updates":
+      return Duration.minutes(10);
+    // Discovery asks each agent's CLI for its models.
+    case "models.get":
+      return Duration.minutes(5);
+    default:
+      return Duration.minutes(1);
+  }
+}
 
 export class GentleAi extends Context.Service<
   GentleAi,
@@ -306,6 +343,11 @@ export const make = Effect.gen(function* () {
             Effect.orElseSucceed(() => null),
           );
     if (describe !== null && api !== null) {
+      // The page asks for this same answer first; keep it so it does not run gentle-ai again.
+      yield* GENTLE_AI_METHODS.status.encodeResult(api).pipe(
+        Effect.flatMap((encoded) => Cache.set(queryCache, queryKey("status", {}), encoded)),
+        Effect.ignore,
+      );
       const agents = api.agents.filter((agent) => agent.installed).map((agent) => agent.id);
       // What gentle-ai installed into the agents it set up, to tag their skills and commands.
       const footprint = describe.methods.includes("footprint")
@@ -378,7 +420,9 @@ export const make = Effect.gen(function* () {
     });
 
   const refreshLock = yield* Semaphore.make(1);
-  const refresh = readStatus.pipe(
+  // Whatever made a refresh worthwhile (a job, a new binary, the user) can change any answer.
+  const refresh = Effect.suspend(() => Cache.invalidateAll(queryCache)).pipe(
+    Effect.andThen(readStatus),
     Effect.flatMap(publish),
     refreshLock.withPermits(1),
     Effect.ignoreCause({ log: true }),
@@ -503,9 +547,22 @@ export const make = Effect.gen(function* () {
       );
     });
 
-  // Model discovery asks the agents' own CLIs, which can take a while.
+  // Every read starts a gentle-ai process, so a settings page opening at once would start a
+  // dozen. Identical reads share one run and its answer for a while; anything that changes what
+  // gentle-ai set up goes through a job or a refresh, which clears them all.
+  const queryCache = yield* Cache.makeWith(
+    ({ method, params }: QueryKey) => {
+      const decoded: unknown = JSON.parse(params);
+      // Model discovery asks the agents' own CLIs, which can take a while.
+      return callMethod(method, decoded, method === "models.get" ? "2 minutes" : "30 seconds");
+    },
+    {
+      capacity: 256,
+      timeToLive: (exit, key) => (Exit.isSuccess(exit) ? queryTimeToLive(key) : Duration.zero),
+    },
+  );
   const query = (method: GentleAiQueryMethod, params: unknown) =>
-    callMethod(method, params, method === "models.get" ? "2 minutes" : "30 seconds");
+    Cache.get(queryCache, queryKey(method, params));
 
   const serviceScope = yield* Effect.scope;
   const jobRef = yield* Ref.make<GentleAiJob | null>(null);

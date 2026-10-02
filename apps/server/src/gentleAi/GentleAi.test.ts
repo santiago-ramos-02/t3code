@@ -164,6 +164,7 @@ else process.exit(3);
         const platform = yield* HostProcessPlatform;
         const home = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-gentle-ai-api-" });
         const release = path.join(home, "release-sync");
+        const calls = path.join(home, "calls.log");
         const script = path.join(home, "fake-gentle-ai.cjs");
         // Speaks the headless API: JSON params on stdin, NDJSON events and one final line out.
         yield* fileSystem.writeFileString(
@@ -173,6 +174,7 @@ const [command, method] = process.argv.slice(2);
 if (command === "version") { process.stdout.write("gentle-ai 3.8.0\\n"); process.exit(0); }
 if (command !== "api") process.exit(3);
 const params = JSON.parse(fs.readFileSync(0, "utf8") || "{}");
+fs.appendFileSync(${encodeJson(calls)}, method + "\\n");
 const line = (value) => process.stdout.write(JSON.stringify({ schema: "gentle-ai.api/v1", ...value }) + "\\n");
 if (method === "describe") line({ type: "result", data: { version: "3.8.0", apiVersion: 1, methods: ["describe", "status"], features: ["odd"] } });
 else if (method === "status") line({ type: "result", data: { version: "3.8.0", system: { os: "linux", arch: "amd64", shell: "bash", supported: true }, agents: [{ id: "codex", name: "Codex", detected: true, installed: true, supported: true, configPath: "" }, { id: "claude-code", name: "Claude Code", detected: true, installed: false, supported: true, configPath: "" }], components: [{ id: "engram", name: "Engram", description: "", installed: true, requires: [] }], presets: [], personas: [], skills: [], state: { preset: "full-gentleman", pendingSync: false, syncNeeded: true, background: {} }, openCodeDetected: false, builderEngines: [] } });
@@ -223,6 +225,17 @@ else line({ type: "error", error: { code: "unsupported", message: "unknown metho
           syncNeeded: true,
         });
 
+        const runs = (method: string) =>
+          fileSystem
+            .readFileString(calls)
+            .pipe(Effect.map((log) => log.split(/\r?\n/).filter((line) => line === method).length));
+        // The page's first read reuses what the status refresh already asked.
+        yield* service.query("status", {});
+        expect(yield* runs("status")).toBe(1);
+        // Identical reads, at once or soon after, share one gentle-ai run.
+        yield* Effect.all([service.query("backups.list", {}), service.query("backups.list", {})], {
+          concurrency: "unbounded",
+        });
         expect(yield* service.query("backups.list", {})).toEqual({
           backups: [
             {
@@ -279,6 +292,10 @@ else line({ type: "error", error: { code: "unsupported", message: "unknown metho
           log: ["writing AGENTS.md"],
           result: { files: ["AGENTS.md"] },
         });
+        expect(yield* runs("backups.list")).toBe(1);
+        // A finished job can change any answer, so the next read runs gentle-ai again.
+        yield* service.query("backups.list", {});
+        expect(yield* runs("backups.list")).toBe(2);
 
         // A failed job carries gentle-ai's own message, and the next one can start.
         const failures: Array<GentleAiJob | null> = [];
