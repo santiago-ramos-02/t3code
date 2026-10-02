@@ -6,9 +6,13 @@ import {
   gentleAiFlowKey,
   parseGentleAiFlow,
 } from "../components/settings/gentle-ai/gentleAiFlow.logic";
+import { gentleAiScopeProject } from "../components/settings/gentle-ai/gentleAiSections.logic";
 import { useSettingsScope } from "../components/settings/SettingsScopeContext";
 
-/** Gentle AI is machine state, so the page shows the representative environment. */
+/**
+ * Gentle AI is machine state, so the page acts on one environment. The project chosen at the top
+ * of Settings, as its folder on that environment, is the one its project settings apply to.
+ */
 function SettingsGentleAiRoute() {
   const target = Route.useSearch();
   const { environment, scope } = useSettingsScope();
@@ -25,7 +29,7 @@ function SettingsGentleAiRoute() {
     <GentleAiEnvironmentRoute
       environmentId={environment.environmentId}
       serverConfig={environment.serverConfig}
-      projectCwd={target.projectCwd}
+      project={gentleAiScopeProject(scope, environment.environmentId)}
       flow={parseGentleAiFlow(target.flow)}
     />
   );
@@ -42,14 +46,9 @@ function GentleAiEnvironmentRoute(
 
 export const Route = createFileRoute("/settings/gentle-ai")({
   // `flow` names a Gentle AI flow open in place of the page, so back and links return to it.
-  validateSearch: (raw: Record<string, unknown>): { projectCwd?: string; flow?: string } => {
+  validateSearch: (raw: Record<string, unknown>): { flow?: string } => {
     const flow = parseGentleAiFlow(raw.flow);
-    return {
-      ...(typeof raw.projectCwd === "string" && raw.projectCwd.trim()
-        ? { projectCwd: raw.projectCwd }
-        : {}),
-      ...(flow === null ? {} : { flow: gentleAiFlowKey(flow) }),
-    };
+    return flow === null ? {} : { flow: gentleAiFlowKey(flow) };
   },
   component: SettingsGentleAiRoute,
 });

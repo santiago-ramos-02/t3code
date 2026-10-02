@@ -9,6 +9,7 @@ import { ChevronRightIcon } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 
 import { Button } from "../../ui/button";
+import { Skeleton } from "../../ui/skeleton";
 import { Spinner } from "../../ui/spinner";
 import { FoldedSettingsSection } from "../FoldedSettingsSection";
 import { SettingsRow, SettingsSection } from "../settingsLayout";
@@ -23,7 +24,7 @@ import { GentleAiFlowHeader, GentleAiFlowPanel } from "./GentleAiFlow";
 import type { GentleAiFlow } from "./gentleAiFlow.logic";
 import { GentleAiJobPanel } from "./GentleAiJobPanel";
 import { GentleAiModelsFlow } from "./GentleAiModels";
-import { GentleAiProjectToolRows, GentleAiReviewSection } from "./GentleAiProjectSection";
+import { GentleAiProjectSection, GentleAiReviewSection } from "./GentleAiProjectSection";
 import { GentleAiSetupFlow } from "./GentleAiSetupFlow";
 import { GentleAiUninstallFlow } from "./GentleAiUninstallFlow";
 import { useGentleAiJob, useGentleAiQuery } from "./useGentleAi";
@@ -35,8 +36,8 @@ export interface GentleAiSectionProps {
   /** True while the environment runs a Gentle AI job or the page is read-only. */
   readonly disabled: boolean;
   readonly readOnly: boolean;
-  /** Project folders on this environment, for project-scoped actions. */
-  readonly projects: ReadonlyArray<{ readonly title: string; readonly cwd: string }>;
+  /** The project chosen at the top of Settings, as its folder here, for project settings. */
+  readonly project: { readonly title: string; readonly cwd: string } | null;
   readonly startJob: <M extends GentleAiJobMethod>(
     method: M,
     params: GentleAiParams<M>,
@@ -51,13 +52,15 @@ export interface GentleAiSectionProps {
 /**
  * Gentle AI's GUI, for a gentle-ai with the headless API, run on the environment so it works
  * the same from any client. It is ordered by how often each thing changes: whether Gentle AI is
- * current, the agents it is set up in and the models they run, the review, and then everything
- * set once, folded away under More.
+ * current, the agents it is set up in and the models they run, the review (or, with a project
+ * chosen at the top of Settings, everything set for that project), and then everything set
+ * once, folded away under More.
  */
 export function GentleAiSettingsPage({
   environmentId,
   readOnly,
-  projects,
+  project,
+  projectRows,
   flow,
   onFlowChange,
   agentExtras,
@@ -67,7 +70,9 @@ export function GentleAiSettingsPage({
 }: {
   readonly environmentId: EnvironmentId;
   readonly readOnly: boolean;
-  readonly projects: ReadonlyArray<{ readonly title: string; readonly cwd: string }>;
+  readonly project: { readonly title: string; readonly cwd: string } | null;
+  /** Rows agents add for one project folder, such as gentle-pi's profile pin and persona. */
+  readonly projectRows: (cwd: string) => ReactNode;
   readonly flow: GentleAiFlow | null;
   readonly onFlowChange: (flow: GentleAiFlow | null) => void;
   /** Settings an agent brings along, shown on its own page, such as gentle-pi's for Pi. */
@@ -91,15 +96,14 @@ export function GentleAiSettingsPage({
     return entries;
   }, [status.data]);
 
+  // The server answers this from what it read at startup, so it is rarely missing for long.
   if (status.data === null) {
-    return (
+    return status.error ? (
       <SettingsSection title="Gentle AI">
-        {status.error ? (
-          <SettingsRow title="Gentle AI could not be read" description={status.error} />
-        ) : (
-          <SettingsRow title="Reading Gentle AI" control={<Spinner className="size-3.5" />} />
-        )}
+        <SettingsRow title="Gentle AI could not be read" description={status.error} />
       </SettingsSection>
+    ) : (
+      <GentleAiPageSkeleton />
     );
   }
 
@@ -108,7 +112,7 @@ export function GentleAiSettingsPage({
     status: status.data,
     disabled: readOnly || running,
     readOnly,
-    projects,
+    project,
     startJob: async (method, params) => {
       setError(null);
       const started = await startJob(method, params);
@@ -177,7 +181,13 @@ export function GentleAiSettingsPage({
       <GentleAiJobPanel job={job} names={names} />
       <GentleAiStatusLine {...sectionProps} />
       <GentleAiAgentsSection {...sectionProps} piProvider={piProvider} />
-      <GentleAiReviewSection {...sectionProps} />
+      {project === null ? (
+        <GentleAiReviewSection {...sectionProps} />
+      ) : (
+        <GentleAiProjectSection {...sectionProps} project={project}>
+          {projectRows(project.cwd)}
+        </GentleAiProjectSection>
+      )}
       <GentleAiMoreSection {...sectionProps} advancedRows={advancedRows} />
     </>
   );
@@ -316,7 +326,6 @@ function GentleAiMoreSection({
           </Button>
         }
       />
-      <GentleAiProjectToolRows {...props} />
       <SettingsRow
         title="Sync agent files"
         description="Rewrites Gentle AI's files in every agent it set up, such as after editing them by hand."
@@ -369,6 +378,24 @@ function GentleAiMoreSection({
       />
       {advancedRows}
     </FoldedSettingsSection>
+  );
+}
+
+/** The page's shape while gentle-ai's status is first read. */
+function GentleAiPageSkeleton() {
+  return (
+    <div aria-busy="true" aria-label="Reading Gentle AI" className="space-y-6">
+      <Skeleton className="mx-3 h-4 w-64 sm:mx-4" />
+      <SettingsSection title="Your agents">
+        {[0, 1].map((row) => (
+          <SettingsRow
+            key={row}
+            title={<Skeleton className="h-4 w-28" />}
+            control={<Skeleton className="h-8 w-56" />}
+          />
+        ))}
+      </SettingsSection>
+    </div>
   );
 }
 

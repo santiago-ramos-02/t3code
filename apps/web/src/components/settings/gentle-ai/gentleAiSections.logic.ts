@@ -7,13 +7,54 @@ import type {
   GentleAiUninstallParams,
 } from "@t3tools/contracts";
 
-/** The project a cwd-scoped Gentle AI action applies to: the user's choice while it exists, else the first. */
-export function gentleAiProjectCwd(
-  projects: ReadonlyArray<{ readonly cwd: string }>,
-  choice: string | null,
-): string | null {
-  if (choice !== null && projects.some((project) => project.cwd === choice)) return choice;
-  return projects[0]?.cwd ?? null;
+interface GentleAiScopeMember {
+  readonly environmentId: string;
+  readonly workspaceRoot: string;
+}
+
+/** The parts of a resolved settings scope that name a project. */
+type GentleAiScope =
+  | {
+      readonly kind: "project";
+      readonly group: { readonly displayName: string };
+      readonly members: ReadonlyArray<GentleAiScopeMember>;
+    }
+  | {
+      readonly kind: "checkout";
+      readonly group: { readonly displayName: string };
+      readonly checkout: GentleAiScopeMember;
+    }
+  | { readonly kind: "all" | "environment" | "unavailable" };
+
+/**
+ * The project Gentle AI's project settings apply to: the one chosen at the top of Settings, as
+ * its folder on the environment the page manages. Gentle AI keeps them per folder (checkout).
+ */
+export function gentleAiScopeProject(
+  scope: GentleAiScope,
+  environmentId: string,
+): { readonly title: string; readonly cwd: string } | null {
+  const member =
+    scope.kind === "checkout"
+      ? scope.checkout
+      : scope.kind === "project"
+        ? scope.members.find((candidate) => candidate.environmentId === environmentId)
+        : undefined;
+  if (member === undefined || (scope.kind !== "project" && scope.kind !== "checkout")) return null;
+  return { title: scope.group.displayName, cwd: member.workspaceRoot };
+}
+
+/**
+ * Review for one project: it follows the switch for every project unless the project turned it
+ * off here. gentle-ai only keeps an "off" per project, so it cannot be on here while off for
+ * every project.
+ */
+export function gentleAiProjectReview(mode: GentleAiReviewMode) {
+  return {
+    checked: mode.status.effective === "on",
+    overridden: mode.status.clone_local === "off",
+    canTurnOn: mode.status.global !== "off",
+  };
 }
 
 /** Agent and component names by id, for showing what gentle-ai reports by id. */
@@ -55,11 +96,6 @@ export function gentleAiToolInstalled(tool: GentleAiTools["tools"][number]): boo
 /** RDD is on unless the global switch was turned off; "" means it was never chosen. */
 export function gentleAiReviewGlobalEnabled(mode: GentleAiReviewMode): boolean {
   return mode.status.global !== "off";
-}
-
-/** Whether this clone has its own off override, which wins over the global switch. */
-export function gentleAiReviewCloneDisabled(mode: GentleAiReviewMode): boolean {
-  return mode.status.clone_local === "off";
 }
 
 /** What a reset would remove now, and how many open reviews would block it. */

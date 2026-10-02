@@ -21,9 +21,8 @@ import { DraftInput } from "../ui/draft-input";
 import { Spinner } from "../ui/spinner";
 import { gentleAiFlowKey, type GentleAiFlow } from "./gentle-ai/gentleAiFlow.logic";
 import { GentleAiSettingsPage } from "./gentle-ai/GentleAiSettingsPage";
-import { PiGentleSettingsSection } from "./PiGentleSettingsSection";
+import { PiGentleProjectRows, PiGentleSettingsSection } from "./PiGentleSettingsSection";
 import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsLayout";
-import { useSettingsProjectGroups } from "./useSettingsProjectGroups";
 
 type GentleAiAction = GentleAiActionInput["action"];
 
@@ -49,13 +48,14 @@ function errorText(failure: unknown): string {
 export function GentleAiSettingsPanel({
   environmentId,
   serverConfig,
-  projectCwd,
+  project,
   readOnly,
   flow,
 }: {
   readonly environmentId: EnvironmentId;
   readonly serverConfig: ServerConfig;
-  readonly projectCwd?: string | undefined;
+  /** The project chosen at the top of Settings, as its folder on this environment. */
+  readonly project: { readonly title: string; readonly cwd: string } | null;
   readonly readOnly: boolean;
   /** The flow open in place of the page, from the URL. */
   readonly flow: GentleAiFlow | null;
@@ -74,7 +74,6 @@ export function GentleAiSettingsPanel({
     reportDefect: false,
   });
   const updateSettings = useAtomCommand(serverEnvironment.updateSettings, { reportFailure: false });
-  const projectGroups = useSettingsProjectGroups();
   // Live: installs, upgrades, and binary path changes all update it.
   const status = useEnvironmentQuery(
     serverEnvironment.gentleAiStatus({ environmentId, input: {} }),
@@ -124,11 +123,6 @@ export function GentleAiSettingsPanel({
     </Button>
   );
 
-  const projects = projectGroups.flatMap((group) =>
-    group.memberProjects
-      .filter((project) => project.environmentId === environmentId)
-      .map((project) => ({ title: group.displayName, workspaceRoot: project.workspaceRoot })),
-  );
   const binaryPathRow = (
     <SettingsRow
       title="Binary path"
@@ -167,8 +161,21 @@ export function GentleAiSettingsPanel({
         }
         refreshKey={refreshKey}
         models={provider.models}
-        initialProjectCwd={projectCwd}
-        projects={projects}
+        readOnly={readOnly}
+      />
+    ));
+  // gentle-pi's overrides for the chosen project, in the page's project section.
+  const piProjectRows = (cwd: string) =>
+    piInstances.map((provider) => (
+      <PiGentleProjectRows
+        key={provider.instanceId}
+        environmentId={environmentId}
+        instanceId={provider.instanceId}
+        instanceLabel={
+          piInstances.length > 1 ? (provider.displayName ?? provider.instanceId) : null
+        }
+        cwd={cwd}
+        refreshKey={refreshKey}
         readOnly={readOnly}
       />
     ));
@@ -182,10 +189,8 @@ export function GentleAiSettingsPanel({
           readOnly={readOnly}
           flow={flow}
           onFlowChange={setFlow}
-          projects={projects.map((project) => ({
-            title: project.title,
-            cwd: project.workspaceRoot,
-          }))}
+          project={project}
+          projectRows={piProjectRows}
           agentExtras={piInstances.length > 0 ? { pi: piSections } : {}}
           piProvider={
             piInstances[0]
@@ -297,6 +302,9 @@ export function GentleAiSettingsPanel({
         {binaryPathRow}
       </SettingsSection>
       {piSections(null)}
+      {project !== null && piInstances.length > 0 ? (
+        <SettingsSection title={project.title}>{piProjectRows(project.cwd)}</SettingsSection>
+      ) : null}
       <Dialog open={report !== null} onOpenChange={(open) => (open ? undefined : setReport(null))}>
         <DialogPopup className="max-w-2xl">
           <DialogHeader>

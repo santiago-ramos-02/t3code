@@ -10,7 +10,7 @@ import { AsyncResult } from "effect/unstable/reactivity";
 import { type EnvironmentId, type ProjectIconOverride } from "@t3tools/contracts";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import * as Cause from "effect/Cause";
-import { InfoIcon, Trash2Icon } from "lucide-react";
+import { ChevronRightIcon, InfoIcon, Trash2Icon } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useComposerDraftStore } from "../../composerDraftStore";
@@ -486,6 +486,31 @@ function ProjectDetail({
                   Choose file
                 </Button>
               </div>
+            }
+          />
+          <SettingsRow
+            title="Gentle AI"
+            description="Review, Pi profile, and tools for this project."
+            control={
+              <Button
+                size="sm"
+                variant="outline"
+                type="button"
+                // The project stays chosen, so the page opens on this project's settings.
+                onClick={() =>
+                  void navigate({
+                    to: "/settings/gentle-ai",
+                    search: (previous) => ({
+                      project: previous.project,
+                      machine: previous.machine,
+                      checkout: previous.checkout,
+                    }),
+                  })
+                }
+              >
+                Open
+                <ChevronRightIcon aria-hidden />
+              </Button>
             }
           />
         </SettingsSection>

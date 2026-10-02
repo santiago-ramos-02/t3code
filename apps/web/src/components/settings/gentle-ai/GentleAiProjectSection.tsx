@@ -1,17 +1,16 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 
 import { Button, InlineButton } from "../../ui/button";
 import { Checkbox } from "../../ui/checkbox";
 import { Label } from "../../ui/label";
-import { Spinner } from "../../ui/spinner";
+import { Skeleton } from "../../ui/skeleton";
 import { Switch } from "../../ui/switch";
-import { SettingsRow, SettingsSection } from "../settingsLayout";
+import { SettingResetButton, SettingsRow, SettingsSection } from "../settingsLayout";
 import { GentleAiConfirm } from "./GentleAiConfirm";
-import { GentleAiProjectPicker, useGentleAiProject } from "./GentleAiProjectPicker";
 import {
   formatGentleAiBytes,
   gentleAiNames,
-  gentleAiReviewCloneDisabled,
+  gentleAiProjectReview,
   gentleAiReviewGlobalEnabled,
   gentleAiReviewStoreSummary,
   gentleAiToolInstalled,
@@ -20,32 +19,27 @@ import {
 import type { GentleAiSectionProps } from "./GentleAiSettingsPage";
 import { gentleAiJobResult, useGentleAiJob, useGentleAiQuery } from "./useGentleAi";
 
-const SOURCE_LABELS: Record<string, string> = {
-  default: "the default",
-  global: "the setting for every agent",
-  clone_local: "this project's override",
-};
+type Project = { readonly title: string; readonly cwd: string };
 
 function count(value: number, one: string, many: string): string {
   return `${value} ${value === 1 ? one : many}`;
 }
 
-/** The switch for reviewing agents' changes before delivery, everywhere; projects can opt out. */
-export function GentleAiReviewRow({
-  environmentId,
-  disabled,
-  startJob,
-  onError,
-}: GentleAiSectionProps) {
+const controlSkeleton = <Skeleton className="h-5 w-9" />;
+
+/** The switch for reviewing agents' changes before delivery, for every project. */
+function GentleAiReviewRow({ environmentId, disabled, startJob, onError }: GentleAiSectionProps) {
   const mode = useGentleAiQuery(environmentId, "review.status", {});
   return (
     <SettingsRow
       title="Review before delivery"
-      description={mode.error ?? "Checks agents' changes before they hand them off."}
+      description={
+        mode.error ?? "Checks agents' changes before they hand them off, in every project."
+      }
       control={
         mode.data === null ? (
           mode.error ? null : (
-            <Spinner className="size-3.5" />
+            controlSkeleton
           )
         ) : (
           <Switch
@@ -65,55 +59,42 @@ export function GentleAiReviewRow({
 }
 
 /**
- * The review of agents' changes before delivery, in one place: the switch for every agent, then
- * the picked project's own override and its review history.
+ * Settings for every project: the review switch, and where to set one project's own. A project
+ * is chosen at the top of Settings, like every other project setting in T3 Code.
  */
 export function GentleAiReviewSection(props: GentleAiSectionProps) {
-  const { projects } = props;
-  const { cwd, setCwd } = useGentleAiProject(projects);
   return (
-    <SettingsSection
-      title="Review"
-      headerAction={
-        <GentleAiProjectPicker projects={projects} cwd={cwd} onChange={setCwd} label="Project" />
-      }
-    >
+    <SettingsSection title="Review">
       <GentleAiReviewRow {...props} />
-      {cwd === null ? null : <ReviewRows {...props} cwd={cwd} />}
+      <SettingsRow
+        title="One project's settings"
+        description="Choose a project at the top of this page to turn review off for it, clear its review history, pin a Pi profile, or set up tools such as CodeGraph."
+      />
     </SettingsSection>
   );
 }
 
 /**
- * Community tools Gentle AI wires into one project's agents, such as CodeGraph, as rows with
- * their own project picker, for a folded section.
+ * Everything Gentle AI keeps for the project chosen at the top of Settings, in one place: its
+ * review, review history, what agents add for it (such as gentle-pi's profile pin), and the
+ * community tools wired into it.
  */
-export function GentleAiProjectToolRows(props: GentleAiSectionProps) {
-  const { projects } = props;
-  const { cwd, setCwd } = useGentleAiProject(projects);
-  if (cwd === null) {
-    return (
-      <SettingsRow
-        title="Project tools"
-        description="Tools such as CodeGraph are set up per project. Add a project to this environment first."
-      />
-    );
-  }
+export function GentleAiProjectSection({
+  children,
+  ...props
+}: GentleAiSectionProps & { readonly project: Project; readonly children?: ReactNode }) {
+  const { project } = props;
   return (
-    <>
-      <SettingsRow
-        title="Project tools"
-        description="Community tools Gentle AI wires into this project's agents."
-        control={
-          <GentleAiProjectPicker projects={projects} cwd={cwd} onChange={setCwd} label="Project" />
-        }
-      />
-      <ToolRows {...props} cwd={cwd} />
-    </>
+    <SettingsSection title={project.title}>
+      <ProjectReviewRows {...props} cwd={project.cwd} />
+      {children}
+      <ToolRows {...props} cwd={project.cwd} />
+    </SettingsSection>
   );
 }
 
-function ReviewRows({
+/** Review in this project: it follows the switch for every project unless turned off here. */
+function ProjectReviewRows({
   environmentId,
   disabled,
   startJob,
@@ -129,12 +110,15 @@ function ReviewRows({
   const lastReset = gentleAiJobResult(job, "reviewStore.reset");
   const run = (promise: Promise<string | null>) =>
     void promise.then((error) => (error ? onError(error) : undefined));
+  const setHere = (enabled: boolean) =>
+    run(startJob("review.set", { cwd, enabled, scope: "clone" }));
 
+  const review = mode.data === null ? null : gentleAiProjectReview(mode.data);
   const counts = store.data === null ? null : gentleAiReviewStoreSummary(store.data);
   const storeStatus = store.error
     ? store.error
     : counts === null
-      ? "Reading review history…"
+      ? null
       : [
           counts.removable === 0 && counts.inFlight === 0
             ? "Nothing to clear"
@@ -149,33 +133,46 @@ function ReviewRows({
 
   return (
     <>
-      {mode.error ? (
-        <SettingsRow title="Review unavailable" description={mode.error} />
-      ) : mode.data === null ? null : (
-        <SettingsRow
-          title="Skip review in this project"
-          description="This checkout only."
-          // Only worth saying when something other than the global switch decides.
-          status={
-            mode.data.status.source === "global" || mode.data.status.source === "default"
-              ? null
-              : `Review is ${mode.data.status.effective === "on" ? "on" : "off"} here, from ${SOURCE_LABELS[mode.data.status.source] ?? mode.data.status.source}.`
-          }
-          control={
-            <Switch
-              aria-label="Skip review in this project"
-              checked={gentleAiReviewCloneDisabled(mode.data)}
+      <SettingsRow
+        title="Review before delivery"
+        description={
+          mode.error ??
+          (review === null
+            ? "Checks agents' changes before they hand them off."
+            : review.overridden
+              ? "Off in this project only."
+              : review.canTurnOn
+                ? "Follows the setting for every project."
+                : "Off for every project. Choose All projects at the top to turn it on.")
+        }
+        resetAction={
+          review?.overridden ? (
+            <SettingResetButton
+              label="review before delivery"
+              tooltip="Follow the setting for every project"
               disabled={disabled}
-              onCheckedChange={(checked) =>
-                run(startJob("review.set", { cwd, enabled: !checked, scope: "clone" }))
-              }
+              onClick={() => setHere(true)}
             />
-          }
-        />
-      )}
+          ) : null
+        }
+        control={
+          review === null ? (
+            mode.error ? null : (
+              controlSkeleton
+            )
+          ) : (
+            <Switch
+              aria-label="Review before delivery in this project"
+              checked={review.checked}
+              disabled={disabled || (!review.checked && !review.canTurnOn)}
+              onCheckedChange={setHere}
+            />
+          )
+        }
+      />
       <SettingsRow
         title="Review history"
-        description={storeStatus}
+        description={storeStatus ?? <Skeleton className="h-4 w-40" />}
         control={
           <Button
             size="sm"
@@ -198,8 +195,8 @@ function ReviewRows({
         title="Clear review history?"
         description={
           counts !== null && counts.inFlight > 0
-            ? `Removes this clone's review history. Reviews still in progress (${counts.inFlight}) block it unless you remove them too. This cannot be undone.`
-            : "Removes this clone's review history. This cannot be undone."
+            ? `Removes this checkout's review history. Reviews still in progress (${counts.inFlight}) block it unless you remove them too. This cannot be undone.`
+            : "Removes this checkout's review history. This cannot be undone."
         }
         confirmLabel="Clear"
         destructive
@@ -239,7 +236,12 @@ function ToolRows({
   if (tools.error)
     return <SettingsRow title="Community tools unavailable" description={tools.error} />;
   if (tools.data === null)
-    return <SettingsRow title="Community tools" control={<Spinner className="size-3.5" />} />;
+    return (
+      <SettingsRow
+        title={<Skeleton className="h-4 w-24" />}
+        control={<Skeleton className="h-8 w-20" />}
+      />
+    );
   return tools.data.tools.map((tool) => (
     <SettingsRow
       key={tool.id}

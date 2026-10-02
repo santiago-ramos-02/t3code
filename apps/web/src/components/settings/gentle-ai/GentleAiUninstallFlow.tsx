@@ -8,7 +8,6 @@ import { Radio, RadioGroup } from "../../ui/radio-group";
 import { Spinner } from "../../ui/spinner";
 import { WizardSteps } from "../../ui/wizard";
 import { GentleAiFlowFooter, GentleAiFlowHeader, GentleAiFlowPanel } from "./GentleAiFlow";
-import { GentleAiProjectPicker, useGentleAiProject } from "./GentleAiProjectPicker";
 import {
   GENTLE_AI_UNINSTALL_MODES,
   gentleAiNames,
@@ -29,15 +28,13 @@ const STEPS = ["Choose", "Review"] as const;
 export function GentleAiUninstallFlow(
   props: GentleAiSectionProps & { readonly agent?: string; readonly onClose: () => void },
 ) {
-  const { cwd, project, setCwd } = useGentleAiProject(props.projects);
-  const picker = (
-    <GentleAiProjectPicker
-      projects={props.projects}
-      cwd={cwd}
-      onChange={setCwd}
-      label="Project for project-scoped cleanup"
-    />
-  );
+  const { project } = props;
+  const cwd = project?.cwd ?? null;
+  // Project cleanup applies to the project chosen at the top of Settings.
+  const projectNote =
+    project === null
+      ? "To also clean up a project, such as its Engram data, choose it at the top of this page."
+      : `Project cleanup applies to ${project.title}. Choose another project at the top of this page.`;
   const agentName = props.status.agents.find((entry) => entry.id === props.agent)?.name;
   const title = agentName === undefined ? "Remove Gentle AI" : `Remove Gentle AI from ${agentName}`;
   return (
@@ -46,8 +43,8 @@ export function GentleAiUninstallFlow(
       key={cwd ?? ""}
       {...props}
       cwd={cwd}
-      projectTitle={project?.title ?? cwd ?? ""}
-      picker={picker}
+      projectTitle={project?.title ?? ""}
+      projectNote={projectNote}
       title={title}
     />
   );
@@ -62,14 +59,14 @@ function UninstallWizard({
   cwd,
   projectTitle,
   onClose,
-  picker,
+  projectNote,
   title,
 }: GentleAiSectionProps & {
   readonly agent?: string;
   readonly cwd: string | null;
   readonly projectTitle: string;
   readonly onClose: () => void;
-  readonly picker: ReactNode;
+  readonly projectNote: ReactNode;
   readonly title: string;
 }) {
   const names = useMemo(() => gentleAiNames(status), [status]);
@@ -118,7 +115,7 @@ function UninstallWizard({
         title={title}
         onBack={onClose}
         // Removing from one agent needs no project choice; the project only scopes cleanup.
-        {...(agent === undefined ? { description: picker } : {})}
+        {...(agent === undefined ? { description: projectNote } : {})}
       >
         <WizardSteps
           steps={STEPS}

@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { Button } from "../../ui/button";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../../ui/select";
+import { Skeleton } from "../../ui/skeleton";
 import { Spinner } from "../../ui/spinner";
 import { SettingsRow } from "../settingsLayout";
 import { GentleAiFlowFooter, GentleAiFlowHeader, GentleAiFlowPanel } from "./GentleAiFlow";
@@ -36,13 +37,15 @@ export function useGentleAiModelPreset({
   const label = preset?.label ?? data?.currentPreset ?? (allDefault ? "Default" : "Custom");
   const summary =
     config.error ??
-    (data === null
-      ? "Reading model choices…"
-      : allDefault
-        ? "Every phase uses Gentle AI's default model."
-        : data.currentPreset === null
-          ? "Custom models per phase."
-          : (preset?.description ?? "The model each phase of Gentle AI's workflow uses."));
+    (data === null ? (
+      <Skeleton className="h-4 w-48" />
+    ) : allDefault ? (
+      "Every phase uses Gentle AI's default model."
+    ) : data.currentPreset === null ? (
+      "Custom models per phase."
+    ) : (
+      (preset?.description ?? "The model each phase of Gentle AI's workflow uses.")
+    ));
   const choose = (next: string) =>
     void startJob("models.set", { agent, preset: next }).then((error) =>
       error ? onError(error) : undefined,
@@ -61,7 +64,7 @@ export function GentleAiModelPresetSelect({
   readonly disabled: boolean;
 }) {
   const { data, error, label, choose } = preset;
-  if (data === null) return error ? null : <Spinner className="size-3.5" />;
+  if (data === null) return error ? null : <Skeleton className="h-8 w-56" />;
   return (
     <Select
       value={data.currentPreset ?? CUSTOM}

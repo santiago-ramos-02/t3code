@@ -17,13 +17,13 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { GentleRoseIcon } from "../GentleRoseIcon";
 import { Button } from "../ui/button";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
+import { Skeleton } from "../ui/skeleton";
 import { GentleAiProfileList } from "./gentle-ai/GentleAiProfileList";
 import { PiRoutingEditor } from "./gentle-ai/PiRoutingEditor";
 import { SettingsRow, SettingsSection } from "./settingsLayout";
 
 type GentleAction = typeof PiGentleActionInput.Type.action;
 type GentleArea = "global" | "profiles" | "project";
-type ProjectOption = { readonly title: string; readonly workspaceRoot: string };
 
 const PERSONA_LABELS = { gentleman: "Gentleman", neutral: "Neutral" } as const;
 // Select value for "no local pin": the repository declaration or global profile applies.
@@ -79,44 +79,35 @@ function GentleSelect<T extends string>({
   );
 }
 
+/** A row's shape while its first read is in flight. */
+function SkeletonRow() {
+  return (
+    <SettingsRow
+      title={<Skeleton className="h-4 w-28" />}
+      control={<Skeleton className="h-8 w-56" />}
+    />
+  );
+}
+
 /**
- * What gentle-pi adds to Gentle AI for one Pi provider instance: model profiles, persona, and
- * per-project overrides. Rendered on the Gentle AI settings page. Every change is written to
- * gentle-pi's config immediately, like other settings.
+ * gentle-pi's settings for one Pi instance, read for one project folder or none. Every change
+ * is written to gentle-pi's config immediately and answers with the state after it.
  */
-export function PiGentleSettingsSection({
+function usePiGentle({
   environmentId,
   instanceId,
-  title,
+  cwd,
   refreshKey,
-  models,
-  projects,
-  initialProjectCwd,
-  readOnly,
-  extraRows,
 }: {
   readonly environmentId: EnvironmentId;
   readonly instanceId: ProviderInstanceId;
-  // Names the Pi instance, since an environment can run several.
-  readonly title: string;
+  readonly cwd: string | null;
   readonly refreshKey: number;
-  readonly models: ReadonlyArray<ServerProviderModel>;
-  readonly projects: ReadonlyArray<ProjectOption>;
-  readonly initialProjectCwd?: string | undefined;
-  readonly readOnly: boolean;
-  /** Rows Gentle AI adds for Pi, such as its plugins, shown with the persona. */
-  readonly extraRows?: ReactNode;
 }) {
-  const [selectedCwdChoice, setSelectedCwdChoice] = useState<string | null>(
-    initialProjectCwd ?? null,
-  );
-  const selectedCwd = projects.some((project) => project.workspaceRoot === selectedCwdChoice)
-    ? selectedCwdChoice
-    : (projects[0]?.workspaceRoot ?? null);
-  const stateKey = `${environmentId}:${instanceId}:${selectedCwd ?? ""}`;
+  const stateKey = `${environmentId}:${instanceId}:${cwd ?? ""}`;
   const [loaded, setLoaded] = useState<{ key: string; state: PiGentleState } | null>(null);
   const state = loaded?.key === stateKey ? loaded.state : null;
-  const [refresh, setRefresh] = useState(0);
+  const [retry, setRetry] = useState(0);
   // The action in flight, so its own control can say what is happening.
   const [pending, setPending] = useState<GentleAction["type"] | null>(null);
   const [errorState, setErrorState] = useState<{
@@ -134,18 +125,13 @@ export function PiGentleSettingsSection({
     reportDefect: false,
   });
 
+  // A refresh from the page, or a retry, reads again for the same folder.
+  const requestKey = `${stateKey}:${refreshKey}:${retry}`;
   useEffect(() => {
-    const requestKey = JSON.stringify([
-      environmentId,
-      instanceId,
-      selectedCwd,
-      refresh,
-      refreshKey,
-    ]);
     let liveRequest: string | null = requestKey;
     void read({
       environmentId,
-      input: { instanceId, ...(selectedCwd ? { cwd: selectedCwd } : {}) },
+      input: { instanceId, ...(cwd ? { cwd } : {}) },
     }).then((result) => {
       if (liveRequest !== requestKey) return;
       if (result._tag === "Success") {
@@ -155,14 +141,14 @@ export function PiGentleSettingsSection({
         setErrorState({
           key: stateKey,
           text: errorText(squashAtomCommandFailure(result)),
-          area: "project",
+          area: cwd ? "project" : "global",
         });
       }
     });
     return () => {
       liveRequest = null;
     };
-  }, [environmentId, instanceId, read, refresh, refreshKey, selectedCwd, stateKey]);
+  }, [cwd, environmentId, instanceId, read, requestKey, stateKey]);
 
   async function runAction(action: GentleAction): Promise<boolean> {
     if (pending) return false;
@@ -182,11 +168,7 @@ export function PiGentleSettingsSection({
         setLoaded({ key: stateKey, state: result.value });
         return true;
       } else if (!isAtomCommandInterrupted(result)) {
-        setErrorState({
-          key: stateKey,
-          text: errorText(squashAtomCommandFailure(result)),
-          area,
-        });
+        setErrorState({ key: stateKey, text: errorText(squashAtomCommandFailure(result)), area });
       }
     } catch (cause) {
       setErrorState({ key: stateKey, text: errorText(cause), area });
@@ -196,49 +178,84 @@ export function PiGentleSettingsSection({
     return false;
   }
 
-  const readOnlyProps = {
-    inert: readOnly,
-    "aria-disabled": readOnly || undefined,
-    className: readOnly ? "opacity-50 select-none" : undefined,
-  };
-  const sectionIcon = <GentleRoseIcon className="size-5 shrink-0" />;
-  const canEdit = !readOnly && pending === null;
-  const cwdInput = selectedCwd ? { cwd: selectedCwd } : {};
   const errorFor = (area: GentleArea) =>
     error?.area === area ? (
       <span role="alert" className="text-destructive">
         {error.text}
       </span>
     ) : null;
+  const retryRead = () => {
+    setErrorState(null);
+    setRetry((value) => value + 1);
+  };
+  return { state, error, pending, runAction, errorFor, retryRead };
+}
+
+function readOnlyProps(readOnly: boolean) {
+  return {
+    inert: readOnly,
+    "aria-disabled": readOnly || undefined,
+    className: readOnly ? "opacity-50 select-none" : undefined,
+  };
+}
+
+/**
+ * What gentle-pi adds to Gentle AI for one Pi provider instance, on Pi's page: its version,
+ * persona, and model profiles. Per-project overrides are in the page's project section.
+ */
+export function PiGentleSettingsSection({
+  environmentId,
+  instanceId,
+  title,
+  refreshKey,
+  models,
+  readOnly,
+  extraRows,
+}: {
+  readonly environmentId: EnvironmentId;
+  readonly instanceId: ProviderInstanceId;
+  // Names the Pi instance, since an environment can run several.
+  readonly title: string;
+  readonly refreshKey: number;
+  readonly models: ReadonlyArray<ServerProviderModel>;
+  readonly readOnly: boolean;
+  /** Rows Gentle AI adds for Pi, such as its plugins, shown with the persona. */
+  readonly extraRows?: ReactNode;
+}) {
+  const { state, error, pending, runAction, errorFor, retryRead } = usePiGentle({
+    environmentId,
+    instanceId,
+    cwd: null,
+    refreshKey,
+  });
+  const sectionIcon = <GentleRoseIcon className="size-5 shrink-0" />;
+  const canEdit = !readOnly && pending === null;
 
   // Gentle AI is an optional Pi package: nothing about it shows until the server confirms Pi
   // loads it. The server only fails a read once gentle-pi is installed, so a failure is shown.
   if (state === null) {
-    return error ? (
-      <SettingsSection title={title} icon={sectionIcon} {...readOnlyProps}>
-        <SettingsRow
-          title="Gentle AI settings could not be read"
-          status={errorFor("project")}
-          control={
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                setErrorState(null);
-                setRefresh((value) => value + 1);
-              }}
-            >
-              Retry
-            </Button>
-          }
-        />
+    return (
+      <SettingsSection title={title} icon={sectionIcon} {...readOnlyProps(readOnly)}>
+        {error ? (
+          <SettingsRow
+            title="Gentle AI settings could not be read"
+            status={errorFor("global")}
+            control={
+              <Button size="sm" variant="outline" onClick={retryRead}>
+                Retry
+              </Button>
+            }
+          />
+        ) : (
+          <SkeletonRow />
+        )}
       </SettingsSection>
-    ) : null;
+    );
   }
 
   if (!state.available) {
     return state.version === null ? null : (
-      <SettingsSection title={title} icon={sectionIcon} {...readOnlyProps}>
+      <SettingsSection title={title} icon={sectionIcon} {...readOnlyProps(readOnly)}>
         <SettingsRow
           title="Update for Pi"
           description={`Gentle AI ${state.version} is installed. T3 Code supports 3.5 or newer.`}
@@ -248,7 +265,7 @@ export function PiGentleSettingsSection({
               size="sm"
               variant="outline"
               disabled={!canEdit}
-              onClick={() => void runAction({ type: "update", ...cwdInput })}
+              onClick={() => void runAction({ type: "update" })}
             >
               {pending === "update" ? "Updating…" : "Update Gentle AI"}
             </Button>
@@ -260,18 +277,12 @@ export function PiGentleSettingsSection({
 
   const nameOf = (slug: string) => models.find((model) => model.slug === slug)?.name;
   const createProfile = async (name: string) => {
-    if (!(await runAction({ type: "create", name, ...cwdInput }))) return false;
+    if (!(await runAction({ type: "create", name }))) return false;
     // A new profile starts as a copy of the active one, not empty.
     const copy = state.profiles.find((entry) => entry.name === state.active)?.routing;
-    return copy === undefined
-      ? true
-      : runAction({ type: "save", name, routing: copy, ...cwdInput });
+    return copy === undefined ? true : runAction({ type: "save", name, routing: copy });
   };
 
-  const project = selectedCwd ? state.project : null;
-  const pinned = project?.pinned ?? null;
-  const localPin = project?.pinSource === "local" ? pinned : null;
-  const selectedProject = projects.find((entry) => entry.workspaceRoot === selectedCwd);
   return (
     <>
       <SettingsSection
@@ -289,7 +300,7 @@ export function PiGentleSettingsSection({
                   size="xs"
                   variant="ghost"
                   disabled={!canEdit}
-                  onClick={() => void runAction({ type: "update", ...cwdInput })}
+                  onClick={() => void runAction({ type: "update" })}
                 >
                   {pending === "update" ? "Updating…" : "Update"}
                 </Button>
@@ -297,28 +308,29 @@ export function PiGentleSettingsSection({
             </div>
           ) : null
         }
-        {...readOnlyProps}
+        {...readOnlyProps(readOnly)}
       >
         {state.compatibilityWarning ? (
           <SettingsRow title="Untested version" description={state.compatibilityWarning} />
         ) : null}
         <SettingsRow
           title="Persona"
-          description="Default persona for every project."
+          description="Default persona for every project. A project can override it."
+          status={errorFor("global")}
           control={
             <GentleSelect
               label="Global Gentle AI persona"
               value={state.globalPersona ?? "gentleman"}
               labels={PERSONA_LABELS}
               disabled={!canEdit}
-              onChange={(mode) => void runAction({ type: "setGlobalPersona", mode, ...cwdInput })}
+              onChange={(mode) => void runAction({ type: "setGlobalPersona", mode })}
             />
           }
         />
         {extraRows}
       </SettingsSection>
 
-      <div {...readOnlyProps}>
+      <div {...readOnlyProps(readOnly)}>
         <GentleAiProfileList
           title="Profiles"
           profiles={state.profiles.map((entry) => ({
@@ -327,116 +339,124 @@ export function PiGentleSettingsSection({
           }))}
           active={state.active}
           loading={false}
-          error={error?.area === "profiles" || error?.area === "global" ? error.text : null}
+          error={error?.area === "profiles" ? error.text : null}
           emptyText="A profile sets the model and effort each of gentle-pi's roles runs."
           disabled={!canEdit}
-          onUse={(name) => void runAction({ type: "activate", name, ...cwdInput })}
+          onUse={(name) => void runAction({ type: "activate", name })}
           onCreate={createProfile}
           renderEditor={(name) => (
             <PiRoutingEditor
               routing={state.profiles.find((entry) => entry.name === name)?.routing ?? {}}
               models={models}
               disabled={!canEdit}
-              onChange={(routing) => void runAction({ type: "save", name, routing, ...cwdInput })}
+              onChange={(routing) => void runAction({ type: "save", name, routing })}
             />
           )}
         />
       </div>
+    </>
+  );
+}
 
-      <SettingsSection
-        title="Project overrides"
-        headerAction={
-          projects.length > 0 ? (
-            <Select
-              value={selectedCwd ?? ""}
-              onValueChange={(value) => {
-                if (value) setSelectedCwdChoice(value);
-              }}
-            >
-              <SelectTrigger
-                size="xs"
-                variant="ghost"
-                className="max-w-56"
-                aria-label="Project for Gentle AI settings"
-              >
-                <SelectValue>{selectedProject?.title}</SelectValue>
-              </SelectTrigger>
-              <SelectPopup align="end">
-                {projects.map((entry) => (
-                  <SelectItem key={entry.workspaceRoot} value={entry.workspaceRoot}>
-                    {entry.title}
-                  </SelectItem>
-                ))}
-              </SelectPopup>
-            </Select>
-          ) : null
+/**
+ * gentle-pi's overrides for one project folder, as rows for the page's project section: the
+ * profile pinned for this checkout and the project's persona. Nothing shows without gentle-pi.
+ */
+export function PiGentleProjectRows({
+  environmentId,
+  instanceId,
+  instanceLabel,
+  cwd,
+  refreshKey,
+  readOnly,
+}: {
+  readonly environmentId: EnvironmentId;
+  readonly instanceId: ProviderInstanceId;
+  /** Names the Pi instance when an environment runs several. */
+  readonly instanceLabel: string | null;
+  readonly cwd: string;
+  readonly refreshKey: number;
+  readonly readOnly: boolean;
+}) {
+  const { state, error, pending, runAction, errorFor, retryRead } = usePiGentle({
+    environmentId,
+    instanceId,
+    cwd,
+    refreshKey,
+  });
+  const canEdit = !readOnly && pending === null;
+  const prefix = instanceLabel === null ? "Pi" : `Pi (${instanceLabel})`;
+  if (state === null) {
+    return error ? (
+      <SettingsRow
+        title={`${prefix} settings could not be read`}
+        status={errorFor("project")}
+        control={
+          <Button size="sm" variant="outline" onClick={retryRead}>
+            Retry
+          </Button>
         }
-        {...readOnlyProps}
-      >
-        {selectedCwd && project ? (
-          <>
-            <SettingsRow
-              title="Profile"
-              description={
-                !project.pinAvailable
-                  ? "Profile pins require a Git repository."
-                  : project.pinSource === "repo"
-                    ? "Declared by the repository. Pick a profile to override it for this clone."
-                    : "Overrides the active profile for this clone. Saved only on this machine."
-              }
-              status={errorFor("project")}
-              control={
-                <GentleSelect
-                  label="Gentle AI profile for this project"
-                  value={localPin ?? PROJECT_DEFAULT_PROFILE}
-                  labels={{
-                    ...Object.fromEntries(state.profiles.map((entry) => [entry.name, entry.name])),
-                    [PROJECT_DEFAULT_PROFILE]:
-                      project.pinSource === "repo"
-                        ? `Repository (${pinned})`
-                        : `Use global (${state.active ?? "none"})`,
-                  }}
-                  disabled={!canEdit || !project.pinAvailable}
-                  onChange={(name) =>
-                    void runAction(
-                      name === PROJECT_DEFAULT_PROFILE
-                        ? { type: "clearPin", cwd: selectedCwd }
-                        : { type: "pin", cwd: selectedCwd, name },
-                    )
-                  }
-                />
-              }
-            />
-            <SettingsRow
-              title="Persona"
-              description="Overrides the default persona for this project. Saved in the project's .pi folder, so committing it applies to your team."
-              control={
-                <GentleSelect
-                  label="Gentle AI persona for this project"
-                  value={project.persona.override ?? "global"}
-                  labels={{
-                    global: `Use global (${PERSONA_LABELS[project.persona.global]})`,
-                    ...PERSONA_LABELS,
-                  }}
-                  disabled={!canEdit}
-                  onChange={(mode) =>
-                    void runAction({
-                      type: "setPersona",
-                      cwd: selectedCwd,
-                      mode: mode === "global" ? null : mode,
-                    })
-                  }
-                />
-              }
-            />
-          </>
-        ) : (
-          <SettingsRow
-            title="No project selected"
-            description="Add a project on this environment to override Gentle AI for it."
+      />
+    ) : (
+      <SkeletonRow />
+    );
+  }
+  const project = state.available ? state.project : null;
+  if (project === null) return null;
+  const pinned = project.pinned;
+  const localPin = project.pinSource === "local" ? pinned : null;
+  return (
+    <>
+      <SettingsRow
+        title={`${prefix} profile`}
+        description={
+          !project.pinAvailable
+            ? "Pinning a profile needs a Git repository."
+            : project.pinSource === "repo"
+              ? "The repository declares one. Pick a profile to override it on this machine."
+              : "Overrides the active profile for this checkout, on this machine only."
+        }
+        status={errorFor("project")}
+        control={
+          <GentleSelect
+            label={`${prefix} profile for this project`}
+            value={localPin ?? PROJECT_DEFAULT_PROFILE}
+            labels={{
+              ...Object.fromEntries(state.profiles.map((entry) => [entry.name, entry.name])),
+              [PROJECT_DEFAULT_PROFILE]:
+                project.pinSource === "repo"
+                  ? `Repository (${pinned})`
+                  : `Use global (${state.active ?? "none"})`,
+            }}
+            disabled={!canEdit || !project.pinAvailable}
+            onChange={(name) =>
+              void runAction(
+                name === PROJECT_DEFAULT_PROFILE
+                  ? { type: "clearPin", cwd }
+                  : { type: "pin", cwd, name },
+              )
+            }
           />
-        )}
-      </SettingsSection>
+        }
+      />
+      <SettingsRow
+        title={`${prefix} persona`}
+        description="Saved in the project's .pi folder, so committing it applies to your team."
+        control={
+          <GentleSelect
+            label={`${prefix} persona for this project`}
+            value={project.persona.override ?? "global"}
+            labels={{
+              global: `Use global (${PERSONA_LABELS[project.persona.global]})`,
+              ...PERSONA_LABELS,
+            }}
+            disabled={!canEdit}
+            onChange={(mode) =>
+              void runAction({ type: "setPersona", cwd, mode: mode === "global" ? null : mode })
+            }
+          />
+        }
+      />
     </>
   );
 }

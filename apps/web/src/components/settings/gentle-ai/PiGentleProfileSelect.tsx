@@ -14,6 +14,7 @@ import { useEffect, useState } from "react";
 import { serverEnvironment } from "../../../state/server";
 import { useAtomCommand } from "../../../state/use-atom-command";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../../ui/select";
+import { Skeleton } from "../../ui/skeleton";
 import { Spinner } from "../../ui/spinner";
 
 function errorText(failure: unknown): string {
@@ -71,15 +72,19 @@ export function usePiGentleProfiles({
   const nameOf = (slug: string) => models.find((model) => model.slug === slug)?.name;
   const summary =
     current?.error ??
-    (state === null
-      ? "Reading gentle-pi…"
-      : !state.available
-        ? "gentle-pi is not installed in Pi."
-        : active === null
-          ? state.profiles.length === 0
-            ? "No profiles yet. Pi runs its own models."
-            : "No profile active. Pi runs its own models."
-          : gentlePiProfileSummary(active.routing, nameOf));
+    (state === null ? (
+      <Skeleton className="h-4 w-48" />
+    ) : !state.available ? (
+      "gentle-pi is not installed in Pi."
+    ) : active === null ? (
+      state.profiles.length === 0 ? (
+        "No profiles yet. Pi runs its own models."
+      ) : (
+        "No profile active. Pi runs its own models."
+      )
+    ) : (
+      gentlePiProfileSummary(active.routing, nameOf)
+    ));
 
   const activate = (name: string) => {
     setSwitching(true);
@@ -107,7 +112,7 @@ export function PiGentleProfileSelect({
 }) {
   const { state, error, switching, activate } = profiles;
   if (switching) return <Spinner className="size-3.5" />;
-  if (state === null) return error ? null : <Spinner className="size-3.5" />;
+  if (state === null) return error ? null : <Skeleton className="h-8 w-56" />;
   if (!state.available || state.profiles.length === 0) return null;
   return (
     <Select

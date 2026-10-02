@@ -2,8 +2,8 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   formatGentleAiBytes,
-  gentleAiProjectCwd,
-  gentleAiReviewCloneDisabled,
+  gentleAiProjectReview,
+  gentleAiScopeProject,
   gentleAiReviewGlobalEnabled,
   gentleAiReviewStoreSummary,
   gentleAiToolInstalled,
@@ -13,20 +13,62 @@ import {
   toggleGentleAiId,
 } from "./gentleAiSections.logic";
 
-const projects = [{ cwd: "/a" }, { cwd: "/b" }];
+const member = (id: string, environmentId: string, workspaceRoot: string) => ({
+  id,
+  environmentId,
+  workspaceRoot,
+});
 
-describe("gentleAiProjectCwd", () => {
-  it("keeps the user's choice while the project exists", () => {
-    expect(gentleAiProjectCwd(projects, "/b")).toBe("/b");
+describe("gentleAiScopeProject", () => {
+  const group = { displayName: "MappStock" };
+  const members = [member("p1", "env-a", "/a/mappstock"), member("p2", "env-b", "/b/mappstock")];
+
+  it("acts on the scoped project's folder on the page's environment", () => {
+    expect(gentleAiScopeProject({ kind: "project", group, members }, "env-b")).toEqual({
+      title: "MappStock",
+      cwd: "/b/mappstock",
+    });
   });
 
-  it("falls back to the first project when the choice is gone or unset", () => {
-    expect(gentleAiProjectCwd(projects, "/gone")).toBe("/a");
-    expect(gentleAiProjectCwd(projects, null)).toBe("/a");
+  it("acts on a chosen checkout as is", () => {
+    expect(
+      gentleAiScopeProject({ kind: "checkout", group, checkout: members[0]! }, "env-a"),
+    ).toEqual({ title: "MappStock", cwd: "/a/mappstock" });
   });
 
-  it("has no cwd without projects", () => {
-    expect(gentleAiProjectCwd([], "/a")).toBeNull();
+  it("has no project for every-project scopes or a project missing here", () => {
+    expect(gentleAiScopeProject({ kind: "all" }, "env-a")).toBeNull();
+    expect(
+      gentleAiScopeProject({ kind: "project", group, members: [members[0]!] }, "env-b"),
+    ).toBeNull();
+  });
+});
+
+describe("gentleAiProjectReview", () => {
+  const mode = (global: string, cloneLocal: string, effective: string) => ({
+    scope: "both",
+    status: { global, clone_local: cloneLocal, effective, source: "global" },
+  });
+
+  it("follows the setting for every project until this project turns it off", () => {
+    expect(gentleAiProjectReview(mode("on", "", "on"))).toEqual({
+      checked: true,
+      overridden: false,
+      canTurnOn: true,
+    });
+    expect(gentleAiProjectReview(mode("on", "off", "off"))).toEqual({
+      checked: false,
+      overridden: true,
+      canTurnOn: true,
+    });
+  });
+
+  it("cannot turn review on for one project while it is off everywhere", () => {
+    expect(gentleAiProjectReview(mode("off", "", "off"))).toEqual({
+      checked: false,
+      overridden: false,
+      canTurnOn: false,
+    });
   });
 });
 
@@ -68,11 +110,6 @@ describe("review mode", () => {
   it("treats an unchosen global switch as on", () => {
     expect(gentleAiReviewGlobalEnabled(reviewMode("", ""))).toBe(true);
     expect(gentleAiReviewGlobalEnabled(reviewMode("off", ""))).toBe(false);
-  });
-
-  it("reads the clone switch from the clone's own override", () => {
-    expect(gentleAiReviewCloneDisabled(reviewMode("on", "off"))).toBe(true);
-    expect(gentleAiReviewCloneDisabled(reviewMode("off", ""))).toBe(false);
   });
 });
 

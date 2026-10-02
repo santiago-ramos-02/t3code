@@ -153,7 +153,8 @@ function SettingsRouteLayout() {
   return (
     <SettingsScopeProvider
       search={rawSearch}
-      singleEnvironment={pathname === "/settings/providers"}
+      // Providers and Gentle AI manage one environment's machine state.
+      singleEnvironment={pathname === "/settings/providers" || pathname === "/settings/gentle-ai"}
       onChange={(next) => {
         // Send every axis so the retain middleware sees an explicit target
         // even when the choice is "all", which is the absence of a key.
