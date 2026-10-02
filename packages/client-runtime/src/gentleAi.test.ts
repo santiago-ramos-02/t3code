@@ -1,3 +1,4 @@
+import { collectComposerInlineTokens } from "@t3tools/shared/composerInlineTokens";
 import { describe, expect, it } from "vite-plus/test";
 
 import { ProviderDriverKind } from "@t3tools/contracts";
@@ -11,6 +12,8 @@ import {
   gentleAiSyncNeeded,
   gentleOddContinuePrompt,
   gentleOddFeatureSummary,
+  gentleOddMenuFeatures,
+  gentleOddThreadFeaturePaths,
   gentlePiProfileSummary,
 } from "./gentleAi.ts";
 
@@ -78,12 +81,46 @@ describe("gentleAiSyncNeeded", () => {
 
 describe("ODD features", () => {
   it("resumes a feature from its document and summarizes where it stands", () => {
-    expect(gentleOddContinuePrompt({ path: "odd/tasks/due-dates.md" })).toBe(
-      "Implement odd/tasks/due-dates.md.",
-    );
+    // The document goes in as a file reference, the composer's chip, like one picked with @.
+    const prompt = gentleOddContinuePrompt({ path: "odd/tasks/due-dates.md" });
+    expect(prompt).toBe("Implement [due-dates.md](odd/tasks/due-dates.md) ");
+    expect(collectComposerInlineTokens(prompt)).toMatchObject([
+      { type: "mention", value: "odd/tasks/due-dates.md" },
+    ]);
     expect(gentleOddFeatureSummary({ tasksDone: 2, tasksTotal: 3 })).toBe("2/3 tasks");
     expect(gentleOddFeatureSummary({ tasksDone: 3, tasksTotal: 3 })).toBe("Done");
     expect(gentleOddFeatureSummary({ tasksDone: 0, tasksTotal: 0 })).toBe("No tasks");
+  });
+});
+
+describe("ODD feature menu", () => {
+  const feature = (name: string, tasksDone: number, tasksTotal: number) => ({
+    path: `odd/tasks/${name}.md`,
+    tasksDone,
+    tasksTotal,
+  });
+
+  it("finds the documents a thread names or works on, however the path is written", () => {
+    const thread = {
+      messages: [{ text: "Implement [a.md](odd/tasks/a.md) " }],
+      activities: [
+        { payload: { detail: String.raw`Edited C:\repo\odd\tasks\b.md` } },
+        { payload: { detail: "ran tests" } },
+      ],
+    };
+    expect(
+      gentleOddThreadFeaturePaths(thread, ["odd/tasks/a.md", "odd/tasks/b.md", "odd/tasks/c.md"]),
+    ).toEqual(new Set(["odd/tasks/a.md", "odd/tasks/b.md"]));
+  });
+
+  it("drops finished documents and lists this thread's first", () => {
+    const features = [feature("done", 3, 3), feature("other", 1, 4), feature("mine", 0, 2)];
+    expect(
+      gentleOddMenuFeatures(features, new Set(["odd/tasks/mine.md", "odd/tasks/done.md"])),
+    ).toEqual([
+      { feature: features[2], inThread: true },
+      { feature: features[1], inThread: false },
+    ]);
   });
 });
 

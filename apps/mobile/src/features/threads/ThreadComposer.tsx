@@ -12,6 +12,8 @@ import {
   GENTLE_ODD_NEW_SPEC_PROMPT,
   gentleOddContinuePrompt,
   gentleOddFeatureSummary,
+  gentleOddMenuFeatures,
+  gentleOddThreadFeaturePaths,
 } from "@t3tools/client-runtime/gentle-ai";
 import { useGentleAiQuery } from "../settings/SettingsGentleAiRouteScreen";
 import type { MenuAction } from "@react-native-menu/menu";
@@ -66,6 +68,7 @@ import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { themeColorWithAlpha } from "../../lib/mobileTheme";
 import { armAgentAwarenessLiveActivityForLocalWork } from "../agent-awareness/remoteRegistration";
 import { scopedThreadKey } from "../../lib/scopedEntities";
+import type { ThreadFeedEntry } from "../../lib/threadActivity";
 import {
   composerContextImportsAtom,
   countComposerDraftAttachmentsAfterSelection,
@@ -154,6 +157,8 @@ export interface ThreadComposerProps {
   readonly connectionState: RemoteClientConnectionState;
   readonly environmentLabel: string | null;
   readonly selectedThread: OrchestrationThreadShell;
+  /** The thread's feed, to tell which feature documents it works on. */
+  readonly threadFeed: ReadonlyArray<ThreadFeedEntry>;
   readonly hasCompactableConversation: boolean;
   readonly serverConfig: T3ServerConfig | null;
   readonly queueCount: number;
@@ -378,6 +383,28 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     { cwd: props.projectCwd ?? "" },
     { enabled: gentleOddListed },
   );
+  // Finished documents drop out; the ones this thread works on come first.
+  const gentleOddMenu = useMemo(() => {
+    const features = gentleOdd.data?.features ?? [];
+    if (features.length === 0) return [];
+    const trail = {
+      messages: props.threadFeed.flatMap((entry) =>
+        entry.type === "message" ? [{ text: entry.message.text }] : [],
+      ),
+      activities: props.threadFeed.flatMap((entry) =>
+        entry.type === "activity-group"
+          ? entry.activities.map((activity) => ({ payload: activity.detail }))
+          : [],
+      ),
+    };
+    return gentleOddMenuFeatures(
+      features,
+      gentleOddThreadFeaturePaths(
+        trail,
+        features.map((feature) => feature.path),
+      ),
+    );
+  }, [gentleOdd.data, props.threadFeed]);
   const [gentleRefresh, setGentleRefresh] = useState(0);
   useEffect(() => {
     if (!isPiThread || props.connectionState !== "connected" || props.projectCwd === null) return;
@@ -478,10 +505,12 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
             title: "Feature documents",
             image: "doc.text",
             subactions: [
-              ...(gentleOdd.data?.features ?? []).map((feature) => ({
+              ...gentleOddMenu.map(({ feature, inThread }) => ({
                 id: `odd:${feature.path}`,
                 title: feature.title,
-                subtitle: gentleOddFeatureSummary(feature),
+                subtitle: inThread
+                  ? `In this thread · ${gentleOddFeatureSummary(feature)}`
+                  : gentleOddFeatureSummary(feature),
               })),
               ...(gentleOdd.data === null
                 ? [
@@ -492,11 +521,11 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                       attributes: { disabled: true },
                     },
                   ]
-                : gentleOdd.data.features.length === 0
+                : gentleOddMenu.length === 0
                   ? [
                       {
                         id: "odd-empty",
-                        title: "None yet",
+                        title: gentleOdd.data.features.length === 0 ? "None yet" : "All done",
                         attributes: { disabled: true },
                       },
                     ]

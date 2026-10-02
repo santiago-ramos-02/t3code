@@ -18,7 +18,10 @@ import {
   GENTLE_ODD_NEW_SPEC_PROMPT,
   gentleOddContinuePrompt,
   gentleOddFeatureSummary,
+  gentleOddMenuFeatures,
+  gentleOddThreadFeaturePaths,
   isProxiedClaudeInstance,
+  type GentleOddThreadTrail,
 } from "@t3tools/client-runtime/gentle-ai";
 import {
   ChevronDownIcon,
@@ -27,7 +30,7 @@ import {
   PlusIcon,
   RefreshCwIcon,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { useEnvironmentQuery } from "../../state/query";
 import { serverEnvironment } from "../../state/server";
@@ -75,6 +78,7 @@ export function GentleComposerActions({
   modelLocked,
   onEnabledChange,
   onModelSelectionChange,
+  readThreadTrail,
   onStartThread,
 }: {
   readonly environmentId: EnvironmentId;
@@ -90,6 +94,8 @@ export function GentleComposerActions({
   readonly modelLocked: boolean;
   readonly onEnabledChange: (enabled: boolean) => void;
   readonly onModelSelectionChange: (selection: ModelSelection) => void;
+  /** This thread's messages and activities, read when the feature menu opens. */
+  readonly readThreadTrail: () => GentleOddThreadTrail | null;
   /** Opens a new thread with Gentle AI on and this request written, ready to review and send. */
   readonly onStartThread: (prompt: string) => void;
 }) {
@@ -119,6 +125,19 @@ export function GentleComposerActions({
     { cwd },
     { enabled: menuOpen && oddListed },
   );
+  // Finished documents drop out; the ones this thread works on come first.
+  const oddMenu = useMemo(() => {
+    const features = oddFeatures.data?.features ?? [];
+    const trail = menuOpen ? readThreadTrail() : null;
+    const inThread =
+      trail === null
+        ? new Set<string>()
+        : gentleOddThreadFeaturePaths(
+            trail,
+            features.map((feature) => feature.path),
+          );
+    return gentleOddMenuFeatures(features, inThread);
+  }, [menuOpen, oddFeatures.data, readThreadTrail]);
   // Claude Code profiles apply only to Claude Code going through a proxy, so only those
   // threads offer them.
   const instanceConfig = useEnvironmentSettings(
@@ -314,25 +333,34 @@ export function GentleComposerActions({
                         </>
                       )}
                     </MenuItem>
-                  ) : oddFeatures.data.features.length === 0 ? (
-                    <MenuItem disabled>None yet</MenuItem>
+                  ) : oddMenu.length === 0 ? (
+                    <MenuItem disabled>
+                      {oddFeatures.data.features.length === 0 ? "None yet" : "All done"}
+                    </MenuItem>
                   ) : (
-                    <MenuGroup>
-                      <MenuGroupLabel>Continue</MenuGroupLabel>
-                      {oddFeatures.data.features.map((feature) => (
-                        <MenuItem
-                          key={feature.path}
-                          onClick={() => startThread(gentleOddContinuePrompt(feature))}
-                        >
-                          <span className="min-w-0">
-                            <span className="block truncate">{feature.title}</span>
-                            <span className="block truncate text-muted-foreground text-xs">
-                              {gentleOddFeatureSummary(feature)}
-                            </span>
-                          </span>
-                        </MenuItem>
-                      ))}
-                    </MenuGroup>
+                    [true, false].map((inThread) => {
+                      const entries = oddMenu.filter((entry) => entry.inThread === inThread);
+                      return entries.length === 0 ? null : (
+                        <MenuGroup key={inThread ? "thread" : "other"}>
+                          <MenuGroupLabel>
+                            {inThread ? "In this thread" : "Continue"}
+                          </MenuGroupLabel>
+                          {entries.map(({ feature }) => (
+                            <MenuItem
+                              key={feature.path}
+                              onClick={() => startThread(gentleOddContinuePrompt(feature))}
+                            >
+                              <span className="min-w-0">
+                                <span className="block truncate">{feature.title}</span>
+                                <span className="block truncate text-muted-foreground text-xs">
+                                  {gentleOddFeatureSummary(feature)}
+                                </span>
+                              </span>
+                            </MenuItem>
+                          ))}
+                        </MenuGroup>
+                      );
+                    })
                   )}
                   <MenuSeparator />
                   <MenuItem onClick={() => startThread(GENTLE_ODD_NEW_SPEC_PROMPT)}>

@@ -1103,6 +1103,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                   connectionState={props.connectionStateLabel}
                   environmentLabel={props.environmentLabel}
                   selectedThread={props.selectedThread}
+                  threadFeed={props.selectedThreadFeed}
                   hasCompactableConversation={hasCompactableConversation && !props.isCompacting}
                   serverConfig={props.serverConfig}
                   queueCount={props.selectedThreadQueueCount}

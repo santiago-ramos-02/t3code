@@ -1591,6 +1591,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     onExpandImage,
     onFileOpen,
   } = props;
+  // Gentle AI's feature menu reads which documents this thread works on only when it opens, so
+  // the thread is handed over by reference instead of re-rendering the menu on every delta.
+  const gentleThreadTrailRef = useRef(activeThread);
+  useEffect(() => {
+    gentleThreadTrailRef.current = activeThread;
+  }, [activeThread]);
+  const readGentleThreadTrail = useCallback(() => gentleThreadTrailRef.current ?? null, []);
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const composerDraftTargetKey = composerTargetKey(composerDraftTarget);
   // Opening a running thread resyncs for a few frames. Show the sync row, and
@@ -6447,6 +6454,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 });
                 setStickyComposerModelSelection(selection);
               }}
+              readThreadTrail={readGentleThreadTrail}
               onStartThread={(prompt) =>
                 onStartGentleThread(
                   prompt,

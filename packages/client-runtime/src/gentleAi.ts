@@ -13,6 +13,7 @@ import {
 } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import { serializeComposerFileLink } from "@t3tools/shared/composerTrigger";
 
 /** What each Gentle AI job is called while it runs and after, on every client. */
 export const GENTLE_AI_JOB_LABELS = {
@@ -100,11 +101,55 @@ export function gentleAiSyncNeeded(status: Pick<GentleAiApiStatus, "state">): bo
 export const GENTLE_ODD_NEW_SPEC_PROMPT =
   "Create the ODD feature document for the feature below. Only the feature document; don't change any code. Ask me about any product decision you need. The feature: ";
 
-/** Continues a feature in a new thread: ODD resumes from its document. */
+/**
+ * Continues a feature in a new thread: ODD resumes from its document, referenced as a file the
+ * way the composer's @ picker does, so it shows as a file chip. The trailing space ends the chip.
+ */
 export function gentleOddContinuePrompt(
   feature: Pick<GentleAiOddFeatures["features"][number], "path">,
 ) {
-  return `Implement ${feature.path}.`;
+  return `Implement ${serializeComposerFileLink(feature.path)} `;
+}
+
+/** A thread's text an agent's work leaves behind: messages and what its activities report. */
+export interface GentleOddThreadTrail {
+  readonly messages: ReadonlyArray<{ readonly text: string }>;
+  readonly activities: ReadonlyArray<{ readonly payload: unknown }>;
+}
+
+/**
+ * The feature documents a thread works on: named in a message (such as "Implement" from the
+ * menu) or touched by its tools. Paths arrive with either slash and, inside activity payloads,
+ * JSON-escaped.
+ */
+export function gentleOddThreadFeaturePaths(
+  thread: GentleOddThreadTrail,
+  paths: ReadonlyArray<string>,
+): ReadonlySet<string> {
+  if (paths.length === 0) return new Set();
+  const texts = [
+    ...thread.messages.map((message) => message.text),
+    ...thread.activities.map((activity) => JSON.stringify(activity.payload) ?? ""),
+  ];
+  return new Set(
+    paths.filter((path) => {
+      const spellings = [path, path.replaceAll("/", "\\"), path.replaceAll("/", "\\\\")];
+      return texts.some((text) => spellings.some((spelling) => text.includes(spelling)));
+    }),
+  );
+}
+
+/**
+ * The feature documents worth continuing, for a menu: unfinished ones, those this thread works
+ * on first. A finished document has nothing left to continue.
+ */
+export function gentleOddMenuFeatures<
+  F extends Pick<GentleAiOddFeatures["features"][number], "path" | "tasksDone" | "tasksTotal">,
+>(features: ReadonlyArray<F>, inThread: ReadonlySet<string>) {
+  const open = features
+    .filter((feature) => feature.tasksTotal === 0 || feature.tasksDone < feature.tasksTotal)
+    .map((feature) => ({ feature, inThread: inThread.has(feature.path) }));
+  return [...open.filter((entry) => entry.inThread), ...open.filter((entry) => !entry.inThread)];
 }
 
 /** Where a feature stands, short enough for a menu row: its task progress. */
