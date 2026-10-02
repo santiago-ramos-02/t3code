@@ -2562,10 +2562,12 @@ describe("buildThreadFeed", () => {
       new Set(),
       "now",
     );
-    expect(reasoningAgain.filter((row) => row.id === "live-activity-row")).toMatchObject([
-      { type: "work-toggle", summary: "Thinking", hiddenCount: 6 },
+    // A thought after tool calls opens the next step's line; the finished step keeps its own.
+    expect(reasoningAgain).toMatchObject([
+      { type: "work-toggle", id: `work-toggle:activity-run:${messages[0]!.id}`, hiddenCount: 5 },
+      { type: "work-toggle", id: "live-activity-row", summary: "Thinking", hiddenCount: 1 },
     ]);
-    expect(reasoningAgain).toHaveLength(1);
+    expect(reasoningAgain).toHaveLength(2);
     const expandedLive = deriveThreadFeedPresentation(
       reasoningAgainFeed,
       thread.latestTurn,
@@ -2577,10 +2579,10 @@ describe("buildThreadFeed", () => {
       "work-toggle",
       "message",
       "activity-group",
-      "message",
+      "work-toggle",
     ]);
     expect(expandedLive[1]).toMatchObject({ reasoningMessages: messages });
-    expect(expandedLive[3]).toMatchObject({ message: nextThought });
+    expect(expandedLive[3]).toMatchObject({ id: "live-activity-row", hiddenCount: 1 });
     expect(deriveThreadFeedPresentation(feedWithWork, settledTurn, new Set())).toMatchObject([
       { type: "turn-fold", expanded: false },
     ]);
@@ -2614,17 +2616,18 @@ describe("buildThreadFeed", () => {
       new Set([toolFirst.groupId]),
       "now",
     );
+    // The thought after the tool opens the next step; the tool's line keeps its expansion.
     expect(preservedExpansion.map((entry) => entry.type)).toEqual([
       "work-toggle",
       "activity-group",
-      "message",
+      "work-toggle",
     ]);
     expect(preservedExpansion[0]).toMatchObject({
-      id: "live-activity-row",
       groupId: toolFirst.groupId,
       expanded: true,
-      summary: "Thinking",
+      summary: toolFirst.summary,
     });
+    expect(preservedExpansion[2]).toMatchObject({ id: "live-activity-row", summary: "Thinking" });
     const strandedToolFeed = buildThreadFeed({
       ...thread,
       messages: [],
@@ -2652,8 +2655,10 @@ describe("buildThreadFeed", () => {
       new Set(),
       "now",
     );
+    // The stranded call keeps its own line and never reclaims the live step's label.
     expect(afterStrandedTool).toMatchObject([
-      { type: "work-toggle", id: "live-activity-row", summary: toolFirst.summary, hiddenCount: 6 },
+      { type: "work-toggle", summary: "Running command", shimmer: false },
+      { type: "work-toggle", id: "live-activity-row", summary: toolFirst.summary, hiddenCount: 5 },
     ]);
   });
 
@@ -2721,9 +2726,10 @@ describe("buildThreadFeed", () => {
         (entry) => entry.type === "message" && entry.message.role === "reasoning",
       );
       if (boundary === "failed-tool") {
-        // A failed call stays inside the run instead of splitting it.
+        // A failed call stays inside its step; the next thought opens the next step.
         expect(rows.filter((entry) => entry.type === "work-toggle")).toMatchObject([
-          { hasFailure: true, hiddenCount: 3 },
+          { hasFailure: true, hiddenCount: 2 },
+          { hasFailure: false, hiddenCount: 1 },
         ]);
       }
       expect(reasoningRows).toEqual(

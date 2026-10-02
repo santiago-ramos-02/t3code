@@ -1180,8 +1180,13 @@ export function deriveMessagesTimelineRows(input: {
       let cursor = index + 1;
       while (cursor < input.timelineEntries.length) {
         const next = input.timelineEntries[cursor]!;
+        // A thought after tool calls opens the agent's next step, so each step
+        // (its thinking plus the tools it runs) gets its own line whether or not
+        // the provider writes a message in between.
+        const startsNextStep = next.kind === "message" && entries.at(-1)?.kind === "work";
         if (
           !isActivityEntry(next) ||
+          startsNextStep ||
           timelineEntryTurnId(next) !== activityTurnId ||
           collapsedEntryIds.has(next.id) ||
           foldsByAnchorEntryId.has(next.id)

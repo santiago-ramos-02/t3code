@@ -1859,8 +1859,12 @@ export function deriveThreadFeedPresentation(
       const runTurnId = activityRunTurnId(entry);
       if (runTurnId !== null) {
         let end = index + 1;
+        // A thought after tool calls opens the agent's next step, so each step
+        // (its thinking plus the tools it runs) gets its own line whether or not
+        // the provider writes a message in between.
         while (
           end < sourceFeed.length &&
+          !(sourceFeed[end]!.type === "message" && sourceFeed[end - 1]!.type !== "message") &&
           activityRunTurnId(sourceFeed[end]!) === runTurnId &&
           !collapsedEntryIds.has(sourceFeed[end]!.id) &&
           !foldsByAnchorId.has(sourceFeed[end]!.id)

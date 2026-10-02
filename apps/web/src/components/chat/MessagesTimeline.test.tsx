@@ -1858,6 +1858,10 @@ describe("MessagesTimeline", () => {
               runningTurnId={turnId}
               timelineEntries={[
                 {
+                  ...thought,
+                  message: { ...thought.message, role: "reasoning", turnId, streaming },
+                },
+                {
                   id: "work-entry",
                   kind: "work",
                   createdAt: MESSAGE_CREATED_AT,
@@ -1871,10 +1875,6 @@ describe("MessagesTimeline", () => {
                     command: "cat image.png",
                     toolLifecycleStatus: "completed",
                   },
-                },
-                {
-                  ...thought,
-                  message: { ...thought.message, role: "reasoning", turnId, streaming },
                 },
               ]}
             />,
@@ -1891,9 +1891,7 @@ describe("MessagesTimeline", () => {
             .flatMap((node) => node.children)
             .filter((child) => typeof child === "string")
             .join(""),
-        ).toBe(
-          (streaming && expected === "Thought" ? "Thinking" : expected).repeat(streaming ? 2 : 1),
-        );
+        ).toBe(expected);
         expect(
           preview.findAll((node) =>
             ["strong", "em", "del", "code", "a"].includes(String(node.type)),
