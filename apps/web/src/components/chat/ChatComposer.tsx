@@ -1,3 +1,4 @@
+import type { GentleOddThreadTrail } from "@t3tools/client-runtime/gentle-ai";
 import { DESKTOP_PASTE_AS_TEXT_EVENT } from "../../lib/desktopPasteAsText";
 import { runtimeModeConfig, runtimeModeOptions as runtimeModes } from "./runtimeModeConfig";
 import { isLocalEnvironmentDisabled } from "../../localEnvironment";
@@ -1601,6 +1602,8 @@ export interface ChatComposerProps {
   gitCwd: string | null;
   /** Opens a new draft in this project for a Gentle AI step (see GentleComposerActions). */
   onStartGentleThread: (prompt: string, modelSelection: ModelSelection) => void;
+  /** The thread's text so far, read when Gentle AI's feature menu opens. */
+  readGentleThreadTrail: () => GentleOddThreadTrail | null;
   pullRequestProjectId: ProjectId | null;
   pullRequestRepository: string | null;
   restingControlsHost: HTMLDivElement | null;
@@ -1745,6 +1748,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     terminalOpen,
     gitCwd,
     onStartGentleThread,
+    readGentleThreadTrail,
     pullRequestProjectId,
     pullRequestRepository,
     restingControlsHost,
@@ -1788,13 +1792,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     editingQueuedAttachments,
     onRemoveEditingQueuedAttachment,
   } = props;
-  // Gentle AI's feature menu reads which documents this thread works on only when it opens, so
-  // the thread is handed over by reference instead of re-rendering the menu on every delta.
-  const gentleThreadTrailRef = useRef(activeThread);
-  useEffect(() => {
-    gentleThreadTrailRef.current = activeThread;
-  }, [activeThread]);
-  const readGentleThreadTrail = useCallback(() => gentleThreadTrailRef.current ?? null, []);
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const composerDraftTargetKey = composerTargetKey(composerDraftTarget);
   // Opening a running thread resyncs for a few frames. Show the sync row, and
@@ -6805,7 +6802,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           // A thread that started without Gentle AI keeps it off, so it has nothing to offer.
           (selectedGentleEnabled || _isLocalDraftThread) ? (
             <GentleComposerActions
-              key={`${routeKind}:${activeThreadId ?? draftId ?? "new"}:${activeThread?.latestTurn?.turnId ?? ""}:${activeThread?.latestTurn?.completedAt ?? ""}:${selectedInstanceId}:${gitCwd}`}
+              key={`${routeKind}:${activeThreadId ?? draftId ?? "new"}:${activeThread?.latestRun?.runId ?? ""}:${activeThread?.latestRun?.completedAt ?? ""}:${selectedInstanceId}:${gitCwd}`}
               environmentId={environmentId}
               instanceId={selectedInstanceId}
               pi={selectedProvider === "pi"}

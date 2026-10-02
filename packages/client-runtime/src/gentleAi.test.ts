@@ -108,10 +108,7 @@ describe("ODD feature menu", () => {
   it("finds the documents a thread names or works on, however the path is written", () => {
     const thread = {
       messages: [{ text: "Implement [a.md](odd/tasks/a.md) " }],
-      activities: [
-        { payload: { detail: String.raw`Edited C:\repo\odd\tasks\b.md` } },
-        { payload: { detail: "ran tests" } },
-      ],
+      records: [{ detail: String.raw`Edited C:\repo\odd\tasks\b.md` }, { detail: "ran tests" }],
     };
     expect(
       gentleOddThreadFeaturePaths(thread, ["odd/tasks/a.md", "odd/tasks/b.md", "odd/tasks/c.md"]),

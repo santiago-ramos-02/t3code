@@ -6,14 +6,13 @@ import type { ReactNode } from "react";
 import {
   ClaudeAI,
   CursorIcon,
-  Gemini,
-  GithubCopilotIcon,
   type Icon,
   KiroIcon,
   OpenAI,
   OpenCodeIcon,
   PiAgentIcon,
 } from "../../Icons";
+import { Gemini, GithubCopilotIcon } from "./agentIcons";
 import { Button } from "../../ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../../ui/menu";
 import { SettingsRow, SettingsSection } from "../settingsLayout";

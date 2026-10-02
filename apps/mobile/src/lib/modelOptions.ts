@@ -160,6 +160,8 @@ export function buildModelOptions(
   config: T3ServerConfig | null | undefined,
   fallbackModelSelection: ModelSelection | null,
   providerInstanceId?: ModelSelection["instanceId"],
+  /** The project the models are for; project-level provider settings add their models. */
+  cwd?: string | null,
 ): ReadonlyArray<ModelOption> {
   const options = new Map<string, ModelOption>();
 

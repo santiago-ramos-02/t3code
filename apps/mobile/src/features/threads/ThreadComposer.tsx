@@ -1,5 +1,4 @@
 import { GENTLE_AI_OPTION_ID, gentleAiEnabled } from "@t3tools/contracts";
-import { ChatGptUsageLimitNotice } from "./ChatGptUsageLimitNotice";
 import type { ComposerTextPaste } from "../../native/T3ComposerEditor.types";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import {
@@ -116,7 +115,6 @@ import {
 import { useScaledTextRole } from "../settings/appearance/useScaledTextRole";
 import type { RemoteClientConnectionState } from "../../lib/connection";
 import { resolveProviderOptionDescriptors } from "../../lib/providerOptions";
-import { ControlPillMenu } from "../../components/ControlPill";
 import type { ActiveTurnComposerAction } from "@t3tools/client-runtime/state/composer-dispatch";
 import type { FollowUpBehavior } from "../../lib/followUpBehavior";
 import {
@@ -468,7 +466,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   }, [props.serverConfig, props.selectedThread.modelSelection.instanceId]);
   const isPiThread = selectedProviderStatus?.driver === "pi";
   const gentleProvider = selectedProviderStatus?.gentleAi === true;
-  const gentleKey = `${props.environmentId}:${props.selectedThread.id}:${props.selectedThread.latestTurn?.turnId ?? ""}:${currentModelSelection.instanceId}:${props.projectCwd ?? ""}`;
+  const gentleKey = `${props.environmentId}:${props.selectedThread.id}:${props.selectedThread.latestRun?.runId ?? ""}:${currentModelSelection.instanceId}:${props.projectCwd ?? ""}`;
   const readGentle = useAtomCommand(serverEnvironment.readPiGentleComposer, {
     reportFailure: false,
     reportDefect: false,
@@ -498,10 +496,8 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       messages: props.threadFeed.flatMap((entry) =>
         entry.type === "message" ? [{ text: entry.message.text }] : [],
       ),
-      activities: props.threadFeed.flatMap((entry) =>
-        entry.type === "activity-group"
-          ? entry.activities.map((activity) => ({ payload: activity.detail }))
-          : [],
+      records: props.threadFeed.flatMap((entry) =>
+        entry.type === "activity-group" ? entry.activities.map((activity) => activity.detail) : [],
       ),
     };
     return gentleOddMenuFeatures(
@@ -549,7 +545,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   const gentleState = gentleLoaded?.key === gentleKey ? gentleLoaded.value : null;
   const gentleAvailable = gentleState?.available === true;
   const gentleEnabled = gentleAiEnabled(currentModelSelection.options);
-  const canChangeGentle = props.selectedThread.latestTurn === null;
+  const canChangeGentle = props.selectedThread.latestRun === null;
   const showGentleControls =
     gentleProvider &&
     props.connectionState === "connected" &&
@@ -858,8 +854,14 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     ? undefined
     : currentModelSelection.instanceId;
   const modelOptions = useMemo(
-    () => buildModelOptions(props.serverConfig, currentModelSelection, lockedProviderInstanceId),
-    [props.serverConfig, currentModelSelection, lockedProviderInstanceId],
+    () =>
+      buildModelOptions(
+        props.serverConfig,
+        currentModelSelection,
+        lockedProviderInstanceId,
+        props.projectCwd,
+      ),
+    [props.serverConfig, currentModelSelection, lockedProviderInstanceId, props.projectCwd],
   );
   const threadProviderGroups = useMemo(() => groupByProvider(modelOptions), [modelOptions]);
   const currentModelOption =

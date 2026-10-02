@@ -714,6 +714,8 @@ describe("EnvironmentProviderSettings routing", () => {
     } finally {
       addToast.mockRestore();
     }
+  });
+
   it("updates one provider instance without sending a stale whole map", async () => {
     settingsState.value = {
       ...DEFAULT_UNIFIED_SETTINGS,

@@ -113,15 +113,16 @@ export function gentleOddContinuePrompt(
   return `Implement ${serializeComposerFileLink(feature.path)} `;
 }
 
-/** A thread's text an agent's work leaves behind: messages and what its activities report. */
+/** A thread's text an agent's work leaves behind: messages and the records of its work. */
 export interface GentleOddThreadTrail {
   readonly messages: ReadonlyArray<{ readonly text: string }>;
-  readonly activities: ReadonlyArray<{ readonly payload: unknown }>;
+  /** Work records, such as tool calls with their inputs and outputs, read as JSON. */
+  readonly records: ReadonlyArray<unknown>;
 }
 
 /**
  * The feature documents a thread works on: named in a message (such as "Implement" from the
- * menu) or touched by its tools. Paths arrive with either slash and, inside activity payloads,
+ * menu) or touched by its tools. Paths arrive with either slash and, inside work records,
  * JSON-escaped.
  */
 export function gentleOddThreadFeaturePaths(
@@ -131,7 +132,7 @@ export function gentleOddThreadFeaturePaths(
   if (paths.length === 0) return new Set();
   const texts = [
     ...thread.messages.map((message) => message.text),
-    ...thread.activities.map((activity) => JSON.stringify(activity.payload) ?? ""),
+    ...thread.records.map((record) => JSON.stringify(record) ?? ""),
   ];
   return new Set(
     paths.filter((path) => {

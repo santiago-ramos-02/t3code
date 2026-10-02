@@ -8,7 +8,6 @@ import type {
   CodexFeedbackSubmission,
   EnvironmentThreadStatus,
 } from "@t3tools/client-runtime/state/threads";
-import { providerSessionStartupLabel } from "@t3tools/client-runtime/state/provider-instance-display";
 import { useKeyboardChatComposerInset, useKeyboardScrollToEnd } from "@legendapp/list/keyboard";
 import { resolveProviderSkillsForCwd } from "@t3tools/client-runtime/providerSkills";
 import type { LegendListRef } from "@legendapp/list/react-native";
@@ -425,7 +424,6 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
         return null;
     }
   })();
-  const providerStartupLabel = providerSessionStartupLabel(props.selectedThread.session ?? null);
   // Opening a running thread resyncs for a few frames. The pill shows the
   // sync label only when the sync lasts, so it does not flash before the timer.
   const threadSyncLabel = useDelayedStatus(selectedThreadKey, realThreadSyncLabel);
@@ -459,13 +457,6 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     }
     if (props.creationState?.kind === "failed") {
       return null;
-    }
-    if (
-      providerStartupLabel !== null &&
-      props.worktreeSetup?.snapshot.phase !== "running" &&
-      contentPresentationKind === "ready"
-    ) {
-      return { kind: "syncing", label: providerStartupLabel };
     }
     if (threadSyncLabel !== null) {
       return { kind: "syncing", label: threadSyncLabel };

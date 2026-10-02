@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { OpenCodeIcon, PiAgentIcon } from "../Icons";
 import { PROVIDER_ORDER, PROVIDER_PRESENTATION } from "./usageProviders";
 
 describe("usage provider presentation", () => {
@@ -21,8 +20,7 @@ describe("usage provider presentation", () => {
     expect(PROVIDER_PRESENTATION.pi).toMatchObject({
       label: "Pi",
       color: expect.stringContaining("contrast-foreground"),
-      mark: PiAgentIcon,
+      driverKind: "pi",
     });
-    expect(PROVIDER_PRESENTATION.pi.mark).not.toBe(OpenCodeIcon);
   });
 });

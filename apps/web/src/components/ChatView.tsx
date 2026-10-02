@@ -1,3 +1,4 @@
+import type { GentleOddThreadTrail } from "@t3tools/client-runtime/gentle-ai";
 import { ChatCanvas } from "./chat/ChatCanvas";
 import { usageLimitRecoveryBannerItem } from "./chat/UsageLimitRecoveryBanner";
 import {
@@ -1644,6 +1645,16 @@ export default function ChatView(props: ChatViewProps) {
     return null;
   }, [serverProjection?.providerTurns]);
   const serverVisibleTurnItems = useThreadVisibleTurnItems(routeThreadDetailRef);
+  // Gentle AI's feature menu reads which documents this thread works on only when it opens, so
+  // the thread is handed over by reference instead of re-rendering the menu on every delta.
+  const gentleThreadTrailRef = useRef<GentleOddThreadTrail | null>(null);
+  useEffect(() => {
+    gentleThreadTrailRef.current =
+      serverProjection === null
+        ? null
+        : { messages: serverProjection.messages, records: serverVisibleTurnItems ?? [] };
+  }, [serverProjection, serverVisibleTurnItems]);
+  const readGentleThreadTrail = useCallback(() => gentleThreadTrailRef.current, []);
   const serverThreadHistory = useThreadHistory(routeThreadDetailRef);
   const threadHistoryControls = useMemo<MessagesTimelineHistoryControls | undefined>(() => {
     if (routeThreadDetailRef === null || !shouldShowLoadEarlierControl(serverThreadHistory)) {
@@ -2485,6 +2496,23 @@ export default function ChatView(props: ChatViewProps) {
   const handleNewThreadInActiveProject = useCallback(() => {
     startNewThreadForProject(activeProjectRef, handleNewThread);
   }, [activeProjectRef, handleNewThread]);
+  // Hands a Gentle AI step, such as continuing a feature document, to a fresh draft in this
+  // project: the same selection with Gentle on and the prompt written but not sent, so the user
+  // still picks the model and reviews the ask.
+  const startGentleThread = useCallback(
+    async (prompt: string, modelSelection: ModelSelection) => {
+      if (!activeProjectRef) return;
+      const created = await handleNewThread(activeProjectRef);
+      if (!created) return;
+      const store = useComposerDraftStore.getState();
+      store.setModelSelection(created.draftId, modelSelection, {
+        explicit: true,
+        replaceOptions: true,
+      });
+      store.setPrompt(created.draftId, prompt);
+    },
+    [activeProjectRef, handleNewThread],
+  );
   const projectGroupingSettings = selectProjectGroupingSettings(settings);
   const activeDraftLogicalProjectKey =
     !isServerThread && activeProject
@@ -10826,6 +10854,10 @@ export default function ChatView(props: ChatViewProps) {
                               activeThreadEnvironmentId={activeThread?.environmentId}
                               activeThread={activeThread}
                               activeThreadShell={activeThreadShell}
+                              onStartGentleThread={(prompt, modelSelection) =>
+                                void startGentleThread(prompt, modelSelection)
+                              }
+                              readGentleThreadTrail={readGentleThreadTrail}
                               promptHistoryMessages={timelineMessages}
                               isServerThread={isServerThread}
                               isLocalDraftThread={isLocalDraftThread}

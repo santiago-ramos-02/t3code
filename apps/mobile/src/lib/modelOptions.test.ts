@@ -41,12 +41,12 @@ describe("mobile model options", () => {
       ],
     } as unknown as ServerConfig;
 
-    expect(buildModelOptions(config, null, "/project").map((option) => option.key)).toEqual([
-      "pi:local/project",
-    ]);
-    expect(buildModelOptions(config, null, "/other").map((option) => option.key)).toEqual([
-      "pi:openai/global",
-    ]);
+    expect(
+      buildModelOptions(config, null, undefined, "/project").map((option) => option.key),
+    ).toEqual(["pi:local/project"]);
+    expect(
+      buildModelOptions(config, null, undefined, "/other").map((option) => option.key),
+    ).toEqual(["pi:openai/global"]);
   });
 
   it("groups models by provider and flags legacy entries", () => {
