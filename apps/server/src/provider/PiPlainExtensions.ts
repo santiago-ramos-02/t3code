@@ -1,5 +1,6 @@
-import * as NodeOS from "node:os";
 import { PI_GENTLE_PACKAGES } from "@t3tools/contracts";
+import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import { hostUserHome } from "../hostUserHome.ts";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -48,8 +49,8 @@ function packagePath(source: string, settingsDir: string, path: Path.Path) {
 }
 
 /** Pi's agent home: an unset or empty PI_CODING_AGENT_DIR falls back to ~/.pi/agent. */
-export function piAgentHome(environment: NodeJS.ProcessEnv, path: Path.Path): string {
-  return environment.PI_CODING_AGENT_DIR || path.join(NodeOS.homedir(), ".pi", "agent");
+export function piAgentHome(environment: NodeJS.ProcessEnv, userHome: string, path: Path.Path) {
+  return environment.PI_CODING_AGENT_DIR || path.join(userHome, ".pi", "agent");
 }
 
 /** One entry of Pi's `packages` settings, resolved to where Pi installs it. */
@@ -73,7 +74,11 @@ export const piPackages = Effect.fn("piPackages")(function* (input: {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const roots = [
-    piAgentHome(input.environment, path),
+    piAgentHome(
+      input.environment,
+      hostUserHome(input.environment, yield* HostProcessPlatform),
+      path,
+    ),
     ...(input.cwd === undefined ? [] : [path.join(input.cwd, ".pi")]),
   ];
   const packages: PiPackage[] = [];
@@ -115,7 +120,8 @@ export const plainPiExtensionArgs = Effect.fn("plainPiExtensionArgs")(function* 
 }) {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const roots = [piAgentHome(input.environment, path), path.join(input.cwd, ".pi")];
+  const userHome = hostUserHome(input.environment, yield* HostProcessPlatform);
+  const roots = [piAgentHome(input.environment, userHome, path), path.join(input.cwd, ".pi")];
   const sources: string[] = [];
   const skills: string[] = [];
   const prompts: string[] = [];
@@ -170,7 +176,7 @@ export const plainPiExtensionArgs = Effect.fn("plainPiExtensionArgs")(function* 
       const settings = yield* decodeSettings(yield* fileSystem.readFileString(settingsPath));
       for (const extension of (settings.extensions ?? []).filter(isResourcePath)) {
         const candidate = extension.startsWith("~")
-          ? path.join(NodeOS.homedir(), extension.slice(1))
+          ? path.join(userHome, extension.slice(1))
           : path.resolve(root, extension);
         if (!candidate.includes(`${path.sep}gentle-pi${path.sep}`)) sources.push(candidate);
       }
@@ -189,7 +195,7 @@ export const plainPiExtensionArgs = Effect.fn("plainPiExtensionArgs")(function* 
     yield* addResource(path.join(root, "skills"), skills);
     yield* addResource(path.join(root, "prompts"), prompts);
   }
-  yield* addResource(path.join(NodeOS.homedir(), ".agents", "skills"), skills);
+  yield* addResource(path.join(userHome, ".agents", "skills"), skills);
   yield* addResource(path.join(input.cwd, ".agents", "skills"), skills);
   return [
     "--no-extensions",

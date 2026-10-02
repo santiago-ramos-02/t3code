@@ -13,6 +13,7 @@
  * @module UsageService
  */
 import * as NodeOS from "node:os";
+import { hostUserHome } from "../hostUserHome.ts";
 
 import {
   ClaudeSettings,
@@ -451,7 +452,7 @@ export const make = Effect.gen(function* () {
           // sessions root can be shared by several configured instances, and
           // the files carry no reliable T3 provider-instance identity. Live
           // adapter events retain their exact providerInstanceId separately.
-          const homeDir = NodeOS.homedir();
+          const homeDir = hostUserHome(environment, platform);
           const agentDir = resolvePiAgentDir(environment, homeDir, path);
           const hasAbsoluteSessionEnvironment =
             resolveAbsolutePiPath(environment.PI_CODING_AGENT_SESSION_DIR, homeDir, path) !== null;

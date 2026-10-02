@@ -7,6 +7,7 @@
  * @module gentleAi/GentleAiOff
  */
 import * as NodeCrypto from "node:crypto";
+import { hostUserHome } from "../hostUserHome.ts";
 import * as NodeOS from "node:os";
 
 import * as Effect from "effect/Effect";
@@ -38,11 +39,6 @@ const InstallState = Schema.Struct({
   installed_agents: Schema.optional(Schema.Array(Schema.String)),
 });
 const decodeInstallState = Schema.decodeUnknownEffect(Schema.fromJsonString(InstallState));
-
-/** The user's home as gentle-ai resolves it, which is where it keeps its state. */
-export function gentleAiUserHome(environment: NodeJS.ProcessEnv, platform: NodeJS.Platform) {
-  return (platform === "win32" ? environment.USERPROFILE : environment.HOME) || NodeOS.homedir();
-}
 
 /** What gentle-ai recorded installing: its components and the agents it set up. */
 const installState = (userHome: string) =>
@@ -245,7 +241,7 @@ export const openCodeGentleOffEnvironment = Effect.fn("openCodeGentleOffEnvironm
     readonly footprint?: GentleAiPlainFootprint | null;
   }) {
     const path = yield* Path.Path;
-    const userHome = gentleAiUserHome(input.environment, input.platform);
+    const userHome = hostUserHome(input.environment, input.platform);
     const configHome = input.environment.XDG_CONFIG_HOME?.trim() || path.join(userHome, ".config");
     const plainConfigHome = yield* gentleAiOffDirectory("opencode");
     yield* materializeOpenCodePlainConfig({
@@ -393,7 +389,7 @@ export const claudeGentleOffOptions = Effect.fn("claudeGentleOffOptions")(functi
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const footprint = input.footprint ?? null;
-  const userHome = gentleAiUserHome(input.environment, input.platform);
+  const userHome = hostUserHome(input.environment, input.platform);
   // Legacy only: with a footprint, gentle-ai's rewrites already leave its MCP servers out.
   const mcpNames = footprint
     ? new Set<string>()
@@ -598,7 +594,7 @@ export const cursorGentleOffEnvironment = Effect.fn("cursorGentleOffEnvironment"
           "Gentle AI cannot be turned off for Cursor on macOS, where its sign-in is tied to your home folder.",
       });
     }
-    const userHome = gentleAiUserHome(input.environment, input.platform);
+    const userHome = hostUserHome(input.environment, input.platform);
     const plainEnvironment = (home: string) =>
       ({
         ...input.environment,

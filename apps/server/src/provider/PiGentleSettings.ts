@@ -1,5 +1,6 @@
 import * as NodeCrypto from "node:crypto";
-import * as NodeOS from "node:os";
+import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import { hostUserHome } from "../hostUserHome.ts";
 import { compareSemverVersions } from "@t3tools/shared/semver";
 import {
   PI_GENTLE_ORCHESTRATOR,
@@ -169,6 +170,7 @@ export type PiGentleAction = typeof PiGentleActionInput.Type.action;
 /** The gentle-pi API call that performs an action. */
 function apiCall(
   command: Exclude<PiGentleAction, { readonly type: "update" }>,
+  userHome: string,
 ): readonly [method: string, params: unknown] {
   const cwd = command.cwd === undefined ? {} : { cwd: command.cwd };
   switch (command.type) {
@@ -178,10 +180,7 @@ function apiCall(
       return ["profiles.save", { name: command.name, routing: command.routing, ...cwd }];
     case "activate":
       // Activating applies everywhere, even in a project a pin governs.
-      return [
-        "profiles.apply",
-        { name: command.name, cwd: command.cwd ?? NodeOS.homedir(), global: true },
-      ];
+      return ["profiles.apply", { name: command.name, cwd: command.cwd ?? userHome, global: true }];
     case "apply":
       return ["profiles.apply", { name: command.name, ...cwd }];
     case "pin":
@@ -204,12 +203,12 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
   readonly httpClient: HttpClient.HttpClient;
 }) {
   const { environment, fileSystem, path, spawner } = input;
+  const userHome = hostUserHome(environment, yield* HostProcessPlatform);
   const agentHome =
     environment.GENTLE_PI_AGENT_HOME ||
     environment.PI_CODING_AGENT_DIR ||
-    path.join(NodeOS.homedir(), ".pi", "agent");
-  const configHome =
-    environment.GENTLE_PI_CONFIG_HOME || path.join(NodeOS.homedir(), ".pi", "gentle-ai");
+    path.join(userHome, ".pi", "agent");
+  const configHome = environment.GENTLE_PI_CONFIG_HOME || path.join(userHome, ".pi", "gentle-ai");
   const profilesPath = path.join(configHome, "profiles.json");
   const modelsPath = path.join(configHome, "models.json");
   const globalPersonaPath = path.join(configHome, "persona.json");
@@ -250,8 +249,6 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
     );
   const isSupported = (version: string | null | undefined): version is string =>
     typeof version === "string" && compareSemverVersions(version, MINIMUM_GENTLE_VERSION) >= 0;
-  const installed = (cwd?: string) =>
-    gentlePackage(cwd).pipe(Effect.map((found) => isSupported(found?.version)));
 
   /**
    * Whether `pi update <source>` would install a newer gentle-pi, decided the way Pi updates
@@ -732,7 +729,7 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
         });
       const script = yield* apiScript(found);
       if (script !== null) {
-        const [method, params] = apiCall(command);
+        const [method, params] = apiCall(command, userHome);
         yield* callApi(script, method, params);
         return yield* readAfterChange(command.cwd);
       }

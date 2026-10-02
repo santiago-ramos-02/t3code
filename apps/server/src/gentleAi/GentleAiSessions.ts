@@ -17,6 +17,7 @@ import {
   ProviderAdapterOpenSessionError,
   type ProviderAdapterV2OpenSessionInput,
 } from "../orchestration-v2/ProviderAdapter.ts";
+import { hostUserHome } from "../hostUserHome.ts";
 import { expandHomePath } from "../pathExpansion.ts";
 import { resolveClaudeHomePath } from "../provider/Drivers/ClaudeHome.ts";
 import { plainPiExtensionArgs } from "../provider/PiPlainExtensions.ts";
@@ -25,7 +26,6 @@ import { gentleAiFootprintLookup } from "./GentleAiFootprints.ts";
 import {
   claudeGentleOffOptions,
   gentleAiOffDirectory,
-  gentleAiUserHome,
   materializeCodexPlainHome,
   openCodeGentleOffEnvironment,
   type ClaudePlainAgent,
@@ -81,7 +81,7 @@ export const makeCodexGentleOffSession = (driver: ProviderDriverKind) =>
             driver,
             input,
             Effect.gen(function* () {
-              const userHome = gentleAiUserHome(runtime.environment, platform);
+              const userHome = hostUserHome(runtime.environment, platform);
               const source = runtime.settings.homePath
                 ? path.resolve(expandHomePath(runtime.settings.homePath))
                 : runtime.environment.CODEX_HOME?.trim() || path.join(userHome, ".codex");

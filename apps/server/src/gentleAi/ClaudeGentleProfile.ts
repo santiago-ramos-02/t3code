@@ -12,7 +12,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
-import { gentleAiUserHome } from "./GentleAiOff.ts";
+import { hostUserHome } from "../hostUserHome.ts";
 
 /** The host name T3 Code gives gentle-ai when applying or saving a Claude Code profile. */
 export const GENTLE_AI_PROFILE_HOST = "t3";
@@ -47,11 +47,7 @@ export const readClaudeGentleProfile = (
   Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
-    const file = path.join(
-      gentleAiUserHome(environment, platform),
-      ".gentle-ai",
-      "claude-host.json",
-    );
+    const file = path.join(hostUserHome(environment, platform), ".gentle-ai", "claude-host.json");
     const setup = yield* fileSystem.readFileString(file).pipe(Effect.flatMap(decodeHostSetup));
     const env = Object.fromEntries(
       Object.entries(setup.env).filter(

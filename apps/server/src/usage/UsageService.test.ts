@@ -207,6 +207,24 @@ describe("UsageService", () => {
     );
   });
 
+  it.live("reads Pi sessions from the home its environment names", () =>
+    Effect.gen(function* () {
+      const { settings, home } = yield* setup;
+      const sessions = NodePath.join(home, ".pi", "agent", "sessions");
+      yield* Effect.promise(() => NodeFSP.mkdir(sessions, { recursive: true }));
+      const service = yield* UsageService.make.pipe(
+        Effect.provide(serviceLayers({ prefix: "usage-service-pi-home-test", home, settings })),
+      );
+      const summary = yield* service.readSummary(WINDOW);
+      const pi = summary.sources.filter((source) => source.fingerprint.provider === "pi");
+      assert.strictEqual(pi.length, 1);
+      assert.strictEqual(
+        pi[0]?.fingerprint.resolvedHomePath,
+        yield* Effect.promise(() => NodeFSP.realpath(sessions)),
+      );
+    }).pipe(Effect.scoped),
+  );
+
   it("never resolves relative Pi environment paths against the server cwd", () => {
     const serverCwd = "/server-cwd-that-is-not-a-thread-cwd";
     const pathOps = {

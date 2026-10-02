@@ -8,7 +8,7 @@
  *
  * @module gentleAi/GentleAi
  */
-import * as NodeOS from "node:os";
+import { hostUserHome } from "../hostUserHome.ts";
 
 import {
   GENTLE_AI_AGENT_DRIVERS,
@@ -382,8 +382,7 @@ export const make = Effect.gen(function* () {
       } satisfies GentleAiStatus;
     }
     // Older gentle-ai: read its state file.
-    const home =
-      (hostPlatform === "win32" ? environment.USERPROFILE : environment.HOME) || NodeOS.homedir();
+    const home = hostUserHome(environment, hostPlatform);
     const statePath = path.join(home, ".gentle-ai", "state.json");
     const state = (yield* fileSystem.exists(statePath).pipe(Effect.orElseSucceed(() => false)))
       ? yield* fileSystem.readFileString(statePath).pipe(
