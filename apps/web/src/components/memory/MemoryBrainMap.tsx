@@ -42,6 +42,8 @@ function layoutForShape(key: string, graph: MemoryGraph) {
  */
 export function MemoryBrainMap(props: {
   readonly graph: MemoryGraph;
+  // The memory open in the detail panel, kept marked while it is read.
+  readonly selectedMemoryId: number | null;
   readonly onOpenMemory: (id: number) => void;
 }) {
   const { graph } = props;
@@ -105,7 +107,12 @@ export function MemoryBrainMap(props: {
         {faded ? <li>Faded: replaced by a newer memory</li> : null}
       </ul>
       {view === "map" ? (
-        <MemoryMapPlot graph={graph} layout={layout} onOpenMemory={props.onOpenMemory} />
+        <MemoryMapPlot
+          graph={graph}
+          layout={layout}
+          selectedMemoryId={props.selectedMemoryId}
+          onOpenMemory={props.onOpenMemory}
+        />
       ) : (
         <MemoryMapList graph={graph} onOpenMemory={props.onOpenMemory} />
       )}
@@ -122,9 +129,12 @@ export function MemoryBrainMap(props: {
 function MemoryMapPlot(props: {
   readonly graph: MemoryGraph;
   readonly layout: MemoryLayout;
+  readonly selectedMemoryId: number | null;
   readonly onOpenMemory: (id: number) => void;
 }) {
   const { graph } = props;
+  const selectedId =
+    graph.nodes.find((node) => node.observation.id === props.selectedMemoryId)?.id ?? null;
   const plotRef = useRef<HTMLDivElement | null>(null);
   // The plot's width over its height, so the layout can spread to fill it.
   const [aspect, setAspect] = useState(0);
@@ -148,15 +158,17 @@ function MemoryMapPlot(props: {
   } | null>(null);
   const { x, y, width, height } = layout.viewBox;
   const hoveredId = hover?.node.id ?? null;
+  // Hovering looks around; with nothing hovered, the open memory keeps its neighbors lit.
+  const focusId = hoveredId ?? selectedId;
   const connected = useMemo(() => {
-    if (hoveredId === null) return null;
-    const ids = new Set([hoveredId]);
+    if (focusId === null) return null;
+    const ids = new Set([focusId]);
     for (const edge of graph.edges) {
-      if (edge.source === hoveredId) ids.add(edge.target);
-      if (edge.target === hoveredId) ids.add(edge.source);
+      if (edge.source === focusId) ids.add(edge.target);
+      if (edge.target === focusId) ids.add(edge.source);
     }
     return ids;
-  }, [graph.edges, hoveredId]);
+  }, [graph.edges, focusId]);
 
   const showTooltip = (node: MemoryGraphNode, target: Element) => {
     const plot = plotRef.current;
@@ -254,8 +266,22 @@ function MemoryMapPlot(props: {
                   vectorEffect="non-scaling-stroke"
                 />
               ) : null}
+              {selectedId === node.id ? (
+                <circle
+                  r={MEMORY_NODE_RADIUS + 4}
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  className="text-foreground"
+                  vectorEffect="non-scaling-stroke"
+                />
+              ) : null}
               <circle
-                r={hoveredId === node.id ? MEMORY_NODE_RADIUS + 1 : MEMORY_NODE_RADIUS}
+                r={
+                  hoveredId === node.id || selectedId === node.id
+                    ? MEMORY_NODE_RADIUS + 1
+                    : MEMORY_NODE_RADIUS
+                }
                 fill={GROUP_COLOR[node.group]}
                 stroke="var(--color-card)"
                 strokeWidth={1}

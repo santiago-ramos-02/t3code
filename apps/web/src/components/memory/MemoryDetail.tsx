@@ -14,6 +14,7 @@ import { MemoryVerdictButtons } from "./MemoryConflicts";
 import {
   isPendingRelation,
   MEMORY_GROUP_LABELS,
+  memoryContentForDisplay,
   memoryGroup,
   memoryRelationLabel,
 } from "./memoryModel";
@@ -101,9 +102,10 @@ export function MemoryDetailBody(props: {
   return (
     <>
       <ChatMarkdown
-        text={detail.data.content}
+        text={memoryContentForDisplay(detail.data.content)}
         cwd={undefined}
         environmentId={props.environmentId}
+        lineBreaks
       />
       {observation?.topicKey ? (
         <p className="text-xs text-muted-foreground">

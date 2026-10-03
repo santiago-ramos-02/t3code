@@ -26,7 +26,7 @@ import { MemoryConflictsButton } from "./MemoryConflicts";
 import { MemoryHealthButton } from "./MemoryHealthButton";
 import { MemoryObsidianExport } from "./MemoryObsidianExport";
 import { MemoryScopeSentence } from "./MemoryScopeSentence";
-import { buildMemoryGraph, relationsInProject } from "./memoryModel";
+import { buildMemoryGraph, relationsInProject, sessionSummaryPreview } from "./memoryModel";
 
 // Engram does not announce changes, so an open page reads it again on this interval.
 const OVERVIEW_REFRESH_MS = 30_000;
@@ -181,6 +181,7 @@ export function MemoryPage() {
                 project={projectName}
                 initialQuery={search.q ?? ""}
                 readAt={overview.dataUpdatedAt}
+                selectedMemoryId={search.memory ?? null}
                 onOpenMemory={openMemory}
               />
             )}
@@ -208,6 +209,7 @@ function MemoryContent(props: {
   readonly initialQuery: string;
   // When the overview was read, which is "today" for the activity chart.
   readonly readAt: number;
+  readonly selectedMemoryId: number | null;
   readonly onOpenMemory: (id: number) => void;
 }) {
   const { overview, project } = props;
@@ -218,11 +220,14 @@ function MemoryContent(props: {
         : overview.observations.filter((entry) => entry.project === project),
     [overview.observations, project],
   );
+  // Sessions that saved nothing and left no summary, such as short subagent runs, say nothing.
   const sessions = useMemo(
     () =>
-      project === null
-        ? overview.sessions
-        : overview.sessions.filter((entry) => entry.project === project),
+      overview.sessions.filter(
+        (entry) =>
+          (project === null || entry.project === project) &&
+          (entry.summary !== null || entry.observationCount > 0),
+      ),
     [overview.sessions, project],
   );
   const graph = useMemo(
@@ -240,7 +245,11 @@ function MemoryContent(props: {
   }
   return (
     <div className="flex flex-col gap-8">
-      <MemoryBrainMap graph={graph} onOpenMemory={props.onOpenMemory} />
+      <MemoryBrainMap
+        graph={graph}
+        selectedMemoryId={props.selectedMemoryId}
+        onOpenMemory={props.onOpenMemory}
+      />
       {overview.observationsTruncated ? (
         <p className="-mt-6 text-xs text-muted-foreground">
           The page holds the newest {overview.observations.length.toLocaleString()} memories. Search
@@ -271,15 +280,12 @@ function MemoryContent(props: {
                         {memoryTimeLabel(session.startedAt)}
                       </span>
                     </div>
-                    <p className="line-clamp-4 text-sm whitespace-pre-line">
-                      {session.summary ?? (
-                        <span className="text-muted-foreground">
-                          {session.observationCount === 0
-                            ? "No summary."
-                            : `No summary · ${session.observationCount} memories`}
-                        </span>
-                      )}
-                    </p>
+                    <SessionSummary
+                      summary={session.summary}
+                      summaryMemoryId={session.summaryMemoryId ?? null}
+                      observationCount={session.observationCount}
+                      onOpenMemory={props.onOpenMemory}
+                    />
                   </li>
                 ))}
               </ul>
@@ -365,6 +371,35 @@ function MemorySearch(props: {
         </ul>
       )}
     </section>
+  );
+}
+
+/** A session's summary in brief, opening the summary memory in full when there is one. */
+function SessionSummary(props: {
+  readonly summary: string | null;
+  readonly summaryMemoryId: number | null;
+  readonly observationCount: number;
+  readonly onOpenMemory: (id: number) => void;
+}) {
+  const preview = props.summary === null ? "" : sessionSummaryPreview(props.summary);
+  if (preview === "") {
+    return (
+      <p className="text-sm text-muted-foreground">
+        No summary · {props.observationCount} {props.observationCount === 1 ? "memory" : "memories"}
+      </p>
+    );
+  }
+  const { summaryMemoryId } = props;
+  return summaryMemoryId === null ? (
+    <p className="line-clamp-4 text-sm">{preview}</p>
+  ) : (
+    <button
+      type="button"
+      className="line-clamp-4 cursor-pointer text-start text-sm underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-ring"
+      onClick={() => props.onOpenMemory(summaryMemoryId)}
+    >
+      {preview}
+    </button>
   );
 }
 

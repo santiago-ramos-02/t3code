@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   buildMemoryGraph,
+  memoryContentForDisplay,
   engramProjectNames,
   memoryProjectChoices,
   memoryActivity,
@@ -10,6 +11,7 @@ import {
   parseMemoryTime,
   pendingConflicts,
   relationsInProject,
+  sessionSummaryPreview,
 } from "./memoryModel";
 
 const memory = (id: number, extra: Partial<MemoryObservation> = {}): MemoryObservation => ({
@@ -223,5 +225,32 @@ describe("memoryProjectChoices", () => {
 
   it("reads names the way Engram canonicalizes them", () => {
     expect(engramProjectNames(project("x", "/a/My--Repo__X"))).toContain("my-repo_x");
+  });
+});
+
+describe("memoryContentForDisplay", () => {
+  it("starts each labeled field on its own line", () => {
+    expect(memoryContentForDisplay("**What**: a. **Why**: b **Where**: c")).toBe(
+      "**What**: a.\n**Why**: b\n**Where**: c",
+    );
+  });
+
+  it("leaves fields that already start a line, and other bold text, alone", () => {
+    const text = "**What**: a\n**Why**: b and **bold**: kept";
+    expect(memoryContentForDisplay(text)).toBe(text);
+  });
+});
+
+describe("sessionSummaryPreview", () => {
+  it("reads the first paragraph past the headings, without Markdown marks", () => {
+    expect(
+      sessionSummaryPreview(
+        "## Goal\nShip the **Memory** page\nfor web.\n\n## Instructions\n- Do it all",
+      ),
+    ).toBe("Ship the Memory page for web.");
+  });
+
+  it("is empty for a summary that is only headings", () => {
+    expect(sessionSummaryPreview("## Goal\n\n## Next")).toBe("");
   });
 });

@@ -223,3 +223,35 @@ export function memoryProjectChoices<
     project: byName.get(canonicalProjectName(entry.name)) ?? null,
   }));
 }
+
+// Labels agents use to structure a memory, following Engram's What/Why/Where/Learned format.
+const MEMORY_FIELD_LABEL =
+  /([^\n])[ \t]*(\*\*(?:What|Why|When|Where|How|Learned|Result|Context|Decision)\*\*:)/g;
+
+/** A memory's text with each labeled field (`**What**:`, `**Why**:`…) starting its own line. */
+export const memoryContentForDisplay = (content: string) =>
+  content.replace(MEMORY_FIELD_LABEL, "$1\n$2");
+
+/**
+ * The first paragraph of a session summary as plain text, for a list. Summaries are Markdown that
+ * open with headings such as `## Goal`, which say nothing on their own.
+ */
+export function sessionSummaryPreview(summary: string) {
+  const paragraph: Array<string> = [];
+  for (const line of summary.split("\n")) {
+    const text = line
+      .trim()
+      .replace(/^[-*]\s+/, "")
+      .replace(/\*\*|__|`/g, "");
+    if (text.startsWith("#")) {
+      if (paragraph.length > 0) break;
+      continue;
+    }
+    if (text === "") {
+      if (paragraph.length > 0) break;
+      continue;
+    }
+    paragraph.push(text);
+  }
+  return paragraph.join(" ");
+}
