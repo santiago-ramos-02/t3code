@@ -164,7 +164,15 @@ export const MemoryObsidianExportInput = Schema.Struct({
   // One project, or every project when absent.
   project: Schema.optionalKey(Schema.String),
 });
-export const MemoryObsidianExportResult = Schema.Struct({ output: Schema.String });
+export const MemoryObsidianExportResult = Schema.Struct({
+  // Notes written for the first time, rewritten, and removed for deleted memories.
+  created: Schema.Number,
+  updated: Schema.Number,
+  deleted: Schema.Number,
+  // What Engram could not write; the rest of the export still landed.
+  problems: Schema.Array(Schema.String),
+});
+export type MemoryObsidianExportResult = typeof MemoryObsidianExportResult.Type;
 
 export class MemoryError extends Schema.TaggedError<MemoryError>()("MemoryError", {
   detail: Schema.String,

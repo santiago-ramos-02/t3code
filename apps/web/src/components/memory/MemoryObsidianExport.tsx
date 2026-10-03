@@ -2,8 +2,9 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import type { EnvironmentId } from "@t3tools/contracts";
+import type { EnvironmentId, MemoryObsidianExportResult } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
+import { TriangleAlertIcon } from "lucide-react";
 import { useState } from "react";
 
 import { useLocalStorage } from "../../hooks/useLocalStorage";
@@ -30,7 +31,7 @@ const Vaults = Schema.Record(Schema.String, Schema.String);
 type ExportState =
   | { readonly phase: "idle" }
   | { readonly phase: "running" }
-  | { readonly phase: "done"; readonly output: string }
+  | { readonly phase: "done"; readonly result: MemoryObsidianExportResult }
   | { readonly phase: "failed"; readonly error: string };
 
 /** Writes the environment's memories into an Obsidian vault as linked notes. */
@@ -62,7 +63,7 @@ export function MemoryObsidianExport(props: {
     });
     if (result._tag === "Success") {
       setVaults((previous) => ({ ...previous, [props.environmentId]: folder }));
-      setState({ phase: "done", output: result.value.output });
+      setState({ phase: "done", result: result.value });
     } else if (isAtomCommandInterrupted(result)) {
       setState({ phase: "idle" });
     } else {
@@ -94,8 +95,8 @@ export function MemoryObsidianExport(props: {
             <DialogDescription>
               Writes{" "}
               {props.project === null ? "every project's memories" : `${props.project}'s memories`}{" "}
-              into an Obsidian vault on {props.environmentLabel} as notes linked to their sessions
-              and topics. Exporting again adds only what is new.
+              into an Obsidian vault on {props.environmentLabel} as notes linked to their sessions.
+              Exporting again adds only what is new.
             </DialogDescription>
           </DialogHeader>
           <DialogPanel>
@@ -134,12 +135,7 @@ export function MemoryObsidianExport(props: {
                 </div>
               </div>
               {state.phase === "done" ? (
-                <p className="text-sm">
-                  Exported.{" "}
-                  <span className="text-muted-foreground">
-                    {state.output.split("\n").findLast((line) => line.trim() !== "") ?? ""}
-                  </span>
-                </p>
+                <ExportSummary result={state.result} />
               ) : state.phase === "failed" ? (
                 <p className="text-sm text-destructive-foreground">{state.error}</p>
               ) : null}
@@ -163,5 +159,40 @@ export function MemoryObsidianExport(props: {
         </DialogPopup>
       </Dialog>
     </>
+  );
+}
+
+const notes = (count: number, what: string) =>
+  count === 0 ? null : `${count.toLocaleString()} ${what}`;
+
+/** What the export wrote, and the notes Engram could not write. */
+function ExportSummary(props: { readonly result: MemoryObsidianExportResult }) {
+  const { created, updated, deleted, problems } = props.result;
+  const changes = [
+    notes(created, created === 1 ? "new note" : "new notes"),
+    notes(updated, "updated"),
+    notes(deleted, "removed"),
+  ].filter((entry) => entry !== null);
+  return (
+    <div className="flex flex-col gap-2 text-sm">
+      <p>
+        {changes.length === 0
+          ? "The vault was already up to date."
+          : `Exported ${changes.join(", ")}.`}
+      </p>
+      {problems.length > 0 ? (
+        <div className="flex flex-col gap-1">
+          <p className="flex items-center gap-1.5 text-warning-foreground">
+            <TriangleAlertIcon aria-hidden className="size-3.5 shrink-0" />
+            Engram could not write {problems.length === 1 ? "1 note" : `${problems.length} notes`}:
+          </p>
+          <ul className="max-h-28 overflow-y-auto font-mono text-xs break-all text-muted-foreground">
+            {problems.map((problem) => (
+              <li key={problem}>{problem}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </div>
   );
 }

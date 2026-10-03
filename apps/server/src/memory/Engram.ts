@@ -6,6 +6,7 @@ import {
   type MemoryHealth,
   type MemoryObservation,
   type MemoryObservationDetail,
+  type MemoryObsidianExportResult,
   type MemoryOverview,
   type MemorySearchResult,
   type MemoryStatus,
@@ -55,7 +56,7 @@ export class Engram extends Context.Service<
     readonly exportObsidian: (input: {
       readonly vault: string;
       readonly project?: string | undefined;
-    }) => Effect.Effect<{ readonly output: string }, MemoryError>;
+    }) => Effect.Effect<MemoryObsidianExportResult, MemoryError>;
   }
 >()("t3/memory/Engram") {}
 
@@ -153,6 +154,27 @@ const toObservation = (observation: EngramObservation): MemoryObservation => ({
 });
 
 /** The start of a memory's content on one line, to show why a search matched it. */
+/**
+ * Reads the summary `engram obsidian-export` prints when it finishes: `Obsidian export complete`,
+ * then `Created: N`, `Updated: N`, `Deleted: N`, and `Errors: N` followed by one `- …` line per
+ * note it could not write. Null when the export did not get that far.
+ */
+export function obsidianExportSummary(output: string): MemoryObsidianExportResult | null {
+  if (!output.includes("Obsidian export complete")) return null;
+  const count = (label: string) =>
+    Number(new RegExp(`^\\s*${label}:\\s*(\\d+)`, "m").exec(output)?.[1] ?? 0);
+  const errors = output.split(/^\s*Errors:.*$/m)[1] ?? "";
+  const problems = errors
+    .split("\n")
+    .flatMap((line) => (/^\s*- /.test(line) ? [line.replace(/^\s*- /, "").trim()] : []));
+  return {
+    created: count("Created"),
+    updated: count("Updated"),
+    deleted: count("Deleted"),
+    problems,
+  };
+}
+
 export function memorySnippet(content: string | null | undefined): string {
   const flat = (content ?? "").replace(/\s+/g, " ").trim();
   return flat.length > SNIPPET_CHARS ? `${flat.slice(0, SNIPPET_CHARS - 1)}…` : flat;
@@ -445,12 +467,15 @@ export const makeEngram = Effect.fn("makeEngram")(function* (
           Effect.mapError(() => fail("Engram could not export to Obsidian.")),
         );
         const output = [result.stdout.trim(), result.stderr.trim()].filter(Boolean).join("\n");
+        // Engram exits 1 when any note failed, after writing the others; its summary says which.
+        const summary = obsidianExportSummary(output);
+        if (summary !== null) return summary;
         if (result.code !== 0) {
           return yield* fail(
             `Engram could not export to Obsidian. ${output.split("\n").slice(-3).join(" ")}`.trim(),
           );
         }
-        return { output };
+        return { created: 0, updated: 0, deleted: 0, problems: [] };
       }),
   });
 });

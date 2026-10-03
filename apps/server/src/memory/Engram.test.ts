@@ -7,7 +7,12 @@ import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import { HttpClient, HttpClientResponse } from "effect/unstable/http";
 
-import { makeEngram, memorySnippet, OVERVIEW_OBSERVATION_LIMIT } from "./Engram.ts";
+import {
+  makeEngram,
+  memorySnippet,
+  obsidianExportSummary,
+  OVERVIEW_OBSERVATION_LIMIT,
+} from "./Engram.ts";
 
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 const decodeJson = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Unknown));
@@ -245,4 +250,34 @@ it("keeps a snippet to one short line", () => {
   expect(memorySnippet("a\n b")).toBe("a b");
   expect(memorySnippet("x".repeat(500))).toHaveLength(240);
   expect(memorySnippet(null)).toBe("");
+});
+
+it("reads Engram's export summary, including notes it could not write", () => {
+  const output = [
+    "Obsidian export complete",
+    "  Created: 180",
+    "  Updated: 2",
+    "  Deleted: 1",
+    "  Skipped: 0",
+    "  Hubs:    15",
+    "  Errors: 2",
+    "    - write session hub /vault/engram/_sessions/a:resume:2.md: path escapes from parent",
+    "    - write session hub /vault/engram/_sessions/b:resume:2.md: path escapes from parent",
+  ].join("\n");
+  expect(obsidianExportSummary(output)).toEqual({
+    created: 180,
+    updated: 2,
+    deleted: 1,
+    problems: [
+      "write session hub /vault/engram/_sessions/a:resume:2.md: path escapes from parent",
+      "write session hub /vault/engram/_sessions/b:resume:2.md: path escapes from parent",
+    ],
+  });
+  expect(obsidianExportSummary("Obsidian export complete\n  Created: 3\n  Errors: 0")).toEqual({
+    created: 3,
+    updated: 0,
+    deleted: 0,
+    problems: [],
+  });
+  expect(obsidianExportSummary("error: vault not found")).toBeNull();
 });
