@@ -367,6 +367,12 @@ function SubagentTimelineLink(props: {
           <span className="min-w-0 truncate text-xs font-medium text-foreground">
             {props.title}
           </span>
+          {/* A named agent, such as Gentle AI's odd-explorer, reads beside what it was asked. */}
+          {agent?.agentName ? (
+            <span className="shrink-0 font-mono text-3xs text-muted-foreground">
+              {agent.agentName}
+            </span>
+          ) : null}
           {detail !== null && status !== "completed" ? (
             <span
               className={cn(
@@ -437,6 +443,7 @@ function SubagentTimelineLink(props: {
           {...props}
           elapsed={agent ? <AgentElapsed agent={projectedSubagentsToRuntime([agent])[0]!} /> : null}
           model={agent?.model ?? null}
+          agentName={agent?.agentName}
           status={status}
           result={agent?.result ?? props.result}
           progress={agent?.progress ?? props.progress}
@@ -447,7 +454,11 @@ function SubagentTimelineLink(props: {
 }
 
 function SubagentTimelineTooltip(
-  props: Parameters<typeof SubagentTimelineLink>[0] & { model: string | null; elapsed: ReactNode },
+  props: Parameters<typeof SubagentTimelineLink>[0] & {
+    model: string | null;
+    agentName: string | undefined;
+    elapsed: ReactNode;
+  },
 ) {
   const environmentId = props.parentRef.environmentId;
   const parent = useThreadShell(props.parentRef)?.source;
@@ -461,6 +472,7 @@ function SubagentTimelineTooltip(
   return (
     <SubagentTooltipContent
       title={formatSubagentDisplayTitle(child?.title ?? props.title)}
+      agentName={props.agentName}
       model={props.model}
       provider={props.provider}
       driver={props.driver}

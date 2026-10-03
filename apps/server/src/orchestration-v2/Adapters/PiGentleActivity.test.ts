@@ -51,7 +51,8 @@ describe("readGentleActivity", () => {
       ["f", "completed", true],
     ]);
     expect(tasks.find((entry) => entry.id === "b")).toMatchObject({
-      title: "explorer · Map b",
+      title: "Map b",
+      agent: "explorer",
       prompt: "Look into b",
       progress: "Found the reducer",
       result: null,
@@ -60,24 +61,21 @@ describe("readGentleActivity", () => {
     expect(tasks.find((entry) => entry.id === "f")?.result).toBe("All done");
   });
 
-  it("names each subagent by its Gentle AI agent, then what it was asked", () => {
-    const titles = (
+  it("keeps the Gentle AI agent apart from what the subagent was asked", () => {
+    const tasks =
       readGentleActivity(
         widget(
           task("a", "running"),
           task("b", "running", [], { summary: { label: "" } }),
-          task("c", "running", [], { summary: { agent: "", label: "Look around" } }),
-          task("d", "running", [], { summary: { label: "explorer" } }),
-          task("e", "running", [], { summary: { agent: "", label: "" } }),
+          task("c", "running", [], { summary: { agent: " ", label: "Look around" } }),
+          task("d", "running", [], { summary: { agent: "", label: "" } }),
         ),
-      ) ?? []
-    ).map((entry) => entry.title);
-    expect(titles).toEqual([
-      "explorer · Map a",
-      "explorer",
-      "Look around",
-      "explorer",
-      "Pi subagent",
+      ) ?? [];
+    expect(tasks.map((entry) => [entry.title, entry.agent])).toEqual([
+      ["Map a", "explorer"],
+      ["explorer", "explorer"],
+      ["Look around", null],
+      ["Pi subagent", null],
     ]);
   });
 

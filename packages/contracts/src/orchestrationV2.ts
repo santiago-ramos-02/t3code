@@ -642,6 +642,9 @@ export const OrchestrationV2Subagent = Schema.Struct({
   nativeTaskRef: Schema.NullOr(OrchestrationV2ProviderRef),
   prompt: Schema.String,
   title: Schema.NullOr(Schema.String),
+  // The named agent a provider ran it as, such as Gentle AI's odd-explorer. Shown beside the
+  // title, never in it, so thread names stay what the subagent was asked to do.
+  agentName: Schema.optional(TrimmedNonEmptyString),
   model: Schema.NullOr(Schema.String),
   // Parent-wake policy for app-owned tasks: "always" offers a continuation on
   // every terminal (async delegations; queue_after_active sequences it behind

@@ -373,6 +373,7 @@ export function makePiGentle<Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>
         nativeTaskRef: ref(nativeTaskId),
         prompt: task.prompt,
         title: task.title,
+        ...(task.agent === null ? {} : { agentName: task.agent }),
         model: task.model,
         status: task.status,
         ...progress,
