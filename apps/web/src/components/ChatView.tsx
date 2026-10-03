@@ -3499,23 +3499,29 @@ export default function ChatView(props: ChatViewProps) {
     isConnecting ||
     isCompacting ||
     runlessWorkStartedAt !== null;
-  const activeContextWindow = useMemo(() => {
-    const snapshot = deriveLatestContextWindowSnapshot(
-      serverVisibleTurnItems ?? [],
-      activeThreadLiveTokenUsage,
-      serverProjection?.providerThreads.find(
-        (thread) => thread.id === serverProjection.thread.activeProviderThreadId,
+  const activeContextWindow = useMemo(
+    () =>
+      deriveLatestContextWindowSnapshot(
+        serverVisibleTurnItems ?? [],
+        activeThreadLiveTokenUsage,
+        serverProjection?.providerThreads.find(
+          (thread) => thread.id === serverProjection.thread.activeProviderThreadId,
+        ),
       ),
-    );
-    if (snapshot === null || serverProjection === null) return snapshot;
-    const promptCache = derivePromptCache({
-      providerTurns: serverProjection.providerTurns,
-      providerThreadId: serverProjection.thread.activeProviderThreadId,
-      attempts: serverProjection.attempts,
-      runs: serverProjection.runs,
-    });
-    return promptCache === null ? snapshot : { ...snapshot, promptCache };
-  }, [activeThreadLiveTokenUsage, serverVisibleTurnItems, serverProjection]);
+    [activeThreadLiveTokenUsage, serverVisibleTurnItems, serverProjection],
+  );
+  const activePromptCache = useMemo(
+    () =>
+      serverProjection === null
+        ? null
+        : derivePromptCache({
+            providerTurns: serverProjection.providerTurns,
+            providerThreadId: serverProjection.thread.activeProviderThreadId,
+            attempts: serverProjection.attempts,
+            runs: serverProjection.runs,
+          }),
+    [serverProjection],
+  );
   const pendingBackgroundTasks = useMemo(() => {
     if (serverProjection === null || serverProjection === undefined) {
       return [];
@@ -11034,6 +11040,7 @@ export default function ChatView(props: ChatViewProps) {
                               }
                               activeThreadModelSelection={activeThread?.modelSelection}
                               activeContextWindow={activeContextWindow}
+                              activePromptCache={activePromptCache}
                               activeTasksProgress={activeComposerTasksProgress}
                               activeTaskSteps={activeComposerTaskSteps}
                               compactThreadUnavailable={compactThreadUnavailable}

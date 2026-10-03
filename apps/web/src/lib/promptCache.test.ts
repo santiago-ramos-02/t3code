@@ -15,6 +15,8 @@ import {
   formatPromptCacheDuration,
   type PromptCacheSnapshot,
   type PromptCacheTurn,
+  msUntilPromptCacheLabelChanges,
+  promptCacheLabel,
   promptCacheState,
 } from "./promptCache";
 
@@ -231,5 +233,15 @@ describe("promptCacheState", () => {
     expect(formatPromptCacheDuration(45)).toBe("45 s");
     expect(formatPromptCacheDuration(600)).toBe("10 min");
     expect(formatPromptCacheDuration(7_500)).toBe("2 h 5 min");
+  });
+
+  it("labels the readout, changing it once a minute while it counts down", () => {
+    const counting = promptCacheState(cache({ ttlSeconds: 3_600 }), 5 * 60_000 + 4_000);
+    expect(promptCacheLabel(cache({}), counting)).toBe("Cache 55m");
+    // 54:56 left reads 55m until 54:00, 56 seconds from now.
+    expect(msUntilPromptCacheLabelChanges(counting)).toBe(56_000);
+    expect(promptCacheLabel(cache({}), { kind: "expired", secondsAgo: 1 })).toBe("Cache expired");
+    expect(promptCacheLabel(cache({ hitRate: 0.964 }), { kind: "unknown" })).toBe("Cache 96%");
+    expect(msUntilPromptCacheLabelChanges({ kind: "warm" })).toBeNull();
   });
 });

@@ -6,8 +6,6 @@ import type {
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 
-import type { PromptCacheSnapshot } from "./promptCache";
-
 function asFiniteNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
@@ -23,8 +21,6 @@ export type ContextWindowSnapshot = NullableContextWindowUsage & {
   readonly usedPercentage: number | null;
   readonly remainingPercentage: number | null;
   readonly updatedAt: string;
-  /** The provider session's prompt cache, when its provider reports cache use. */
-  readonly promptCache?: PromptCacheSnapshot | null;
 };
 
 /** Prefers the provider's live usage report (#8144); falls back to the last compaction item. */

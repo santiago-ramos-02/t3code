@@ -294,6 +294,7 @@ import {
   renderProviderTraitsPicker,
 } from "./composerProviderState";
 import { ContextWindowMeter, ContextWindowMeterPlaceholder } from "./ContextWindowMeter";
+import { PromptCacheIndicator } from "./PromptCacheIndicator";
 import {
   providerSupportsManualCompaction,
   resolveContextWindowModelDisplayName,
@@ -1122,6 +1123,7 @@ import {
   type ComposerDispatchMode,
 } from "@t3tools/client-runtime/state/composer-dispatch";
 import type { ContextWindowSnapshot } from "../../lib/contextWindow";
+import type { PromptCacheSnapshot } from "../../lib/promptCache";
 import {
   formatProviderSkillDisplayName,
   getProviderSlashCommandsForSlashMenu,
@@ -1353,6 +1355,10 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
 const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(props: {
   compact: boolean;
   activeContextWindow: ContextWindowSnapshot | null;
+  /** Shown beside the meter, but not in the resting composer, which has no room for it. */
+  promptCache: PromptCacheSnapshot | null;
+  /** What the next request sends, whether or not the meter shows. */
+  contextTokens: number | null;
   reserveContextWindowMeter: boolean;
   activeThreadModelDisplayName: string | null;
   isPreparingWorktree: boolean;
@@ -1388,6 +1394,14 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
 }) {
   return (
     <>
+      {props.promptCache ? (
+        <PromptCacheIndicator
+          cache={props.promptCache}
+          contextTokens={props.contextTokens}
+          onCompact={props.onCompactContext}
+          compactDisabled={props.compactDisabled}
+        />
+      ) : null}
       {props.activeContextWindow ? (
         <ContextWindowMeter
           usage={props.activeContextWindow}
@@ -1590,6 +1604,7 @@ export interface ChatComposerProps {
 
   // Context window
   activeContextWindow: ContextWindowSnapshot | null;
+  activePromptCache: PromptCacheSnapshot | null;
   compactThreadUnavailable: boolean;
   compactDisabled: boolean;
   compactDisabledReason: string | null;
@@ -1740,6 +1755,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     activeThreadModelSelection,
     reportedModelSelection,
     activeContextWindow,
+    activePromptCache,
     compactThreadUnavailable,
     compactDisabled,
     compactDisabledReason,
@@ -7521,6 +7537,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     activeContextWindow={
                       settings.contextWindowMeterEnabled ? activeContextWindow : null
                     }
+                    promptCache={isComposerResting ? null : activePromptCache}
+                    contextTokens={activeContextWindow?.usedTokens ?? null}
                     reserveContextWindowMeter={reserveContextWindowMeter}
                     activeThreadModelDisplayName={activeThreadModelDisplayName}
                     pendingAction={pendingPrimaryAction}

@@ -156,3 +156,22 @@ export function formatPromptCacheDuration(seconds: number) {
   const hours = Math.floor(minutes / 60);
   return minutes % 60 === 0 ? `${hours} h` : `${hours} h ${minutes % 60} min`;
 }
+
+/** The composer's short cache readout, such as `Cache 54m`, `Cache expired` or `Cache 96%`. */
+export function promptCacheLabel(cache: PromptCacheSnapshot, state: PromptCacheState) {
+  switch (state.kind) {
+    case "warm":
+      return "Cache warm";
+    case "expiresIn":
+      return `Cache ${Math.ceil(state.seconds / 60)}m`;
+    case "expired":
+      return "Cache expired";
+    case "unknown":
+      return `Cache ${Math.round(cache.hitRate * 100)}%`;
+  }
+}
+
+/** Milliseconds until `promptCacheLabel` reads differently, or null when only new usage changes it. */
+export function msUntilPromptCacheLabelChanges(state: PromptCacheState) {
+  return state.kind === "expiresIn" ? (((state.seconds - 1) % 60) + 1) * 1000 : null;
+}
