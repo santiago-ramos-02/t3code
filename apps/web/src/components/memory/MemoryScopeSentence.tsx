@@ -60,11 +60,7 @@ export function MemoryScopeSentence(props: {
               <ProjectFavicon project={selectedProject.project} className="size-3.5 shrink-0" />
             ) : null
           }
-          label={
-            selectedProject
-              ? (selectedProject.project?.title ?? selectedProject.name)
-              : "All projects"
-          }
+          label={selectedProject ? selectedProject.label : "All projects"}
         >
           <MenuRadioGroup
             value={props.project ?? ALL_PROJECTS}
@@ -89,9 +85,7 @@ export function MemoryScopeSentence(props: {
                   ) : (
                     <FolderIcon aria-hidden className="size-3.5" />
                   )}
-                  <span className="min-w-0 flex-1 truncate">
-                    {choice.project?.title ?? choice.name}
-                  </span>
+                  <span className="min-w-0 flex-1 truncate">{choice.label}</span>
                   <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
                     {choice.count}
                   </span>

@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 
 import { isElectron } from "../../env";
+import { useMediaQuery } from "../../hooks/useMediaQuery";
 import { useEscapeToGoBack } from "../../hooks/useNavigateBack";
 import { useMemoryEnvironments, usePrimaryEnvironmentId } from "../../state/environments";
 import { useEnvironmentQuery } from "../../state/query";
@@ -18,7 +19,7 @@ import { Skeleton } from "../ui/skeleton";
 import { WorkspaceBreadcrumb, WorkspaceBreadcrumbItem } from "../WorkspaceBreadcrumb";
 import { WorkspacePageContainer } from "../WorkspacePageContainer";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
-import { MemoryDetailSheet } from "./MemoryDetailSheet";
+import { MemoryDetailAside, MemoryDetailSheet } from "./MemoryDetailSheet";
 import { MemoryLink, memoryTimeLabel } from "./memoryParts";
 import { MemoryActivity } from "./MemoryActivity";
 import { MemoryBrainMap } from "./MemoryBrainMap";
@@ -51,6 +52,8 @@ export function MemoryPage() {
   );
   // Engram's project name, or null for every project; kept in the URL like other page scopes.
   const projectName = search.project ?? null;
+  // Wide screens read a memory beside the map, so the open one stays in view; narrow ones use a sheet.
+  const sideBySide = useMediaQuery("xl");
 
   const openMemory = (id: number) =>
     void navigate({ search: (previous) => ({ ...previous, memory: id }) });
@@ -125,70 +128,85 @@ export function MemoryPage() {
         <WorkspacePageHeader electron={isElectron} className="h-auto">
           {topbar}
         </WorkspacePageHeader>
-        <ScrollArea className="min-h-0 flex-1">
-          <WorkspacePageContainer width="wide">
-            {environment ? (
-              <div className="mb-6">
-                <MemoryScopeSentence
-                  environmentIds={environments.map((entry) => entry.environmentId)}
-                  environmentId={environment.environmentId}
-                  onEnvironmentChange={(next) =>
-                    void navigate({ search: () => ({ environmentId: next }) })
-                  }
-                  projects={running ? data.projects : []}
-                  project={projectName}
-                  onProjectChange={(next) =>
-                    void navigate({
-                      search: ({ project: _project, ...previous }) =>
-                        next === null ? previous : { ...previous, project: next },
-                    })
+        <div className="flex min-h-0 flex-1">
+          <ScrollArea className="min-h-0 flex-1">
+            <WorkspacePageContainer width="wide">
+              {environment ? (
+                <div className="mb-6">
+                  <MemoryScopeSentence
+                    environmentIds={environments.map((entry) => entry.environmentId)}
+                    environmentId={environment.environmentId}
+                    onEnvironmentChange={(next) =>
+                      void navigate({ search: () => ({ environmentId: next }) })
+                    }
+                    projects={running ? data.projects : []}
+                    project={projectName}
+                    onProjectChange={(next) =>
+                      void navigate({
+                        search: ({ project: _project, ...previous }) =>
+                          next === null ? previous : { ...previous, project: next },
+                      })
+                    }
+                  />
+                </div>
+              ) : null}
+              {environmentId === null ? (
+                <MemoryEmpty
+                  title="No environment reads memory"
+                  description="Connect an environment running a T3 Code server that can read Engram."
+                />
+              ) : overview.error && !data ? (
+                <MemoryEmpty title="Memory could not be read" description={overview.error} />
+              ) : !data ? (
+                <MemorySkeleton />
+              ) : data.status.state === "not-installed" ? (
+                <MemoryEmpty
+                  title="Engram is not installed"
+                  description={
+                    <>
+                      Engram gives agents a memory that lasts between sessions. Install it with
+                      Gentle AI in{" "}
+                      <InlineButton render={<Link to="/settings/gentle-ai" />}>
+                        Settings
+                      </InlineButton>
+                      .
+                    </>
                   }
                 />
-              </div>
-            ) : null}
-            {environmentId === null ? (
-              <MemoryEmpty
-                title="No environment reads memory"
-                description="Connect an environment running a T3 Code server that can read Engram."
-              />
-            ) : overview.error && !data ? (
-              <MemoryEmpty title="Memory could not be read" description={overview.error} />
-            ) : !data ? (
-              <MemorySkeleton />
-            ) : data.status.state === "not-installed" ? (
-              <MemoryEmpty
-                title="Engram is not installed"
-                description={
-                  <>
-                    Engram gives agents a memory that lasts between sessions. Install it with Gentle
-                    AI in{" "}
-                    <InlineButton render={<Link to="/settings/gentle-ai" />}>Settings</InlineButton>
-                    .
-                  </>
-                }
-              />
-            ) : data.status.state === "unreachable" ? (
-              <MemoryEmpty
-                title="Engram is not answering"
-                description={
-                  data.status.problem ?? "Its server on this environment could not be started."
-                }
-              />
-            ) : (
-              <MemoryContent
-                environmentId={environmentId}
-                overview={data}
-                project={projectName}
-                initialQuery={search.q ?? ""}
-                readAt={overview.dataUpdatedAt}
-                selectedMemoryId={search.memory ?? null}
-                onOpenMemory={openMemory}
-              />
-            )}
-          </WorkspacePageContainer>
-        </ScrollArea>
+              ) : data.status.state === "unreachable" ? (
+                <MemoryEmpty
+                  title="Engram is not answering"
+                  description={
+                    data.status.problem ?? "Its server on this environment could not be started."
+                  }
+                />
+              ) : (
+                <MemoryContent
+                  environmentId={environmentId}
+                  overview={data}
+                  project={projectName}
+                  initialQuery={search.q ?? ""}
+                  readAt={overview.dataUpdatedAt}
+                  selectedMemoryId={search.memory ?? null}
+                  onOpenMemory={openMemory}
+                />
+              )}
+            </WorkspacePageContainer>
+          </ScrollArea>
+          {sideBySide && environmentId !== null && search.memory !== undefined ? (
+            <MemoryDetailAside
+              key={search.memory}
+              environmentId={environmentId}
+              memoryId={search.memory}
+              overview={data}
+              onOpenMemory={openMemory}
+              onJudged={refresh}
+              onClose={closeMemory}
+            />
+          ) : null}
+        </div>
       </div>
-      {environmentId !== null ? (
+      {!sideBySide && environmentId !== null ? (
         <MemoryDetailSheet
           environmentId={environmentId}
           memoryId={search.memory ?? null}
@@ -244,7 +262,7 @@ function MemoryContent(props: {
     );
   }
   return (
-    <div className="flex flex-col gap-8">
+    <div className="@container flex flex-col gap-8">
       <MemoryBrainMap
         graph={graph}
         selectedMemoryId={props.selectedMemoryId}
@@ -256,7 +274,7 @@ function MemoryContent(props: {
           reaches all of them.
         </p>
       ) : null}
-      <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)]">
+      <div className="grid gap-8 @3xl:grid-cols-[minmax(0,1fr)_minmax(0,24rem)]">
         <MemorySearch
           environmentId={props.environmentId}
           project={project}

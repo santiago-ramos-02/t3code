@@ -191,37 +191,51 @@ export function memoryActivity(
 const canonicalProjectName = (name: string) =>
   name.trim().toLowerCase().replace(/-{2,}/g, "-").replace(/_{2,}/g, "_");
 
-/**
- * The names Engram would give a T3 project: its git remote's repository name, else the folder
- * name. Both are offered because Engram falls back to the folder when a clone has no remote.
- */
-export function engramProjectNames(project: {
+interface MemoryProjectCandidate {
+  readonly title: string;
   readonly workspaceRoot: string;
   readonly repositoryIdentity?: { readonly name?: string | undefined } | null | undefined;
-}): ReadonlyArray<string> {
-  const folder = project.workspaceRoot.split(/[\\/]/).findLast((part) => part !== "") ?? "";
-  return [project.repositoryIdentity?.name ?? "", folder]
-    .map(canonicalProjectName)
-    .filter((name) => name !== "");
 }
 
+const folderName = (workspaceRoot: string) =>
+  workspaceRoot.split(/[\\/]/).findLast((part) => part !== "") ?? "";
+
 /**
- * Engram's projects in the order it lists them, each with the T3 project it belongs to when one
- * matches, so pickers can show T3's name and icon.
+ * Engram's projects that hold memories, each with the T3 project it belongs to when one matches,
+ * so pickers can show T3's icon. Engram names a project after its git remote's repository, else
+ * its folder. A T3 project whose folder or title is that name is the project itself and lends its
+ * title; one that only shares the repository, such as a subfolder of it, lends just its icon, so
+ * the choice keeps Engram's name.
  */
-export function memoryProjectChoices<
-  P extends Parameters<typeof engramProjectNames>[0] & { readonly title: string },
->(engramProjects: ReadonlyArray<MemoryProject>, projects: ReadonlyArray<P>) {
-  const byName = new Map<string, P>();
+export function memoryProjectChoices<P extends MemoryProjectCandidate>(
+  engramProjects: ReadonlyArray<MemoryProject>,
+  projects: ReadonlyArray<P>,
+) {
+  const exact = new Map<string, P>();
+  const sameRepository = new Map<string, P>();
   for (const project of projects) {
-    for (const name of engramProjectNames(project))
-      if (!byName.has(name)) byName.set(name, project);
+    for (const name of [project.title, folderName(project.workspaceRoot)].map(
+      canonicalProjectName,
+    )) {
+      if (name !== "" && !exact.has(name)) exact.set(name, project);
+    }
+    const repository = canonicalProjectName(project.repositoryIdentity?.name ?? "");
+    if (repository !== "" && !sameRepository.has(repository)) {
+      sameRepository.set(repository, project);
+    }
   }
-  return engramProjects.map((entry) => ({
-    name: entry.name,
-    count: entry.observationCount,
-    project: byName.get(canonicalProjectName(entry.name)) ?? null,
-  }));
+  return engramProjects
+    .filter((entry) => entry.observationCount > 0)
+    .map((entry) => {
+      const name = canonicalProjectName(entry.name);
+      const match = exact.get(name);
+      return {
+        name: entry.name,
+        count: entry.observationCount,
+        project: match ?? sameRepository.get(name) ?? null,
+        label: match?.title ?? entry.name,
+      };
+    });
 }
 
 // Labels agents use to structure a memory, following Engram's What/Why/Where/Learned format.

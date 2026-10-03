@@ -4,7 +4,6 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   buildMemoryGraph,
   memoryContentForDisplay,
-  engramProjectNames,
   memoryProjectChoices,
   memoryActivity,
   memoryGroup,
@@ -204,27 +203,44 @@ describe("memoryProjectChoices", () => {
     repositoryIdentity: repositoryName === undefined ? null : { name: repositoryName },
   });
 
-  it("pairs Engram's projects with T3 projects by repository or folder name", () => {
-    const repo = project("T3 Code", "/home/me/t3code-main", "T3Code");
-    // A Windows checkout without a remote: Engram names it after the folder.
-    const folder = project("Mapp Stock", "C:\\Users\\me\\MappStock\\");
-    const choices = memoryProjectChoices(
-      [
-        { name: "t3code", observationCount: 120, sessionCount: 3 },
-        { name: "mappstock", observationCount: 9, sessionCount: 1 },
-        { name: "ivp", observationCount: 2, sessionCount: 1 },
-      ],
-      [repo, folder],
-    );
-    expect(choices.map((choice) => [choice.name, choice.project?.title ?? null])).toEqual([
-      ["t3code", "T3 Code"],
-      ["mappstock", "Mapp Stock"],
-      ["ivp", null],
+  const choices = (
+    engramProjects: ReadonlyArray<string>,
+    projects: ReadonlyArray<ReturnType<typeof project>>,
+  ) =>
+    memoryProjectChoices(
+      engramProjects.map((name) => ({ name, observationCount: 1, sessionCount: 1 })),
+      projects,
+    ).map((choice) => [choice.name, choice.label, choice.project?.title ?? null]);
+
+  it("names a project after the T3 project whose folder or title it is", () => {
+    expect(
+      choices(
+        ["mappstock", "geolibre", "ivp"],
+        // A Windows checkout without a remote: Engram names it after the folder.
+        [project("Mapp Stock", "C:\\Users\\me\\MappStock\\"), project("GeoLibre", "/code/geo")],
+      ),
+    ).toEqual([
+      ["mappstock", "Mapp Stock", "Mapp Stock"],
+      ["geolibre", "GeoLibre", "GeoLibre"],
+      ["ivp", "ivp", null],
     ]);
   });
 
-  it("reads names the way Engram canonicalizes them", () => {
-    expect(engramProjectNames(project("x", "/a/My--Repo__X"))).toContain("my-repo_x");
+  it("keeps Engram's name when a T3 project only shares the repository", () => {
+    // A T3 project opened on a subfolder of the t3code clone, beside the clone itself.
+    const subfolder = project("server", "/code/t3code/apps/server", "t3code");
+    expect(choices(["t3code"], [subfolder])).toEqual([["t3code", "t3code", "server"]]);
+    const clone = project("t3code", "/code/t3code", "t3code");
+    expect(choices(["t3code"], [subfolder, clone])).toEqual([["t3code", "t3code", "t3code"]]);
+  });
+
+  it("reads names the way Engram canonicalizes them, and leaves out empty projects", () => {
+    expect(choices(["my-repo_x"], [project("x", "/a/My--Repo__X")])).toEqual([
+      ["my-repo_x", "x", "x"],
+    ]);
+    expect(
+      memoryProjectChoices([{ name: "pi-smoke", observationCount: 0, sessionCount: 1 }], []),
+    ).toEqual([]);
   });
 });
 
