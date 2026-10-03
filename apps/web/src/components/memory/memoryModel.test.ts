@@ -92,6 +92,41 @@ describe("buildMemoryGraph", () => {
   });
 });
 
+describe("buildMemoryGraph threads and limit", () => {
+  it("chains each session's memories in the order they were saved", () => {
+    const graph = buildMemoryGraph(
+      [
+        memory(3, { createdAt: "2026-10-01 12:00:00" }),
+        memory(1, { createdAt: "2026-10-01 10:00:00" }),
+        memory(9, { sessionId: "s2" }),
+        memory(2, { createdAt: "2026-10-01 11:00:00" }),
+      ],
+      [],
+      null,
+    );
+    expect(graph.threads).toEqual([
+      { source: "obs-1", target: "obs-2" },
+      { source: "obs-2", target: "obs-3" },
+    ]);
+  });
+
+  it("keeps the newest memories and says how many it left out", () => {
+    const graph = buildMemoryGraph(
+      [
+        memory(1, { createdAt: "2026-10-01 10:00:00" }),
+        memory(2, { createdAt: "2026-10-02 10:00:00" }),
+        memory(3, { createdAt: "2026-10-03 10:00:00" }),
+      ],
+      [link(1, 2, "related")],
+      null,
+      2,
+    );
+    expect(graph.nodes.map((node) => node.id)).toEqual(["obs-3", "obs-2"]);
+    expect(graph.edges).toEqual([]);
+    expect(graph.hidden).toBe(1);
+  });
+});
+
 describe("pendingConflicts", () => {
   it("lists relations still waiting for a verdict, newest first", () => {
     const older = { ...link(1, 2, "pending", "pending"), updatedAt: "2026-09-01 10:00:00" };

@@ -80,17 +80,28 @@ export interface MemoryGraphEdge {
   readonly pending: boolean;
 }
 
+/** Joins two memories saved one after the other in the same session. */
+export interface MemoryGraphThread {
+  readonly source: string;
+  readonly target: string;
+}
+
 /**
- * The brain map's nodes and links. Relations whose memories were deleted, or that are outside
- * the chosen project, are dropped; a `not_conflict` verdict says the two are unrelated, so it
- * draws no link.
+ * The brain map's nodes and links, for the newest `limit` memories. Relations whose memories were
+ * deleted, or that are outside the chosen project, are dropped; a `not_conflict` verdict says the
+ * two are unrelated, so it draws no link. Threads chain each session's memories in the order they
+ * were saved, so a session reads as one cluster.
  */
 export function buildMemoryGraph(
   observations: ReadonlyArray<MemoryObservation>,
   relations: ReadonlyArray<MemoryRelation>,
   project: string | null,
+  limit = Number.POSITIVE_INFINITY,
 ) {
-  const shown = observations.filter((entry) => project === null || entry.project === project);
+  const inProject = observations
+    .filter((entry) => project === null || entry.project === project)
+    .toSorted((a, b) => parseMemoryTime(b.createdAt) - parseMemoryTime(a.createdAt));
+  const shown = inProject.slice(0, limit);
   const ids = new Set(shown.map((entry) => entry.syncId));
   const edges: Array<MemoryGraphEdge> = [];
   const superseded = new Set<string>();
@@ -119,8 +130,17 @@ export function buildMemoryGraph(
     superseded: superseded.has(observation.syncId),
     conflicted: conflicted.has(observation.syncId),
   }));
-  return { nodes, edges };
+  const threads: Array<MemoryGraphThread> = [];
+  const lastInSession = new Map<string, string>();
+  for (const observation of shown.toReversed()) {
+    const previous = lastInSession.get(observation.sessionId);
+    if (previous !== undefined) threads.push({ source: previous, target: observation.syncId });
+    lastInSession.set(observation.sessionId, observation.syncId);
+  }
+  return { nodes, edges, threads, hidden: inProject.length - shown.length };
 }
+
+export type MemoryGraph = ReturnType<typeof buildMemoryGraph>;
 
 /** Relations waiting for a person's verdict, newest first. */
 export const pendingConflicts = (relations: ReadonlyArray<MemoryRelation>) =>

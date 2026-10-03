@@ -23,11 +23,15 @@ import {
 import { WorkspacePageContainer } from "../WorkspacePageContainer";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import { MemoryDetailSheet, MemoryLink, memoryTimeLabel } from "./MemoryDetailSheet";
-import { pendingConflicts } from "./memoryModel";
+import { MemoryActivity } from "./MemoryActivity";
+import { MemoryBrainMap } from "./MemoryBrainMap";
+import { buildMemoryGraph, pendingConflicts } from "./memoryModel";
 
 // Engram does not announce changes, so an open page reads it again on this interval.
 const OVERVIEW_REFRESH_MS = 30_000;
 const ALL = "all";
+// More dots than this stop reading as a map, and the layout gets slow to compute.
+const MAP_LIMIT = 600;
 
 /** What the agents on an environment remember, read from Engram. */
 export function MemoryPage() {
@@ -178,6 +182,7 @@ export function MemoryPage() {
                 overview={data}
                 project={project === ALL ? null : project}
                 initialQuery={search.q ?? ""}
+                readAt={overview.dataUpdatedAt}
                 onOpenMemory={openMemory}
               />
             )}
@@ -202,6 +207,8 @@ function MemoryContent(props: {
   readonly overview: MemoryOverview;
   readonly project: string | null;
   readonly initialQuery: string;
+  // When the overview was read, which is "today" for the activity chart.
+  readonly readAt: number;
   readonly onOpenMemory: (id: number) => void;
 }) {
   const { overview, project } = props;
@@ -220,6 +227,10 @@ function MemoryContent(props: {
     [overview.sessions, project],
   );
   const conflicts = pendingConflicts(overview.relations).length;
+  const graph = useMemo(
+    () => buildMemoryGraph(overview.observations, overview.relations, project, MAP_LIMIT),
+    [overview.observations, overview.relations, project],
+  );
 
   if (overview.observations.length === 0) {
     return (
@@ -243,6 +254,7 @@ function MemoryContent(props: {
           reaches all of them.
         </p>
       ) : null}
+      <MemoryBrainMap graph={graph} onOpenMemory={props.onOpenMemory} />
       <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)]">
         <MemorySearch
           environmentId={props.environmentId}
@@ -251,34 +263,37 @@ function MemoryContent(props: {
           initialQuery={props.initialQuery}
           onOpenMemory={props.onOpenMemory}
         />
-        <section className="flex min-w-0 flex-col gap-3">
-          <h2 className="text-sm font-medium">Recent sessions</h2>
-          {sessions.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No sessions yet.</p>
-          ) : (
-            <ul className="flex flex-col divide-y">
-              {sessions.slice(0, 12).map((session) => (
-                <li key={session.id} className="flex flex-col gap-1 py-3 first:pt-0">
-                  <div className="flex items-baseline justify-between gap-3 text-xs text-muted-foreground">
-                    <span className="truncate">{session.project ?? "No project"}</span>
-                    <span className="shrink-0 tabular-nums">
-                      {memoryTimeLabel(session.startedAt)}
-                    </span>
-                  </div>
-                  <p className="line-clamp-4 text-sm whitespace-pre-line">
-                    {session.summary ?? (
-                      <span className="text-muted-foreground">
-                        {session.observationCount === 0
-                          ? "No summary."
-                          : `No summary · ${session.observationCount} memories`}
+        <div className="flex min-w-0 flex-col gap-8">
+          <MemoryActivity observations={observations} now={props.readAt} />
+          <section className="flex min-w-0 flex-col gap-3">
+            <h2 className="text-sm font-medium">Recent sessions</h2>
+            {sessions.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No sessions yet.</p>
+            ) : (
+              <ul className="flex flex-col divide-y">
+                {sessions.slice(0, 12).map((session) => (
+                  <li key={session.id} className="flex flex-col gap-1 py-3 first:pt-0">
+                    <div className="flex items-baseline justify-between gap-3 text-xs text-muted-foreground">
+                      <span className="truncate">{session.project ?? "No project"}</span>
+                      <span className="shrink-0 tabular-nums">
+                        {memoryTimeLabel(session.startedAt)}
                       </span>
-                    )}
-                  </p>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+                    </div>
+                    <p className="line-clamp-4 text-sm whitespace-pre-line">
+                      {session.summary ?? (
+                        <span className="text-muted-foreground">
+                          {session.observationCount === 0
+                            ? "No summary."
+                            : `No summary · ${session.observationCount} memories`}
+                        </span>
+                      )}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </div>
       </div>
     </div>
   );
