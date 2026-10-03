@@ -84,6 +84,7 @@ export function GentleComposerActions({
   onModelSelectionChange,
   readThreadTrail,
   onStartThread,
+  onWritePrompt,
 }: {
   readonly environmentId: EnvironmentId;
   readonly instanceId: ProviderInstanceId;
@@ -102,6 +103,8 @@ export function GentleComposerActions({
   readonly readThreadTrail: () => GentleOddThreadTrail | null;
   /** Opens a new thread with Gentle AI on and this request written, ready to review and send. */
   readonly onStartThread: (prompt: string) => void;
+  /** Writes this request into this thread's composer, with Gentle AI on, ready to review and send. */
+  readonly onWritePrompt: (prompt: string) => void;
 }) {
   const read = useAtomCommand(serverEnvironment.readPiGentleComposer, {
     reportFailure: false,
@@ -352,7 +355,13 @@ export function GentleComposerActions({
                           {entries.map(({ feature }) => (
                             <MenuItem
                               key={feature.path}
-                              onClick={() => startThread(gentleOddContinuePrompt(feature))}
+                              // Work this thread already does continues here; other work in a
+                              // thread of its own.
+                              onClick={() =>
+                                (inThread ? onWritePrompt : startThread)(
+                                  gentleOddContinuePrompt(feature),
+                                )
+                              }
                             >
                               <span className="min-w-0">
                                 <span className="block truncate">{feature.title}</span>
@@ -367,7 +376,7 @@ export function GentleComposerActions({
                     })
                   )}
                   <MenuSeparator />
-                  <MenuItem onClick={() => startThread(GENTLE_ODD_NEW_SPEC_PROMPT)}>
+                  <MenuItem onClick={() => onWritePrompt(GENTLE_ODD_NEW_SPEC_PROMPT)}>
                     <PlusIcon aria-hidden /> New spec
                   </MenuItem>
                 </MenuSubPopup>
@@ -424,6 +433,7 @@ export function GentleComposerSlot({
   pi,
   modelLocked,
   onStartThread,
+  onWritePrompt,
   ...props
 }: {
   /** Changes whenever the menu's answers may have: another thread, run, model or project. */
@@ -442,6 +452,7 @@ export function GentleComposerSlot({
   readonly models: ReadonlyArray<ServerProviderModel>;
   readonly readThreadTrail: () => GentleOddThreadTrail | null;
   readonly onStartThread: (prompt: string, modelSelection: ModelSelection) => void;
+  readonly onWritePrompt: (prompt: string) => void;
 }) {
   const setModelSelection = useComposerDraftStore((store) => store.setModelSelection);
   const setStickyModelSelection = useComposerDraftStore((store) => store.setStickyModelSelection);
@@ -465,6 +476,11 @@ export function GentleComposerSlot({
         setStickyModelSelection(selection);
       }}
       onStartThread={(prompt) => onStartThread(prompt, withGentleAi(modelSelection, true))}
+      onWritePrompt={(prompt) => {
+        // A draft can still turn Gentle AI on; a sent thread only offers this while it is on.
+        if (!enabled) setModelSelection(draftTarget, withGentleAi(modelSelection, true));
+        onWritePrompt(prompt);
+      }}
       onEnabledChange={(on) => setModelSelection(draftTarget, withGentleAi(modelSelection, on))}
     />
   );

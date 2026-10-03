@@ -6783,6 +6783,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             modelLocked={providerCatalogPending || isSendBusy}
             readThreadTrail={readGentleThreadTrail}
             onStartThread={onStartGentleThread}
+            onWritePrompt={(request) => {
+              // Added after whatever is already written, never in place of it.
+              const current = promptRef.current.trimEnd();
+              setPromptFromTraits(current === "" ? request : `${current}\n\n${request}`);
+            }}
           />
         </div>
       </ComposerBanner.Dock>
