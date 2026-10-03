@@ -61,15 +61,26 @@ export function gentleAiToolSummary(
     agent.name ?? names.get(agent.agent) ?? agent.agent;
   const detected = tool.agents.filter((agent) => agent.detected);
   const configured = detected.filter((agent) => agent.configured).map(name);
-  const missing = detected.filter((agent) => !agent.configured).map(name);
+  const pending = detected.filter(gentleAiToolAgentPending).map(name);
+  const missing = detected
+    .filter((agent) => !agent.configured && !gentleAiToolAgentPending(agent))
+    .map(name);
   return [
     tool.cliAvailable ? "CLI installed" : "CLI not installed",
     configured.length > 0 ? `Configured for ${configured.join(", ")}` : null,
+    pending.length > 0
+      ? `Set up for ${pending.join(", ")} (${pending.length === 1 ? `${pending[0]} can't` : "they can't"} confirm it loaded)`
+      : null,
     missing.length > 0 ? `Not configured for ${missing.join(", ")}` : null,
     detected.length === 0 ? "No supported agent detected" : null,
   ]
     .filter((part) => part !== null)
     .join(" · ");
+}
+
+/** Set up for an agent that cannot confirm it is active, as gentle-ai reports Pi's CodeGraph. */
+function gentleAiToolAgentPending(agent: GentleAiTools["tools"][number]["agents"][number]) {
+  return !agent.configured && agent.status === "pending";
 }
 
 /**
@@ -79,7 +90,10 @@ export function gentleAiToolSummary(
 export function gentleAiToolInstalled(tool: GentleAiTools["tools"][number]): boolean {
   return (
     tool.installed ??
-    (tool.cliAvailable && tool.agents.every((agent) => !agent.detected || agent.configured))
+    (tool.cliAvailable &&
+      tool.agents.every(
+        (agent) => !agent.detected || agent.configured || gentleAiToolAgentPending(agent),
+      ))
   );
 }
 

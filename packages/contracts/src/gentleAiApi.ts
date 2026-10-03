@@ -344,7 +344,7 @@ export const GentleAiTools = Schema.Struct({
         Schema.Struct({
           agent: Id,
           name: Opt(Schema.String),
-          // gentle-ai's verdict: configured, missing, or unavailable.
+          // gentle-ai's verdict: configured, pending (set up, unconfirmed), missing, or unavailable.
           status: Opt(Schema.String),
           detected: Schema.Boolean,
           configured: Schema.Boolean,

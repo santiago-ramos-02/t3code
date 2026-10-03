@@ -74,6 +74,16 @@ describe("community tools", () => {
     ).toBe(true);
   });
 
+  it("says a tool is set up for an agent that cannot confirm it, instead of not configured", () => {
+    const pi = { agent: "pi", name: "Pi", status: "pending", detected: true, configured: false };
+    const withPi = { ...tool, agents: [tool.agents[0]!, pi] };
+    expect(gentleAiToolSummary(withPi, names)).toBe(
+      "CLI installed · Configured for Claude Code · Set up for Pi (Pi can't confirm it loaded)",
+    );
+    // Nothing is left to set up, so an older gentle-ai's answer is worked out as installed.
+    expect(gentleAiToolInstalled(withPi)).toBe(true);
+  });
+
   it("names agents the way gentle-ai does", () => {
     expect(
       gentleAiToolSummary(
