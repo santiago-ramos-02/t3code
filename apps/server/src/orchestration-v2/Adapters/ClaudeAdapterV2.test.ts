@@ -903,6 +903,30 @@ describe("ClaudeAdapterV2 context usage", () => {
       updatedAt: "2026-08-29T00:00:00.000Z",
     });
   });
+
+  it("carries how long the request's cache lives, as Claude reports it", () => {
+    const ttl = (cache_creation: {
+      readonly ephemeral_5m_input_tokens: number;
+      readonly ephemeral_1h_input_tokens: number;
+    }) =>
+      ClaudeAdapterV2.claudeProviderTurnTokenUsage(
+        {
+          input_tokens: 2,
+          cache_creation_input_tokens:
+            cache_creation.ephemeral_5m_input_tokens + cache_creation.ephemeral_1h_input_tokens,
+          cache_read_input_tokens: 500,
+          cache_creation,
+          output_tokens: 10,
+        },
+        CLAUDE_TEST_MODEL_SELECTION,
+        "2026-08-29T00:00:00.000Z",
+      ).cacheTtlSeconds;
+
+    assert.equal(ttl({ ephemeral_5m_input_tokens: 0, ephemeral_1h_input_tokens: 2_514 }), 3_600);
+    assert.equal(ttl({ ephemeral_5m_input_tokens: 300, ephemeral_1h_input_tokens: 0 }), 300);
+    // A request that wrote nothing does not say which lifetime the cache has.
+    assert.equal(ttl({ ephemeral_5m_input_tokens: 0, ephemeral_1h_input_tokens: 0 }), undefined);
+  });
 });
 
 describe("ClaudeAdapterV2 session permissions", () => {
