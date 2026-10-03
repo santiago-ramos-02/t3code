@@ -2311,7 +2311,7 @@ export function makePiAdapterV2(
             }
             // The orchestrator adopts a fork under its already-allocated row.
             // Future session updates must retain that authoritative identity.
-            state.providerThread = turnInput.providerThread;
+            state.providerThread = gentle.withRoster(turnInput.providerThread);
             yield* applySelection(turnInput.modelSelection);
             // Mirror the thread title into pi's session name so the session
             // stays identifiable in pi's own /resume listing. Best-effort:

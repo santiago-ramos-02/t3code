@@ -18,6 +18,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
 import type * as IdAllocator from "../IdAllocator.ts";
+import { backgroundWorkNotification } from "../Notification.ts";
 import type * as ProviderAdapter from "../ProviderAdapter.ts";
 import type { ProviderContinuationRequest } from "../ProviderContinuationRequests.ts";
 import {
@@ -85,6 +86,7 @@ interface GentleTaskState<Turn extends PiGentleTurn> {
   readonly startedAt: DateTime.Utc;
   readonly childThreadId: ThreadId;
   readonly childRootNodeId: NodeId;
+  title: string;
   status: OrchestrationV2Subagent["status"] | null;
   completedAt: DateTime.Utc | null;
   version: number;
@@ -113,8 +115,8 @@ export function makePiGentle<Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>
   });
 
   const tasks = new Map<string, GentleTaskState<Turn>>();
-  /** Unfinished subagents in the latest snapshot, and which of them run in the background. */
-  let live = new Set<string>();
+  /** Unfinished subagents in the latest snapshot with their titles, and the background ones. */
+  let live = new Map<string, string>();
   let liveBackground = new Set<string>();
   let lastTurn: Turn | null = null;
   /** A background subagent that finished with no turn running, so gentle-pi is about to wake Pi. */
@@ -242,6 +244,7 @@ export function makePiGentle<Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>
           driver,
           nativeItemId: `${nativeTaskId}:thread-root`,
         }),
+        title: task.title,
         status: null,
         completedAt: null,
         version: -1,
@@ -259,6 +262,7 @@ export function makePiGentle<Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>
     }
     const { turn } = entry;
     const lifecycleChanged = entry.status !== task.status;
+    entry.title = task.title;
     entry.status = task.status;
     entry.version = task.version;
     entry.progress = task.progress;
@@ -434,6 +438,25 @@ export function makePiGentle<Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>
     }
   });
 
+  /**
+   * The provider thread with its gentle-pi entries replaced by the subagents still running.
+   * Unfinished subagents keep the thread working through this background roster, which also
+   * covers redraws after the turn settles.
+   */
+  const withRoster = (providerThread: OrchestrationV2ProviderThread) => ({
+    ...providerThread,
+    pendingBackgroundTasks: [
+      ...(providerThread.pendingBackgroundTasks ?? []).filter(
+        (task) => !task.taskId.startsWith("gentle:"),
+      ),
+      ...[...live].map(([id, title]) => ({
+        taskId: `gentle:${id}`,
+        kind: "subagent" as const,
+        description: title,
+      })),
+    ],
+  });
+
   const onActivity = Effect.fnUntraced(function* (widgetLines: ReadonlyArray<string> | undefined) {
     const state = deps.threadState();
     const snapshot = readGentleActivity(widgetLines);
@@ -441,7 +464,7 @@ export function makePiGentle<Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>
     const now = yield* DateTime.now;
     const wasLive = liveBackground;
     const unfinished = snapshot.filter((task) => !task.terminal);
-    live = new Set(unfinished.map((task) => task.id));
+    live = new Map(unfinished.map((task) => [task.id, task.title]));
     liveBackground = new Set(unfinished.filter((task) => task.background).map((task) => task.id));
     for (const task of snapshot) {
       if (task.terminal && wasLive.has(task.id) && state.activeTurn === null) {
@@ -449,22 +472,8 @@ export function makePiGentle<Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>
       }
       yield* emitTask(task, now);
     }
-    // Unfinished subagents keep the thread working through the provider thread's background
-    // roster, which also covers redraws after the turn settles.
-    const others = (state.providerThread.pendingBackgroundTasks ?? []).filter(
-      (task) => !task.taskId.startsWith("gentle:"),
-    );
-    const roster = [
-      ...others,
-      ...snapshot
-        .filter((task) => !task.terminal)
-        .map((task) => ({
-          taskId: `gentle:${task.id}`,
-          kind: "subagent" as const,
-          description: task.title,
-        })),
-    ];
     const current = state.providerThread.pendingBackgroundTasks ?? [];
+    const roster = withRoster(state.providerThread).pendingBackgroundTasks ?? [];
     if (
       roster.length !== current.length ||
       roster.some((task, index) => task.taskId !== current[index]?.taskId)
@@ -566,7 +575,7 @@ export function makePiGentle<Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>
     /** Pi's native session changed, so nothing seen so far belongs to it. */
     reset: () => {
       tasks.clear();
-      live = new Set();
+      live = new Map();
       liveBackground = new Set();
       lastTurn = null;
       finishedBackground = null;
@@ -600,11 +609,21 @@ export function makePiGentle<Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>
         providerThreadId: state.providerThread.id,
         driver,
         detail: WAKE_TEXT,
-        notification: {
-          source: { kind: "subagent", childThreadId: background.childThreadId },
-          outcome: "completed",
-          summary: "Background subagent finished",
-        },
+        notification: backgroundWorkNotification([
+          {
+            kind: "subagent",
+            label: background.title,
+            outcome:
+              background.status === "failed"
+                ? "failed"
+                : background.status === "cancelled" || background.status === "interrupted"
+                  ? "cancelled"
+                  : background.status === "completed"
+                    ? "completed"
+                    : "unknown",
+            childThreadId: background.childThreadId,
+          },
+        ]),
         delivery: "adapter_buffered",
       });
       return true;
@@ -628,6 +647,12 @@ export function makePiGentle<Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>
       finishedBackground = null;
       return events;
     },
+
+    /**
+     * A turn starts from the provider thread as last saved, which can still list subagents that
+     * finished while no run was listening.
+     */
+    withRoster,
 
     hasPendingBackgroundWork: Effect.sync(() => live.size > 0 || wake !== null),
 

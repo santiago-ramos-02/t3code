@@ -1387,10 +1387,12 @@ describe("PiAdapterV2", () => {
       );
       yield* fake.emit({ type: "agent_start" });
       const offer = yield* Queue.take(offers);
+      // Named the way every provider's wake-up is, so it reads like Claude's or Codex's.
       assert.isTrue(
         offer.delivery === "adapter_buffered" &&
           offer.threadId === THREAD_ID &&
-          offer.notification?.source.kind === "subagent",
+          offer.notification?.source.kind === "subagent" &&
+          offer.notification.summary === 'Subagent "Map the repo" finished',
       );
       yield* fake.emit({ type: "message_start", message: { role: "assistant" } });
       yield* fake.emit({
@@ -1412,7 +1414,9 @@ describe("PiAdapterV2", () => {
       fake.queueState({ isStreaming: false, isCompacting: false, pendingMessageCount: 0 });
       yield* fake.emit({ type: "agent_settled" });
 
-      // The continuation run takes over the run Pi already started, without prompting again.
+      // The continuation run takes over the run Pi already started, without prompting again. It
+      // starts from the saved provider thread, which can still list the finished subagent when
+      // its clear landed after the first run stopped listening.
       const appThread = yield* makeAppThread("default");
       const runId = RunId.make(`run:${THREAD_ID}:2`);
       yield* runtime.startTurn({
@@ -1423,7 +1427,12 @@ describe("PiAdapterV2", () => {
         providerTurnOrdinal: 2,
         attemptId: RunAttemptId.make(`run-attempt:${runId}:1`),
         rootNodeId: NodeId.make(`node:${runId}:root`),
-        providerThread,
+        providerThread: {
+          ...providerThread,
+          pendingBackgroundTasks: [
+            { taskId: "gentle:task-1", kind: "subagent", description: "Map the repo" },
+          ],
+        },
         message: {
           messageId: `message:${THREAD_ID}:2` as never,
           text: "A background subagent finished.",
@@ -1434,6 +1443,16 @@ describe("PiAdapterV2", () => {
         modelSelection: modelSelection("default"),
         runtimePolicy,
       });
+      const started = yield* takeEvent(
+        (event) =>
+          event.type === "provider_thread.updated" && event.providerThread.status === "active",
+      );
+      assert.deepEqual(
+        started.type === "provider_thread.updated"
+          ? started.providerThread.pendingBackgroundTasks
+          : undefined,
+        [],
+      );
       const reply = yield* takeEvent(
         (event) =>
           event.type === "turn_item.updated" &&
