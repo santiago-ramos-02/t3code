@@ -7,6 +7,7 @@ import {
 } from "./ContextWindowMeter.logic";
 import { Minimize2Icon } from "lucide-react";
 import { composerFloatingLayerProps } from "./composerEventScope";
+import { PromptCacheSection } from "./PromptCacheSection";
 
 function formatPercentage(value: number | null): string | null {
   if (value === null || !Number.isFinite(value)) {
@@ -143,6 +144,13 @@ export function ContextWindowMeter(props: {
                 {formatContextWindowCost(usage.cost)}
               </span>
             </div>
+          ) : null}
+          {usage.promptCache ? (
+            <PromptCacheSection
+              cache={usage.promptCache}
+              contextTokens={usage.usedTokens}
+              canCompact={onCompact !== undefined && !compactDisabled}
+            />
           ) : null}
           {usage.compactsAutomatically ? (
             <div className="mt-1 text-pretty text-secondary-label text-2xs font-medium">

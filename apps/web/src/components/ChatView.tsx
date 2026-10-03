@@ -475,6 +475,7 @@ import {
   shouldOfferResumeCompaction,
 } from "./chat/ContextWindowMeter.logic";
 import { deriveLatestContextWindowSnapshot, formatContextWindowTokens } from "../lib/contextWindow";
+import { derivePromptCache } from "../lib/promptCache";
 import {
   DRAFT_HERO_TRANSITION_ANIMATION_ID,
   DRAFT_HERO_TRANSITION_EASING,
@@ -3498,17 +3499,23 @@ export default function ChatView(props: ChatViewProps) {
     isConnecting ||
     isCompacting ||
     runlessWorkStartedAt !== null;
-  const activeContextWindow = useMemo(
-    () =>
-      deriveLatestContextWindowSnapshot(
-        serverVisibleTurnItems ?? [],
-        activeThreadLiveTokenUsage,
-        serverProjection?.providerThreads.find(
-          (thread) => thread.id === serverProjection.thread.activeProviderThreadId,
-        ),
+  const activeContextWindow = useMemo(() => {
+    const snapshot = deriveLatestContextWindowSnapshot(
+      serverVisibleTurnItems ?? [],
+      activeThreadLiveTokenUsage,
+      serverProjection?.providerThreads.find(
+        (thread) => thread.id === serverProjection.thread.activeProviderThreadId,
       ),
-    [activeThreadLiveTokenUsage, serverVisibleTurnItems, serverProjection],
-  );
+    );
+    if (snapshot === null || serverProjection === null) return snapshot;
+    const promptCache = derivePromptCache({
+      providerTurns: serverProjection.providerTurns,
+      providerThreadId: serverProjection.thread.activeProviderThreadId,
+      attempts: serverProjection.attempts,
+      runs: serverProjection.runs,
+    });
+    return promptCache === null ? snapshot : { ...snapshot, promptCache };
+  }, [activeThreadLiveTokenUsage, serverVisibleTurnItems, serverProjection]);
   const pendingBackgroundTasks = useMemo(() => {
     if (serverProjection === null || serverProjection === undefined) {
       return [];
