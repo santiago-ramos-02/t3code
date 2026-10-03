@@ -1,7 +1,10 @@
 import { GENTLE_AI_JOB_LABELS } from "@t3tools/client-runtime/gentle-ai";
 import type { GentleAiJob } from "@t3tools/contracts";
 import { CheckIcon, ChevronRightIcon, CircleAlertIcon, MinusIcon } from "lucide-react";
+import * as Schema from "effect/Schema";
 import { useState } from "react";
+
+import { useLocalStorage } from "../../../hooks/useLocalStorage";
 
 import { Button } from "../../ui/button";
 
@@ -10,6 +13,12 @@ import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../../ui/coll
 import { Spinner } from "../../ui/spinner";
 import { SettingsRow, SettingsSection } from "../settingsLayout";
 import { gentleAiJobResult } from "./useGentleAi";
+
+// Jobs dismissed on this device. The panel remounts on every page change, so this outlives it;
+// a few ids are enough because only an environment's latest job is ever shown.
+const DISMISSED_JOBS_KEY = "t3code:gentle-ai:dismissed-jobs:v1";
+const DismissedJobs = Schema.Array(Schema.String);
+const DISMISSED_JOBS_KEPT = 20;
 
 /** What a sync changed: the files it rewrote and anything left to do by hand. */
 function syncOutcome(job: GentleAiJob) {
@@ -71,7 +80,8 @@ function jobProgress(job: GentleAiJob, names: ReadonlyMap<string, string>): stri
 /**
  * The environment's running or last Gentle AI job, as one row: where it is, then how it ended,
  * with its steps and output behind Details. Jobs run on the server, so this reflects work any
- * client started, and survives closing the page. A finished job can be dismissed.
+ * client started, and survives closing the page. A finished job can be dismissed, and stays
+ * dismissed on this device.
  */
 export function GentleAiJobPanel({
   job,
@@ -81,8 +91,8 @@ export function GentleAiJobPanel({
   readonly names: ReadonlyMap<string, string>;
 }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const [dismissed, setDismissed] = useState<string | null>(null);
-  if (job === null || job.id === dismissed) return null;
+  const [dismissed, setDismissed] = useLocalStorage(DISMISSED_JOBS_KEY, [], DismissedJobs);
+  if (job === null || dismissed.includes(job.id)) return null;
   const title = GENTLE_AI_JOB_LABELS[job.method];
   const outcome = syncOutcome(job);
   const failedSteps = job.steps.filter((step) => step.error);
@@ -122,7 +132,13 @@ export function GentleAiJobPanel({
         }
         control={
           job.phase === "running" ? null : (
-            <Button size="sm" variant="ghost" onClick={() => setDismissed(job.id)}>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() =>
+                setDismissed((previous) => [job.id, ...previous].slice(0, DISMISSED_JOBS_KEPT))
+              }
+            >
               Dismiss
             </Button>
           )
