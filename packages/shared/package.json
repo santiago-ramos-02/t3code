@@ -103,6 +103,10 @@
       "types": "./src/schemaYaml.ts",
       "import": "./src/schemaYaml.ts"
     },
+    "./engramTools": {
+      "types": "./src/engramTools.ts",
+      "import": "./src/engramTools.ts"
+    },
     "./toolActivity": {
       "types": "./src/toolActivity.ts",
       "import": "./src/toolActivity.ts"

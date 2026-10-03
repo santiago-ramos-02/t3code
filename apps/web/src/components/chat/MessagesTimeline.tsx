@@ -58,6 +58,7 @@ import { toolActivityFaviconUrl } from "@t3tools/shared/favicon";
 import { formatDuration } from "@t3tools/shared/orchestrationTiming";
 import { getProjectFaviconCacheKey } from "@t3tools/shared/projectFavicon";
 import { claudeSkillInvocation } from "@t3tools/shared/toolActivity";
+import { MemoryToolLink } from "../memory/MemoryToolLink";
 import { observeVisibleAnimation } from "../../lib/visibleAnimation";
 import {
   createContext,
@@ -5207,6 +5208,15 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
             >
               Open chat
             </button>
+          ) : null}
+          {payload?.type === "dynamic_tool" && threadRef ? (
+            <MemoryToolLink
+              environmentId={threadRef.environmentId}
+              toolName={payload.toolName}
+              input={payload.input}
+              output={payload.output}
+              onKeyDown={stopRowToggle}
+            />
           ) : null}
           {notifiedSubagentThreadId ? (
             <InlineButton

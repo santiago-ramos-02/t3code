@@ -1,5 +1,7 @@
 import type { ToolLifecycleItemType } from "@t3tools/contracts";
 
+import { engramToolTitle } from "./engramTools.ts";
+
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -27,7 +29,7 @@ export function claudeSkillInvocation(
 
 /**
  * Activity log heading a dynamic tool derives from its input: CUA's `title`,
- * or the skill a Claude `Skill` call loads.
+ * the skill a Claude `Skill` call loads, or what an Engram memory tool did.
  */
 export function dynamicToolTitle(
   toolName: string | null | undefined,
@@ -35,7 +37,7 @@ export function dynamicToolTitle(
 ): string | undefined {
   if (toolName === "cua_repl.js") return asTrimmedString(asRecord(input)?.title);
   const skill = claudeSkillInvocation(toolName, input);
-  return skill === undefined ? undefined : `Skill: ${skill.name}`;
+  return skill === undefined ? engramToolTitle(toolName, input) : `Skill: ${skill.name}`;
 }
 
 function recordHasKeys(
