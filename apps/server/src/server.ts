@@ -150,6 +150,7 @@ import * as ResourceMonitorBinary from "./resourceTelemetry/ResourceMonitorBinar
 import * as ResourceTelemetry from "./resourceTelemetry/ResourceTelemetry.ts";
 import * as GentleAi from "./gentleAi/GentleAi.ts";
 import * as CliProxy from "./cliProxy/CliProxy.ts";
+import * as Engram from "./memory/Engram.ts";
 import * as GentleAiFootprints from "./gentleAi/GentleAiFootprints.ts";
 import * as UsageService from "./usage/UsageService.ts";
 import {
@@ -550,6 +551,7 @@ const RuntimeCoreDependenciesBaseLive = Layer.mergeAll(
       UsageLimitSources.layer,
       GentleAi.layer,
       CliProxy.layer,
+      Engram.layer,
     ),
   ),
   Layer.provideMerge(ProviderRegistryLive),

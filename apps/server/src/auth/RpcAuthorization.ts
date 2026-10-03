@@ -66,6 +66,13 @@ export const RPC_REQUIRED_SCOPES = {
   // The proxy holds account credentials and runs a program on the environment, like a terminal.
   [WS_METHODS.cliProxyAction]: AuthTerminalOperateScope,
   [WS_METHODS.cliProxyManagement]: AuthTerminalOperateScope,
+  [WS_METHODS.memoryOverview]: AuthOrchestrationReadScope,
+  [WS_METHODS.memorySearch]: AuthOrchestrationReadScope,
+  [WS_METHODS.memoryObservation]: AuthOrchestrationReadScope,
+  [WS_METHODS.memoryHealth]: AuthOrchestrationReadScope,
+  [WS_METHODS.memoryJudge]: AuthOrchestrationOperateScope,
+  // Writes notes into a folder on the environment.
+  [WS_METHODS.memoryExportObsidian]: AuthTerminalOperateScope,
   [WS_METHODS.serverUpdateServer]: AuthOrchestrationOperateScope,
   [WS_METHODS.serverUpdateServerWithProgress]: AuthOrchestrationOperateScope,
   [WS_METHODS.serverCommitDesktopUpdate]: AuthOrchestrationOperateScope,

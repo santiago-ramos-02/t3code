@@ -214,6 +214,7 @@ import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
 import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
 import * as GentleAi from "./gentleAi/GentleAi.ts";
 import * as CliProxy from "./cliProxy/CliProxy.ts";
+import * as Engram from "./memory/Engram.ts";
 import { runPiGentle } from "./provider/PiGentleRpc.ts";
 import * as UsageService from "./usage/UsageService.ts";
 import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
@@ -1159,6 +1160,7 @@ const makeWsRpcLayer = (
       const environmentTheme = yield* EnvironmentTheme.EnvironmentThemeService;
       const gentleAi = yield* GentleAi.GentleAi;
       const cliProxy = yield* CliProxy.CliProxy;
+      const engram = yield* Engram.Engram;
       const externalLauncher = yield* ExternalLauncher.ExternalLauncher;
       const remoteOpenTargets = yield* RemoteOpenTargets.RemoteOpenTargets;
       const gitWorkflow = yield* GitWorkflowService.GitWorkflowService;
@@ -2381,6 +2383,28 @@ const makeWsRpcLayer = (
         [WS_METHODS.cliProxyManagement]: (input) =>
           observeRpcEffect(WS_METHODS.cliProxyManagement, cliProxy.management(input), {
             "rpc.aggregate": "cli-proxy",
+          }),
+        [WS_METHODS.memoryOverview]: () =>
+          observeRpcEffect(WS_METHODS.memoryOverview, engram.overview, {
+            "rpc.aggregate": "memory",
+          }),
+        [WS_METHODS.memorySearch]: (input) =>
+          observeRpcEffect(WS_METHODS.memorySearch, engram.search(input), {
+            "rpc.aggregate": "memory",
+          }),
+        [WS_METHODS.memoryObservation]: (input) =>
+          observeRpcEffect(WS_METHODS.memoryObservation, engram.observation(input.id), {
+            "rpc.aggregate": "memory",
+          }),
+        [WS_METHODS.memoryHealth]: () =>
+          observeRpcEffect(WS_METHODS.memoryHealth, engram.health, { "rpc.aggregate": "memory" }),
+        [WS_METHODS.memoryJudge]: (input) =>
+          observeRpcEffect(WS_METHODS.memoryJudge, engram.judge(input).pipe(Effect.as({})), {
+            "rpc.aggregate": "memory",
+          }),
+        [WS_METHODS.memoryExportObsidian]: (input) =>
+          observeRpcEffect(WS_METHODS.memoryExportObsidian, engram.exportObsidian(input), {
+            "rpc.aggregate": "memory",
           }),
         [WS_METHODS.providerPiGentleRead]: (input) =>
           observeRpcEffect(

@@ -49,6 +49,18 @@ import {
   CliProxyManagementResult,
   CliProxyStatus,
 } from "./cliProxy.ts";
+import {
+  MemoryError,
+  MemoryHealth,
+  MemoryJudgeInput,
+  MemoryObservationDetail,
+  MemoryObservationInput,
+  MemoryObsidianExportInput,
+  MemoryObsidianExportResult,
+  MemoryOverview,
+  MemorySearchInput,
+  MemorySearchResult,
+} from "./memory.ts";
 
 import {
   AcpRegistryAcceptUrlAuthInput,
@@ -416,6 +428,12 @@ export const WS_METHODS = {
   cliProxySubscribeStatus: "cliProxy.subscribeStatus",
   cliProxyAction: "cliProxy.action",
   cliProxyManagement: "cliProxy.management",
+  memoryOverview: "memory.overview",
+  memorySearch: "memory.search",
+  memoryObservation: "memory.observation",
+  memoryHealth: "memory.health",
+  memoryJudge: "memory.judge",
+  memoryExportObsidian: "memory.exportObsidian",
 
   // VCS methods
   vcsPull: "vcs.pull",
@@ -694,6 +712,45 @@ const WsCliProxyManagementRpc = Rpc.make(WS_METHODS.cliProxyManagement, {
   payload: CliProxyManagementInput,
   success: CliProxyManagementResult,
   error: Schema.Union([CliProxyError, EnvironmentAuthorizationError]),
+});
+
+// Memory: what the environment's agents learned, read from Engram by the server.
+const MemoryRpcError = Schema.Union([MemoryError, EnvironmentAuthorizationError]);
+
+const WsMemoryOverviewRpc = Rpc.make(WS_METHODS.memoryOverview, {
+  payload: Schema.Struct({}),
+  success: MemoryOverview,
+  error: MemoryRpcError,
+});
+
+const WsMemorySearchRpc = Rpc.make(WS_METHODS.memorySearch, {
+  payload: MemorySearchInput,
+  success: MemorySearchResult,
+  error: MemoryRpcError,
+});
+
+const WsMemoryObservationRpc = Rpc.make(WS_METHODS.memoryObservation, {
+  payload: MemoryObservationInput,
+  success: MemoryObservationDetail,
+  error: MemoryRpcError,
+});
+
+const WsMemoryHealthRpc = Rpc.make(WS_METHODS.memoryHealth, {
+  payload: Schema.Struct({}),
+  success: MemoryHealth,
+  error: MemoryRpcError,
+});
+
+const WsMemoryJudgeRpc = Rpc.make(WS_METHODS.memoryJudge, {
+  payload: MemoryJudgeInput,
+  success: Schema.Struct({}),
+  error: MemoryRpcError,
+});
+
+const WsMemoryExportObsidianRpc = Rpc.make(WS_METHODS.memoryExportObsidian, {
+  payload: MemoryObsidianExportInput,
+  success: MemoryObsidianExportResult,
+  error: MemoryRpcError,
 });
 
 const WsGentleAiActionRpc = Rpc.make(WS_METHODS.gentleAiAction, {
@@ -1812,6 +1869,12 @@ export const WsRpcGroup = RpcGroup.make(
   WsCliProxySubscribeStatusRpc,
   WsCliProxyActionRpc,
   WsCliProxyManagementRpc,
+  WsMemoryOverviewRpc,
+  WsMemorySearchRpc,
+  WsMemoryObservationRpc,
+  WsMemoryHealthRpc,
+  WsMemoryJudgeRpc,
+  WsMemoryExportObsidianRpc,
   WsGentleAiQueryRpc,
   WsGentleAiStartJobRpc,
   WsGentleAiSubscribeJobRpc,
