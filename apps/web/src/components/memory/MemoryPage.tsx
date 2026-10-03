@@ -1,4 +1,4 @@
-import { EnvironmentId, type MemoryOverview } from "@t3tools/contracts";
+import { EnvironmentId, type MemoryObservation, type MemoryOverview } from "@t3tools/contracts";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 
@@ -20,7 +20,7 @@ import { WorkspaceBreadcrumb, WorkspaceBreadcrumbItem } from "../WorkspaceBreadc
 import { WorkspacePageContainer } from "../WorkspacePageContainer";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import { MemoryDetailAside, MemoryDetailSheet } from "./MemoryDetailSheet";
-import { MemoryFacts, MemoryLink, memoryTimeLabel } from "./memoryParts";
+import { MemoryFacts, MemoryLink, memoryTimeLabel, memoryTypeLabel } from "./memoryParts";
 import { MemoryActivity } from "./MemoryActivity";
 import { MemoryBrainMap } from "./MemoryBrainMap";
 import { MemoryConflictsButton } from "./MemoryConflicts";
@@ -34,6 +34,8 @@ const OVERVIEW_REFRESH_MS = 30_000;
 const ALL = "all";
 // More dots than this stop reading as a map, and the layout gets slow to compute.
 const MAP_LIMIT = 600;
+// The memory list and Recent sessions sit side by side, so they show as many rows.
+const LIST_LIMIT = 12;
 
 /** What the agents on an environment remember, read from Engram. */
 export function MemoryPage() {
@@ -280,6 +282,7 @@ function MemoryContent(props: {
         <MemorySearch
           environmentId={props.environmentId}
           project={project}
+          newest={observations}
           types={[...new Set(overview.observations.map((entry) => entry.type))].toSorted()}
           initialQuery={props.initialQuery}
           onOpenMemory={props.onOpenMemory}
@@ -292,7 +295,7 @@ function MemoryContent(props: {
               <p className="text-sm text-muted-foreground">No sessions yet.</p>
             ) : (
               <ul className="flex flex-col divide-y">
-                {sessions.slice(0, 12).map((session) => (
+                {sessions.slice(0, LIST_LIMIT).map((session) => (
                   <li key={session.id} className="flex flex-col gap-1 py-3 first:pt-0">
                     <div className="flex items-baseline justify-between gap-3 text-xs text-muted-foreground">
                       <span className="truncate">{session.project ?? "No project"}</span>
@@ -317,9 +320,15 @@ function MemoryContent(props: {
   );
 }
 
+/**
+ * The page's memory list: the newest memories of the chosen kind, or what a search finds. Session
+ * summaries stay out of the newest, which Recent sessions already shows, unless picked as the kind.
+ */
 function MemorySearch(props: {
   readonly environmentId: EnvironmentId;
   readonly project: string | null;
+  // Newest first.
+  readonly newest: ReadonlyArray<MemoryObservation>;
   readonly types: ReadonlyArray<string>;
   readonly initialQuery: string;
   readonly onOpenMemory: (id: number) => void;
@@ -343,10 +352,17 @@ function MemorySearch(props: {
           },
         }),
   );
+  const newest = useMemo(
+    () =>
+      props.newest
+        .filter((entry) => (type === ALL ? entry.type !== "session_summary" : entry.type === type))
+        .slice(0, LIST_LIMIT),
+    [props.newest, type],
+  );
 
   return (
     <section className="flex min-w-0 flex-col gap-3">
-      <h2 className="text-sm font-medium">Search</h2>
+      <h2 className="text-sm font-medium">Memories</h2>
       <div className="flex items-center gap-2">
         <Input
           type="search"
@@ -357,19 +373,32 @@ function MemorySearch(props: {
         />
         <Select value={type} onValueChange={(value) => setType(value ?? ALL)}>
           <SelectTrigger aria-label="Memory type" className="w-auto min-w-0 shrink-0">
-            <SelectValue>{type === ALL ? "Any type" : type.replaceAll("_", " ")}</SelectValue>
+            <SelectValue>{type === ALL ? "Any type" : memoryTypeLabel(type)}</SelectValue>
           </SelectTrigger>
           <SelectPopup align="end" alignItemWithTrigger={false}>
             <SelectItem value={ALL}>Any type</SelectItem>
             {props.types.map((entry) => (
               <SelectItem key={entry} value={entry}>
-                {entry.replaceAll("_", " ")}
+                {memoryTypeLabel(entry)}
               </SelectItem>
             ))}
           </SelectPopup>
         </Select>
       </div>
-      {query === "" ? null : results.error ? (
+      {query === "" ? (
+        newest.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No memories of this kind yet.</p>
+        ) : (
+          <ul className="flex flex-col divide-y">
+            {newest.map((observation) => (
+              <li key={observation.id} className="flex flex-col gap-1 py-3 first:pt-0">
+                <MemoryLink observation={observation} onOpen={props.onOpenMemory} />
+                <MemoryFacts observation={observation} className="text-xs" />
+              </li>
+            ))}
+          </ul>
+        )
+      ) : results.error ? (
         <p className="text-sm text-destructive-foreground">{results.error}</p>
       ) : !results.data ? (
         <Skeleton className="h-16 w-full" />
