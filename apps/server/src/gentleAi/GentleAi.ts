@@ -546,6 +546,8 @@ export const make = Effect.gen(function* () {
       );
     });
 
+  const serviceScope = yield* Effect.scope;
+
   // Every read starts a gentle-ai process, so a settings page opening at once would start a
   // dozen. Identical reads share one run and its answer for a while; anything that changes what
   // gentle-ai set up goes through a job or a refresh, which clears them all.
@@ -553,7 +555,15 @@ export const make = Effect.gen(function* () {
     ({ method, params }: QueryKey) => {
       const decoded: unknown = JSON.parse(params);
       // Model discovery asks the agents' own CLIs, which can take a while.
-      return callMethod(method, decoded, method === "models.get" ? "2 minutes" : "30 seconds");
+      const read = callMethod(
+        method,
+        decoded,
+        method === "models.get" ? "2 minutes" : "30 seconds",
+      );
+      // The cache stops a run once nobody waits for it, and a client asking again at that moment
+      // would join the dying run and get its interruption. Run on the service instead, so the
+      // cache only stops the wait, which ends at once.
+      return read.pipe(Effect.forkIn(serviceScope), Effect.flatMap(Fiber.join));
     },
     {
       capacity: 256,
@@ -563,7 +573,6 @@ export const make = Effect.gen(function* () {
   const query = (method: GentleAiQueryMethod, params: unknown) =>
     Cache.get(queryCache, queryKey(method, params));
 
-  const serviceScope = yield* Effect.scope;
   const jobRef = yield* Ref.make<GentleAiJob | null>(null);
   const jobChanges = yield* Effect.acquireRelease(
     PubSub.unbounded<GentleAiJob | null>(),

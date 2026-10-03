@@ -164,6 +164,7 @@ else process.exit(3);
         const platform = yield* HostProcessPlatform;
         const home = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-gentle-ai-api-" });
         const release = path.join(home, "release-sync");
+        const releaseEngines = path.join(home, "release-engines");
         const calls = path.join(home, "calls.log");
         const script = path.join(home, "fake-gentle-ai.cjs");
         // Speaks the headless API: JSON params on stdin, NDJSON events and one final line out.
@@ -180,6 +181,11 @@ if (method === "describe") line({ type: "result", data: { version: "3.8.0", apiV
 else if (method === "status") line({ type: "result", data: { version: "3.8.0", system: { os: "linux", arch: "amd64", shell: "bash", supported: true }, agents: [{ id: "codex", name: "Codex", detected: true, installed: true, supported: true, configPath: "" }, { id: "claude-code", name: "Claude Code", detected: true, installed: false, supported: true, configPath: "" }], components: [{ id: "engram", name: "Engram", description: "", installed: true, requires: [] }], presets: [], personas: [], skills: [], state: { preset: "full-gentleman", pendingSync: false, syncNeeded: true, background: {} }, openCodeDetected: false, builderEngines: [] } });
 else if (method === "backups.list") line({ type: "result", data: { backups: [{ id: "b1", createdAt: "2026-09-01T00:00:00Z", source: "install", description: params.note ?? "Before install", fileCount: 3, createdByVersion: "3.8.0", pinned: false }] } });
 else if (method === "doctor") line({ type: "result", data: { checks: "not a list" } });
+else if (method === "builder.engines") {
+  // Still running when the test cancels the read that started it.
+  const wait = () => fs.existsSync(${encodeJson(releaseEngines)}) ? line({ type: "result", data: { engines: [] } }) : setTimeout(wait, 20);
+  wait();
+}
 else if (method === "sync") {
   line({ type: "progress", step: "agent:codex", stage: "apply", status: "running" });
   line({ type: "log", message: "writing AGENTS.md" });
@@ -257,6 +263,16 @@ else line({ type: "error", error: { code: "unsupported", message: "unknown metho
         expect(
           (yield* service.query("models.get", {}).pipe(Effect.asVoid, Effect.flip)).detail,
         ).toBe("Invalid parameters for models.get.");
+
+        // A page re-asks a read it just cancelled, as when it hears the last job on opening. The
+        // repeat gets an answer, not the cancelled read's interruption.
+        const leaving = yield* service.query("builder.engines", {}).pipe(Effect.forkScoped);
+        // Until gentle-ai started; each check reads the log file, so it yields between them.
+        yield* runs("builder.engines").pipe(Effect.repeat({ until: (count) => count === 1 }));
+        leaving.interruptUnsafe();
+        const joining = yield* service.query("builder.engines", {}).pipe(Effect.forkScoped);
+        yield* fileSystem.writeFileString(releaseEngines, "");
+        expect(yield* Fiber.join(joining)).toEqual({ engines: [] });
 
         const updates: Array<GentleAiJob | null> = [];
         const logged = yield* Deferred.make<void>();
