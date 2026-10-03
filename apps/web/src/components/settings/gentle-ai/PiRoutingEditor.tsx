@@ -46,30 +46,30 @@ const INHERIT = "__inherit__";
 const GROUPS = [
   { label: "Orchestrator", roles: [["orchestrator", "Orchestrator"]] },
   {
-    label: "ODD",
+    label: "Building",
     roles: [
-      ["gentle-ai-explore", "ODD Explorer"],
-      ["gentle-ai-worker", "ODD Worker"],
-      ["gentle-ai-verify", "ODD Verify"],
+      ["gentle-ai-explore", "Explorer"],
+      ["gentle-ai-worker", "Worker"],
+      ["gentle-ai-verify", "Verifier"],
     ],
   },
   {
     label: "Judgment Day",
     roles: [
-      ["jd-judge-a", "JD Judge A"],
-      ["jd-judge-b", "JD Judge B"],
-      ["jd-fix-agent", "JD Fix Agent"],
+      ["jd-judge-a", "Judge A"],
+      ["jd-judge-b", "Judge B"],
+      ["jd-fix-agent", "Fixer"],
     ],
   },
   {
-    label: "RDD review",
+    label: "Review before delivery",
     roles: [
-      ["review-risk", "RDD Risk"],
-      ["review-readability", "RDD Readability"],
-      ["review-reliability", "RDD Reliability"],
-      ["review-resilience", "RDD Resilience"],
-      ["review-refuter", "RDD Refuter"],
-      ["review-validator", "RDD Validator"],
+      ["review-risk", "Risk"],
+      ["review-readability", "Readability"],
+      ["review-reliability", "Reliability"],
+      ["review-resilience", "Resilience"],
+      ["review-refuter", "Refuter"],
+      ["review-validator", "Validator"],
     ],
   },
 ] as const;
@@ -166,7 +166,7 @@ export function PiRoutingEditor({
       {adding === null ? (
         <Button size="xs" variant="ghost" disabled={disabled} onClick={() => setAdding("")}>
           <PlusIcon className="size-3" aria-hidden />
-          Route another agent
+          Add another agent
         </Button>
       ) : null}
     </div>

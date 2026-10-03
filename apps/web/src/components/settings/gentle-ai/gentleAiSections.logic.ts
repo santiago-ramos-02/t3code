@@ -103,23 +103,23 @@ export const GENTLE_AI_UNINSTALL_MODES = [
   {
     mode: "partial",
     label: "Partial",
-    description: "Remove chosen components from chosen agents.",
+    description: "Remove the parts you choose from the agents you choose.",
   },
   {
     mode: "full",
     label: "Full",
-    description: "Remove everything Gentle AI configured, from every agent.",
+    description: "Remove everything Gentle AI set up, from every agent.",
   },
   {
     mode: "full-remove",
-    label: "Full and remove gentle-ai",
+    label: "Full, and uninstall Gentle AI",
     description:
-      "Remove everything, then delete the gentle-ai binary. Setting up again needs a reinstall.",
+      "Remove everything, then uninstall Gentle AI. Setting it up again needs a reinstall.",
   },
   {
     mode: "clean-install",
     label: "Clean reinstall",
-    description: "Remove everything, then set it up again from your current choices.",
+    description: "Remove everything, then set it up again as it is now.",
   },
 ] as const satisfies ReadonlyArray<{
   readonly mode: GentleAiUninstallMode;

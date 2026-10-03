@@ -59,10 +59,10 @@ export function GentleAiPluginRows({
       ) : data === null ? null : !data.supported ? (
         <SettingsRow
           title="Plugins unavailable"
-          description={data.reason ?? "This environment cannot install them."}
+          description={data.reason ?? "Plugins can't be installed on this environment."}
         />
       ) : data.plugins.length === 0 ? (
-        <SettingsRow title="No plugins" description="Gentle AI lists none for this version." />
+        <SettingsRow title="No plugins" description="This Gentle AI version offers none." />
       ) : (
         data.plugins.map((plugin) => (
           <SettingsRow
@@ -82,7 +82,7 @@ export function GentleAiPluginRows({
                 ) : null}
               </span>
             }
-            description={plugin.description || "No longer offered by Gentle AI."}
+            description={plugin.description || "Gentle AI no longer offers it."}
             control={
               plugin.installed ? (
                 <Button

@@ -182,14 +182,28 @@ export function gentleAiClaudeProfileSummary(
   const pinned = Object.keys(profile.phases ?? {}).length;
   const parts = [
     ...slots,
-    ...(pinned === 0 ? [] : [`${pinned} phase${pinned === 1 ? "" : "s"} fixed`]),
+    ...(pinned === 0 ? [] : [`${pinned} step${pinned === 1 ? "" : "s"} fixed`]),
   ];
-  return parts.length === 0 ? "Claude Code's own models" : parts.join(" · ");
+  return parts.length === 0 ? "Claude Code's default models" : parts.join(" · ");
 }
+
+/** Gentle AI is not installed on the environment yet. */
+export const GENTLE_AI_INSTALL_DESCRIPTION =
+  "Gentle AI isn't installed here yet. T3 Code downloads the latest release and checks it before installing.";
+
+/** The installed Gentle AI predates the API T3 Code manages it through. */
+export const GENTLE_AI_TOO_OLD_DESCRIPTION =
+  "This Gentle AI is too old for T3 Code. Install the latest release to manage it here.";
+
+/** Gentle AI changed since it last updated the agents it set up. */
+export const GENTLE_AI_SYNC_NEEDED = "Agent files are out of date. Sync updates them.";
 
 /** Why a Claude Code profile has no effect yet: no Claude Code provider goes through a proxy. */
 export const GENTLE_AI_CLAUDE_PROFILE_NEEDS_PROXY =
-  "Profiles apply to Claude Code providers that go through a proxy. Turn on Use in T3 Code in Settings > CLIProxyAPI.";
+  "Profiles only apply to Claude Code through a proxy.";
+
+/** The link after GENTLE_AI_CLAUDE_PROFILE_NEEDS_PROXY, to CLIProxyAPI's settings. */
+export const GENTLE_AI_CLAUDE_PROFILE_PROXY_LINK = "Set up CLIProxyAPI";
 
 /**
  * Whether a provider is Claude Code talking to a gateway such as CLIProxyAPI. Claude Code

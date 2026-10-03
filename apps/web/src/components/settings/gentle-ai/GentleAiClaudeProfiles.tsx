@@ -6,14 +6,16 @@ import {
 import {
   claudeProfileSlotModels,
   GENTLE_AI_CLAUDE_PROFILE_NEEDS_PROXY,
+  GENTLE_AI_CLAUDE_PROFILE_PROXY_LINK,
   gentleAiClaudeProfileSummary,
   isProxiedClaudeInstance,
 } from "@t3tools/client-runtime/gentle-ai";
+import { Link } from "@tanstack/react-router";
 import { ChevronRightIcon } from "lucide-react";
 import { useState } from "react";
 
 import { useEnvironmentSettings } from "../../../hooks/useSettings";
-import { Button } from "../../ui/button";
+import { Button, InlineButton } from "../../ui/button";
 import { Input } from "../../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../../ui/select";
 import { Skeleton } from "../../ui/skeleton";
@@ -34,11 +36,23 @@ import { useGentleAiQuery } from "./useGentleAi";
 const NONE = "\u0000none";
 
 const SLOT_HINTS = {
-  fable: "Spare slot, above opus",
-  opus: "The strongest; ODD's hard reasoning",
-  sonnet: "Smart everyday work",
-  haiku: "Cheap, bounded tasks; also titles and other background work",
+  fable: "An extra slot, ranked above Opus",
+  opus: "The strongest, for hard reasoning",
+  sonnet: "Everyday work",
+  haiku: "Quick tasks, titles and other background work",
 } as const;
+
+/** Why profiles have no effect yet, with the way to fix it. */
+function ProxyNotice() {
+  return (
+    <>
+      {GENTLE_AI_CLAUDE_PROFILE_NEEDS_PROXY}{" "}
+      <InlineButton tone="muted" render={<Link to="/settings/cli-proxy" />}>
+        {GENTLE_AI_CLAUDE_PROFILE_PROXY_LINK}
+      </InlineButton>
+    </>
+  );
+}
 
 /** The Claude Code profiles, which one is applied, and what that means in a line. */
 export function useGentleAiClaudeProfiles({
@@ -54,15 +68,15 @@ export function useGentleAiClaudeProfiles({
   const active = data?.profiles.find((profile) => profile.name === data.active) ?? null;
   const summary =
     profiles.error ??
-    (data === null
-      ? null
-      : data.profiles.length > 0 && !proxied
-        ? GENTLE_AI_CLAUDE_PROFILE_NEEDS_PROXY
-        : active !== null
-          ? gentleAiClaudeProfileSummary(active)
-          : data.profiles.length === 0
-            ? "Which models Claude Code's slots run through a proxy, and what it should use each for. Switch profiles to move work off an account near its limit."
-            : "Claude Code runs its own models.");
+    (data === null ? null : data.profiles.length > 0 && !proxied ? (
+      <ProxyNotice />
+    ) : active !== null ? (
+      gentleAiClaudeProfileSummary(active)
+    ) : data.profiles.length === 0 ? (
+      "Choose the model behind each of Claude Code's slots, through a proxy."
+    ) : (
+      "Claude Code uses its default models."
+    ));
   const apply = (name: string | null) =>
     void startJob("claude.profiles.apply", { name }).then((error) =>
       error ? onError(error) : undefined,
@@ -138,11 +152,11 @@ export function GentleAiClaudeProfilesSection(props: GentleAiSectionProps) {
       active={data?.active ?? null}
       loading={data === null && profiles.error === null}
       error={profiles.error}
-      emptyText="A profile sets which model each of Claude Code's slots runs through a proxy, such as CLIProxyAPI, and what Claude should use each for."
+      emptyText="A profile chooses the model behind each of Claude Code's slots, through a proxy such as CLIProxyAPI."
       disabled={disabled}
       builtIn={{
         label: "Default",
-        summary: "Claude Code runs its own models.",
+        summary: "Claude Code uses its default models.",
         onUse: () => profiles.apply(null),
       }}
       onUse={(name) => profiles.apply(name)}
@@ -230,7 +244,9 @@ function ClaudeProfileEditor({
 
       <div className="space-y-1.5">
         {slotOptions.length === 0 ? (
-          <p className="text-muted-foreground text-xs">{GENTLE_AI_CLAUDE_PROFILE_NEEDS_PROXY}</p>
+          <p className="text-muted-foreground text-xs">
+            <ProxyNotice />
+          </p>
         ) : null}
         {GENTLE_AI_CLAUDE_SLOTS.map((slot) => {
           const value = draft.slots[slot];
@@ -262,12 +278,12 @@ function ClaudeProfileEditor({
                 <SelectTrigger size="sm" className="min-w-0" aria-label={`${slot} model`}>
                   <SelectValue>
                     <span className="truncate">
-                      {value?.label ?? value?.model ?? "Claude Code's own"}
+                      {value?.label ?? value?.model ?? "Claude Code's default"}
                     </span>
                   </SelectValue>
                 </SelectTrigger>
                 <SelectPopup>
-                  <SelectItem value={NONE}>Claude Code's own</SelectItem>
+                  <SelectItem value={NONE}>Claude Code's default</SelectItem>
                   {options.map((option) => (
                     <SelectItem key={option.id} value={option.id}>
                       {option.label}
@@ -279,7 +295,7 @@ function ClaudeProfileEditor({
                 size="sm"
                 className="col-span-2 sm:col-span-1"
                 aria-label={`Use ${slot} for`}
-                placeholder={value === undefined ? SLOT_HINTS[slot] : "Use it for…"}
+                placeholder={value === undefined ? SLOT_HINTS[slot] : "What to use it for"}
                 value={value?.useFor ?? ""}
                 disabled={disabled || value === undefined}
                 onChange={(event) => setDraft(withSlotUse(draft, slot, event.target.value))}
@@ -295,15 +311,15 @@ function ClaudeProfileEditor({
             aria-hidden
             className="size-3.5 text-muted-foreground transition-transform duration-150 in-data-[panel-open]:rotate-90 motion-reduce:transition-none"
           />
-          Fixed models for Gentle AI's phases
+          Fixed models for Gentle AI's steps
           <span className="text-muted-foreground text-xs">
-            {pinned === 0 ? "none: Claude picks per task" : `${pinned} set`}
+            {pinned === 0 ? "None, Claude picks per task" : `${pinned} set`}
           </span>
         </CollapsibleTrigger>
         <CollapsiblePanel>
           <div className="pt-3">
             {config === null ? (
-              <p className="text-muted-foreground text-sm">{modelsError ?? "Reading phases…"}</p>
+              <p className="text-muted-foreground text-sm">{modelsError ?? "Reading steps…"}</p>
             ) : (
               <GentleAiModelEditor
                 config={config}

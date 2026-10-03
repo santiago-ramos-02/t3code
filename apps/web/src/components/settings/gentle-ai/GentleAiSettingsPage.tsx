@@ -100,7 +100,7 @@ export function GentleAiSettingsPage({
   if (status.data === null) {
     return status.error ? (
       <SettingsSection title="Gentle AI">
-        <SettingsRow title="Gentle AI could not be read" description={status.error} />
+        <SettingsRow title="Could not load Gentle AI" description={status.error} />
       </SettingsSection>
     ) : (
       <GentleAiPageSkeleton />
@@ -124,7 +124,7 @@ export function GentleAiSettingsPage({
   };
   const close = () => onFlowChange(null);
   const errorBanner = error ? (
-    <SettingsSection title="Gentle AI could not do that">
+    <SettingsSection title="Gentle AI could not complete that">
       <SettingsRow
         title={<span className="text-destructive">{error}</span>}
         control={
@@ -222,7 +222,7 @@ function GentleAiStatusLine({
           .map((tool) => `${tool.name} ${tool.installed ?? "?"} → ${tool.latest ?? "?"}`)
           .join(", ")}`
       : syncNeeded
-        ? "Your agents' files are out of date"
+        ? "Agent files are out of date"
         : updates.error
           ? `Updates could not be checked: ${updates.error}`
           : updates.data === null || updates.isPending
@@ -312,8 +312,8 @@ function GentleAiMoreSection({
           !anySetUp
             ? "Set up Gentle AI in an agent first."
             : status.builderEngines.length === 0
-              ? "Creating one needs Claude Code, OpenCode, Gemini CLI, or Codex installed here."
-              : "Describe an agent, and Gentle AI adds it to every agent it set up."
+              ? "Needs Claude Code, OpenCode, Gemini CLI, or Codex installed here."
+              : "Describe a new agent, and Gentle AI adds it to the agents it set up."
         }
         control={
           <Button
@@ -328,7 +328,7 @@ function GentleAiMoreSection({
       />
       <SettingsRow
         title="Sync agent files"
-        description="Rewrites Gentle AI's files in every agent it set up, such as after editing them by hand."
+        description="Writes Gentle AI's files into your agents again, such as after editing them by hand."
         control={
           <Button
             size="sm"
@@ -344,7 +344,7 @@ function GentleAiMoreSection({
       />
       <SettingsRow
         title="Backups"
-        description="Restore agent files from before an install, sync, update, or removal."
+        description="Put agent files back as they were before a change."
         control={
           <Button size="sm" variant="outline" onClick={() => openFlow({ kind: "backups" })}>
             Open
@@ -354,7 +354,7 @@ function GentleAiMoreSection({
       />
       <SettingsRow
         title="Health check"
-        description="Checks the tools and files Gentle AI manages here."
+        description="Checks the tools and files Gentle AI manages."
         control={
           <Button size="sm" variant="outline" onClick={() => openFlow({ kind: "doctor" })}>
             Run
@@ -364,7 +364,7 @@ function GentleAiMoreSection({
       />
       <SettingsRow
         title="Remove Gentle AI"
-        description="Remove it from some or all agents, or start over with a clean setup."
+        description="Remove Gentle AI from some or all agents, or start over."
         control={
           <Button
             size="sm"
@@ -418,7 +418,7 @@ function GentleAiDoctorFlow({
     <section className="space-y-4">
       <GentleAiFlowHeader
         title="Health check"
-        description="Checks the tools and files Gentle AI manages on this environment."
+        description="Checks the tools and files Gentle AI manages."
         onBack={onClose}
       />
       <GentleAiFlowPanel>

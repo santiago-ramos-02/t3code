@@ -33,8 +33,8 @@ export function GentleAiUninstallFlow(
   // Project cleanup applies to the project chosen at the top of Settings.
   const projectNote =
     project === null
-      ? "To also clean up a project, such as its Engram data, choose it at the top of this page."
-      : `Project cleanup applies to ${project.title}. Choose another project at the top of this page.`;
+      ? "To clean up a project too, such as its Engram memory, choose it at the top of this page."
+      : `Also cleans up ${project.title}. Choose another project at the top of this page.`;
   const agentName = props.status.agents.find((entry) => entry.id === props.agent)?.name;
   const title = agentName === undefined ? "Remove Gentle AI" : `Remove Gentle AI from ${agentName}`;
   return (
@@ -181,8 +181,8 @@ function UninstallWizard({
             <>
               {agent !== undefined && mode === "partial" && agents.length === 1 ? (
                 <p>
-                  Removes everything Gentle AI added to {nameList(plan.data.agents)}. Other agents
-                  keep their setup, and a backup is taken first.
+                  Removes everything Gentle AI added to {nameList(plan.data.agents)}, after a
+                  backup. Other agents keep their setup.
                 </p>
               ) : (
                 <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1">
@@ -207,13 +207,13 @@ function UninstallWizard({
                     <Label>
                       <Radio value="global" />
                       <span className="font-normal">
-                        Global: remove Engram's MCP server and prompt setup
+                        Everywhere: remove Engram's memory connection and instructions
                       </span>
                     </Label>
                     <Label>
                       <Radio value="project" />
                       <span className="font-normal">
-                        Project only: delete .engram/ in {projectTitle}
+                        This project only: delete {projectTitle}'s Engram memory
                       </span>
                     </Label>
                   </RadioGroup>
@@ -221,7 +221,7 @@ function UninstallWizard({
               ) : null}
               {mode === "full-remove" ? (
                 <p className="text-destructive">
-                  The gentle-ai binary is deleted too. Using Gentle AI again needs a reinstall.
+                  Gentle AI is uninstalled too. Using it again needs a reinstall.
                 </p>
               ) : null}
             </>

@@ -4,6 +4,10 @@ import {
   gentleAiAgentList,
   gentleAiModelAgent,
   GENTLE_AI_CLAUDE_PROFILE_NEEDS_PROXY,
+  GENTLE_AI_CLAUDE_PROFILE_PROXY_LINK,
+  GENTLE_AI_INSTALL_DESCRIPTION,
+  GENTLE_AI_SYNC_NEEDED,
+  GENTLE_AI_TOO_OLD_DESCRIPTION,
   gentleAiClaudeProfileSummary,
   isProxiedClaudeInstance,
   gentleAiModelsAllDefault,
@@ -27,6 +31,7 @@ import {
   type GentleAiResult,
   type GentleAiStatus,
 } from "@t3tools/contracts";
+import { useNavigation } from "@react-navigation/native";
 import * as Option from "effect/Option";
 import { Fragment, useState } from "react";
 import { ActivityIndicator, Alert, Pressable, View } from "react-native";
@@ -160,13 +165,11 @@ function GentleAiApiSettings(props: {
             {updates === null
               ? "Checking for updates…"
               : outdated.length === 0
-                ? "Gentle AI and its tools are up to date."
+                ? "Up to date"
                 : outdated.map((tool) => `${tool.name} → ${tool.latest ?? "?"}`).join(" · ")}
           </Text>
           {status && gentleAiSyncNeeded(status) ? (
-            <Text className="text-sm text-foreground-muted">
-              Gentle AI changed since it last updated your agents. Sync brings them up to date.
-            </Text>
+            <Text className="text-sm text-foreground-muted">{GENTLE_AI_SYNC_NEEDED}</Text>
           ) : null}
           <View className="flex-row flex-wrap gap-2">
             {outdated.length > 0 ? (
@@ -340,6 +343,7 @@ function GentleAiClaudeProfilePicker(props: {
   readonly disabled: boolean;
   readonly onApply: (name: string | null) => void;
 }) {
+  const navigation = useNavigation();
   const profiles = useGentleAiQuery(props.environmentId, "claude.profiles", {}).data;
   const config = useAtomValue(serverEnvironment.configValueAtom(props.environmentId));
   const proxied = Object.values(config?.settings.providerInstances ?? {}).some(
@@ -352,11 +356,27 @@ function GentleAiClaudeProfilePicker(props: {
       <View className="min-w-0 flex-1">
         <Text className="text-sm text-foreground">Claude Code profile</Text>
         <Text className="text-xs text-foreground-muted" numberOfLines={2}>
-          {!proxied
-            ? GENTLE_AI_CLAUDE_PROFILE_NEEDS_PROXY
-            : active === null
-              ? "Claude Code runs its own models."
-              : gentleAiClaudeProfileSummary(active)}
+          {!proxied ? (
+            <>
+              {GENTLE_AI_CLAUDE_PROFILE_NEEDS_PROXY}{" "}
+              <Text
+                accessibilityRole="link"
+                className="text-xs text-primary"
+                onPress={() =>
+                  navigation.navigate("SettingsSheet", {
+                    screen: "SettingsContent",
+                    params: { screen: "SettingsCliProxy" },
+                  })
+                }
+              >
+                {GENTLE_AI_CLAUDE_PROFILE_PROXY_LINK}
+              </Text>
+            </>
+          ) : active === null ? (
+            "Claude Code uses its default models."
+          ) : (
+            gentleAiClaudeProfileSummary(active)
+          )}
         </Text>
       </View>
       <ChoiceMenu
@@ -444,8 +464,8 @@ function GentleAiLegacySettings(props: {
           <>
             <Text className="text-sm text-foreground-muted">
               {props.status.installed
-                ? "This gentle-ai is too old for T3 Code to manage. Install the current release to set up agents, models, and review."
-                : "Gentle AI isn't on this environment yet. T3 Code downloads the latest release for that computer and checks it before installing."}
+                ? GENTLE_AI_TOO_OLD_DESCRIPTION
+                : GENTLE_AI_INSTALL_DESCRIPTION}
             </Text>
             <View className="flex-row flex-wrap gap-2">
               <Action
@@ -475,7 +495,7 @@ function GentleAiLegacySettings(props: {
                 onPress={() => act("update", "Gentle AI updates")}
               />
               <Action
-                label={pending === "doctor" ? "Checking…" : "Run doctor"}
+                label={pending === "doctor" ? "Checking…" : "Run check"}
                 disabled={pending !== null}
                 onPress={() => act("doctor", "Gentle AI doctor")}
               />

@@ -40,10 +40,10 @@ export function useGentleAiModelPreset({
     (data === null
       ? null
       : allDefault
-        ? "Every phase uses Gentle AI's default model."
+        ? "Every step uses Gentle AI's default model."
         : data.currentPreset === null
-          ? "Custom models per phase."
-          : (preset?.description ?? "The model each phase of Gentle AI's workflow uses."));
+          ? "Custom models for each step."
+          : (preset?.description ?? "The model each step of Gentle AI's workflow uses."));
   const choose = (next: string) =>
     void startJob("models.set", { agent, preset: next }).then((error) =>
       error ? onError(error) : undefined,
@@ -143,14 +143,12 @@ export function GentleAiModelsFlow({
     <section className="space-y-4">
       <GentleAiFlowHeader
         title={`${name} models`}
-        description="Phases set to Default use gentle-ai's defaults."
+        description="Steps left on Default use Gentle AI's defaults."
         onBack={onClose}
       />
       {agent === null ? (
         <GentleAiFlowPanel>
-          <p className="text-muted-foreground text-sm">
-            Gentle AI does not configure models for {name}.
-          </p>
+          <p className="text-muted-foreground text-sm">Gentle AI doesn't set models for {name}.</p>
         </GentleAiFlowPanel>
       ) : config.data === null ? (
         <GentleAiFlowPanel>

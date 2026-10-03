@@ -339,7 +339,7 @@ export function GentleComposerActions({
                     </MenuItem>
                   ) : oddMenu.length === 0 ? (
                     <MenuItem disabled>
-                      {oddFeatures.data.features.length === 0 ? "None yet" : "All done"}
+                      {oddFeatures.data.features.length === 0 ? "None yet" : "All finished"}
                     </MenuItem>
                   ) : (
                     [true, false].map((inThread) => {

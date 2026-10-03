@@ -240,7 +240,7 @@ export function PiGentleSettingsSection({
       <SettingsSection title={title} icon={sectionIcon} {...readOnlyProps(readOnly)}>
         {error ? (
           <SettingsRow
-            title="Gentle AI settings could not be read"
+            title="Could not load Gentle AI settings"
             status={errorFor("global")}
             control={
               <Button size="sm" variant="outline" onClick={retryRead}>
@@ -260,7 +260,7 @@ export function PiGentleSettingsSection({
       <SettingsSection title={title} icon={sectionIcon} {...readOnlyProps(readOnly)}>
         <SettingsRow
           title="Update for Pi"
-          description={`Gentle AI ${state.version} is installed. T3 Code supports 3.5 or newer.`}
+          description={`T3 Code needs Gentle AI 3.5 or newer, and ${state.version} is installed.`}
           status={errorFor("global")}
           control={
             <Button
@@ -317,7 +317,7 @@ export function PiGentleSettingsSection({
         ) : null}
         <SettingsRow
           title="Persona"
-          description="Default persona for every project. A project can override it."
+          description="Used in every project that doesn't choose its own."
           status={errorFor("global")}
           control={
             <GentleSelect
@@ -342,7 +342,7 @@ export function PiGentleSettingsSection({
           active={state.active}
           loading={false}
           error={error?.area === "profiles" ? error.text : null}
-          emptyText="A profile sets the model and effort each of gentle-pi's roles runs."
+          emptyText="A profile sets the model and effort for each of Pi's roles."
           disabled={!canEdit}
           onUse={(name) => void runAction({ type: "activate", name })}
           onCreate={createProfile}
@@ -391,7 +391,7 @@ export function PiGentleProjectRows({
   if (state === null) {
     return error ? (
       <SettingsRow
-        title={`${prefix} settings could not be read`}
+        title={`Could not load ${prefix} settings`}
         status={errorFor("project")}
         control={
           <Button size="sm" variant="outline" onClick={retryRead}>

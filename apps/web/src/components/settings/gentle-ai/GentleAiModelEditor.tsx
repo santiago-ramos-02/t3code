@@ -55,7 +55,7 @@ export function GentleAiModelEditor({
   const groups = groupPhases(config.phases);
   if (groups.length === 0)
     return (
-      <p className="text-muted-foreground text-sm">Gentle AI reports no phases to configure.</p>
+      <p className="text-muted-foreground text-sm">Gentle AI reports no steps to configure.</p>
     );
 
   return (
@@ -330,7 +330,7 @@ export function GentleAiOpenCodeModelPicker({
             onChange={(event) => setQuery(event.target.value)}
           />
           <ComboboxEmpty>
-            {entries.length === 0 ? "OpenCode reported no models." : "No matching models."}
+            {entries.length === 0 ? "OpenCode lists no models." : "No matching models."}
           </ComboboxEmpty>
           <ComboboxList className="max-h-72 min-w-0 overflow-x-hidden">
             {items.map((key) => {
@@ -388,12 +388,12 @@ function SetAllPhases({
   return (
     <div className="w-80 min-w-0 max-w-full">
       <GentleAiOpenCodeModelPicker
-        label="All ODD roles"
+        label="All roles"
         providers={providers}
         value={null}
         onChange={(model) => (model === null ? undefined : onSet(model))}
         disabled={disabled}
-        emptyLabel="Set all ODD roles"
+        emptyLabel="Set all roles"
         emptyOption={false}
       />
     </div>

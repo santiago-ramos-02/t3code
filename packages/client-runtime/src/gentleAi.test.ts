@@ -138,8 +138,8 @@ describe("gentleAiClaudeProfileSummary", () => {
     ).toBe("claude-opus-5-5 · haiku GPT-6 Luna");
     expect(
       gentleAiClaudeProfileSummary({ slots: {}, phases: { "odd-worker": { model: "sonnet" } } }),
-    ).toBe("1 phase fixed");
-    expect(gentleAiClaudeProfileSummary({ slots: {} })).toBe("Claude Code's own models");
+    ).toBe("1 step fixed");
+    expect(gentleAiClaudeProfileSummary({ slots: {} })).toBe("Claude Code's default models");
   });
 });
 

@@ -1,5 +1,6 @@
 import { gentleAiAgentList, gentleAiModelAgent } from "@t3tools/client-runtime/gentle-ai";
 import type { ProviderInstanceId, ServerProviderModel } from "@t3tools/contracts";
+import { Link } from "@tanstack/react-router";
 import { BotIcon, ChevronRightIcon, PlusIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
@@ -13,7 +14,7 @@ import {
   PiAgentIcon,
 } from "../../Icons";
 import { Gemini, GithubCopilotIcon } from "./agentIcons";
-import { Button } from "../../ui/button";
+import { Button, InlineButton } from "../../ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../../ui/menu";
 import { SettingsRow, SettingsSection } from "../settingsLayout";
 import {
@@ -96,7 +97,7 @@ export function GentleAiAgentsSection({
       {setUp.length === 0 ? (
         <SettingsRow
           title="Gentle AI isn't set up in any agent yet"
-          description="It adds memory, skills, a review before delivery, and a workflow for bigger changes to the agents you use."
+          description="It adds memory, skills, and review before delivery to the agents you use."
           control={
             <Button
               size="sm"
@@ -184,12 +185,26 @@ function PiAgentRow({
       <AgentRow
         agent={agent}
         props={props}
-        summary="Turn on the Pi provider in Providers to switch gentle-pi profiles here."
+        summary={
+          <PiProviderOff>Turn on the Pi provider to switch its profiles here.</PiProviderOff>
+        }
         switcher={null}
       />
     );
   }
   return <PiProfileAgentRow {...props} agent={agent} piProvider={piProvider} />;
+}
+
+/** Why Pi's Gentle AI settings are missing, with a link to turn the Pi provider on. */
+function PiProviderOff({ children }: { readonly children: ReactNode }) {
+  return (
+    <>
+      {children}{" "}
+      <InlineButton tone="muted" render={<Link to="/settings/providers" />}>
+        Open Providers
+      </InlineButton>
+    </>
+  );
 }
 
 function PiProfileAgentRow({
@@ -270,7 +285,7 @@ export function GentleAiAgentFlow({
       <section className="space-y-4">
         <GentleAiFlowHeader
           title="Agent not found"
-          description="Gentle AI does not know this agent."
+          description="Gentle AI doesn't support this agent."
           onBack={onClose}
         />
       </section>
@@ -320,7 +335,12 @@ export function GentleAiAgentFlow({
               <SettingsSection title="gentle-pi">
                 <SettingsRow
                   title="Pi provider is off"
-                  description="Gentle AI works in Pi through gentle-pi. Turn on the Pi provider in Providers to manage its profiles and persona here."
+                  description={
+                    <PiProviderOff>
+                      Gentle AI works in Pi through gentle-pi. Turn the provider on to manage its
+                      profiles and persona here.
+                    </PiProviderOff>
+                  }
                 />
                 <GentleAiPluginRows {...props} agent="pi" />
               </SettingsSection>
@@ -336,7 +356,7 @@ export function GentleAiAgentFlow({
             title={agent.state === "available" ? "Not set up" : "Not supported"}
             description={
               agent.state === "available"
-                ? `Adds Gentle AI's memory, skills, and workflow to ${agent.name}, with the setup your other agents use.`
+                ? `Adds Gentle AI's memory, skills, and workflow to ${agent.name}, set up like your other agents.`
                 : `Gentle AI can't set up ${agent.name} on this system.`
             }
             control={

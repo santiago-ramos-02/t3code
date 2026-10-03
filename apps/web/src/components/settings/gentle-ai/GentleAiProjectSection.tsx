@@ -32,7 +32,7 @@ function GentleAiReviewRow({ environmentId, disabled, startJob, onError }: Gentl
     <SettingsRow
       title="Review before delivery"
       description={
-        mode.error ?? "Checks agents' changes before they hand them off, in every project."
+        mode.error ?? "Checks agents' changes before they deliver them, in every project."
       }
       control={
         mode.data === null ? (
@@ -66,7 +66,7 @@ export function GentleAiReviewSection(props: GentleAiSectionProps) {
       <GentleAiReviewRow {...props} />
       <SettingsRow
         title="One project's settings"
-        description="Choose a project at the top of this page to turn review off for it, clear its review history, pin a Pi profile, or set up tools such as CodeGraph."
+        description="Choose a project at the top of this page for its review, Pi profile, and tools such as CodeGraph."
       />
     </SettingsSection>
   );
@@ -126,18 +126,18 @@ function ProjectReviewRows({
         description={
           mode.error ??
           (review === null
-            ? "Checks agents' changes before they hand them off."
+            ? "Checks agents' changes before they deliver them."
             : review.overridden
               ? "Off in this project only."
               : review.canTurnOn
                 ? "Follows the setting for every project."
-                : "Off for every project. Choose All projects at the top to turn it on.")
+                : "Off for every project. Turn it on under All projects at the top.")
         }
         resetAction={
           review?.overridden ? (
             <SettingResetButton
               label="review before delivery"
-              tooltip="Follow the setting for every project"
+              tooltip="Use the setting for all projects"
               disabled={disabled}
               onClick={() => setHere(true)}
             />

@@ -18,7 +18,7 @@ import { Skeleton } from "../../ui/skeleton";
 import { Spinner } from "../../ui/spinner";
 
 function errorText(failure: unknown): string {
-  return failure instanceof Error ? failure.message : "gentle-pi could not be read.";
+  return failure instanceof Error ? failure.message : "Could not load gentle-pi.";
 }
 
 /**
@@ -78,8 +78,8 @@ export function usePiGentleProfiles({
         ? "gentle-pi is not installed in Pi."
         : active === null
           ? state.profiles.length === 0
-            ? "No profiles yet. Pi runs its own models."
-            : "No profile active. Pi runs its own models."
+            ? "No profiles yet. Pi uses its default models."
+            : "No profile in use. Pi uses its default models."
           : gentlePiProfileSummary(active.routing, nameOf));
 
   const activate = (name: string) => {

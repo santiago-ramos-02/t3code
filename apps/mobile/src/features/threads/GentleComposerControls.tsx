@@ -226,7 +226,7 @@ export function GentleComposerControls(props: {
                   ? [
                       {
                         id: "odd-empty",
-                        title: gentleOdd.data.features.length === 0 ? "None yet" : "All done",
+                        title: gentleOdd.data.features.length === 0 ? "None yet" : "All finished",
                         attributes: { disabled: true },
                       },
                     ]

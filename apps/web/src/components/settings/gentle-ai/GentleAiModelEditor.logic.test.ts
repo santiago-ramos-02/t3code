@@ -21,7 +21,7 @@ describe("groupPhases", () => {
       groups.map((group) => [group.id, group.label, group.phases.map((phase) => phase.id)]),
       [
         ["orchestrator", "Orchestrator", ["orchestrator"]],
-        ["odd", "ODD", ["odd-worker", "odd-verify"]],
+        ["odd", "Building", ["odd-worker", "odd-verify"]],
         ["later", "later", ["future"]],
       ],
     );

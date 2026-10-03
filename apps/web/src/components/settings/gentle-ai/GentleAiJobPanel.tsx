@@ -130,7 +130,7 @@ export function GentleAiJobPanel({
       />
       {outcome !== null && outcome.manualActions.length > 0 ? (
         <SettingsRow
-          title="Still to do by hand"
+          title="Left for you to do"
           description={
             <ul className="list-disc pl-4">
               {outcome.manualActions.map((action) => (

@@ -118,7 +118,7 @@ function BuilderWizard({
     <section className="space-y-4">
       <GentleAiFlowHeader
         title="Create a custom agent"
-        description="Describe what it should do. An agent you have installed writes it, and Gentle AI adds it to every agent it set up."
+        description="Describe what it should do. One of your agents writes it, and Gentle AI adds it to the rest."
         onBack={onClose}
       >
         <WizardSteps
@@ -164,8 +164,7 @@ function BuilderWizard({
             </>
           ) : generationJob === null ? (
             <p className="text-muted-foreground text-sm">
-              This generation is no longer the environment's latest Gentle AI job. Regenerate to try
-              again.
+              A newer Gentle AI task replaced this one. Generate again to try once more.
             </p>
           ) : generationJob.phase === "running" ? (
             <div className="space-y-2">

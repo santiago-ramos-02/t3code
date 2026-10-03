@@ -103,7 +103,7 @@ export function GentleAiSetupFlow(
         description={
           agentName === undefined
             ? "Choose the agents Gentle AI sets up and what it adds to them."
-            : `Adds Gentle AI to ${agentName} with your current setup. Review it, or go back to change anything.`
+            : `Adds Gentle AI to ${agentName} with your current setup. Go back to change anything.`
         }
         onBack={props.onClose}
       >
@@ -349,7 +349,7 @@ function OptionsStep({
       {asks("rdd") ? (
         <OptionRow
           label="Review changes before delivery"
-          detail="An independent review checks agents' code changes before they hand them off."
+          detail="A separate reviewer checks agents' code changes before they deliver them."
           control={<Switch checked={draft.rdd} onCheckedChange={(rdd) => update({ rdd })} />}
         />
       ) : null}
@@ -363,7 +363,7 @@ function OptionsStep({
                 label={
                   agent === "opencode" ? "OpenCode background subagents" : "Pi background subagents"
                 }
-                detail="Let subagents keep working while you continue the conversation."
+                detail="Subagents keep working while you go on with the conversation."
                 control={
                   <Select
                     value={draft.background[agent]}
@@ -435,7 +435,7 @@ function PluginChoices(props: {
               disabled
               onChange={() => undefined}
               label={plugin.name}
-              detail="Installed. Remove it from the agent's panel."
+              detail="Installed. Remove it from the agent's page."
             />
           ) : (
             <CheckRow
@@ -532,7 +532,7 @@ function AgentModels({
     <div className="grid gap-2">
       <OptionRow
         label={name}
-        detail="The model each phase of Gentle AI's workflow uses."
+        detail="The model each step of Gentle AI's workflow uses."
         control={
           <Select
             value={selected}

@@ -1,5 +1,10 @@
 import { useNavigate } from "@tanstack/react-router";
 import {
+  GENTLE_AI_INSTALL_DESCRIPTION,
+  GENTLE_AI_SYNC_NEEDED,
+  GENTLE_AI_TOO_OLD_DESCRIPTION,
+} from "@t3tools/client-runtime/gentle-ai";
+import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
@@ -135,7 +140,7 @@ export function GentleAiSettingsPanel({
   const binaryPathRow = (
     <SettingsRow
       title="Binary path"
-      description="Leave blank to use gentle-ai on PATH, then the one T3 Code installed, then the copy gentle-pi bundles."
+      description="Leave blank to find Gentle AI on PATH, then where T3 Code installed it, then in gentle-pi."
       control={
         <DraftInput
           size="sm"
@@ -247,7 +252,7 @@ export function GentleAiSettingsPanel({
                         provider.driver,
                     )
                     .join(", ")
-                : "No provider on this environment runs with Gentle AI."
+                : "No provider on this environment uses Gentle AI."
             }
           />
         )}
@@ -256,14 +261,14 @@ export function GentleAiSettingsPanel({
         ) : !status.installed ? (
           <SettingsRow
             title="Install Gentle AI"
-            description="Gentle AI isn't on this environment yet. T3 Code downloads the latest release for this computer and checks it before installing; then you set it up in your agents here."
+            description={GENTLE_AI_INSTALL_DESCRIPTION}
             control={actionButton("install", "Install")}
           />
         ) : (
           <>
             <SettingsRow
               title="Install the current Gentle AI"
-              description="This gentle-ai is too old for T3 Code to manage. Install the current release to set up agents, models, and review from here."
+              description={GENTLE_AI_TOO_OLD_DESCRIPTION}
               control={actionButton("install", "Install")}
             />
             <SettingsRow
@@ -275,36 +280,36 @@ export function GentleAiSettingsPanel({
                   status.components.length > 0 ? status.components.join(", ") : null,
                 ]
                   .filter((part) => part !== null)
-                  .join(" · ") || "Chosen when gentle-ai installs into an agent."
+                  .join(" · ") || "Chosen when Gentle AI is set up in an agent."
               }
             />
             <SettingsRow
-              title="Agent assets"
+              title="Agent files"
               description={
                 status.syncNeeded
-                  ? "gentle-ai changed since it last updated the agents it set up. Sync brings them up to date."
-                  : "The agents gentle-ai set up match its current version."
+                  ? GENTLE_AI_SYNC_NEEDED
+                  : "Up to date with this Gentle AI version."
               }
               control={actionButton("sync", "Sync")}
             />
             <SettingsRow
               title="Updates"
-              description="Check gentle-ai and the tools it manages for new versions, or install them."
+              description="Check Gentle AI and its tools for new versions, or install them."
               control={
                 <div className="flex gap-2">
-                  {actionButton("update", "Check", "Gentle AI updates")}
+                  {actionButton("update", "Check for updates", "Gentle AI updates")}
                   {actionButton("upgrade", "Upgrade", "Gentle AI upgrade")}
                 </div>
               }
             />
             <SettingsRow
               title="Health"
-              description="Run gentle-ai's diagnostics for this environment."
-              control={actionButton("doctor", "Run doctor", "Gentle AI doctor")}
+              description="Checks the tools and files Gentle AI manages."
+              control={actionButton("doctor", "Run check", "Gentle AI health check")}
             />
             <SettingsRow
               title="Full Gentle AI settings"
-              description="Upgrade gentle-ai to set it up, configure models, and manage everything its own menu offers from here."
+              description="Upgrade Gentle AI to manage its agents, models, and review from here."
             />
           </>
         )}

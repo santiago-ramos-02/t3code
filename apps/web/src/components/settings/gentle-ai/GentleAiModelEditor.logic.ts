@@ -11,9 +11,9 @@ export type GentleAiFixedModelAgent = Exclude<GentleAiModelAgent, "opencode">;
 
 const GROUP_LABELS: Record<string, string> = {
   orchestrator: "Orchestrator",
-  odd: "ODD",
+  odd: "Building",
   "judgment-day": "Judgment Day",
-  review: "RDD review",
+  review: "Review before delivery",
   general: "General",
   native: "Native agents",
   custom: "Custom agents",

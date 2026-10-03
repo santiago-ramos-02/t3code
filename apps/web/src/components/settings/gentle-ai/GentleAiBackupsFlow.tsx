@@ -45,7 +45,7 @@ export function GentleAiBackupsFlow({
     <section className="space-y-4">
       <GentleAiFlowHeader
         title="Backups"
-        description="Gentle AI backs up agent files before it installs, syncs, upgrades, or uninstalls. Restoring puts those files back as they were."
+        description="Gentle AI backs up agent files before it changes them. Restoring puts them back."
         onBack={onClose}
       />
       <SettingsGroup>
@@ -90,8 +90,8 @@ export function GentleAiBackupsFlow({
         title={confirm?.kind === "delete" ? "Delete this backup?" : "Restore this backup?"}
         description={
           confirm?.kind === "delete"
-            ? "It is removed from disk and cannot be restored afterward."
-            : "Agent files it covers go back to how they were when it was taken. Changes made since then to those files are replaced."
+            ? "The backup is deleted for good."
+            : "Its files go back to how they were then. Later changes to them are lost."
         }
         confirmLabel={confirm?.kind === "delete" ? "Delete" : "Restore"}
         destructive={confirm?.kind === "delete"}
