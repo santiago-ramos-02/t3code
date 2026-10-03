@@ -1,9 +1,4 @@
-import type {
-  EnvironmentId,
-  MemoryObservation,
-  MemoryObservationDetail,
-  MemoryOverview,
-} from "@t3tools/contracts";
+import type { EnvironmentId, MemoryObservationDetail, MemoryOverview } from "@t3tools/contracts";
 import { useMemo } from "react";
 
 import { useEnvironmentQuery } from "../../state/query";
@@ -11,14 +6,8 @@ import { serverEnvironment } from "../../state/server";
 import ChatMarkdown from "../ChatMarkdown";
 import { Skeleton } from "../ui/skeleton";
 import { MemoryVerdictButtons } from "./MemoryConflicts";
-import {
-  isPendingRelation,
-  MEMORY_GROUP_LABELS,
-  memoryContentForDisplay,
-  memoryGroup,
-  memoryRelationLabel,
-} from "./memoryModel";
-import { MemoryLink, memoryTimeLabel } from "./memoryParts";
+import { isPendingRelation, memoryContentForDisplay, memoryRelationLabel } from "./memoryModel";
+import { MemoryLink } from "./memoryParts";
 
 /** One memory read in full, with the relations the overview knows for it. */
 export function useMemoryDetail(
@@ -63,20 +52,6 @@ export function useMemoryDetail(
 }
 
 export type MemoryDetailState = ReturnType<typeof useMemoryDetail>;
-
-/** What kind of memory it is, where, and when: one line under its title. */
-export function memorySummaryLine(observation: MemoryObservation) {
-  return [
-    `${MEMORY_GROUP_LABELS[memoryGroup(observation.type)]} · ${observation.type.replaceAll("_", " ")}`,
-    observation.project,
-    `saved ${memoryTimeLabel(observation.createdAt)}`,
-    observation.revisionCount > 1
-      ? `updated ${observation.revisionCount - 1} ${observation.revisionCount === 2 ? "time" : "times"}`
-      : null,
-  ]
-    .filter((part) => part !== null && part !== "")
-    .join(" · ");
-}
 
 /**
  * A memory's content, how it relates to others (with verdict buttons where Engram is waiting for

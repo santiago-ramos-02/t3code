@@ -5,8 +5,14 @@
  */
 
 export type EngramToolCall =
-  | { readonly kind: "save"; readonly title: string | undefined }
-  | { readonly kind: "update"; readonly id: number | undefined; readonly title: string | undefined }
+  // `type` is the memory's kind as Engram names it, such as decision or bugfix.
+  | { readonly kind: "save"; readonly title: string | undefined; readonly type: string | undefined }
+  | {
+      readonly kind: "update";
+      readonly id: number | undefined;
+      readonly title: string | undefined;
+      readonly type: string | undefined;
+    }
   | { readonly kind: "search"; readonly query: string | undefined }
   | { readonly kind: "read"; readonly id: number | undefined }
   | { readonly kind: "other"; readonly tool: EngramToolName };
@@ -76,9 +82,14 @@ export function engramToolCall(
   const record = asRecord(input);
   switch (tool) {
     case "mem_save":
-      return { kind: "save", title: asText(record?.title) };
+      return { kind: "save", title: asText(record?.title), type: asText(record?.type) };
     case "mem_update":
-      return { kind: "update", id: asId(record?.id), title: asText(record?.title) };
+      return {
+        kind: "update",
+        id: asId(record?.id),
+        title: asText(record?.title),
+        type: asText(record?.type),
+      };
     case "mem_search":
       return { kind: "search", query: asText(record?.query) };
     case "mem_get_observation":

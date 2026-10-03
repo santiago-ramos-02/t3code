@@ -20,7 +20,7 @@ import { WorkspaceBreadcrumb, WorkspaceBreadcrumbItem } from "../WorkspaceBreadc
 import { WorkspacePageContainer } from "../WorkspacePageContainer";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import { MemoryDetailAside, MemoryDetailSheet } from "./MemoryDetailSheet";
-import { MemoryLink, memoryTimeLabel } from "./memoryParts";
+import { MemoryFacts, MemoryLink, memoryTimeLabel } from "./memoryParts";
 import { MemoryActivity } from "./MemoryActivity";
 import { MemoryBrainMap } from "./MemoryBrainMap";
 import { MemoryConflictsButton } from "./MemoryConflicts";
@@ -381,11 +381,7 @@ function MemorySearch(props: {
             <li key={result.observation.id} className="flex flex-col gap-1 py-3 first:pt-0">
               <MemoryLink observation={result.observation} onOpen={props.onOpenMemory} />
               <p className="line-clamp-2 text-sm text-muted-foreground">{result.snippet}</p>
-              <p className="text-xs text-muted-foreground">
-                {result.observation.type.replaceAll("_", " ")}
-                {result.observation.project ? ` · ${result.observation.project}` : ""} ·{" "}
-                {memoryTimeLabel(result.observation.createdAt)}
-              </p>
+              <MemoryFacts observation={result.observation} className="text-xs" />
             </li>
           ))}
         </ul>

@@ -1,6 +1,5 @@
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { Link } from "@tanstack/react-router";
-import { BrainIcon } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
@@ -15,6 +14,7 @@ import {
   THREAD_DETAILS_PANEL_ROW_CONTENT_CLASS,
 } from "../chat/threadDetailsPanelStyles";
 import { InlineButton } from "../ui/button";
+import { MemoryTypeIcon } from "./memoryParts";
 import { threadSavedMemories } from "./threadMemories";
 
 const VISIBLE = 5;
@@ -56,7 +56,7 @@ export function ThreadMemoryPanel(props: {
               THREAD_DETAILS_PANEL_ROW_CONTENT_CLASS,
             )}
           >
-            <BrainIcon className={THREAD_DETAILS_PANEL_ICON_CLASS} />
+            <MemoryTypeIcon type={memory.type} label className={THREAD_DETAILS_PANEL_ICON_CLASS} />
             {reads && memory.memoryId !== undefined ? (
               <button
                 type="button"

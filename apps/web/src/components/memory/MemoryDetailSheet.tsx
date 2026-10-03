@@ -5,7 +5,8 @@ import { Button } from "../ui/button";
 import { ScrollArea } from "../ui/scroll-area";
 
 import { Sheet, SheetDescription, SheetHeader, SheetPopup, SheetTitle } from "../ui/sheet";
-import { MemoryDetailBody, memorySummaryLine, useMemoryDetail } from "./MemoryDetail";
+import { MemoryDetailBody, useMemoryDetail } from "./MemoryDetail";
+import { MemoryFacts } from "./memoryParts";
 
 /** The Memory page's panel for one memory, opened from the map, lists, and search. */
 export function MemoryDetailSheet(props: {
@@ -31,7 +32,11 @@ export function MemoryDetailSheet(props: {
           <SheetTitle className="me-8">
             {observation?.title ?? (detail.error ? "Memory" : "Loading memory")}
           </SheetTitle>
-          <SheetDescription>{observation ? memorySummaryLine(observation) : null}</SheetDescription>
+          {observation ? (
+            <SheetDescription render={<div />}>
+              <MemoryFacts observation={observation} />
+            </SheetDescription>
+          ) : null}
         </SheetHeader>
         <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-6 pb-6">
           <MemoryDetailBody
@@ -69,9 +74,7 @@ export function MemoryDetailAside(props: {
               <h2 className="text-base font-semibold">
                 {observation?.title ?? (detail.error ? "Memory" : "Loading memory")}
               </h2>
-              {observation ? (
-                <p className="text-sm text-muted-foreground">{memorySummaryLine(observation)}</p>
-              ) : null}
+              {observation ? <MemoryFacts observation={observation} className="text-sm" /> : null}
             </div>
             <Button size="icon-sm" variant="ghost" aria-label="Close" onClick={props.onClose}>
               <XIcon />

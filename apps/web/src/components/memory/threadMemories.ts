@@ -6,6 +6,8 @@ export interface ThreadMemory {
   readonly title: string;
   // Engram's id for it, when its answer said; otherwise the Memory page searches by title.
   readonly memoryId: number | undefined;
+  // Its kind, such as decision, when the agent said.
+  readonly type: string | undefined;
 }
 
 /**
@@ -31,7 +33,7 @@ export function threadSavedMemories(
     if (title === undefined) continue;
     // Re-inserting moves it to the end, which is its newest position.
     memories.delete(key);
-    memories.set(key, { key, title, memoryId });
+    memories.set(key, { key, title, memoryId, type: call.type ?? previous?.type });
   }
   return [...memories.values()].toReversed();
 }

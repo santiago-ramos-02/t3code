@@ -2,7 +2,7 @@ import { TriangleAlertIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
-import { memoryTimeLabel } from "./memoryParts";
+import { MemoryFacts, memoryTimeLabel } from "./memoryParts";
 import {
   fitLayoutToAspect,
   layoutMemoryGraph,
@@ -302,11 +302,7 @@ function MemoryMapPlot(props: {
           }}
         >
           <div className="font-medium text-foreground">{hover.node.observation.title}</div>
-          <div className="mt-0.5 text-muted-foreground">
-            {MEMORY_GROUP_LABELS[hover.node.group]}
-            {hover.node.observation.project ? ` · ${hover.node.observation.project}` : ""} ·{" "}
-            {memoryTimeLabel(hover.node.observation.createdAt)}
-          </div>
+          <MemoryFacts observation={hover.node.observation} className="mt-1" />
           {hover.node.conflicted ? (
             <div className="mt-1 flex items-center gap-1 text-warning-foreground">
               <TriangleAlertIcon aria-hidden className="size-3" />

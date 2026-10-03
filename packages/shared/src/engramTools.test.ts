@@ -96,6 +96,7 @@ describe("compactEngramToolCall", () => {
     expect(engramToolCall("mcp__engram__mem_save", compact?.input)).toEqual({
       kind: "save",
       title: "Switched to JWT",
+      type: "decision",
     });
   });
 

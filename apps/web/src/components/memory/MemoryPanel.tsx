@@ -6,7 +6,8 @@ import { useEnvironmentQuery } from "../../state/query";
 import { serverEnvironment } from "../../state/server";
 import { InlineButton } from "../ui/button";
 import { ScrollArea } from "../ui/scroll-area";
-import { MemoryDetailBody, memorySummaryLine, useMemoryDetail } from "./MemoryDetail";
+import { MemoryDetailBody, useMemoryDetail } from "./MemoryDetail";
+import { MemoryFacts } from "./memoryParts";
 
 /**
  * One memory beside the thread, opened from its activity log or details panel. Related memories
@@ -36,9 +37,7 @@ export function MemoryPanel(props: {
       <div className="flex flex-col gap-5 p-4">
         <header className="flex flex-col gap-1">
           <h2 className="text-sm font-medium">{observation?.title ?? props.title}</h2>
-          {observation ? (
-            <p className="text-xs text-muted-foreground">{memorySummaryLine(observation)}</p>
-          ) : null}
+          {observation ? <MemoryFacts observation={observation} className="text-xs" /> : null}
           <InlineButton
             tone="muted"
             className="self-start text-xs"

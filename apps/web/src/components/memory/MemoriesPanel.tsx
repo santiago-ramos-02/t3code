@@ -10,7 +10,7 @@ import { InlineButton } from "../ui/button";
 import { Input } from "../ui/input";
 import { ScrollArea } from "../ui/scroll-area";
 import { memoryProjectChoices } from "./memoryModel";
-import { memoryTimeLabel } from "./memoryParts";
+import { MemoryTypeIcon, memoryTimeLabel } from "./memoryParts";
 import { threadSavedMemories } from "./threadMemories";
 
 const RECENT = 15;
@@ -60,18 +60,17 @@ export function MemoriesPanel(props: { readonly threadRef: ScopedThreadRef }) {
             </p>
           ) : (
             <ul className="flex flex-col gap-1.5">
-              {saved.map((memory) => (
-                <li key={memory.key} className="text-sm">
-                  {memory.memoryId === undefined ? (
-                    <span className="font-medium">{memory.title}</span>
-                  ) : (
-                    <MemoryRowButton
-                      title={memory.title}
-                      onOpen={() => open(memory.memoryId ?? 0, memory.title)}
-                    />
-                  )}
-                </li>
-              ))}
+              {saved.map((memory) => {
+                const memoryId = memory.memoryId;
+                return (
+                  <MemoryRow
+                    key={memory.key}
+                    type={memory.type}
+                    title={memory.title}
+                    onOpen={memoryId === undefined ? undefined : () => open(memoryId, memory.title)}
+                  />
+                );
+              })}
             </ul>
           )}
         </Section>
@@ -87,16 +86,16 @@ export function MemoriesPanel(props: { readonly threadRef: ScopedThreadRef }) {
             ) : (
               <ul className="flex flex-col gap-2">
                 {recent.map((observation) => (
-                  <li key={observation.id} className="flex flex-col gap-0.5 text-sm">
-                    <MemoryRowButton
-                      title={observation.title}
-                      onOpen={() => open(observation.id, observation.title)}
-                    />
+                  <MemoryRow
+                    key={observation.id}
+                    type={observation.type}
+                    title={observation.title}
+                    onOpen={() => open(observation.id, observation.title)}
+                  >
                     <span className="text-xs text-muted-foreground">
-                      {observation.type.replaceAll("_", " ")} ·{" "}
                       {memoryTimeLabel(observation.createdAt)}
                     </span>
-                  </li>
+                  </MemoryRow>
                 ))}
               </ul>
             )}
@@ -157,13 +156,14 @@ function MemoriesSearch(props: {
       ) : (
         <ul className="flex flex-col gap-2">
           {results.data.results.map((result) => (
-            <li key={result.observation.id} className="flex flex-col gap-0.5 text-sm">
-              <MemoryRowButton
-                title={result.observation.title}
-                onOpen={() => props.onOpen(result.observation)}
-              />
+            <MemoryRow
+              key={result.observation.id}
+              type={result.observation.type}
+              title={result.observation.title}
+              onOpen={() => props.onOpen(result.observation)}
+            >
               <span className="line-clamp-2 text-xs text-muted-foreground">{result.snippet}</span>
-            </li>
+            </MemoryRow>
           ))}
         </ul>
       )}
@@ -180,15 +180,35 @@ function Section(props: { readonly title: string; readonly children: React.React
   );
 }
 
-function MemoryRowButton(props: { readonly title: string; readonly onOpen: () => void }) {
+/** One memory in a list: its kind's icon, its title, which opens it when it can, and a detail. */
+function MemoryRow(props: {
+  readonly type: string | undefined;
+  readonly title: string;
+  readonly onOpen: (() => void) | undefined;
+  readonly children?: React.ReactNode;
+}) {
   return (
-    // Titles are long and wrap, which InlineButton does not.
-    <button
-      type="button"
-      className="cursor-pointer text-start font-medium text-foreground underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-ring"
-      onClick={props.onOpen}
-    >
-      {props.title}
-    </button>
+    <li className="flex gap-2 text-sm">
+      <MemoryTypeIcon
+        type={props.type}
+        label
+        className="mt-0.5 size-4 shrink-0 text-muted-foreground"
+      />
+      <div className="flex min-w-0 flex-col gap-0.5">
+        {props.onOpen === undefined ? (
+          <span className="font-medium">{props.title}</span>
+        ) : (
+          // Titles are long and wrap, which InlineButton does not.
+          <button
+            type="button"
+            className="cursor-pointer text-start font-medium text-foreground underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-ring"
+            onClick={props.onOpen}
+          >
+            {props.title}
+          </button>
+        )}
+        {props.children}
+      </div>
+    </li>
   );
 }

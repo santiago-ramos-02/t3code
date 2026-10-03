@@ -59,6 +59,18 @@ describe("threadSavedMemories", () => {
     ]);
   });
 
+  it("keeps a memory's kind, which an update without one does not erase", () => {
+    const memories = threadSavedMemories([
+      tool("mcp__engram__mem_save", { title: "JWT", type: "decision" }, '{"id":3}'),
+      tool("mcp__engram__mem_update", { id: 3, title: "JWT, revised" }, '{"id":3}'),
+      tool("mcp__engram__mem_save", { title: "Untyped" }, '{"id":4}'),
+    ]);
+    expect(memories.map((memory) => [memory.title, memory.type])).toEqual([
+      ["Untyped", undefined],
+      ["JWT, revised", "decision"],
+    ]);
+  });
+
   it("skips failed calls and what a parent thread saved", () => {
     expect(
       threadSavedMemories([
