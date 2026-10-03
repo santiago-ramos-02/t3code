@@ -90,7 +90,10 @@ vi.mock("./UsageProviderChart", () => ({ UsageProviderChart: "div" }));
 vi.mock("./UsagePriceOverrides", () => ({ UsagePriceOverrides: () => null }));
 vi.mock("../chat/ProviderInstanceIcon", () => ({ ProviderInstanceIcon: () => null }));
 vi.mock("../settings/RedactedSensitiveText", () => ({ RedactedSensitiveText: "span" }));
-vi.mock("../settings/providerDriverMeta", () => ({ getDriverOption: () => ({ label: "Codex" }) }));
+vi.mock("../settings/providerDriverMeta", () => ({
+  DRIVER_OPTIONS: [],
+  getDriverOption: () => ({ label: "Codex" }),
+}));
 
 import { UsagePage } from "./UsagePage";
 
