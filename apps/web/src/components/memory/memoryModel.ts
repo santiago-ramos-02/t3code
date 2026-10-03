@@ -240,11 +240,14 @@ export function memoryProjectChoices<P extends MemoryProjectCandidate>(
 
 // Labels agents use to structure a memory, following Engram's What/Why/Where/Learned format.
 const MEMORY_FIELD_LABEL =
-  /([^\n])[ \t]*(\*\*(?:What|Why|When|Where|How|Learned|Result|Context|Decision)\*\*:)/g;
+  /\s*(\*\*(?:What|Why|When|Where|How|Learned|Result|Context|Decision)\*\*:)/g;
 
-/** A memory's text with each labeled field (`**What**:`, `**Why**:`…) starting its own line. */
+/**
+ * A memory's text with each labeled field (`**What**:`, `**Why**:`…) as its own paragraph, read
+ * like the headed sections of a session summary.
+ */
 export const memoryContentForDisplay = (content: string) =>
-  content.replace(MEMORY_FIELD_LABEL, "$1\n$2");
+  content.replace(MEMORY_FIELD_LABEL, "\n\n$1").trimStart();
 
 /**
  * The first paragraph of a session summary as plain text, for a list. Summaries are Markdown that

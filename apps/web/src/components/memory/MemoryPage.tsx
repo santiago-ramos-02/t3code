@@ -55,10 +55,12 @@ export function MemoryPage() {
   // Wide screens read a memory beside the map, so the open one stays in view; narrow ones use a sheet.
   const sideBySide = useMediaQuery("xl");
 
+  // The open memory lives in the URL so it can be linked, but reading one is not a step to go back
+  // through: Back leaves the page instead of retracing every memory opened.
   const openMemory = (id: number) =>
-    void navigate({ search: (previous) => ({ ...previous, memory: id }) });
+    void navigate({ search: (previous) => ({ ...previous, memory: id }), replace: true });
   const closeMemory = () =>
-    void navigate({ search: ({ memory: _memory, ...previous }) => previous });
+    void navigate({ search: ({ memory: _memory, ...previous }) => previous, replace: true });
   useEscapeToGoBack(search.memory === undefined ? undefined : closeMemory);
 
   const { refresh } = overview;

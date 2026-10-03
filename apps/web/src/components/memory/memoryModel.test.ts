@@ -245,15 +245,19 @@ describe("memoryProjectChoices", () => {
 });
 
 describe("memoryContentForDisplay", () => {
-  it("starts each labeled field on its own line", () => {
+  it("gives each labeled field its own paragraph", () => {
     expect(memoryContentForDisplay("**What**: a. **Why**: b **Where**: c")).toBe(
-      "**What**: a.\n**Why**: b\n**Where**: c",
+      "**What**: a.\n\n**Why**: b\n\n**Where**: c",
+    );
+    expect(memoryContentForDisplay("**What**: a\n**Why**: b\n\n\n**Learned**: c")).toBe(
+      "**What**: a\n\n**Why**: b\n\n**Learned**: c",
     );
   });
 
-  it("leaves fields that already start a line, and other bold text, alone", () => {
-    const text = "**What**: a\n**Why**: b and **bold**: kept";
-    expect(memoryContentForDisplay(text)).toBe(text);
+  it("leaves the opening field and other bold text alone", () => {
+    expect(memoryContentForDisplay("  **What**: a and **bold**: kept")).toBe(
+      "**What**: a and **bold**: kept",
+    );
   });
 });
 
