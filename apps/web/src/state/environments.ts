@@ -101,6 +101,11 @@ export function usePullRequestsSupported() {
   return useAtomValue(environmentSummaries.pullRequestsSupportedAtom);
 }
 
+/** Connected environments whose server reads Engram memory. */
+export function useMemoryEnvironments() {
+  return useAtomValue(environmentSummaries.memoryEnvironmentsAtom);
+}
+
 export function useEnvironmentMachines() {
   return useAtomValue(environmentSummaries.machineByIdAtom);
 }

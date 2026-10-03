@@ -1173,6 +1173,36 @@ export function createServerEnvironmentAtoms<R, E>(
     gentleAiJob,
     gentleAiQuery,
     gentleAiStatus,
+    // Memory: what the environment's agents learned, from Engram. Engram does not announce
+    // changes, so the Memory page refreshes the overview while it is open.
+    memoryOverview: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:memory:overview",
+      tag: WS_METHODS.memoryOverview,
+      staleTimeMs: 15_000,
+    }),
+    memorySearch: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:memory:search",
+      tag: WS_METHODS.memorySearch,
+      staleTimeMs: 15_000,
+    }),
+    memoryObservation: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:memory:observation",
+      tag: WS_METHODS.memoryObservation,
+      staleTimeMs: 30_000,
+    }),
+    memoryHealth: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:memory:health",
+      tag: WS_METHODS.memoryHealth,
+      staleTimeMs: 60_000,
+    }),
+    judgeMemory: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:memory:judge",
+      tag: WS_METHODS.memoryJudge,
+    }),
+    exportMemoryToObsidian: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:memory:export-obsidian",
+      tag: WS_METHODS.memoryExportObsidian,
+    }),
     // CLIProxyAPI on the environment: status now and on every change, actions, management calls.
     cliProxyStatus: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
       label: "environment-data:cli-proxy:status",

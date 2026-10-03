@@ -210,9 +210,25 @@ export function createEnvironmentSummaryAtoms(input: {
           .pullRequests === true,
     ),
   );
+  // Connected environments whose server reads Engram memory, for the Memory page.
+  const memoryEnvironmentsAtom = Atom.make((get) => {
+    const next = get(environmentsAtom).filter(
+      (environment) =>
+        environment.connectionState === "connected" &&
+        get(input.presentationAtom(environment.environmentId))?.serverConfig?.environment
+          .capabilities.memory === true,
+    );
+    const previous = Option.getOrNull(get.self<ReadonlyArray<EnvironmentConnectionSummary>>());
+    return previous !== null &&
+      previous.length === next.length &&
+      next.every((value, index) => value === previous[index])
+      ? previous
+      : next;
+  });
   return {
     environmentIdsAtom,
     connectedEnvironmentIdsAtom,
+    memoryEnvironmentsAtom,
     identitiesAtom,
     environmentsAtom,
     machineByIdAtom,
