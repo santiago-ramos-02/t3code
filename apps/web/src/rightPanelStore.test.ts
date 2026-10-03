@@ -1062,3 +1062,36 @@ describe("rightPanelStore", () => {
     ).toEqual(["terminal:term-1", "browser:tab-b", "browser:tab-c"]);
   });
 });
+
+describe("memory surfaces", () => {
+  it("opens a memory beside the thread once, keeping the newest title", () => {
+    const store = useRightPanelStore.getState();
+    store.openMemory(refA, { id: 7, title: "Memory #7" });
+    store.openMemory(refA, { id: 8, title: "Other" });
+    store.openMemory(refA, { id: 7, title: "Switched to JWT" });
+    const state = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA);
+    expect(state.surfaces).toEqual([
+      { id: "memory:7", kind: "memory", memoryId: 7, title: "Switched to JWT" },
+      { id: "memory:8", kind: "memory", memoryId: 8, title: "Other" },
+    ]);
+    expect(state.activeSurfaceId).toBe("memory:7");
+    expect(state.isOpen).toBe(true);
+  });
+
+  it("restores saved memory tabs and drops broken ones", () => {
+    const migrated = migratePersistedRightPanelState({
+      byThreadKey: {
+        "env-1:thread-A": {
+          activeSurfaceId: null,
+          surfaces: [
+            { id: "memory:3", kind: "memory", memoryId: 3, title: "Kept" },
+            { id: "memory:x", kind: "memory", memoryId: "x", title: "Broken" },
+          ],
+        },
+      },
+    });
+    expect(migrated.byThreadKey["env-1:thread-A"]?.surfaces).toEqual([
+      { id: "memory:3", kind: "memory", memoryId: 3, title: "Kept" },
+    ]);
+  });
+});

@@ -5213,7 +5213,7 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
           ) : null}
           {payload?.type === "dynamic_tool" && threadRef ? (
             <MemoryToolLink
-              environmentId={threadRef.environmentId}
+              threadRef={threadRef}
               toolName={payload.toolName}
               input={payload.input}
               output={payload.output}

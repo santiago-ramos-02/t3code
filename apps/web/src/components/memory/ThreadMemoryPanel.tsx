@@ -3,7 +3,10 @@ import { Link } from "@tanstack/react-router";
 import { BrainIcon } from "lucide-react";
 import { useMemo, useState } from "react";
 
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+
 import { cn } from "../../lib/utils";
+import { useRightPanelStore } from "../../rightPanelStore";
 import { useThreadVisibleTurnItems } from "../../state/entities";
 import { useMemoryEnvironments } from "../../state/environments";
 import { ThreadDetailsSection } from "../chat/ThreadDetailsSection";
@@ -17,8 +20,8 @@ import { threadSavedMemories } from "./threadMemories";
 const VISIBLE = 5;
 
 /**
- * Thread details panel section listing the memories agents saved in this thread, each opening on
- * the Memory page. Renders nothing when the thread saved none.
+ * Thread details panel section listing the memories agents saved in this thread, each opening in
+ * a tab beside the thread. Renders nothing when the thread saved none.
  */
 export function ThreadMemoryPanel(props: {
   readonly environmentId: EnvironmentId;
@@ -32,6 +35,12 @@ export function ThreadMemoryPanel(props: {
     (environment) => environment.environmentId === props.environmentId,
   );
   const memories = useMemo(() => threadSavedMemories(items), [items]);
+  const openMemory = (id: number | undefined, title: string) => {
+    if (id === undefined) return;
+    useRightPanelStore
+      .getState()
+      .openMemory(scopeThreadRef(props.environmentId, props.threadId), { id, title });
+  };
   const [showAll, setShowAll] = useState(false);
   if (memories.length === 0) return null;
   const shown = showAll ? memories : memories.slice(0, VISIBLE);
@@ -48,15 +57,19 @@ export function ThreadMemoryPanel(props: {
             )}
           >
             <BrainIcon className={THREAD_DETAILS_PANEL_ICON_CLASS} />
-            {reads ? (
+            {reads && memory.memoryId !== undefined ? (
+              <button
+                type="button"
+                className="min-w-0 flex-1 cursor-pointer truncate text-start text-sm font-medium text-foreground/80 underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-ring"
+                onClick={() => openMemory(memory.memoryId, memory.title)}
+              >
+                {memory.title}
+              </button>
+            ) : reads ? (
+              // Without Engram's id, only a search can find it.
               <Link
                 to="/memory"
-                search={{
-                  environmentId: props.environmentId,
-                  ...(memory.memoryId === undefined
-                    ? { q: memory.title }
-                    : { memory: memory.memoryId }),
-                }}
+                search={{ environmentId: props.environmentId, q: memory.title }}
                 className="min-w-0 flex-1 truncate text-sm font-medium text-foreground/80 underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-ring"
               >
                 {memory.title}
