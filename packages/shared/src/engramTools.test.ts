@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  compactEngramToolCall,
   engramToolCall,
   engramToolName,
   engramToolResult,
@@ -76,5 +77,33 @@ describe("engramToolResult", () => {
   it("knows nothing from output that is not JSON", () => {
     expect(engramToolResult("Memory saved")).toEqual({ id: undefined, found: undefined });
     expect(engramToolResult(undefined)).toEqual({ id: undefined, found: undefined });
+  });
+});
+
+describe("compactEngramToolCall", () => {
+  it("keeps what clients read and leaves the memory's content on the server", () => {
+    const compact = compactEngramToolCall(
+      "mcp__engram__mem_save",
+      { title: "Switched to JWT", type: "decision", content: "x".repeat(50_000) },
+      [{ type: "text", text: '{"id":230,"candidates":[{"id":1}]}' }],
+    );
+    expect(compact).toEqual({
+      input: { title: "Switched to JWT", type: "decision" },
+      output: { memoryId: 230 },
+    });
+    // The client reads the compact form the same way it reads Engram's answer.
+    expect(engramToolResult(compact?.output)).toEqual({ id: 230, found: undefined });
+    expect(engramToolCall("mcp__engram__mem_save", compact?.input)).toEqual({
+      kind: "save",
+      title: "Switched to JWT",
+    });
+  });
+
+  it("carries a search's count, and nothing for other tools", () => {
+    expect(
+      compactEngramToolCall("mcp__engram__mem_search", { query: "auth" }, '{"results":[{},{}]}'),
+    ).toEqual({ input: { query: "auth" }, output: { found: 2 } });
+    expect(engramToolResult({ found: 0 }).found).toBe(0);
+    expect(compactEngramToolCall("mcp__github__fetch_pr", {}, "")).toBeUndefined();
   });
 });

@@ -137,7 +137,8 @@ function outputRecord(output: unknown): Record<string, unknown> | undefined {
 
 /**
  * What an Engram tool answered: the memory a save or update wrote, and how many memories a search
- * found. Engram answers in JSON; anything else reads as nothing known.
+ * found. Reads Engram's JSON answer, or the compact form the server sends clients; anything else
+ * reads as nothing known.
  */
 export function engramToolResult(output: unknown): {
   readonly id: number | undefined;
@@ -145,5 +146,50 @@ export function engramToolResult(output: unknown): {
 } {
   const record = outputRecord(output);
   const results = record?.results;
-  return { id: asId(record?.id), found: Array.isArray(results) ? results.length : undefined };
+  const found = record?.found;
+  return {
+    id: asId(record?.memoryId ?? record?.id),
+    found:
+      typeof found === "number" && Number.isSafeInteger(found) && found >= 0
+        ? found
+        : Array.isArray(results)
+          ? results.length
+          : undefined,
+  };
+}
+
+// The input fields clients read; a memory's content stays on the server.
+const WIRE_INPUT_KEYS = ["title", "query", "id", "type", "project"] as const;
+
+/**
+ * An Engram call as the server sends it to clients: the input without the memory's content, which
+ * can be far larger than the activity log needs, and only the memory id and result count from its
+ * answer. Undefined for any other tool.
+ */
+export function compactEngramToolCall(
+  toolName: string | null | undefined,
+  input: unknown,
+  output: unknown,
+):
+  | {
+      readonly input: Readonly<Record<string, string | number>>;
+      readonly output: { readonly memoryId?: number; readonly found?: number };
+    }
+  | undefined {
+  if (engramToolName(toolName) === undefined) return undefined;
+  const record = asRecord(input);
+  const compactInput: Record<string, string | number> = {};
+  for (const key of WIRE_INPUT_KEYS) {
+    const value = record?.[key];
+    if (typeof value === "string") compactInput[key] = value.slice(0, 300);
+    else if (typeof value === "number" && Number.isFinite(value)) compactInput[key] = value;
+  }
+  const { id, found } = engramToolResult(output);
+  return {
+    input: compactInput,
+    output: {
+      ...(id === undefined ? {} : { memoryId: id }),
+      ...(found === undefined ? {} : { found }),
+    },
+  };
 }

@@ -197,6 +197,21 @@ describe("orchestration V2 wire projection", () => {
     });
   });
 
+  it("sends an Engram memory call's title and memory id, not the memory's content", () => {
+    const projected = projectTurnItemForWire({
+      ...base,
+      toolName: "mcp__engram__mem_save",
+      input: { title: "Switched to JWT", content: "x".repeat(20_000) },
+      output: [{ type: "text", text: '{"id":230,"candidates":[]}' }],
+    });
+    expect(projected.type === "dynamic_tool" ? projected.input : null).toEqual({
+      title: "Switched to JWT",
+    });
+    expect(projected.type === "dynamic_tool" ? projected.output : null).toEqual({
+      memoryId: 230,
+    });
+  });
+
   it("uses encoded JSON bytes for strings near the dynamic-value limit", () => {
     const small = '"'.repeat(8_191);
     const large = '"'.repeat(8_192);
