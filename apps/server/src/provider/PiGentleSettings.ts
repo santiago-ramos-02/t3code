@@ -194,6 +194,9 @@ function apiCall(
   }
 }
 
+/** What a Pi provider instance offers for gentle-pi: its settings, read and changed through its API. */
+export type PiGentleInstance = Effect.Success<ReturnType<typeof makePiGentleSettings>>;
+
 export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* (input: {
   readonly environment: NodeJS.ProcessEnv;
   readonly piBinaryPath?: string;

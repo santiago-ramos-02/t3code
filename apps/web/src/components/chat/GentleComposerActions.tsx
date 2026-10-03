@@ -7,13 +7,16 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import type {
-  EnvironmentId,
-  ModelSelection,
-  PiGentleComposerState,
-  ProviderInstanceId,
-  ServerProviderModel,
+import {
+  GENTLE_AI_OPTION_ID,
+  gentleAiEnabled,
+  type EnvironmentId,
+  type ModelSelection,
+  type PiGentleComposerState,
+  type ProviderInstanceId,
+  type ServerProviderModel,
 } from "@t3tools/contracts";
+import { createModelSelection } from "@t3tools/shared/model";
 import {
   GENTLE_ODD_NEW_SPEC_PROMPT,
   gentleOddContinuePrompt,
@@ -59,6 +62,7 @@ import { ComposerBanner } from "./ComposerBanner";
 import { useComposerMenuProps } from "./composerEventScope";
 import { useGentleAiJob, useGentleAiQuery } from "../settings/gentle-ai/useGentleAi";
 import { useEnvironmentSettings } from "../../hooks/useSettings";
+import { useComposerDraftStore, type ComposerThreadTarget } from "../../composerDraftStore";
 
 /**
  * Gentle AI entry point in the composer of any provider Gentle AI is set up for. Its menu shows
@@ -397,6 +401,75 @@ export function GentleComposerActions({
 }
 
 /** A profile in the chip's menu, checked when it is the one in use. */
+/** The selection with Gentle AI turned on or off, every other option kept. */
+function withGentleAi(selection: ModelSelection, enabled: boolean) {
+  return createModelSelection(selection.instanceId, selection.model, [
+    ...(selection.options?.filter((option) => option.id !== GENTLE_AI_OPTION_ID) ?? []),
+    { id: GENTLE_AI_OPTION_ID, value: enabled },
+  ]);
+}
+
+/**
+ * The composer's Gentle AI actions, for a provider Gentle AI is set up for in a project. Kept
+ * here, with what it changes in the draft, so the composer only hands over what it knows.
+ */
+export function GentleComposerSlot({
+  resetKey,
+  gentleAi,
+  cwd,
+  draftTarget,
+  isDraft,
+  multipleModels,
+  modelSelection,
+  pi,
+  modelLocked,
+  onStartThread,
+  ...props
+}: {
+  /** Changes whenever the menu's answers may have: another thread, run, model or project. */
+  readonly resetKey: string;
+  /** Whether Gentle AI is set up for the selected provider. */
+  readonly gentleAi: boolean;
+  readonly cwd: string | null;
+  readonly draftTarget: ComposerThreadTarget;
+  /** A thread not sent yet, the only kind Gentle AI can still be turned on or off for. */
+  readonly isDraft: boolean;
+  readonly multipleModels: boolean;
+  readonly modelSelection: ModelSelection;
+  readonly pi: boolean;
+  readonly modelLocked: boolean;
+  readonly environmentId: EnvironmentId;
+  readonly models: ReadonlyArray<ServerProviderModel>;
+  readonly readThreadTrail: () => GentleOddThreadTrail | null;
+  readonly onStartThread: (prompt: string, modelSelection: ModelSelection) => void;
+}) {
+  const setModelSelection = useComposerDraftStore((store) => store.setModelSelection);
+  const setStickyModelSelection = useComposerDraftStore((store) => store.setStickyModelSelection);
+  const enabled = gentleAiEnabled(modelSelection.options);
+  // A thread that started without Gentle AI keeps it off, so it has nothing to offer.
+  if (!gentleAi || cwd === null || !(enabled || isDraft)) return null;
+  return (
+    <GentleComposerActions
+      key={resetKey}
+      {...props}
+      instanceId={modelSelection.instanceId}
+      pi={pi}
+      cwd={cwd}
+      enabled={enabled}
+      canChange={isDraft && !multipleModels}
+      modelSelection={modelSelection}
+      modelLocked={modelLocked || multipleModels}
+      onModelSelectionChange={(selection) => {
+        // A complete selection: the profile's thinking level replaces the thread's.
+        setModelSelection(draftTarget, selection, { explicit: true, replaceOptions: true });
+        setStickyModelSelection(selection);
+      }}
+      onStartThread={(prompt) => onStartThread(prompt, withGentleAi(modelSelection, true))}
+      onEnabledChange={(on) => setModelSelection(draftTarget, withGentleAi(modelSelection, on))}
+    />
+  );
+}
+
 function ProfileItemLabel({ name, detail }: { readonly name: string; readonly detail?: string }) {
   return (
     <span className="flex min-w-0 items-center gap-2">

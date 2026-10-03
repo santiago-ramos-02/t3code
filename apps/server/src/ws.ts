@@ -214,6 +214,7 @@ import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
 import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
 import * as GentleAi from "./gentleAi/GentleAi.ts";
 import * as CliProxy from "./cliProxy/CliProxy.ts";
+import { runPiGentle } from "./provider/PiGentleRpc.ts";
 import * as UsageService from "./usage/UsageService.ts";
 import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
@@ -1176,32 +1177,6 @@ const makeWsRpcLayer = (
         yield* AcpRegistryRuntimeCoordinator.AcpRegistryRuntimeCoordinator;
       const providerMaintenanceRunner = yield* ProviderMaintenanceRunner.ProviderMaintenanceRunner;
       const providerAuth = yield* ProviderAuthService.ProviderAuthService;
-      type PiGentleService = NonNullable<
-        NonNullable<Effect.Success<ReturnType<typeof providerInstances.getInstance>>>["piGentle"]
-      >;
-      // Runs one Gentle AI operation on a Pi instance; any failure becomes a setup error.
-      const runPiGentle = <A, E extends { readonly message: string }>(
-        instanceId: Parameters<typeof providerInstances.getInstance>[0],
-        operation: string,
-        run: (gentle: PiGentleService) => Effect.Effect<A, E>,
-        options: { readonly requireEnabled?: boolean } = {},
-      ) =>
-        Effect.gen(function* () {
-          const instance = yield* providerInstances.getInstance(instanceId);
-          const gentle = instance?.piGentle;
-          if (!gentle || (options.requireEnabled && !instance.enabled)) {
-            return yield* new ProviderSetupError({
-              instanceId,
-              operation,
-              detail: "This provider is not an available Pi instance.",
-            });
-          }
-          return yield* run(gentle).pipe(
-            Effect.mapError(
-              (cause) => new ProviderSetupError({ instanceId, operation, detail: cause.message }),
-            ),
-          );
-        });
       const providerInstallation = yield* makeProviderInstallation();
       const serverSelfUpdate = yield* ServerSelfUpdate.ServerSelfUpdate;
       const config = yield* ServerConfig.ServerConfig;
@@ -2410,7 +2385,7 @@ const makeWsRpcLayer = (
         [WS_METHODS.providerPiGentleRead]: (input) =>
           observeRpcEffect(
             WS_METHODS.providerPiGentleRead,
-            runPiGentle(input.instanceId, "pi-gentle-read", (gentle) =>
+            runPiGentle(providerInstances, input.instanceId, "pi-gentle-read", (gentle) =>
               gentle.read(input.cwd, { refresh: input.refresh === true }),
             ),
             { "rpc.aggregate": "provider" },
@@ -2418,7 +2393,7 @@ const makeWsRpcLayer = (
         [WS_METHODS.providerPiGentleComposerRead]: (input) =>
           observeRpcEffect(
             WS_METHODS.providerPiGentleComposerRead,
-            runPiGentle(input.instanceId, "pi-gentle-composer-read", (gentle) =>
+            runPiGentle(providerInstances, input.instanceId, "pi-gentle-composer-read", (gentle) =>
               gentle.readComposer(input.cwd),
             ),
             { "rpc.aggregate": "provider" },
@@ -2426,7 +2401,7 @@ const makeWsRpcLayer = (
         [WS_METHODS.providerPiGentleAction]: (input) =>
           observeRpcEffect(
             WS_METHODS.providerPiGentleAction,
-            runPiGentle(input.instanceId, "pi-gentle-action", (gentle) =>
+            runPiGentle(providerInstances, input.instanceId, "pi-gentle-action", (gentle) =>
               gentle.action(input.action),
             ),
             { "rpc.aggregate": "provider" },
