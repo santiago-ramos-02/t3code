@@ -68,6 +68,8 @@ export const OVERVIEW_OBSERVATION_LIMIT = 2000;
 const RELATIONS_PAGE = 500;
 const RECENT_SESSIONS = 50;
 const SNIPPET_CHARS = 240;
+// Enough of a session summary for the sessions list; the whole memory opens from there.
+const SESSION_SUMMARY_CHARS = 1200;
 
 // Engram leaves empty fields out, so everything past the identity is optional.
 const Optional = <S extends Schema.Top>(schema: S) => Schema.optionalKey(Schema.NullOr(schema));
@@ -332,6 +334,13 @@ export const makeEngram = Effect.fn("makeEngram")(function* (
       ],
       { concurrency: "unbounded" },
     );
+    // Agents save a session's summary as a memory of its own; Engram's session rows carry none.
+    const summaries = new Map<string, EngramObservation>();
+    for (const observation of observations) {
+      if (observation.type === "session_summary" && !summaries.has(observation.session_id)) {
+        summaries.set(observation.session_id, observation);
+      }
+    }
     return {
       status: current,
       projects: projects.projects.map((project) => ({
@@ -356,7 +365,11 @@ export const makeEngram = Effect.fn("makeEngram")(function* (
         project: session.project ?? null,
         startedAt: session.started_at,
         endedAt: session.ended_at ?? null,
-        summary: session.summary?.trim() || null,
+        summary:
+          session.summary?.trim() ||
+          summaries.get(session.id)?.content?.trim().slice(0, SESSION_SUMMARY_CHARS) ||
+          null,
+        summaryMemoryId: summaries.get(session.id)?.id ?? null,
         observationCount: session.observation_count ?? 0,
       })),
     } satisfies MemoryOverview;

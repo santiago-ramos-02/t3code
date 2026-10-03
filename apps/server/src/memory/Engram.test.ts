@@ -156,9 +156,18 @@ it.layer(NodeServices.layer)("Engram", (it) => {
         "/projects": {
           projects: [{ name: "t3code", observation_count: 2, session_count: 1, prompt_count: 0 }],
         },
-        "/observations": [observation(2), observation(1, { topic_key: "odd/feature" })],
+        "/observations": [
+          observation(3, {
+            session_id: "session-2",
+            type: "session_summary",
+            content: "## Goal\nShip memory",
+          }),
+          observation(2),
+          observation(1, { topic_key: "odd/feature" }),
+        ],
         "/sessions/recent": [
           { id: "session-1", started_at: "2026-10-01 09:00:00", summary: "  Learned things  " },
+          { id: "session-2", started_at: "2026-10-01 11:00:00" },
         ],
       });
       // Two pages of relations: a full one, then one more.
@@ -176,13 +185,22 @@ it.layer(NodeServices.layer)("Engram", (it) => {
       const overview = yield* withEngram(server, (engram) => engram.overview);
 
       expect(overview.status.state).toBe("running");
-      expect(overview.observations.map((entry) => entry.title)).toEqual(["Memory 2", "Memory 1"]);
-      expect(overview.observations[1]?.topicKey).toBe("odd/feature");
+      expect(overview.observations.map((entry) => entry.title)).toEqual([
+        "Memory 3",
+        "Memory 2",
+        "Memory 1",
+      ]);
+      expect(overview.observations[2]?.topicKey).toBe("odd/feature");
       expect(Object.keys(overview.observations[0] ?? {})).not.toContain("content");
       expect(overview.observationsTruncated).toBe(false);
       expect(overview.relations).toHaveLength(501);
       expect(overview.relations.at(-1)?.relation).toBe("pending");
       expect(overview.sessions[0]).toMatchObject({ summary: "Learned things", project: null });
+      // A session's summary saved as a memory fills in what Engram's session row leaves out.
+      expect(overview.sessions[1]).toMatchObject({
+        summary: "## Goal\nShip memory",
+        summaryMemoryId: 3,
+      });
       // Every read covers every project, not the one Engram's server happened to start in.
       expect(
         server.requests.find((request) => request.url.startsWith("/observations"))?.url,

@@ -85,6 +85,8 @@ export const MemorySession = Schema.Struct({
   startedAt: Schema.String,
   endedAt: Schema.NullOr(Schema.String),
   summary: Schema.NullOr(Schema.String),
+  // The memory the summary came from, when an agent saved it as one; optional for older servers.
+  summaryMemoryId: Schema.optionalKey(Schema.NullOr(Schema.Number)),
   observationCount: Schema.Number,
 });
 export type MemorySession = typeof MemorySession.Type;
