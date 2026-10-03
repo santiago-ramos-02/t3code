@@ -2,7 +2,7 @@ import { TriangleAlertIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
-import { memoryTimeLabel } from "./MemoryDetailSheet";
+import { memoryTimeLabel } from "./memoryParts";
 import {
   fitLayoutToAspect,
   layoutMemoryGraph,

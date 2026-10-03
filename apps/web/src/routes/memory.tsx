@@ -9,6 +9,8 @@ export interface MemorySearch {
   readonly memory?: number;
   // A search to start with, from an agent's memory search in a thread.
   readonly q?: string;
+  // Engram's project name; every project when absent.
+  readonly project?: string;
 }
 
 export const Route = createFileRoute("/memory")({
@@ -20,6 +22,7 @@ export const Route = createFileRoute("/memory")({
         : {}),
       ...(Number.isInteger(memory) && memory > 0 ? { memory } : {}),
       ...(typeof raw.q === "string" && raw.q.trim() ? { q: raw.q } : {}),
+      ...(typeof raw.project === "string" && raw.project.trim() ? { project: raw.project } : {}),
     };
   },
   component: MemoryPage,

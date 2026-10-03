@@ -15,20 +15,18 @@ import { ScrollArea } from "../ui/scroll-area";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { SidebarInset } from "../ui/sidebar";
 import { Skeleton } from "../ui/skeleton";
-import {
-  WorkspaceBreadcrumb,
-  WorkspaceBreadcrumbItem,
-  WorkspaceBreadcrumbSeparator,
-} from "../WorkspaceBreadcrumb";
+import { WorkspaceBreadcrumb, WorkspaceBreadcrumbItem } from "../WorkspaceBreadcrumb";
 import { WorkspacePageContainer } from "../WorkspacePageContainer";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
-import { MemoryDetailSheet, MemoryLink, memoryTimeLabel } from "./MemoryDetailSheet";
+import { MemoryDetailSheet } from "./MemoryDetailSheet";
+import { MemoryLink, memoryTimeLabel } from "./memoryParts";
 import { MemoryActivity } from "./MemoryActivity";
 import { MemoryBrainMap } from "./MemoryBrainMap";
-import { MemoryConflicts } from "./MemoryConflicts";
-import { MemoryHealthLine } from "./MemoryHealthLine";
+import { MemoryConflictsButton } from "./MemoryConflicts";
+import { MemoryHealthButton } from "./MemoryHealthButton";
 import { MemoryObsidianExport } from "./MemoryObsidianExport";
-import { buildMemoryGraph } from "./memoryModel";
+import { MemoryScopeSentence } from "./MemoryScopeSentence";
+import { buildMemoryGraph, relationsInProject } from "./memoryModel";
 
 // Engram does not announce changes, so an open page reads it again on this interval.
 const OVERVIEW_REFRESH_MS = 30_000;
@@ -51,7 +49,8 @@ export function MemoryPage() {
   const overview = useEnvironmentQuery(
     environmentId === null ? null : serverEnvironment.memoryOverview({ environmentId, input: {} }),
   );
-  const [project, setProject] = useState<string>(ALL);
+  // Engram's project name, or null for every project; kept in the URL like other page scopes.
+  const projectName = search.project ?? null;
 
   const openMemory = (id: number) =>
     void navigate({ search: (previous) => ({ ...previous, memory: id }) });
@@ -70,6 +69,10 @@ export function MemoryPage() {
 
   const data = overview.data;
   const running = data?.status.state === "running";
+  const relations = useMemo(
+    () => (data ? relationsInProject(data.observations, data.relations, projectName) : []),
+    [data, projectName],
+  );
 
   const topbar = (
     <div className="flex w-full min-w-0 items-center gap-3 py-2">
@@ -77,64 +80,29 @@ export function MemoryPage() {
         <WorkspaceBreadcrumbItem>
           <h1>Memory</h1>
         </WorkspaceBreadcrumbItem>
-        {environments.length > 1 && environment ? (
-          <>
-            <WorkspaceBreadcrumbSeparator />
-            <WorkspaceBreadcrumbItem current className="min-w-10">
-              <Select
-                value={environment.environmentId}
-                onValueChange={(value) => {
-                  if (value)
-                    void navigate({ search: () => ({ environmentId: EnvironmentId.make(value) }) });
-                }}
-              >
-                <SelectTrigger
-                  aria-label="Environment"
-                  size="compact"
-                  variant="ghost"
-                  className="w-auto min-w-0"
-                >
-                  <SelectValue>{environment.environmentLabel}</SelectValue>
-                </SelectTrigger>
-                <SelectPopup align="start" alignItemWithTrigger={false}>
-                  {environments.map((entry) => (
-                    <SelectItem key={entry.environmentId} value={entry.environmentId}>
-                      {entry.environmentLabel}
-                    </SelectItem>
-                  ))}
-                </SelectPopup>
-              </Select>
-            </WorkspaceBreadcrumbItem>
-          </>
-        ) : null}
       </WorkspaceBreadcrumb>
       <div className="ms-auto flex min-w-0 items-center gap-1">
-        {running && data.projects.length > 1 ? (
-          <Select value={project} onValueChange={(value) => setProject(value ?? ALL)}>
-            <SelectTrigger
-              aria-label="Project"
-              size="compact"
-              variant="ghost"
-              className="w-auto min-w-0"
-            >
-              <SelectValue>{project === ALL ? "All projects" : project}</SelectValue>
-            </SelectTrigger>
-            <SelectPopup align="end" alignItemWithTrigger={false}>
-              <SelectItem value={ALL}>All projects</SelectItem>
-              {data.projects.map((entry) => (
-                <SelectItem key={entry.name} value={entry.name}>
-                  {entry.name}
-                </SelectItem>
-              ))}
-            </SelectPopup>
-          </Select>
+        {running && environment ? (
+          <>
+            <MemoryConflictsButton
+              environmentId={environment.environmentId}
+              relations={relations}
+              observations={data.observations}
+              onOpenMemory={openMemory}
+              onJudged={refresh}
+            />
+            <MemoryHealthButton
+              environmentId={environment.environmentId}
+              version={data.status.version}
+            />
+          </>
         ) : null}
         {running && environment ? (
           <MemoryObsidianExport
             environmentId={environment.environmentId}
             environmentLabel={environment.environmentLabel}
             local={environment.environmentId === primaryEnvironmentId}
-            project={project === ALL ? null : project}
+            project={projectName}
           />
         ) : null}
         <Button
@@ -159,6 +127,25 @@ export function MemoryPage() {
         </WorkspacePageHeader>
         <ScrollArea className="min-h-0 flex-1">
           <WorkspacePageContainer width="wide">
+            {environment ? (
+              <div className="mb-6">
+                <MemoryScopeSentence
+                  environmentIds={environments.map((entry) => entry.environmentId)}
+                  environmentId={environment.environmentId}
+                  onEnvironmentChange={(next) =>
+                    void navigate({ search: () => ({ environmentId: next }) })
+                  }
+                  projects={running ? data.projects : []}
+                  project={projectName}
+                  onProjectChange={(next) =>
+                    void navigate({
+                      search: ({ project: _project, ...previous }) =>
+                        next === null ? previous : { ...previous, project: next },
+                    })
+                  }
+                />
+              </div>
+            ) : null}
             {environmentId === null ? (
               <MemoryEmpty
                 title="No environment reads memory"
@@ -191,11 +178,10 @@ export function MemoryPage() {
               <MemoryContent
                 environmentId={environmentId}
                 overview={data}
-                project={project === ALL ? null : project}
+                project={projectName}
                 initialQuery={search.q ?? ""}
                 readAt={overview.dataUpdatedAt}
                 onOpenMemory={openMemory}
-                onChanged={refresh}
               />
             )}
           </WorkspacePageContainer>
@@ -207,6 +193,7 @@ export function MemoryPage() {
           memoryId={search.memory ?? null}
           overview={data}
           onOpenMemory={openMemory}
+          onJudged={refresh}
           onClose={closeMemory}
         />
       ) : null}
@@ -222,8 +209,6 @@ function MemoryContent(props: {
   // When the overview was read, which is "today" for the activity chart.
   readonly readAt: number;
   readonly onOpenMemory: (id: number) => void;
-  // Memory changed from this page, so the overview should be read again.
-  readonly onChanged: () => void;
 }) {
   const { overview, project } = props;
   const observations = useMemo(
@@ -240,55 +225,28 @@ function MemoryContent(props: {
         : overview.sessions.filter((entry) => entry.project === project),
     [overview.sessions, project],
   );
-  // A project shows the relations that touch its memories.
-  const relations = useMemo(() => {
-    if (project === null) return overview.relations;
-    const ids = new Set(observations.map((entry) => entry.syncId));
-    return overview.relations.filter(
-      (relation) => ids.has(relation.sourceId) || ids.has(relation.targetId),
-    );
-  }, [overview.relations, observations, project]);
   const graph = useMemo(
     () => buildMemoryGraph(overview.observations, overview.relations, project, MAP_LIMIT),
     [overview.observations, overview.relations, project],
   );
 
-  const health = (
-    <MemoryHealthLine environmentId={props.environmentId} version={overview.status.version} />
-  );
   if (overview.observations.length === 0) {
     return (
-      <div className="flex flex-col gap-8">
-        {health}
-        <MemoryEmpty
-          title="Nothing remembered yet"
-          description="Agents save decisions, fixes and what they learn here as they work."
-        />
-      </div>
+      <MemoryEmpty
+        title="Nothing remembered yet"
+        description="Agents save decisions, fixes and what they learn here as they work."
+      />
     );
   }
   return (
     <div className="flex flex-col gap-8">
-      {health}
-      <dl className="flex flex-wrap gap-x-10 gap-y-4">
-        <MemoryStat label="Memories" value={observations.length} />
-        <MemoryStat label="Sessions" value={sessions.length} />
-        {project === null ? <MemoryStat label="Projects" value={overview.projects.length} /> : null}
-      </dl>
+      <MemoryBrainMap graph={graph} onOpenMemory={props.onOpenMemory} />
       {overview.observationsTruncated ? (
-        <p className="text-sm text-muted-foreground">
-          Showing the newest {overview.observations.length.toLocaleString()} memories. Search
+        <p className="-mt-6 text-xs text-muted-foreground">
+          The page holds the newest {overview.observations.length.toLocaleString()} memories. Search
           reaches all of them.
         </p>
       ) : null}
-      <MemoryConflicts
-        environmentId={props.environmentId}
-        relations={relations}
-        observations={overview.observations}
-        onOpenMemory={props.onOpenMemory}
-        onJudged={props.onChanged}
-      />
-      <MemoryBrainMap graph={graph} onOpenMemory={props.onOpenMemory} />
       <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)]">
         <MemorySearch
           environmentId={props.environmentId}
@@ -407,15 +365,6 @@ function MemorySearch(props: {
         </ul>
       )}
     </section>
-  );
-}
-
-function MemoryStat(props: { readonly label: string; readonly value: number }) {
-  return (
-    <div className="flex flex-col gap-1">
-      <dt className="text-xs text-muted-foreground">{props.label}</dt>
-      <dd className="text-2xl font-semibold tabular-nums">{props.value.toLocaleString()}</dd>
-    </div>
   );
 }
 

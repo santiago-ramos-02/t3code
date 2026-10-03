@@ -3,11 +3,14 @@ import { CircleCheckIcon, CircleXIcon, TriangleAlertIcon } from "lucide-react";
 
 import { useEnvironmentQuery } from "../../state/query";
 import { serverEnvironment } from "../../state/server";
-import { InlineButton } from "../ui/button";
+import { Button } from "../ui/button";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 
-/** Engram's own checkup in one line: its version, and the first problem with what to do about it. */
-export function MemoryHealthLine(props: {
+/**
+ * Engram's own checkup, kept to the header: its version and an icon for how the checks went, with
+ * each problem and what Engram suggests doing about it one click away.
+ */
+export function MemoryHealthButton(props: {
   readonly environmentId: EnvironmentId;
   readonly version: string | null;
 }) {
@@ -15,52 +18,54 @@ export function MemoryHealthLine(props: {
     serverEnvironment.memoryHealth({ environmentId: props.environmentId, input: {} }),
   ).data;
   const version = props.version ? `Engram ${props.version}` : "Engram";
-  if (!health) return <p className="text-xs text-muted-foreground">{version}</p>;
-  const problems = health.checks.filter((check) => check.result !== "ok");
-  const first = problems.find((check) => check.result === "error") ?? problems[0];
-  if (!first) {
-    return (
-      <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-        <CircleCheckIcon aria-hidden className="size-3.5 text-success" />
-        {version} · Healthy
-      </p>
+  const problems = health?.checks.filter((check) => check.result !== "ok") ?? [];
+  const severe = problems.some((check) => check.result === "error" || check.result === "blocked");
+  const icon =
+    health === null ? null : severe ? (
+      <CircleXIcon aria-hidden className="text-destructive" />
+    ) : problems.length > 0 ? (
+      <TriangleAlertIcon aria-hidden className="text-warning" />
+    ) : (
+      <CircleCheckIcon aria-hidden className="text-success" />
     );
-  }
-  const severe = first.result === "error" || first.result === "blocked";
+  const status =
+    health === null
+      ? "checking"
+      : problems.length === 0
+        ? "healthy"
+        : `${problems.length} ${problems.length === 1 ? "problem" : "problems"}`;
+
   return (
-    <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
-      {severe ? (
-        <CircleXIcon aria-hidden className="mt-px size-3.5 shrink-0 text-destructive" />
-      ) : (
-        <TriangleAlertIcon aria-hidden className="mt-px size-3.5 shrink-0 text-warning" />
-      )}
-      <span>
-        {version} · <span className="text-foreground">{severe ? "Problem" : "Warning"}:</span>{" "}
-        {first.message}
-        {first.nextStep ? ` ${first.nextStep}` : ""}
-        {problems.length > 1 ? (
-          <>
-            {" "}
-            <Popover>
-              <PopoverTrigger openOnHover render={<InlineButton tone="muted" />}>
-                {problems.length - 1} more
-              </PopoverTrigger>
-              <PopoverPopup side="bottom" align="start" tooltipStyle>
-                <ul className="flex max-w-80 flex-col gap-1.5">
-                  {problems
-                    .filter((check) => check !== first)
-                    .map((check) => (
-                      <li key={check.id}>
-                        {check.message}
-                        {check.nextStep ? ` ${check.nextStep}` : ""}
-                      </li>
-                    ))}
-                </ul>
-              </PopoverPopup>
-            </Popover>
-          </>
-        ) : null}
-      </span>
-    </p>
+    <Popover>
+      <PopoverTrigger
+        render={<Button size="xs" variant="ghost" aria-label={`${version}, ${status}`} />}
+      >
+        {icon}
+        {version}
+      </PopoverTrigger>
+      <PopoverPopup side="bottom" align="end">
+        <div className="flex max-w-80 flex-col gap-3 text-sm">
+          <p className="font-medium">
+            {health === null
+              ? "Checking Engram…"
+              : problems.length === 0
+                ? "All of Engram's checks pass."
+                : `Engram's checkup found ${status}.`}
+          </p>
+          {problems.length > 0 ? (
+            <ul className="flex flex-col gap-2">
+              {problems.map((check) => (
+                <li key={check.id} className="flex flex-col gap-0.5">
+                  <span>{check.message}</span>
+                  {check.nextStep ? (
+                    <span className="text-xs text-muted-foreground">{check.nextStep}</span>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      </PopoverPopup>
+    </Popover>
   );
 }

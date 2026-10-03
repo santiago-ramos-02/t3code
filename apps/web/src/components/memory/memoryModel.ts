@@ -1,4 +1,4 @@
-import type { MemoryObservation, MemoryRelation } from "@t3tools/contracts";
+import type { MemoryObservation, MemoryProject, MemoryRelation } from "@t3tools/contracts";
 
 /**
  * The groups the brain map colors memories by. Engram has more types than a reader can tell
@@ -148,6 +148,19 @@ export function buildMemoryGraph(
 
 export type MemoryGraph = ReturnType<typeof buildMemoryGraph>;
 
+/** The relations that touch a project's memories; every relation when no project is picked. */
+export function relationsInProject(
+  observations: ReadonlyArray<MemoryObservation>,
+  relations: ReadonlyArray<MemoryRelation>,
+  project: string | null,
+) {
+  if (project === null) return relations;
+  const ids = new Set(
+    observations.filter((entry) => entry.project === project).map((entry) => entry.syncId),
+  );
+  return relations.filter((relation) => ids.has(relation.sourceId) || ids.has(relation.targetId));
+}
+
 /** Relations waiting for a person's verdict, newest first. */
 export const pendingConflicts = (relations: ReadonlyArray<MemoryRelation>) =>
   relations
@@ -172,4 +185,41 @@ export function memoryActivity(
     if (count !== undefined) counts.set(day, count + 1);
   }
   return Array.from(counts, ([day, count]) => ({ day, count }));
+}
+
+/** Engram's canonical form of a project name: trimmed, lowercase, without doubled separators. */
+const canonicalProjectName = (name: string) =>
+  name.trim().toLowerCase().replace(/-{2,}/g, "-").replace(/_{2,}/g, "_");
+
+/**
+ * The names Engram would give a T3 project: its git remote's repository name, else the folder
+ * name. Both are offered because Engram falls back to the folder when a clone has no remote.
+ */
+export function engramProjectNames(project: {
+  readonly workspaceRoot: string;
+  readonly repositoryIdentity?: { readonly name?: string | undefined } | null | undefined;
+}): ReadonlyArray<string> {
+  const folder = project.workspaceRoot.split(/[\\/]/).findLast((part) => part !== "") ?? "";
+  return [project.repositoryIdentity?.name ?? "", folder]
+    .map(canonicalProjectName)
+    .filter((name) => name !== "");
+}
+
+/**
+ * Engram's projects in the order it lists them, each with the T3 project it belongs to when one
+ * matches, so pickers can show T3's name and icon.
+ */
+export function memoryProjectChoices<
+  P extends Parameters<typeof engramProjectNames>[0] & { readonly title: string },
+>(engramProjects: ReadonlyArray<MemoryProject>, projects: ReadonlyArray<P>) {
+  const byName = new Map<string, P>();
+  for (const project of projects) {
+    for (const name of engramProjectNames(project))
+      if (!byName.has(name)) byName.set(name, project);
+  }
+  return engramProjects.map((entry) => ({
+    name: entry.name,
+    count: entry.observationCount,
+    project: byName.get(canonicalProjectName(entry.name)) ?? null,
+  }));
 }

@@ -80,7 +80,8 @@ export function SettingsScopeSentence() {
   );
 }
 
-function ScopeMenu({
+/** An inline picker inside a scope sentence: the chosen value, with a menu of the others. */
+export function ScopeMenu({
   ariaLabel,
   icon,
   label,

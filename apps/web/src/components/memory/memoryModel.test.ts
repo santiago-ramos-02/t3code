@@ -3,10 +3,13 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   buildMemoryGraph,
+  engramProjectNames,
+  memoryProjectChoices,
   memoryActivity,
   memoryGroup,
   parseMemoryTime,
   pendingConflicts,
+  relationsInProject,
 } from "./memoryModel";
 
 const memory = (id: number, extra: Partial<MemoryObservation> = {}): MemoryObservation => ({
@@ -127,6 +130,17 @@ describe("buildMemoryGraph threads and limit", () => {
   });
 });
 
+describe("relationsInProject", () => {
+  it("keeps relations that touch the project's memories", () => {
+    const memories = [memory(1), memory(2, { project: "other" }), memory(3, { project: "other" })];
+    const relations = [link(1, 2, "related"), link(2, 3, "related")];
+    expect(relationsInProject(memories, relations, "t3code").map((r) => r.syncId)).toEqual([
+      "rel-1-2",
+    ]);
+    expect(relationsInProject(memories, relations, null)).toBe(relations);
+  });
+});
+
 describe("pendingConflicts", () => {
   it("lists relations still waiting for a verdict, newest first", () => {
     const older = { ...link(1, 2, "pending", "pending"), updatedAt: "2026-09-01 10:00:00" };
@@ -178,5 +192,36 @@ describe("parseMemoryTime", () => {
     expect(new Date(parseMemoryTime("2026-10-03 06:20:28.579015200")).toISOString()).toBe(
       "2026-10-03T06:20:28.579Z",
     );
+  });
+});
+
+describe("memoryProjectChoices", () => {
+  const project = (title: string, workspaceRoot: string, repositoryName?: string) => ({
+    title,
+    workspaceRoot,
+    repositoryIdentity: repositoryName === undefined ? null : { name: repositoryName },
+  });
+
+  it("pairs Engram's projects with T3 projects by repository or folder name", () => {
+    const repo = project("T3 Code", "/home/me/t3code-main", "T3Code");
+    // A Windows checkout without a remote: Engram names it after the folder.
+    const folder = project("Mapp Stock", "C:\\Users\\me\\MappStock\\");
+    const choices = memoryProjectChoices(
+      [
+        { name: "t3code", observationCount: 120, sessionCount: 3 },
+        { name: "mappstock", observationCount: 9, sessionCount: 1 },
+        { name: "ivp", observationCount: 2, sessionCount: 1 },
+      ],
+      [repo, folder],
+    );
+    expect(choices.map((choice) => [choice.name, choice.project?.title ?? null])).toEqual([
+      ["t3code", "T3 Code"],
+      ["mappstock", "Mapp Stock"],
+      ["ivp", null],
+    ]);
+  });
+
+  it("reads names the way Engram canonicalizes them", () => {
+    expect(engramProjectNames(project("x", "/a/My--Repo__X"))).toContain("my-repo_x");
   });
 });
