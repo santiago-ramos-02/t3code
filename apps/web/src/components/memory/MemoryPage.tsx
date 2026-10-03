@@ -25,6 +25,8 @@ import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import { MemoryDetailSheet, MemoryLink, memoryTimeLabel } from "./MemoryDetailSheet";
 import { MemoryActivity } from "./MemoryActivity";
 import { MemoryBrainMap } from "./MemoryBrainMap";
+import { MemoryConflicts } from "./MemoryConflicts";
+import { MemoryHealthLine } from "./MemoryHealthLine";
 import { buildMemoryGraph, pendingConflicts } from "./memoryModel";
 
 // Engram does not announce changes, so an open page reads it again on this interval.
@@ -184,6 +186,7 @@ export function MemoryPage() {
                 initialQuery={search.q ?? ""}
                 readAt={overview.dataUpdatedAt}
                 onOpenMemory={openMemory}
+                onChanged={refresh}
               />
             )}
           </WorkspacePageContainer>
@@ -210,6 +213,8 @@ function MemoryContent(props: {
   // When the overview was read, which is "today" for the activity chart.
   readonly readAt: number;
   readonly onOpenMemory: (id: number) => void;
+  // Memory changed from this page, so the overview should be read again.
+  readonly onChanged: () => void;
 }) {
   const { overview, project } = props;
   const observations = useMemo(
@@ -226,22 +231,37 @@ function MemoryContent(props: {
         : overview.sessions.filter((entry) => entry.project === project),
     [overview.sessions, project],
   );
-  const conflicts = pendingConflicts(overview.relations).length;
+  // A project shows the relations that touch its memories.
+  const relations = useMemo(() => {
+    if (project === null) return overview.relations;
+    const ids = new Set(observations.map((entry) => entry.syncId));
+    return overview.relations.filter(
+      (relation) => ids.has(relation.sourceId) || ids.has(relation.targetId),
+    );
+  }, [overview.relations, observations, project]);
+  const conflicts = pendingConflicts(relations).length;
   const graph = useMemo(
     () => buildMemoryGraph(overview.observations, overview.relations, project, MAP_LIMIT),
     [overview.observations, overview.relations, project],
   );
 
+  const health = (
+    <MemoryHealthLine environmentId={props.environmentId} version={overview.status.version} />
+  );
   if (overview.observations.length === 0) {
     return (
-      <MemoryEmpty
-        title="Nothing remembered yet"
-        description="Agents save decisions, fixes and what they learn here as they work."
-      />
+      <div className="flex flex-col gap-8">
+        {health}
+        <MemoryEmpty
+          title="Nothing remembered yet"
+          description="Agents save decisions, fixes and what they learn here as they work."
+        />
+      </div>
     );
   }
   return (
     <div className="flex flex-col gap-8">
+      {health}
       <dl className="flex flex-wrap gap-x-10 gap-y-4">
         <MemoryStat label="Memories" value={observations.length} />
         <MemoryStat label="Sessions" value={sessions.length} />
@@ -254,6 +274,13 @@ function MemoryContent(props: {
           reaches all of them.
         </p>
       ) : null}
+      <MemoryConflicts
+        environmentId={props.environmentId}
+        relations={relations}
+        observations={overview.observations}
+        onOpenMemory={props.onOpenMemory}
+        onJudged={props.onChanged}
+      />
       <MemoryBrainMap graph={graph} onOpenMemory={props.onOpenMemory} />
       <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)]">
         <MemorySearch
