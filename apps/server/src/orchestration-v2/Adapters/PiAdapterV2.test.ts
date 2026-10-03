@@ -462,6 +462,59 @@ const expectModelFailure = (errorMessage: string) =>
   }).pipe(Effect.scoped, Effect.provide(testLayer));
 
 describe("PiAdapterV2", () => {
+  it.effect("reports the turn's usage, cache included, summed over its model calls", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakePi;
+      const { runtime, takeEvent } = yield* openRuntime(fake);
+      const providerThread = yield* runtime.ensureThread({
+        threadId: THREAD_ID,
+        modelSelection: modelSelection("default"),
+        runtimePolicy,
+      });
+      yield* startTurn(runtime, providerThread);
+      yield* fake.takeRequest("prompt");
+      yield* fake.emit({ type: "agent_start" });
+      const usage = (input: number, cacheRead: number, cacheWrite: number, output: number) => ({
+        input,
+        output,
+        cacheRead,
+        cacheWrite,
+        totalTokens: input + output + cacheRead + cacheWrite,
+      });
+      for (const callUsage of [usage(3, 0, 40_000, 200), usage(2, 40_000, 500, 100)]) {
+        yield* fake.emit({ type: "message_start", message: { role: "assistant" } });
+        yield* fake.emit({
+          type: "message_end",
+          message: { role: "assistant", content: [], stopReason: "stop", usage: callUsage },
+        });
+      }
+      // A user message carries no model call.
+      yield* fake.emit({
+        type: "message_end",
+        message: { role: "user", content: [], usage: usage(9, 9, 9, 9) },
+      });
+      fake.queueState({ isStreaming: false, isCompacting: false, pendingMessageCount: 0 });
+      yield* fake.emit({ type: "agent_settled" });
+
+      const settled = yield* takeEvent(
+        (event) =>
+          event.type === "provider_turn.updated" && event.providerTurn.status === "completed",
+      );
+      assert.deepEqual(
+        settled.type === "provider_turn.updated" ? settled.providerTurn.turnTokenUsage : null,
+        {
+          usageStatus: "complete",
+          usageScope: "main_agent",
+          hasSubagents: false,
+          inputTokens: 80_505,
+          cachedInputTokens: 40_000,
+          cacheCreationTokens: 40_500,
+          outputTokens: 300,
+        },
+      );
+    }).pipe(Effect.scoped, Effect.provide(testLayer)),
+  );
+
   it.effect("stops provider-initiated work that has no T3 turn owner", () =>
     Effect.gen(function* () {
       const fake = yield* makeFakePi;

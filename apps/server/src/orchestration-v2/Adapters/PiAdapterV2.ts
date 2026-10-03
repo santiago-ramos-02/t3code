@@ -45,6 +45,7 @@ import {
   type ProviderApprovalDecision,
   type ProviderInstanceId,
   type OrchestrationV2ProviderTurnTokenUsage,
+  type TurnTokenUsage,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as DateTime from "effect/DateTime";
@@ -331,6 +332,8 @@ interface ActivePiTurn {
   latestCompactionAfterTokens: number | null;
   /** Last streamed usage total already emitted on the running turn. */
   lastLiveUsedTokens: number | null;
+  /** The turn's model calls added up, from each assistant message Pi ends; null before one. */
+  callUsage: PiCallUsage | null;
   /** Invalidates idle snapshots when new work starts after a settle probe. */
   settleProbeGeneration: number;
   /** An extension may start compaction immediately after Pi emits agent_settled. */
@@ -343,6 +346,48 @@ interface ActivePiTurn {
   failure: ReturnType<typeof makeProviderFailure> | null;
   /** Session-tree refs read just before Stop terminates Pi, when no read is possible later. */
   stopTreeRefs?: PiTurnTreeRefs | null;
+}
+
+/** Token counts as Pi reports them per model call: `input` leaves out cache reads and writes. */
+interface PiCallUsage {
+  readonly input: number;
+  readonly output: number;
+  readonly cacheRead: number;
+  readonly cacheWrite: number;
+}
+
+function nonNegativeInteger(input: unknown, key: string): number | undefined {
+  const value = recordNumber(input, key);
+  return value === undefined ? undefined : Math.max(0, Math.trunc(value));
+}
+
+/** Adds a model call's usage to the turn's, or keeps it when the call reported none. */
+function addPiCallUsage(total: PiCallUsage | null, usage: unknown): PiCallUsage | null {
+  const input = nonNegativeInteger(usage, "input");
+  const output = nonNegativeInteger(usage, "output");
+  if (input === undefined || output === undefined) return total;
+  const cacheRead = nonNegativeInteger(usage, "cacheRead") ?? 0;
+  const cacheWrite = nonNegativeInteger(usage, "cacheWrite") ?? 0;
+  return {
+    input: (total?.input ?? 0) + input,
+    output: (total?.output ?? 0) + output,
+    cacheRead: (total?.cacheRead ?? 0) + cacheRead,
+    cacheWrite: (total?.cacheWrite ?? 0) + cacheWrite,
+  };
+}
+
+/** The turn's usage in the shape every provider reports, where input counts the cache too. */
+function piTurnTokenUsage(usage: PiCallUsage): TurnTokenUsage {
+  return {
+    usageStatus: "complete",
+    usageScope: "main_agent",
+    // gentle-pi subagents run in their own Pi processes, so the main agent's calls are all here.
+    hasSubagents: false,
+    inputTokens: usage.input + usage.cacheRead + usage.cacheWrite,
+    cachedInputTokens: usage.cacheRead,
+    cacheCreationTokens: usage.cacheWrite,
+    outputTokens: usage.output,
+  };
 }
 
 interface PiTurnTreeRefs {
@@ -581,11 +626,6 @@ export function makePiAdapterV2(
 
       const request = (record: PiRpcRecord, timeoutMs = PI_REQUEST_TIMEOUT_MS) =>
         connection.request(record, timeoutMs);
-
-      const nonNegativeInteger = (input: unknown, key: string): number | undefined => {
-        const value = recordNumber(input, key);
-        return value === undefined ? undefined : Math.max(0, Math.trunc(value));
-      };
 
       const rememberModelContextWindow = (model: unknown): number | null => {
         const provider = recordString(model, "provider");
@@ -1472,6 +1512,9 @@ export function makePiAdapterV2(
             status: turn.interrupted ? "interrupted" : failure !== null ? "failed" : "completed",
             completedAt,
             ...(tokenUsage === undefined ? {} : { tokenUsage }),
+            ...(turn.callUsage === null
+              ? {}
+              : { turnTokenUsage: piTurnTokenUsage(turn.callUsage) }),
           },
         });
         yield* updateProviderThread(state, {
@@ -1635,6 +1678,7 @@ export function makePiAdapterV2(
             if (turn === null) return;
             const message = event["message"];
             if (recordString(message, "role") !== "assistant") return;
+            turn.callUsage = addPiCallUsage(turn.callUsage, recordField(message, "usage"));
             yield* completeOpenStreamItems(turn);
             if (recordString(message, "stopReason") === "error" && turn.failure === null) {
               turn.failure = makeProviderFailure({
@@ -2371,6 +2415,7 @@ export function makePiAdapterV2(
                 compactCommand !== null || (payload?.message.trimStart().startsWith("/") ?? false),
               latestCompactionAfterTokens: null,
               lastLiveUsedTokens: null,
+              callUsage: null,
               settleProbeGeneration: 0,
               settleWhenIdle: false,
               sawCompaction: false,
