@@ -6,6 +6,8 @@ import type {
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 
+import { formatContextWindowTokens } from "./contextWindow";
+
 export type PromptCacheTurn = Pick<
   OrchestrationV2ProviderTurn,
   | "providerThreadId"
@@ -24,6 +26,16 @@ export type PromptCacheMiss =
   | { readonly kind: "model" }
   | { readonly kind: "context" };
 
+/** One finished turn's cache use, for the per-turn table. */
+export interface PromptCacheTurnRow {
+  /** Its place among the session's measured turns, from 1. */
+  readonly number: number;
+  readonly readTokens: number;
+  readonly writtenTokens: number | null;
+  readonly uncachedTokens: number;
+  readonly hitRate: number;
+}
+
 export interface PromptCacheSnapshot {
   /** The last finished turn's input tokens read from the cache. */
   readonly readTokens: number;
@@ -40,6 +52,23 @@ export interface PromptCacheSnapshot {
   /** A turn is running, so the cache stays warm. */
   readonly working: boolean;
   readonly miss: PromptCacheMiss | null;
+  /** The session's latest finished turns, oldest first, the last one being the turn above. */
+  readonly turns: ReadonlyArray<PromptCacheTurnRow>;
+}
+
+const TURN_ROWS = 8;
+
+function turnRow(usage: NonNullable<PromptCacheTurn["turnTokenUsage"]>, number: number) {
+  const inputTokens = usage.inputTokens ?? 0;
+  const readTokens = usage.cachedInputTokens ?? 0;
+  const writtenTokens = usage.cacheCreationTokens ?? null;
+  return {
+    number,
+    readTokens,
+    writtenTokens,
+    uncachedTokens: Math.max(0, inputTokens - readTokens - (writtenTokens ?? 0)),
+    hitRate: inputTokens === 0 ? 0 : readTokens / inputTokens,
+  } satisfies PromptCacheTurnRow;
 }
 
 // Writing at least this share of the previous context again means the old cache went unused.
@@ -81,9 +110,10 @@ export function derivePromptCache(input: {
   const latestUsedAt = lastUsedAt(latest);
   if (latestUsedAt === null) return null;
 
-  const inputTokens = usage.inputTokens ?? 0;
-  const readTokens = usage.cachedInputTokens ?? 0;
-  const writtenTokens = usage.cacheCreationTokens ?? null;
+  const rows = measured.flatMap((turn, index) =>
+    turn.turnTokenUsage === undefined ? [] : [turnRow(turn.turnTokenUsage, index + 1)],
+  );
+  const { readTokens, writtenTokens, uncachedTokens, hitRate } = turnRow(usage, measured.length);
   const ttlSeconds =
     turns.findLast((turn) => turn.tokenUsage?.cacheTtlSeconds !== undefined)?.tokenUsage
       ?.cacheTtlSeconds ?? null;
@@ -117,27 +147,133 @@ export function derivePromptCache(input: {
   return {
     readTokens,
     writtenTokens,
-    uncachedTokens: Math.max(0, inputTokens - readTokens - (writtenTokens ?? 0)),
-    hitRate: readTokens / inputTokens,
+    uncachedTokens,
+    hitRate,
     ttlSeconds,
     lastUsedAt: latestUsedAt,
     working: latest.status === "running" || latest.status === "pending",
     miss: miss(),
+    turns: rows.slice(-TURN_ROWS),
   };
 }
 
 export type PromptCacheState =
-  | { readonly kind: "warm" }
+  | { readonly kind: "working" }
   | { readonly kind: "expiresIn"; readonly seconds: number }
   | { readonly kind: "expired"; readonly secondsAgo: number }
   | { readonly kind: "unknown" };
 
 /** Whether the cache is still there at `nowMs`, and for how long. */
 export function promptCacheState(cache: PromptCacheSnapshot, nowMs: number): PromptCacheState {
-  if (cache.working) return { kind: "warm" };
+  if (cache.working) return { kind: "working" };
   if (cache.ttlSeconds === null) return { kind: "unknown" };
   const left = Math.ceil((cache.lastUsedAt + cache.ttlSeconds * 1000 - nowMs) / 1000);
   return left > 0 ? { kind: "expiresIn", seconds: left } : { kind: "expired", secondsAgo: -left };
+}
+
+// The last minute is when to send a message.
+const SOON_SECONDS = 60;
+// From here on the readout counts minutes and seconds.
+const CLOSE_SECONDS = 300;
+// A context this large is worth compacting before its cache is rebuilt.
+const COMPACT_AT_TOKENS = 100_000;
+
+export type PromptCacheTone = "good" | "warning" | "critical";
+
+/**
+ * How much life the cache has left, as a colour reads it: good, warning once less than 40% is
+ * left, critical in its last minute and once expired. A provider without a lifetime is read by
+ * its hit rate.
+ */
+export function promptCacheLifeTone(
+  cache: PromptCacheSnapshot,
+  state: PromptCacheState,
+): PromptCacheTone {
+  switch (state.kind) {
+    case "working":
+      return "good";
+    case "expired":
+      return "critical";
+    case "expiresIn":
+      if (state.seconds <= SOON_SECONDS) return "critical";
+      return cache.ttlSeconds !== null && state.seconds / cache.ttlSeconds <= 0.4
+        ? "warning"
+        : "good";
+    case "unknown":
+      return promptCacheHitTone(cache.hitRate);
+  }
+}
+
+/** How the cache is doing overall: its life, except that a missed turn reads as critical. */
+export function promptCacheTone(
+  cache: PromptCacheSnapshot,
+  state: PromptCacheState,
+): PromptCacheTone {
+  return cache.miss !== null && state.kind !== "working"
+    ? "critical"
+    : promptCacheLifeTone(cache, state);
+}
+
+/** A hit rate as a colour reads it: good from 80%, warning from 40%, critical below. */
+export function promptCacheHitTone(hitRate: number): PromptCacheTone {
+  return hitRate >= 0.8 ? "good" : hitRate >= 0.4 ? "warning" : "critical";
+}
+
+/** The share of the cache's life still left, from 0 to 1, or null when it has no known end. */
+export function promptCacheLifeLeft(cache: PromptCacheSnapshot, state: PromptCacheState) {
+  if (cache.ttlSeconds === null) return null;
+  switch (state.kind) {
+    case "working":
+      return 1;
+    case "expiresIn":
+      return Math.min(1, state.seconds / cache.ttlSeconds);
+    case "expired":
+      return 0;
+    case "unknown":
+      return null;
+  }
+}
+
+function missCause(miss: PromptCacheMiss) {
+  switch (miss.kind) {
+    case "expired":
+      return `it had expired after ${formatPromptCacheDuration(miss.idleSeconds)} idle`;
+    case "model":
+      return "the model changed";
+    case "context":
+      return "the start of the conversation changed, such as its instructions or tools";
+  }
+}
+
+/** Whether the cache has expired on a context large enough to compact before rebuilding it. */
+export function promptCacheSuggestsCompact(state: PromptCacheState, contextTokens: number | null) {
+  return state.kind === "expired" && contextTokens !== null && contextTokens >= COMPACT_AT_TOKENS;
+}
+
+/** What to do about the cache now: keep going, send a message soon, or compact first. */
+export function promptCacheAdvice(
+  cache: PromptCacheSnapshot,
+  state: PromptCacheState,
+  contextTokens: number | null,
+) {
+  switch (state.kind) {
+    case "working":
+      return "Warm while the agent works";
+    case "expired": {
+      if (contextTokens === null) return "Expired: the next message rebuilds the cache";
+      const size = formatContextWindowTokens(contextTokens);
+      return promptCacheSuggestsCompact(state, contextTokens)
+        ? `Expired: the next message rewrites ${size} tokens. Compact first, or start a new thread if the task is done`
+        : `Expired: only ${size} tokens to rebuild, just keep going`;
+    }
+    case "expiresIn":
+      if (state.seconds <= SOON_SECONDS) return "Expires soon: any message refreshes it for free";
+      return cache.miss === null ? "Warm: keep going" : `Cache missed: ${missCause(cache.miss)}`;
+    case "unknown":
+      return cache.miss === null
+        ? "This provider does not say how long it keeps the cache"
+        : `Cache missed: ${missCause(cache.miss)}`;
+  }
 }
 
 /** A countdown such as `4:05`, or `1:00:00` from an hour up. */
@@ -157,21 +293,28 @@ export function formatPromptCacheDuration(seconds: number) {
   return minutes % 60 === 0 ? `${hours} h` : `${hours} h ${minutes % 60} min`;
 }
 
-/** The composer's short cache readout, such as `Cache 54m`, `Cache expired` or `Cache 96%`. */
-export function promptCacheLabel(cache: PromptCacheSnapshot, state: PromptCacheState) {
+/**
+ * The composer readout's clock: `43m`, then `4:12` in the last five minutes, `expired`, or
+ * `warm` while the agent works. Null for a provider without a lifetime.
+ */
+export function promptCacheClockLabel(state: PromptCacheState) {
   switch (state.kind) {
-    case "warm":
-      return "Cache warm";
+    case "working":
+      return "warm";
     case "expiresIn":
-      return `Cache ${Math.ceil(state.seconds / 60)}m`;
+      return state.seconds <= CLOSE_SECONDS
+        ? formatPromptCacheCountdown(state.seconds)
+        : `${Math.ceil(state.seconds / 60)}m`;
     case "expired":
-      return "Cache expired";
+      return "expired";
     case "unknown":
-      return `Cache ${Math.round(cache.hitRate * 100)}%`;
+      return null;
   }
 }
 
-/** Milliseconds until `promptCacheLabel` reads differently, or null when only new usage changes it. */
+/** Milliseconds until the clock reads differently, or null when only new usage changes it. */
 export function msUntilPromptCacheLabelChanges(state: PromptCacheState) {
-  return state.kind === "expiresIn" ? (((state.seconds - 1) % 60) + 1) * 1000 : null;
+  if (state.kind !== "expiresIn") return null;
+  if (state.seconds <= CLOSE_SECONDS) return 1000;
+  return Math.min(((state.seconds - 1) % 60) + 1, state.seconds - CLOSE_SECONDS) * 1000;
 }

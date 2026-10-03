@@ -196,14 +196,16 @@ provider supports it. Web and desktop also offer compaction from the context met
 ## Prompt cache
 
 Providers keep the start of a conversation in a prompt cache for a while after each
-request, so the next message re-reads it cheaply. On web and desktop, the composer shows
-how long the cache lives on, such as **Cache 44m**, once a turn reports cache use. After it
-expires, your next message sends the whole conversation again at full price. Hover the
-readout to see what the last turn reused and, when it rebuilt the cache, why: it had
-expired, the model changed, or the start of the conversation changed.
+request, so the next message re-reads it cheaply. On web and desktop, once a turn reports
+cache use, the composer shows how much of the last turn the cache served and how long it
+lives on, such as **94% · 44m**. After it expires, your next message sends the whole
+conversation again at full price. Hover the readout for the full meter: the countdown,
+what to do (keep going, send a message soon, or compact first), the last turn's read,
+written, and new tokens, and one row per recent turn. When a turn rebuilt the cache, it
+says why: it had expired, the model changed, or the start of the conversation changed.
 
 Claude reports how long it keeps the cache, so its readout counts down. Codex, OpenCode,
-and Pi show how much of the last turn came from the cache instead. Cursor, Grok, and
+and Pi show how much of each turn came from the cache instead. Cursor, Grok, and
 Antigravity do not report cache use.
 
 ## Context in your message

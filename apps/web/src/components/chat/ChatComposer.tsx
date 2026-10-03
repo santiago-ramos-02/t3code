@@ -1398,6 +1398,7 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
         <PromptCacheIndicator
           cache={props.promptCache}
           contextTokens={props.contextTokens}
+          modelDisplayName={props.activeThreadModelDisplayName}
           onCompact={props.onCompactContext}
           compactDisabled={props.compactDisabled}
         />

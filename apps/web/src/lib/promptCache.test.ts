@@ -16,8 +16,12 @@ import {
   type PromptCacheSnapshot,
   type PromptCacheTurn,
   msUntilPromptCacheLabelChanges,
-  promptCacheLabel,
+  promptCacheAdvice,
+  promptCacheClockLabel,
+  promptCacheLifeLeft,
+  promptCacheLifeTone,
   promptCacheState,
+  promptCacheTone,
 } from "./promptCache";
 
 const PROVIDER_THREAD = ProviderThreadId.make("provider-thread-1");
@@ -108,6 +112,11 @@ describe("derivePromptCache", () => {
       miss: null,
     });
     expect(cache?.hitRate).toBeCloseTo(120_000 / 122_030);
+    // One row per finished turn, for the table.
+    expect(cache?.turns.map((row) => [row.number, row.readTokens, row.writtenTokens])).toEqual([
+      [1, 0, 40_000],
+      [2, 120_000, 2_000],
+    ]);
   });
 
   it("says the cache had expired when the turn came after its lifetime", () => {
@@ -217,14 +226,57 @@ describe("promptCacheState", () => {
     lastUsedAt: 0,
     working: false,
     miss: null,
+    turns: [],
     ...overrides,
   });
 
   it("counts down to expiry, then up from it", () => {
     expect(promptCacheState(cache({}), 60_000)).toEqual({ kind: "expiresIn", seconds: 240 });
     expect(promptCacheState(cache({}), 420_000)).toEqual({ kind: "expired", secondsAgo: 120 });
-    expect(promptCacheState(cache({ working: true }), 420_000)).toEqual({ kind: "warm" });
+    expect(promptCacheState(cache({ working: true }), 420_000)).toEqual({ kind: "working" });
     expect(promptCacheState(cache({ ttlSeconds: null }), 0)).toEqual({ kind: "unknown" });
+  });
+
+  it("goes from good to warning to critical as the cache runs out", () => {
+    const hour = cache({ ttlSeconds: 3_600 });
+    const at = (seconds: number) => promptCacheState(hour, (3_600 - seconds) * 1000);
+    expect(promptCacheTone(hour, at(3_000))).toBe("good");
+    expect(promptCacheTone(hour, at(1_200))).toBe("warning");
+    expect(promptCacheTone(hour, at(45))).toBe("critical");
+    expect(promptCacheTone(hour, at(0))).toBe("critical");
+    expect(promptCacheLifeLeft(hour, at(1_800))).toBe(0.5);
+    // A miss reads as critical while the new cache lives, and a provider without a lifetime by
+    // its hit rate.
+    const missed = cache({ ttlSeconds: 3_600, miss: { kind: "model" } });
+    expect(promptCacheTone(missed, at(3_000))).toBe("critical");
+    // The new cache it wrote is fresh, which its life reads as.
+    expect(promptCacheLifeTone(missed, at(3_000))).toBe("good");
+    expect(promptCacheTone(cache({ ttlSeconds: null, hitRate: 0.5 }), { kind: "unknown" })).toBe(
+      "warning",
+    );
+  });
+
+  it("says what to do: keep going, send something soon, or compact first", () => {
+    const hour = cache({ ttlSeconds: 3_600 });
+    expect(promptCacheAdvice(hour, { kind: "expiresIn", seconds: 600 }, 50_000)).toBe(
+      "Warm: keep going",
+    );
+    expect(promptCacheAdvice(hour, { kind: "expiresIn", seconds: 30 }, 50_000)).toBe(
+      "Expires soon: any message refreshes it for free",
+    );
+    expect(promptCacheAdvice(hour, { kind: "expired", secondsAgo: 5 }, 151_000)).toBe(
+      "Expired: the next message rewrites 151k tokens. Compact first, or start a new thread if the task is done",
+    );
+    expect(promptCacheAdvice(hour, { kind: "expired", secondsAgo: 5 }, 40_000)).toBe(
+      "Expired: only 40k tokens to rebuild, just keep going",
+    );
+    expect(
+      promptCacheAdvice(
+        cache({ miss: { kind: "expired", idleSeconds: 600 } }),
+        { kind: "expiresIn", seconds: 290 },
+        null,
+      ),
+    ).toBe("Cache missed: it had expired after 10 min idle");
   });
 
   it("formats countdowns and durations", () => {
@@ -235,13 +287,17 @@ describe("promptCacheState", () => {
     expect(formatPromptCacheDuration(7_500)).toBe("2 h 5 min");
   });
 
-  it("labels the readout, changing it once a minute while it counts down", () => {
+  it("shows minutes, then seconds in the last five minutes", () => {
     const counting = promptCacheState(cache({ ttlSeconds: 3_600 }), 5 * 60_000 + 4_000);
-    expect(promptCacheLabel(cache({}), counting)).toBe("Cache 55m");
+    expect(promptCacheClockLabel(counting)).toBe("55m");
     // 54:56 left reads 55m until 54:00, 56 seconds from now.
     expect(msUntilPromptCacheLabelChanges(counting)).toBe(56_000);
-    expect(promptCacheLabel(cache({}), { kind: "expired", secondsAgo: 1 })).toBe("Cache expired");
-    expect(promptCacheLabel(cache({ hitRate: 0.964 }), { kind: "unknown" })).toBe("Cache 96%");
-    expect(msUntilPromptCacheLabelChanges({ kind: "warm" })).toBeNull();
+    // 5:30 left changes to the seconds count in 30 seconds, then every second.
+    expect(msUntilPromptCacheLabelChanges({ kind: "expiresIn", seconds: 330 })).toBe(30_000);
+    expect(promptCacheClockLabel({ kind: "expiresIn", seconds: 252 })).toBe("4:12");
+    expect(msUntilPromptCacheLabelChanges({ kind: "expiresIn", seconds: 252 })).toBe(1_000);
+    expect(promptCacheClockLabel({ kind: "expired", secondsAgo: 1 })).toBe("expired");
+    expect(promptCacheClockLabel({ kind: "unknown" })).toBeNull();
+    expect(msUntilPromptCacheLabelChanges({ kind: "working" })).toBeNull();
   });
 });
