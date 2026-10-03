@@ -60,7 +60,6 @@ export function GentleAiSettingsPage({
   environmentId,
   readOnly,
   project,
-  projectRows,
   flow,
   onFlowChange,
   agentExtras,
@@ -71,8 +70,6 @@ export function GentleAiSettingsPage({
   readonly environmentId: EnvironmentId;
   readonly readOnly: boolean;
   readonly project: { readonly title: string; readonly cwd: string } | null;
-  /** Rows agents add for one project folder, such as gentle-pi's profile pin and persona. */
-  readonly projectRows: (cwd: string) => ReactNode;
   readonly flow: GentleAiFlow | null;
   readonly onFlowChange: (flow: GentleAiFlow | null) => void;
   /** Settings an agent brings along, shown on its own page, such as gentle-pi's for Pi. */
@@ -184,9 +181,7 @@ export function GentleAiSettingsPage({
       {project === null ? (
         <GentleAiReviewSection {...sectionProps} />
       ) : (
-        <GentleAiProjectSection {...sectionProps} project={project}>
-          {projectRows(project.cwd)}
-        </GentleAiProjectSection>
+        <GentleAiProjectSection {...sectionProps} project={project} />
       )}
       <GentleAiMoreSection {...sectionProps} advancedRows={advancedRows} />
     </>

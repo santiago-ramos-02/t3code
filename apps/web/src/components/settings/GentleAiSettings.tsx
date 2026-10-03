@@ -160,25 +160,34 @@ export function GentleAiSettingsPanel({
       }
     />
   );
-  // Rows Gentle AI adds for Pi, its plugins, go in the first instance's card.
-  const piSections = (extraRows: ReactNode) =>
-    piInstances.map((provider, index) => (
-      <PiGentleSettingsSection
-        key={provider.instanceId}
-        extraRows={index === 0 ? extraRows : null}
-        environmentId={environmentId}
-        instanceId={provider.instanceId}
-        title={
-          piInstances.length > 1
-            ? `gentle-pi · ${provider.displayName ?? provider.instanceId}`
-            : "gentle-pi"
-        }
-        refreshKey={refreshKey}
-        models={provider.models}
-        readOnly={readOnly}
-      />
-    ));
-  // gentle-pi's overrides for the chosen project, in the page's project section.
+  // Rows Gentle AI adds for Pi, its plugins, go in the first instance's card. With a project
+  // chosen at the top of Settings, Pi's page also holds that project's Pi overrides.
+  const piSections = (extraRows: ReactNode) => (
+    <>
+      {piInstances.map((provider, index) => (
+        <PiGentleSettingsSection
+          key={provider.instanceId}
+          extraRows={index === 0 ? extraRows : null}
+          environmentId={environmentId}
+          instanceId={provider.instanceId}
+          title={
+            piInstances.length > 1
+              ? `gentle-pi · ${provider.displayName ?? provider.instanceId}`
+              : "gentle-pi"
+          }
+          refreshKey={refreshKey}
+          models={provider.models}
+          readOnly={readOnly}
+        />
+      ))}
+      {project !== null ? (
+        <SettingsSection title={`In ${project.title}`}>
+          {piProjectRows(project.cwd)}
+        </SettingsSection>
+      ) : null}
+    </>
+  );
+  // gentle-pi's overrides for one project.
   const piProjectRows = (cwd: string) =>
     piInstances.map((provider) => (
       <PiGentleProjectRows
@@ -204,7 +213,6 @@ export function GentleAiSettingsPanel({
           flow={flow}
           onFlowChange={setFlow}
           project={project}
-          projectRows={piProjectRows}
           agentExtras={piInstances.length > 0 ? { pi: piSections } : {}}
           piProvider={
             piInstances[0]

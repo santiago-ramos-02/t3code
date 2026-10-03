@@ -410,7 +410,7 @@ export function PiGentleProjectRows({
   return (
     <>
       <SettingsRow
-        title={`${prefix} profile`}
+        title={instanceLabel === null ? "Profile" : `Profile (${instanceLabel})`}
         description={
           !project.pinAvailable
             ? "Pinning a profile needs a Git repository."
@@ -442,7 +442,7 @@ export function PiGentleProjectRows({
         }
       />
       <SettingsRow
-        title={`${prefix} persona`}
+        title={instanceLabel === null ? "Persona" : `Persona (${instanceLabel})`}
         description="Saved in the project's .pi folder, so committing it applies to your team."
         control={
           <GentleSelect

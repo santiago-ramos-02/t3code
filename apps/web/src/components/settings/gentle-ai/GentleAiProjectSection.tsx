@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState } from "react";
 
 import { Button, InlineButton } from "../../ui/button";
 import { Checkbox } from "../../ui/checkbox";
@@ -66,26 +66,24 @@ export function GentleAiReviewSection(props: GentleAiSectionProps) {
       <GentleAiReviewRow {...props} />
       <SettingsRow
         title="One project's settings"
-        description="Choose a project at the top of this page for its review, Pi profile, and tools such as CodeGraph."
+        description="Choose a project at the top of this page for its review and tools such as CodeGraph. Pi's settings for a project are on Pi's page."
       />
     </SettingsSection>
   );
 }
 
 /**
- * Everything Gentle AI keeps for the project chosen at the top of Settings, in one place: its
- * review, review history, what agents add for it (such as gentle-pi's profile pin), and the
- * community tools wired into it.
+ * What Gentle AI keeps for the project chosen at the top of Settings across its agents: its
+ * review, review history, and the community tools wired into it. An agent's own project settings,
+ * such as gentle-pi's profile pin, are on that agent's page.
  */
-export function GentleAiProjectSection({
-  children,
-  ...props
-}: GentleAiSectionProps & { readonly project: Project; readonly children?: ReactNode }) {
+export function GentleAiProjectSection(
+  props: GentleAiSectionProps & { readonly project: Project },
+) {
   const { project } = props;
   return (
     <SettingsSection title={project.title}>
       <ProjectReviewRows {...props} cwd={project.cwd} />
-      {children}
       <ToolRows {...props} cwd={project.cwd} />
     </SettingsSection>
   );
