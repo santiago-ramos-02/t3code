@@ -11,7 +11,6 @@ import { useMemo, useState, type ReactNode } from "react";
 import { Button } from "../../ui/button";
 import { Skeleton } from "../../ui/skeleton";
 import { Spinner } from "../../ui/spinner";
-import { FoldedSettingsSection } from "../FoldedSettingsSection";
 import { SettingsRow, SettingsSection } from "../settingsLayout";
 import {
   GentleAiAgentFlow,
@@ -276,12 +275,7 @@ function GentleAiMoreSection({
     .join(" · ");
 
   return (
-    <FoldedSettingsSection
-      id="gentle-ai-more"
-      title="More"
-      summary="Setup, backups, removal"
-      headerPlacement="outside"
-    >
+    <SettingsSection title="Setup and maintenance">
       <SettingsRow
         title="Setup for every agent"
         description={
@@ -372,7 +366,7 @@ function GentleAiMoreSection({
         }
       />
       {advancedRows}
-    </FoldedSettingsSection>
+    </SettingsSection>
   );
 }
 
