@@ -120,6 +120,32 @@ export interface GentleOddThreadTrail {
   readonly records: ReadonlyArray<unknown>;
 }
 
+// Work records are replaced, never changed, so each one's JSON is read once even when a long
+// thread is scanned on every update.
+const recordTexts = new WeakMap<object, string>();
+function recordText(record: unknown) {
+  if (typeof record !== "object" || record === null) return JSON.stringify(record) ?? "";
+  let text = recordTexts.get(record);
+  if (text === undefined) {
+    text = JSON.stringify(record) ?? "";
+    recordTexts.set(record, text);
+  }
+  return text;
+}
+
+const FEATURE_DIRECTORY_SPELLINGS = ["odd/tasks/", "odd\\tasks\\", "odd\\\\tasks\\\\"];
+
+/**
+ * How many of a thread's work records touch a feature document. It grows when an agent reads or
+ * checks off its tasks, which is when a reader of the documents should read them again.
+ */
+export function gentleOddFeatureRecordCount(thread: GentleOddThreadTrail) {
+  return thread.records.filter((record) => {
+    const text = recordText(record);
+    return FEATURE_DIRECTORY_SPELLINGS.some((spelling) => text.includes(spelling));
+  }).length;
+}
+
 /**
  * The feature documents a thread works on: named in a message (such as "Implement" from the
  * menu) or touched by its tools. Paths arrive with either slash and, inside work records,
@@ -132,7 +158,7 @@ export function gentleOddThreadFeaturePaths(
   if (paths.length === 0) return new Set();
   const texts = [
     ...thread.messages.map((message) => message.text),
-    ...thread.records.map((record) => JSON.stringify(record) ?? ""),
+    ...thread.records.map(recordText),
   ];
   return new Set(
     paths.filter((path) => {

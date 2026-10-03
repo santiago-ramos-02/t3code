@@ -29,6 +29,7 @@ import { ThreadDetailsSection } from "./ThreadDetailsSection";
 import { ThreadAutomationsPanel } from "./ThreadAutomationsPanel";
 import { ThreadRelationshipsPanel } from "./ThreadRelationshipsControl";
 import { ThreadMemoryPanel } from "../memory/ThreadMemoryPanel";
+import { ThreadFeaturePanel } from "./ThreadFeaturePanel";
 
 interface VersionMismatchIssue {
   readonly clientVersion: string;
@@ -225,6 +226,14 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
 
           {density === "full" && !props.draftId ? (
             <ThreadAutomationsPanel environmentId={props.environmentId} threadId={props.threadId} />
+          ) : null}
+
+          {density === "full" && !props.draftId ? (
+            <ThreadFeaturePanel
+              environmentId={props.environmentId}
+              threadId={props.threadId}
+              cwd={props.gitCwd}
+            />
           ) : null}
 
           {density === "full" && !props.draftId ? (

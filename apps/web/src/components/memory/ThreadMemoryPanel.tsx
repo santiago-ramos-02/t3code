@@ -17,7 +17,8 @@ import { InlineButton } from "../ui/button";
 import { MemoryTypeIcon } from "./memoryParts";
 import { threadSavedMemories } from "./threadMemories";
 
-const VISIBLE = 5;
+// Few, so the panel keeps room for the sections after it.
+const VISIBLE = 3;
 
 /**
  * Thread details panel section listing the memories agents saved in this thread, each opening in

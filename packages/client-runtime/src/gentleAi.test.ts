@@ -18,6 +18,7 @@ import {
   gentleOddContinuePrompt,
   gentleOddFeatureSummary,
   gentleOddMenuFeatures,
+  gentleOddFeatureRecordCount,
   gentleOddThreadFeaturePaths,
   gentlePiProfileSummary,
 } from "./gentleAi.ts";
@@ -113,6 +114,18 @@ describe("ODD feature menu", () => {
     expect(
       gentleOddThreadFeaturePaths(thread, ["odd/tasks/a.md", "odd/tasks/b.md", "odd/tasks/c.md"]),
     ).toEqual(new Set(["odd/tasks/a.md", "odd/tasks/b.md"]));
+  });
+
+  it("counts the work records that touch a feature document, so a reader knows to re-read them", () => {
+    const records = [
+      { detail: String.raw`Edited C:\repo\odd\tasks\b.md` },
+      { detail: "ran tests" },
+      { input: { file_path: "odd/tasks/a.md" } },
+    ];
+    expect(gentleOddFeatureRecordCount({ messages: [], records })).toBe(2);
+    expect(
+      gentleOddFeatureRecordCount({ messages: [], records: [...records, { detail: "odd" }] }),
+    ).toBe(2);
   });
 
   it("drops finished documents and lists this thread's first", () => {
