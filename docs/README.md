@@ -21,6 +21,7 @@
 - [Updating T3 Code](./user/updating.md)
 - Provider guides: [Codex](./user/providers-codex.md) · [Claude](./user/providers-claude.md) · [OpenCode](./user/providers-opencode.md) · [Antigravity](./user/providers-antigravity.md) · [Pi](./user/providers-pi.md)
 - [Gentle AI](./user/gentle-ai.md)
+- [Memory](./user/memory.md)
 
 ---
 
