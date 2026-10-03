@@ -1,4 +1,3 @@
-import { GENTLE_AI_OPTION_ID } from "@t3tools/contracts";
 import {
   type ModelCapabilities,
   type ProviderDriverKind,
@@ -142,18 +141,13 @@ export function getComposerProviderState(input: ComposerProviderStateInput): Com
     (primarySelectDescriptor?.promptInjectedValues?.length ?? 0) > 0 &&
     promptInjectionState === "ultrathink";
 
-  const providerOptions = buildExplicitProviderOptionSelectionsFromDescriptors(
-    descriptors,
-    selections,
-  );
-  // Gentle AI is not a model capability, so its per-thread choice rides along for every provider.
-  const gentleSelection = selections?.find((selection) => selection.id === GENTLE_AI_OPTION_ID);
   return {
     provider,
     promptEffort,
-    modelOptionsForDispatch: gentleSelection
-      ? [...(providerOptions ?? []), gentleSelection]
-      : providerOptions,
+    modelOptionsForDispatch: buildExplicitProviderOptionSelectionsFromDescriptors(
+      descriptors,
+      selections,
+    ),
     ...(ultrathinkActive
       ? {
           composerFrameClassName: "ultrathink-frame",

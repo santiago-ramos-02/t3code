@@ -461,69 +461,69 @@ it.layer(ClaudeTextGenerationTestLayer)("ClaudeTextGeneration", (it) => {
     }),
   );
 
-  it.effect.each([
-    { verbose: false, label: "normal" },
-    { verbose: true, label: "verbose" },
-  ])("unwraps a JSON title in $label Claude output", ({ verbose }) => {
-    const result = {
-      type: "result",
-      structured_output: { title: '{"title": "Refresh ev-stg APP ASG instances"}' },
-    };
-    return withFakeClaudeEnv(
-      { output: JSON.stringify(verbose ? [result] : result) },
-      (textGeneration) =>
-        Effect.gen(function* () {
-          const generated = yield* textGeneration.generateThreadTitle({
-            cwd: process.cwd(),
-            message: "Refresh ev-stg APP ASG instances",
-            modelSelection: {
-              instanceId: ProviderInstanceId.make("claudeAgent"),
-              model: SYNTHETIC_CLAUDE_STANDARD_MODEL,
-            },
-          });
+  for (const verbose of [false, true]) {
+    it.effect(`unwraps a JSON title in ${verbose ? "verbose" : "normal"} Claude output`, () => {
+      const result = {
+        type: "result",
+        structured_output: { title: '{"title": "Refresh ev-stg APP ASG instances"}' },
+      };
+      return withFakeClaudeEnv(
+        { output: JSON.stringify(verbose ? [result] : result) },
+        (textGeneration) =>
+          Effect.gen(function* () {
+            const generated = yield* textGeneration.generateThreadTitle({
+              cwd: process.cwd(),
+              message: "Refresh ev-stg APP ASG instances",
+              modelSelection: {
+                instanceId: ProviderInstanceId.make("claudeAgent"),
+                model: SYNTHETIC_CLAUDE_STANDARD_MODEL,
+              },
+            });
 
-          expect(generated.title).toBe("Refresh ev-stg APP ASG instances");
-        }),
-    );
-  });
+            expect(generated.title).toBe("Refresh ev-stg APP ASG instances");
+          }),
+      );
+    });
+  }
 
-  it.effect.each([
-    { previousTitle: undefined, label: "generating" },
-    { previousTitle: "Old thread title", label: "regenerating" },
-  ])("reads the result from verbose Claude output when $label a title", ({ previousTitle }) =>
-    withFakeClaudeEnv(
-      {
-        output: JSON.stringify([
-          { type: "system", subtype: "init" },
-          { type: "assistant", message: { content: [] } },
-          { type: "user", message: { content: [] } },
-          { type: "rate_limit_event" },
+  for (const previousTitle of [undefined, "Old thread title"]) {
+    it.effect(
+      `reads the result from verbose Claude output when ${previousTitle ? "regenerating" : "generating"} a title`,
+      () =>
+        withFakeClaudeEnv(
           {
-            type: "result",
-            subtype: "success",
-            result: '{"title":"Refresh ev-stg APP ASG Instances"}',
-            structured_output: { title: "Refresh ev-stg APP ASG Instances" },
+            output: JSON.stringify([
+              { type: "system", subtype: "init" },
+              { type: "assistant", message: { content: [] } },
+              { type: "user", message: { content: [] } },
+              { type: "rate_limit_event" },
+              {
+                type: "result",
+                subtype: "success",
+                result: '{"title":"Refresh ev-stg APP ASG Instances"}',
+                structured_output: { title: "Refresh ev-stg APP ASG Instances" },
+              },
+            ]),
           },
-        ]),
-      },
-      (textGeneration) =>
-        Effect.gen(function* () {
-          const generated = yield* textGeneration.generateThreadTitle({
-            cwd: process.cwd(),
-            message: "Refresh ev-stg APP ASG instances",
-            previousTitle,
-            modelSelection: {
-              instanceId: ProviderInstanceId.make("claudeAgent"),
-              model: SYNTHETIC_CLAUDE_STANDARD_MODEL,
-            },
-          });
+          (textGeneration) =>
+            Effect.gen(function* () {
+              const generated = yield* textGeneration.generateThreadTitle({
+                cwd: process.cwd(),
+                message: "Refresh ev-stg APP ASG instances",
+                previousTitle,
+                modelSelection: {
+                  instanceId: ProviderInstanceId.make("claudeAgent"),
+                  model: SYNTHETIC_CLAUDE_STANDARD_MODEL,
+                },
+              });
 
-          expect(generated.title).toBe("Refresh ev-stg APP ASG Instances");
-        }),
-    ),
-  );
+              expect(generated.title).toBe("Refresh ev-stg APP ASG Instances");
+            }),
+        ),
+    );
+  }
 
-  it.effect.each([
+  for (const [name, output] of [
     ["empty message array", []],
     ["missing result", [{ type: "assistant", structured_output: { title: "Not a result" } }]],
     ["invalid title", [{ type: "result", structured_output: { title: 42 } }]],
@@ -534,24 +534,26 @@ it.layer(ClaudeTextGenerationTestLayer)("ClaudeTextGeneration", (it) => {
         { type: "result", subtype: "error_max_structured_output_retries" },
       ],
     ],
-  ] as const)("rejects verbose Claude output with %s", ([, output]) =>
-    withFakeClaudeEnv({ output: JSON.stringify(output) }, (textGeneration) =>
-      Effect.gen(function* () {
-        const error = yield* Effect.flip(
-          textGeneration.generateThreadTitle({
-            cwd: process.cwd(),
-            message: "Name this thread",
-            modelSelection: {
-              instanceId: ProviderInstanceId.make("claudeAgent"),
-              model: SYNTHETIC_CLAUDE_STANDARD_MODEL,
-            },
-          }),
-        );
+  ] as const) {
+    it.effect(`rejects verbose Claude output with ${name}`, () =>
+      withFakeClaudeEnv({ output: JSON.stringify(output) }, (textGeneration) =>
+        Effect.gen(function* () {
+          const error = yield* Effect.flip(
+            textGeneration.generateThreadTitle({
+              cwd: process.cwd(),
+              message: "Name this thread",
+              modelSelection: {
+                instanceId: ProviderInstanceId.make("claudeAgent"),
+                model: SYNTHETIC_CLAUDE_STANDARD_MODEL,
+              },
+            }),
+          );
 
-        expect(error._tag).toBe("TextGenerationError");
-      }),
-    ),
-  );
+          expect(error._tag).toBe("TextGenerationError");
+        }),
+      ),
+    );
+  }
 
   it.effect("falls back when Claude thread title normalization becomes whitespace-only", () =>
     withFakeClaudeEnv(

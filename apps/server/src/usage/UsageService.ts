@@ -13,7 +13,6 @@
  * @module UsageService
  */
 import * as NodeOS from "node:os";
-import { hostUserHome } from "../hostUserHome.ts";
 
 import {
   ClaudeSettings,
@@ -45,7 +44,7 @@ import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import { HttpClient, HttpClientResponse } from "effect/unstable/http";
 
-import * as ServerConfig from "../config.ts";
+import { ServerConfig } from "../config.ts";
 import { expandHomePath } from "../pathExpansion.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import { resolveCodexHomeLayout } from "../provider/Drivers/CodexHomeLayout.ts";
@@ -91,123 +90,6 @@ const CACHE_RETENTION_DAYS = 90;
 
 const decodeCodexSettings = Schema.decodeOption(CodexSettings);
 const decodeClaudeSettings = Schema.decodeOption(ClaudeSettings);
-const PiGlobalSettings = Schema.Struct({ sessionDir: Schema.optionalKey(Schema.String) });
-const decodePiGlobalSettings = Schema.decodeUnknownEffect(
-  Schema.fromJsonString(PiGlobalSettings as unknown as Schema.Codec<typeof PiGlobalSettings.Type>),
-);
-
-interface PiPathOperations {
-  readonly sep: string;
-  readonly isAbsolute: (path: string) => boolean;
-  readonly join: (...paths: ReadonlyArray<string>) => string;
-  readonly resolve: (...paths: ReadonlyArray<string>) => string;
-}
-
-export type PiRelativePathLimitation =
-  | "PI_CODING_AGENT_SESSION_DIR"
-  | "PI_CODING_AGENT_DIR"
-  | "settings.json sessionDir";
-
-export interface PiAgentDirResolution {
-  readonly directory: string;
-  readonly ignoredRelativeEnvironment: boolean;
-}
-
-export interface PiSessionsRootResolution {
-  readonly directory: string;
-  readonly ignoredRelativePaths: ReadonlyArray<PiRelativePathLimitation>;
-}
-
-function expandPiTildePath(value: string, homeDir: string, pathOps: PiPathOperations): string {
-  if (value === "~") return homeDir;
-  if (value.startsWith("~/") || (pathOps.sep === "\\" && value.startsWith("~\\"))) {
-    return pathOps.join(homeDir, value.slice(2));
-  }
-  return value;
-}
-
-function resolveAbsolutePiPath(
-  value: string | undefined,
-  homeDir: string,
-  pathOps: PiPathOperations,
-): string | null {
-  if (value === undefined || value.length === 0) return null;
-  const normalized = expandPiTildePath(value, homeDir, pathOps);
-  return pathOps.isAbsolute(normalized) ? pathOps.resolve(normalized) : null;
-}
-
-export function resolvePiAgentDir(
-  environment: NodeJS.ProcessEnv,
-  homeDir: string,
-  pathOps: PiPathOperations,
-): PiAgentDirResolution {
-  const configured = environment.PI_CODING_AGENT_DIR;
-  const absoluteConfigured = resolveAbsolutePiPath(configured, homeDir, pathOps);
-  if (absoluteConfigured !== null) {
-    return { directory: absoluteConfigured, ignoredRelativeEnvironment: false };
-  }
-  return {
-    directory: pathOps.resolve(homeDir, ".pi", "agent"),
-    ignoredRelativeEnvironment: configured !== undefined && configured.length > 0,
-  };
-}
-
-export function resolvePiSessionsRoot(
-  environment: NodeJS.ProcessEnv,
-  globalSessionDir: string | undefined,
-  homeDir: string,
-  pathOps: PiPathOperations,
-): PiSessionsRootResolution {
-  const ignoredRelativePaths: PiRelativePathLimitation[] = [];
-  const configuredSessions = environment.PI_CODING_AGENT_SESSION_DIR;
-  const absoluteConfiguredSessions = resolveAbsolutePiPath(configuredSessions, homeDir, pathOps);
-  if (absoluteConfiguredSessions !== null) {
-    return { directory: absoluteConfiguredSessions, ignoredRelativePaths };
-  }
-  if (configuredSessions !== undefined && configuredSessions.length > 0) {
-    ignoredRelativePaths.push("PI_CODING_AGENT_SESSION_DIR");
-  }
-
-  const agentDir = resolvePiAgentDir(environment, homeDir, pathOps);
-  if (agentDir.ignoredRelativeEnvironment) {
-    ignoredRelativePaths.push("PI_CODING_AGENT_DIR");
-  } else if (globalSessionDir !== undefined && globalSessionDir.trim().length > 0) {
-    const absoluteGlobalSessionDir = resolveAbsolutePiPath(globalSessionDir, homeDir, pathOps);
-    if (absoluteGlobalSessionDir !== null) {
-      return { directory: absoluteGlobalSessionDir, ignoredRelativePaths };
-    }
-    ignoredRelativePaths.push("settings.json sessionDir");
-  }
-
-  return {
-    directory: pathOps.resolve(agentDir.directory, "sessions"),
-    ignoredRelativePaths,
-  };
-}
-
-export function piSourceDiagnostic(
-  directoryMissing: boolean,
-  limitations: ReadonlyArray<PiRelativePathLimitation>,
-): string {
-  if (limitations.length > 0) {
-    const noun = limitations.length === 1 ? "setting" : "settings";
-    return `Ignored relative Pi path ${noun} ${limitations.join(", ")} because relative Pi paths resolve from each invocation cwd; historical usage used the next reliable absolute source instead. Custom --session-dir and project-local directories outside that source are not discoverable.`;
-  }
-  return directoryMissing
-    ? "No Pi transcript directory on this environment. Custom --session-dir and project-local session directories outside the resolved Pi sessions root are not discoverable."
-    : "Custom Pi --session-dir and project-local session directories outside this resolved sessions root are not discoverable.";
-}
-
-/** Pi sources always carry a discoverability note in the scanned dir's `message`. */
-function piDiagnostic(
-  provider: UsageProviderKind,
-  directoryMissing: boolean,
-  limitations: ReadonlyArray<PiRelativePathLimitation> | undefined,
-) {
-  return provider === "pi"
-    ? { message: piSourceDiagnostic(directoryMissing, limitations ?? []) }
-    : {};
-}
 
 /** On-disk shape of the rate snapshot. */
 const RatesCacheFile = Schema.Struct({
@@ -248,7 +130,7 @@ const EMPTY_PRICING: UsagePricing = {
 };
 
 /** Empty summary, for suites that only need the RPC surface to resolve. */
-const layerTest = Layer.succeed(
+export const layerTest = Layer.succeed(
   UsageService,
   UsageService.of({
     readSummary: (input) =>
@@ -271,7 +153,7 @@ export const make = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const config = yield* ServerConfig.ServerConfig;
+  const config = yield* ServerConfig;
   const settingsService = yield* ServerSettings.ServerSettingsService;
   const httpClient = yield* HttpClient.HttpClient;
   const hostEnvironment = yield* HostProcessEnvironment;
@@ -374,19 +256,6 @@ export const make = Effect.gen(function* () {
     ),
   );
 
-  const readPiGlobalSessionDir = (agentDir: string) =>
-    fileSystem.readFileString(path.join(agentDir, "settings.json")).pipe(
-      Effect.flatMap((raw) =>
-        decodePiGlobalSettings(raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw),
-      ),
-      Effect.map((settings) =>
-        settings.sessionDir === undefined
-          ? Option.none<string>()
-          : Option.some(settings.sessionDir),
-      ),
-      Effect.catchCause(() => Effect.succeedNone),
-    );
-
   /** Resolves the transcript directory for each provider. */
   const resolveTranscriptDirs = Effect.fn("UsageService.resolveTranscriptDirs")(function* (
     settings: ServerSettingsValue,
@@ -397,10 +266,9 @@ export const make = Effect.gen(function* () {
       dir: string;
       volumeId: string;
       fileName?: string;
-      piPathLimitations?: PiRelativePathLimitation[];
     }> = [];
     const seen = new Set<string>();
-    for (const driver of ["claudeAgent", "codex", "grok", "pi"] as const) {
+    for (const driver of ["claudeAgent", "codex", "grok"] as const) {
       // Disabled accounts still have history. Explicit default slots replace
       // the legacy settings, just as they do in the provider registry.
       const instances: Array<
@@ -417,9 +285,7 @@ export const make = Effect.gen(function* () {
       for (const instance of instances) {
         const environment = mergeProviderInstanceEnvironment(instance.environment, hostEnvironment);
         const provider = driver === "claudeAgent" ? "claude" : driver;
-        let directory: string;
-        let gentleSessionsDirectory: string | undefined;
-        let piPathLimitations: PiRelativePathLimitation[] = [];
+        let home: string;
         if (driver === "codex") {
           const decoded = decodeCodexSettings(instance.config ?? {});
           if (Option.isNone(decoded)) continue;
@@ -433,103 +299,55 @@ export const make = Effect.gen(function* () {
               ? { ...codexConfig, homePath: environmentHome }
               : codexConfig,
           );
-          directory = path.resolve(layout.sharedHomePath, "sessions");
+          home = layout.sharedHomePath;
         } else if (driver === "claudeAgent") {
           const decoded = decodeClaudeSettings(instance.config ?? {});
           if (Option.isNone(decoded)) continue;
           const configured = decoded.value.homePath.trim();
-          const home = configured
+          home = configured
             ? expandHomePath(configured)
             : environment.CLAUDE_CONFIG_DIR?.trim() || path.join(NodeOS.homedir(), ".claude");
-          directory = path.resolve(home, "projects");
-        } else if (driver === "grok") {
-          const home = expandHomePath(
+        } else {
+          home = expandHomePath(
             environment.GROK_HOME?.trim() || path.join(NodeOS.homedir(), ".grok"),
           );
-          directory = path.resolve(home, "sessions");
-        } else {
-          // Historical transcript usage is intentionally provider-level. A Pi
-          // sessions root can be shared by several configured instances, and
-          // the files carry no reliable T3 provider-instance identity. Live
-          // adapter events retain their exact providerInstanceId separately.
-          const homeDir = hostUserHome(environment, platform);
-          const agentDir = resolvePiAgentDir(environment, homeDir, path);
-          const hasAbsoluteSessionEnvironment =
-            resolveAbsolutePiPath(environment.PI_CODING_AGENT_SESSION_DIR, homeDir, path) !== null;
-          const globalSessionDir =
-            hasAbsoluteSessionEnvironment || agentDir.ignoredRelativeEnvironment
-              ? undefined
-              : Option.getOrUndefined(yield* readPiGlobalSessionDir(agentDir.directory));
-          const resolved = resolvePiSessionsRoot(environment, globalSessionDir, homeDir, path);
-          directory = resolved.directory;
-          piPathLimitations = [...resolved.ignoredRelativePaths];
-          // Gentle runs child Pi sessions outside Pi's normal sessions root.
-          gentleSessionsDirectory = path.resolve(agentDir.directory, "gentle-agents", "sessions");
         }
-        const transcriptDirectories = [directory];
-        if (
-          gentleSessionsDirectory !== undefined &&
-          !isWithinDirectory(gentleSessionsDirectory, directory)
-        ) {
-          const gentleExists = yield* fileSystem
-            .exists(gentleSessionsDirectory)
-            .pipe(Effect.orElseSucceed(() => false));
-          const cachedGentleHistory = fileCache
-            .keys()
-            .some((filePath) => isWithinDirectory(filePath, gentleSessionsDirectory));
-          if (gentleExists || cachedGentleHistory)
-            transcriptDirectories.push(gentleSessionsDirectory);
+        const directory = path.resolve(home, provider === "claude" ? "projects" : "sessions");
+        const sourceKey = provider + "\0" + directory;
+        const previous = sourceCache.get(sourceKey);
+        // Keep canonical paths and source fingerprints stable after root cleanup,
+        // including aliases and clients merging pre-cleanup environment summaries.
+        const dir = yield* fileSystem
+          .realPath(directory)
+          .pipe(Effect.orElseSucceed(() => previous?.dir ?? directory));
+        const currentVolumeId = yield* Effect.promise(() => readDirectoryVolumeId(dir));
+        const hasRetainedHistory = fileCache
+          .entries()
+          .some(
+            ([filePath, entry]) =>
+              entry.provider === provider &&
+              entry.mtimeMs >= retentionCutoffMs &&
+              entry.records.length + entry.tailRecords.length > 0 &&
+              isWithinDirectory(filePath, dir),
+          );
+        // A recreated directory still reports the retained history under its old identity.
+        const volumeId =
+          previous?.dir === dir && (hasRetainedHistory || !currentVolumeId)
+            ? previous.volumeId || currentVolumeId
+            : currentVolumeId;
+        if (previous?.dir !== dir || previous.volumeId !== volumeId) {
+          sourceCache.set(sourceKey, { dir, volumeId });
+          cacheDirty = true;
         }
-        for (const transcriptDirectory of transcriptDirectories) {
-          const sourceKey = provider + "\0" + transcriptDirectory;
-          const previous = sourceCache.get(sourceKey);
-          // Keep canonical paths and source fingerprints stable after root cleanup,
-          // including aliases and clients merging pre-cleanup environment summaries.
-          const dir = yield* fileSystem
-            .realPath(transcriptDirectory)
-            .pipe(Effect.orElseSucceed(() => previous?.dir ?? transcriptDirectory));
-          const currentVolumeId = yield* Effect.promise(() => readDirectoryVolumeId(dir));
-          const hasRetainedHistory = fileCache
-            .entries()
-            .some(
-              ([filePath, entry]) =>
-                entry.provider === provider &&
-                entry.mtimeMs >= retentionCutoffMs &&
-                entry.records.length + entry.tailRecords.length > 0 &&
-                isWithinDirectory(filePath, dir),
-            );
-          // A recreated directory still reports the retained history under its old identity.
-          const volumeId =
-            previous?.dir === dir && (hasRetainedHistory || !currentVolumeId)
-              ? previous.volumeId || currentVolumeId
-              : currentVolumeId;
-          if (previous?.dir !== dir || previous.volumeId !== volumeId) {
-            sourceCache.set(sourceKey, { dir, volumeId });
-            cacheDirty = true;
-          }
-          const key = `${provider}\0${dir}`;
-          if (seen.has(key)) {
-            if (piPathLimitations.length > 0) {
-              const existing = dirs.find(
-                (candidate) => candidate.provider === provider && candidate.dir === dir,
-              );
-              if (existing !== undefined) {
-                existing.piPathLimitations = [
-                  ...new Set([...(existing.piPathLimitations ?? []), ...piPathLimitations]),
-                ];
-              }
-            }
-            continue;
-          }
-          seen.add(key);
-          dirs.push({
-            provider,
-            dir,
-            volumeId,
-            ...(provider === "grok" ? { fileName: "updates.jsonl" } : {}),
-            ...(piPathLimitations.length > 0 ? { piPathLimitations } : {}),
-          });
-        }
+        const key = `${provider}\0${dir}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        dirs.push({
+          provider,
+          dir,
+          volumeId,
+          ...(provider === "grok" ? { fileName: "updates.jsonl" } : {}),
+        });
       }
     }
     return dirs;
@@ -666,18 +484,12 @@ export const make = Effect.gen(function* () {
       Effect.provideService(Path.Path, path),
     );
     const scanned: ScannedDir[] = [];
-    for (const { provider, dir, volumeId, fileName, piPathLimitations } of dirs) {
+    for (const { provider, dir, volumeId, fileName } of dirs) {
       const exists = yield* fileSystem
         .exists(dir)
         .pipe(Effect.catchCause(() => Effect.succeed(false)));
       if (!exists) {
-        scanned.push({
-          provider,
-          dir,
-          volumeId,
-          ...piDiagnostic(provider, true, piPathLimitations),
-          files: null,
-        });
+        scanned.push({ provider, dir, volumeId, files: null });
         continue;
       }
       const files = yield* Effect.promise(() =>
@@ -688,13 +500,7 @@ export const make = Effect.gen(function* () {
         const records = yield* readFileRecords(file.path, file.size, file.mtimeMs, provider);
         parsedFiles.push({ path: file.path, records });
       }
-      scanned.push({
-        provider,
-        dir,
-        volumeId,
-        ...piDiagnostic(provider, false, piPathLimitations),
-        files: parsedFiles,
-      });
+      scanned.push({ provider, dir, volumeId, files: parsedFiles });
     }
 
     const home = NodeOS.homedir();

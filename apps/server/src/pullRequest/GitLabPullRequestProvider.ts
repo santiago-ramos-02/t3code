@@ -143,12 +143,6 @@ export const make = Effect.gen(function* () {
           Effect.map((batch) => ({ ...batch, continues: true })),
         ),
 
-    getChangeRequestChecks: (input) =>
-      cli.getMergeRequestDetail(input).pipe(
-        Effect.map(({ state, checks }) => ({ state, checks })),
-        Effect.mapError(fail("getChangeRequestChecks")),
-      ),
-
     getChangeRequest: (input) =>
       Effect.all(
         [

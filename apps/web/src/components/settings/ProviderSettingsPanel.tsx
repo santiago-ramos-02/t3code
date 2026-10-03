@@ -10,7 +10,6 @@ import {
 import {
   defaultInstanceIdForDriver,
   type EnvironmentId,
-  type AcpRegistryUrlAuthAction,
   PROVIDER_DISPLAY_NAMES,
   ProviderDriverKind,
   type ProviderInstanceConfig,
@@ -35,7 +34,6 @@ import { isElectron } from "../../env";
 import { usePrimarySessionState } from "../../environments/primary";
 import {
   useEnvironmentSettings,
-  usePersistEnvironmentProviderInstanceMutation,
   useUpdateClientSettings,
   useUpdateEnvironmentSettings,
 } from "../../hooks/useSettings";
@@ -49,7 +47,6 @@ import {
 } from "../../state/environments";
 import { EMPTY_SERVER_PROVIDERS, serverEnvironment } from "../../state/server";
 import { useEnvironmentSessionState } from "../../state/session";
-import { useProjects } from "../../state/entities";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { getRelativeTimeState } from "../../timestampFormat";
 import {
@@ -84,13 +81,10 @@ import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { AddProviderInstanceDialog } from "./AddProviderInstanceDialog";
-import { PiModelProvidersSection } from "./PiModelProvidersSection";
-import { PiSetupSection, piSetupSteps } from "./PiSetupSection";
 import { ExpandableText } from "./ExpandableText";
 import { ProviderInstanceCard } from "./ProviderInstanceCard";
 import { UsageProviderSettings } from "./UsageProviderSettings";
 import { ProviderSetupSection, readAntigravityAuthMethod } from "./ProviderSetupSection";
-import { ProviderAuthenticationSection } from "./ProviderAuthenticationSection";
 import { CodexSetupSection, CodexManagedRuntimeFields } from "./CodexSetupSection";
 import { readCodexSetupMode } from "./CodexSetupSection.logic";
 import { DRIVER_OPTIONS, getDriverOption } from "./providerDriverMeta";
@@ -136,12 +130,6 @@ function withoutProviderInstanceFavorites(
   instanceId: ProviderInstanceId,
 ) {
   return favorites.filter((favorite) => favorite.provider !== instanceId);
-}
-
-function providerConfigString(config: unknown, key: string): string | null {
-  if (config === null || typeof config !== "object") return null;
-  const value = (config as Record<string, unknown>)[key];
-  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
 const PROVIDER_SETTINGS = DRIVER_OPTIONS.map((definition) => ({
@@ -279,7 +267,6 @@ function EnvironmentUnavailablePlaceholder({
 interface ProviderSettingsTarget {
   readonly environmentId?: EnvironmentId;
   readonly instanceId?: ProviderInstanceId;
-  readonly projectCwd?: string;
   readonly scoped?: boolean;
   readonly environmentIds?: readonly EnvironmentId[];
 }
@@ -288,7 +275,7 @@ export function ProviderSettingsPanel(target: ProviderSettingsTarget) {
   return (
     <SettingsPageContainer width="wide" className="@container/providers gap-8">
       <ProviderSettingsPanelContent
-        key={`${target.environmentId ?? ""}:${target.instanceId ?? ""}:${target.projectCwd ?? ""}`}
+        key={`${target.environmentId ?? ""}:${target.instanceId ?? ""}`}
         {...target}
       />
     </SettingsPageContainer>
@@ -447,7 +434,6 @@ function ProviderSettingsPanelContent(target: ProviderSettingsTarget) {
           key={selectedEnvironment.environmentId}
           environment={selectedEnvironment}
           deviceTabs={deviceTabs}
-          projectCwd={target.projectCwd}
           targetInstanceId={
             target.environmentId === undefined ||
             selectedEnvironment.environmentId === target.environmentId
@@ -464,12 +450,10 @@ function SelectedEnvironmentProviderSettings({
   environment,
   deviceTabs,
   targetInstanceId,
-  projectCwd,
 }: {
   readonly environment: EnvironmentPresentation;
   readonly deviceTabs?: ReactNode;
   readonly targetInstanceId?: ProviderInstanceId | undefined;
-  readonly projectCwd?: string | undefined;
 }) {
   const isPrimary = environment.entry.target._tag === "PrimaryConnectionTarget";
   if (isPrimary) {
@@ -482,7 +466,6 @@ function SelectedEnvironmentProviderSettings({
           operateAccess="granted"
           deviceTabs={deviceTabs}
           targetInstanceId={targetInstanceId}
-          projectCwd={projectCwd}
         />
       );
     }
@@ -491,7 +474,6 @@ function SelectedEnvironmentProviderSettings({
         environment={environment}
         deviceTabs={deviceTabs}
         targetInstanceId={targetInstanceId}
-        projectCwd={projectCwd}
       />
     );
   }
@@ -500,7 +482,6 @@ function SelectedEnvironmentProviderSettings({
       environment={environment}
       deviceTabs={deviceTabs}
       targetInstanceId={targetInstanceId}
-      projectCwd={projectCwd}
     />
   );
 }
@@ -509,12 +490,10 @@ function PrimarySessionGatedProviderSettings({
   environment,
   deviceTabs,
   targetInstanceId,
-  projectCwd,
 }: {
   readonly environment: EnvironmentPresentation;
   readonly deviceTabs?: ReactNode;
   readonly targetInstanceId?: ProviderInstanceId | undefined;
-  readonly projectCwd?: string | undefined;
 }) {
   const primarySessionState = usePrimarySessionState();
   const operateAccess = resolvePrimaryOperateAccess({
@@ -530,7 +509,6 @@ function PrimarySessionGatedProviderSettings({
       operateAccess={operateAccess}
       deviceTabs={deviceTabs}
       targetInstanceId={targetInstanceId}
-      projectCwd={projectCwd}
     />
   );
 }
@@ -539,12 +517,10 @@ function RemoteSessionGatedProviderSettings({
   environment,
   deviceTabs,
   targetInstanceId,
-  projectCwd,
 }: {
   readonly environment: EnvironmentPresentation;
   readonly deviceTabs?: ReactNode;
   readonly targetInstanceId?: ProviderInstanceId | undefined;
-  readonly projectCwd?: string | undefined;
 }) {
   const sessionState = useEnvironmentSessionState(environment.environmentId);
   const operateAccess = resolveRemoteOperateAccess({
@@ -558,7 +534,6 @@ function RemoteSessionGatedProviderSettings({
       operateAccess={operateAccess}
       deviceTabs={deviceTabs}
       targetInstanceId={targetInstanceId}
-      projectCwd={projectCwd}
     />
   );
 }
@@ -568,13 +543,11 @@ function AccessGatedProviderSettings({
   operateAccess,
   deviceTabs,
   targetInstanceId,
-  projectCwd,
 }: {
   readonly environment: EnvironmentPresentation;
   readonly operateAccess: ProviderOperateAccess;
   readonly deviceTabs?: ReactNode;
   readonly targetInstanceId?: ProviderInstanceId | undefined;
-  readonly projectCwd?: string | undefined;
 }) {
   const access = classifyProviderEnvironmentAccess({
     connectionPhase: environment.connection.phase,
@@ -597,7 +570,6 @@ function AccessGatedProviderSettings({
       readOnly={access.kind === "read-only"}
       deviceTabs={deviceTabs}
       targetInstanceId={targetInstanceId}
-      projectCwd={projectCwd}
     />
   );
 }
@@ -608,13 +580,11 @@ export function EnvironmentProviderSettings({
   readOnly = false,
   deviceTabs,
   targetInstanceId,
-  projectCwd,
 }: {
   readonly environmentId: EnvironmentId;
   readonly environmentLabel: string;
   readonly deviceTabs?: ReactNode;
   readonly targetInstanceId?: ProviderInstanceId | undefined;
-  readonly projectCwd?: string | undefined;
   /**
    * Grey out and freeze every write control when this session's credential
    * lacks `orchestration:operate` on the environment. Selecting providers
@@ -627,43 +597,16 @@ export function EnvironmentProviderSettings({
   // Provider instances hold per-machine credentials and binaries, so this
   // page always edits exactly the environment it displays.
   const updateSettings = useUpdateEnvironmentSettings(environmentId);
-  const persistProviderInstance = usePersistEnvironmentProviderInstanceMutation(environmentId);
   const updateClientSettings = useUpdateClientSettings();
   const serverProviders =
     useAtomValue(serverEnvironment.providersValueAtom(environmentId)) ?? EMPTY_SERVER_PROVIDERS;
-  const projects = useProjects().filter((project) => project.environmentId === environmentId);
   const refreshServerProviders = useAtomCommand(serverEnvironment.refreshProviders, {
     reportFailure: false,
   });
   const updateProvider = useAtomCommand(serverEnvironment.updateProvider, {
     reportFailure: false,
   });
-  const uninstallAcpRegistryManagedBinary = useAtomCommand(
-    serverEnvironment.uninstallAcpRegistryManagedBinary,
-    { reportFailure: false },
-  );
-  const acceptAcpRegistryUrlAuth = useAtomCommand(serverEnvironment.acceptAcpRegistryUrlAuth, {
-    reportFailure: false,
-  });
   const [isRefreshingProviders, setIsRefreshingProviders] = useState(false);
-  // Instances with an explicit scoped status refresh in flight, keyed by
-  // environment+instance so a stale completion for a previous environment
-  // can never mark the new card Checking. Local pending state only: the
-  // toggle persists settings and never probes, since the server
-  // re-discovers version and models on enable.
-  const [refreshingKeys, setRefreshingKeys] = useState<ReadonlySet<string>>(() => new Set());
-  // Synchronous re-entry guard: a state updater runs after dispatch, so it
-  // cannot dedupe a double invocation before the first dispatch lands.
-  const refreshingKeysRef = useRef<Set<string>>(new Set());
-  const mountedRef = useRef(true);
-  const activeEnvironmentRef = useRef(environmentId);
-  useEffect(() => {
-    mountedRef.current = true;
-    activeEnvironmentRef.current = environmentId;
-    return () => {
-      mountedRef.current = false;
-    };
-  }, [environmentId]);
   const [isAddInstanceDialogOpen, setIsAddInstanceDialogOpen] = useState(false);
   const [selectedInstanceId, setSelectedInstanceId] = useState<ProviderInstanceId | null>(
     targetInstanceId ?? null,
@@ -673,34 +616,6 @@ export function EnvironmentProviderSettings({
   >(() => new Set());
   const refreshingRef = useRef(false);
   const updatingInstanceIdsRef = useRef<Set<ProviderInstanceId>>(new Set());
-
-  const acceptUrlAuthentication = useCallback(
-    (instanceId: ProviderInstanceId, action: AcpRegistryUrlAuthAction) => {
-      void acceptAcpRegistryUrlAuth({
-        environmentId,
-        input: { instanceId, elicitationId: action.elicitationId },
-      }).then((result) => {
-        if (result._tag === "Success" && !result.value.accepted) {
-          toastManager.add({
-            type: "warning",
-            title: "Authentication request expired",
-            description: "Refresh the provider and start the authentication flow again.",
-          });
-          return;
-        }
-        if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-          const error = squashAtomCommandFailure(result);
-          toastManager.add({
-            type: "error",
-            title: "Could not continue authentication",
-            description:
-              error instanceof Error ? error.message : "The authentication request expired.",
-          });
-        }
-      });
-    },
-    [acceptAcpRegistryUrlAuth, environmentId],
-  );
 
   const providerUpdateCandidateByInstanceId = useMemo(
     () =>
@@ -758,53 +673,6 @@ export function EnvironmentProviderSettings({
     })();
   }, [environmentId, refreshServerProviders]);
 
-  /**
-   * Explicit scoped status refresh for one instance, with model discovery.
-   * Tracks local pending state only; failures surface a bounded toast
-   * because the card retry would otherwise fail silently. Interruptions
-   * stay silent so navigation never reports an error.
-   */
-  const refreshInstance = useCallback(
-    (instanceId: ProviderInstanceId) => {
-      const key = `${environmentId}:${instanceId}`;
-      if (refreshingKeysRef.current.has(key)) return;
-      refreshingKeysRef.current.add(key);
-      setRefreshingKeys((previous) => (previous.has(key) ? previous : new Set(previous).add(key)));
-      void (async () => {
-        const result = await refreshServerProviders({
-          environmentId,
-          input: { instanceId, refreshModels: true },
-        });
-        refreshingKeysRef.current.delete(key);
-        // Suppress late publication after unmount or environment change:
-        // the old environment must not clear new state, toast, or mark a
-        // new card Checking.
-        if (!mountedRef.current || activeEnvironmentRef.current !== environmentId) return;
-        setRefreshingKeys((previous) => {
-          if (!previous.has(key)) return previous;
-          const next = new Set(previous);
-          next.delete(key);
-          return next;
-        });
-        if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-          console.warn("Failed to refresh provider instance", {
-            operation: "refresh-provider-instance",
-            environmentId,
-            ...safeErrorLogAttributes(squashAtomCommandFailure(result)),
-          });
-          toastManager.add(
-            stackedThreadToast({
-              type: "error",
-              title: "Could not refresh provider status",
-              description: "The provider status check could not be completed.",
-            }),
-          );
-        }
-      })();
-    },
-    [environmentId, refreshServerProviders],
-  );
-
   const runProviderUpdate = useCallback(
     async (
       candidate: Pick<ProviderSettingsUpdateCandidate, "driver" | "instanceId">,
@@ -828,14 +696,10 @@ export function EnvironmentProviderSettings({
       });
       if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
         const error = squashAtomCommandFailure(result);
-        // A missing provider runs the same pipeline as an install.
-        const installed = serverProviders.find(
-          (provider) => provider.instanceId === candidate.instanceId,
-        )?.installed;
         toastManager.add(
           stackedThreadToast({
             type: "error",
-            title: `Could not ${installed === false ? "install" : "update"} ${PROVIDER_DISPLAY_NAMES[candidate.driver] ?? candidate.driver}`,
+            title: `Could not update ${PROVIDER_DISPLAY_NAMES[candidate.driver] ?? candidate.driver}`,
             description:
               error instanceof Error
                 ? error.message
@@ -853,7 +717,7 @@ export function EnvironmentProviderSettings({
         return next;
       });
     },
-    [environmentId, serverProviders, updateProvider],
+    [environmentId, updateProvider],
   );
 
   interface InstanceRow {
@@ -923,21 +787,13 @@ export function EnvironmentProviderSettings({
     if (effectiveInstance !== undefined) {
       const isDirty =
         explicitInstance !== undefined || !Equal.equals(legacyConfig, defaultLegacyConfig);
-      if (
-        driver === "codex" ||
-        driver === "claudeAgent" ||
-        isDirty ||
-        resolveProviderInstanceEnabled(effectiveInstance) ||
-        defaultInstanceId === targetInstanceId
-      ) {
-        rows.push({
-          instanceId: defaultInstanceId,
-          instance: effectiveInstance,
-          driver,
-          isDefault: true,
-          isDirty,
-        });
-      }
+      rows.push({
+        instanceId: defaultInstanceId,
+        instance: effectiveInstance,
+        driver,
+        isDefault: true,
+        isDirty,
+      });
     }
     for (const [id, instance] of instancesByDriver.get(providerSettings.provider) ?? []) {
       if (id === defaultInstanceId) continue;
@@ -964,7 +820,7 @@ export function EnvironmentProviderSettings({
     rows.find((row) => row.instanceId === selectedInstanceId) ??
     (targetInstanceMissing ? null : (rows[0] ?? null));
 
-  const updateProviderInstance = async (
+  const updateProviderInstance = (
     row: InstanceRow,
     next: ProviderInstanceConfig,
     options?: {
@@ -973,62 +829,22 @@ export function EnvironmentProviderSettings({
       >[0]["textGenerationModelSelection"];
     },
   ) => {
-    const { providerInstances: _providerInstances, ...patch } = buildProviderInstanceUpdatePatch({
-      settings,
-      instanceId: row.instanceId,
-      instance: next,
-      driver: row.driver,
-      isDefault: row.isDefault,
-      textGenerationModelSelection: options?.textGenerationModelSelection,
-    });
-    const result = await persistProviderInstance(
-      { operation: "upsert", instanceId: row.instanceId, instance: next },
-      patch,
+    updateSettings(
+      buildProviderInstanceUpdatePatch({
+        settings,
+        instanceId: row.instanceId,
+        instance: next,
+        driver: row.driver,
+        isDefault: row.isDefault,
+        textGenerationModelSelection: options?.textGenerationModelSelection,
+      }),
     );
-    if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-      const error = squashAtomCommandFailure(result);
-      toastManager.add({
-        type: "error",
-        title: "Could not update provider instance",
-        description: error instanceof Error ? error.message : "The settings update failed.",
-      });
-    }
   };
 
-  const deleteProviderInstance = async (row: InstanceRow) => {
-    const updateResult = await persistProviderInstance({
-      operation: "remove",
-      instanceId: row.instanceId,
+  const deleteProviderInstance = (id: ProviderInstanceId) => {
+    updateSettings({
+      providerInstances: withoutProviderInstanceKey(settings.providerInstances, id),
     });
-    if (updateResult._tag === "Failure") {
-      const error = squashAtomCommandFailure(updateResult);
-      toastManager.add({
-        type: "error",
-        title: "Could not delete provider instance",
-        description: error instanceof Error ? error.message : "The settings update failed.",
-      });
-      return;
-    }
-
-    if (row.driver !== ProviderDriverKind.make("acpRegistry")) return;
-    const agentId = providerConfigString(row.instance.config, "agentId");
-    if (agentId === null) return;
-
-    // The server decides from its latest settings whether this was the last
-    // instance using the managed agent. A client-side snapshot check can race
-    // two removals and make both callers skip cleanup.
-    const uninstallResult = await uninstallAcpRegistryManagedBinary({
-      environmentId,
-      input: { agentId },
-    });
-    if (uninstallResult._tag === "Failure" && !isAtomCommandInterrupted(uninstallResult)) {
-      const error = squashAtomCommandFailure(uninstallResult);
-      toastManager.add({
-        type: "warning",
-        title: "Provider deleted, but managed files remain",
-        description: error instanceof Error ? error.message : "Managed binary cleanup failed.",
-      });
-    }
   };
 
   const updateProviderModelPreferences = (
@@ -1075,7 +891,7 @@ export function EnvironmentProviderSettings({
     });
   };
 
-  const resetDefaultInstance = async (driverKind: ProviderDriverKind) => {
+  const resetDefaultInstance = (driverKind: ProviderDriverKind) => {
     type LegacyProviderSettings = (typeof settings.providers)[keyof typeof settings.providers];
     const defaultLegacyProviders = DEFAULT_UNIFIED_SETTINGS.providers as Record<
       string,
@@ -1084,23 +900,13 @@ export function EnvironmentProviderSettings({
     const defaultInstanceId = defaultInstanceIdForDriver(driverKind);
     const defaultLegacyProvider = defaultLegacyProviders[driverKind];
     if (defaultLegacyProvider === undefined) return;
-    const result = await persistProviderInstance(
-      { operation: "remove", instanceId: defaultInstanceId },
-      {
-        providers: {
-          ...settings.providers,
-          [driverKind]: defaultLegacyProvider,
-        } as typeof settings.providers,
-      },
-    );
-    if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-      const error = squashAtomCommandFailure(result);
-      toastManager.add({
-        type: "error",
-        title: "Could not reset provider instance",
-        description: error instanceof Error ? error.message : "The settings update failed.",
-      });
-    }
+    updateSettings({
+      providers: {
+        ...settings.providers,
+        [driverKind]: defaultLegacyProvider,
+      } as typeof settings.providers,
+      providerInstances: withoutProviderInstanceKey(settings.providerInstances, defaultInstanceId),
+    });
   };
 
   const renderProviderInstance = (row: InstanceRow, mode: "list" | "editor") => {
@@ -1126,11 +932,6 @@ export function EnvironmentProviderSettings({
     return (
       <ProviderInstanceCard
         key={row.instanceId}
-        environmentId={environmentId}
-        acpProjects={projects}
-        onAcceptUrlAuth={
-          readOnly ? undefined : (action) => acceptUrlAuthentication(row.instanceId, action)
-        }
         instanceId={row.instanceId}
         instance={row.instance}
         driverOption={driverOption}
@@ -1187,43 +988,6 @@ export function EnvironmentProviderSettings({
                 })
               }
             />
-          ) : mode === "editor" &&
-            !readOnly &&
-            liveProvider &&
-            (liveProvider.setup?.canAuthenticate ||
-              (liveProvider.driver === "acpRegistry" && liveProvider.installed)) ? (
-            <ProviderAuthenticationSection
-              key={`${environmentId}:${row.instanceId}`}
-              environmentId={environmentId}
-              environmentLabel={environmentLabel}
-              instanceId={row.instanceId}
-              provider={liveProvider}
-              readOnly={readOnly}
-            />
-          ) : mode === "editor" &&
-            !readOnly &&
-            row.driver === "cursor" &&
-            liveProvider?.setup?.canAuthenticate === false ? (
-            <SettingsRow
-              title="Cursor account"
-              description="Using CURSOR_API_KEY. Remove it from this provider's environment to use browser sign-in."
-            />
-          ) : mode === "editor" && row.driver === "pi" && piSetupSteps(liveProvider).length > 0 ? (
-            <PiSetupSection
-              steps={piSetupSteps(liveProvider)}
-              provider={liveProvider}
-              installing={isInstanceUpdateRunning}
-              onInstall={() =>
-                void runProviderUpdate({ driver: row.driver, instanceId: row.instanceId })
-              }
-            />
-          ) : null
-        }
-        integration={
-          mode === "editor" && row.driver === "pi" ? (
-            <>
-              <PiModelProvidersSection provider={liveProvider} />
-            </>
           ) : null
         }
         onUpdate={(next) => {
@@ -1241,12 +1005,10 @@ export function EnvironmentProviderSettings({
               : undefined,
           );
         }}
-        isChecking={refreshingKeys.has(`${environmentId}:${row.instanceId}`)}
-        onRefresh={
-          mode === "editor" && !readOnly ? () => refreshInstance(row.instanceId) : undefined
-        }
         onDelete={
-          mode === "editor" && !row.isDefault ? () => deleteProviderInstance(row) : undefined
+          mode === "editor" && !row.isDefault
+            ? () => deleteProviderInstance(row.instanceId)
+            : undefined
         }
         headerAction={
           mode === "editor" && row.isDefault && row.isDirty ? (
@@ -1489,7 +1251,6 @@ export function EnvironmentProviderSettings({
           environmentId={environmentId}
           environmentLabel={environmentLabel}
           onOpenChange={setIsAddInstanceDialogOpen}
-          onCreated={setSelectedInstanceId}
         />
       ) : null}
     </>

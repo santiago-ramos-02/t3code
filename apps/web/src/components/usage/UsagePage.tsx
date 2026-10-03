@@ -915,14 +915,8 @@ function ProviderMark({
   readonly provider: UsageProviderKind;
   readonly className: string;
 }) {
-  const presentation = PROVIDER_PRESENTATION[provider];
-  return (
-    <ProviderInstanceIcon
-      driverKind={presentation.driverKind}
-      displayName={presentation.label}
-      iconClassName={className}
-    />
-  );
+  const Mark = PROVIDER_PRESENTATION[provider].mark;
+  return <Mark className={cn("shrink-0", className)} aria-hidden />;
 }
 
 function Metric({ label, value }: { readonly label: string; readonly value: string }) {

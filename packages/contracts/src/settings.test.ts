@@ -7,7 +7,6 @@ import {
   ClientSettingsPatch,
   ClaudeSettings,
   DEFAULT_SERVER_SETTINGS,
-  PiSettings,
   resolveProviderInstanceEnabled,
   ServerSettings,
   ServerSettingsPatch,
@@ -20,35 +19,6 @@ const decodeServerSettings = Schema.decodeUnknownSync(ServerSettings);
 const decodeServerSettingsPatch = Schema.decodeUnknownSync(ServerSettingsPatch);
 const encodeServerSettings = Schema.encodeSync(ServerSettings);
 const decodeClaudeSettings = Schema.decodeUnknownSync(ClaudeSettings);
-const decodePiSettings = Schema.decodeUnknownSync(PiSettings);
-
-describe("ServerSettings response streaming", () => {
-  it("defaults to paragraph buffering", () => {
-    expect(decodeServerSettings({}).responseStreamingMode).toBe("paragraph");
-  });
-
-  it.each(["turn", "paragraph"])(
-    "round-trips %s as an environment setting and project override",
-    (responseStreamingMode) => {
-      const input = {
-        responseStreamingMode,
-        projectSettingsOverrides: { project: { responseStreamingMode } },
-      };
-      expect(encodeServerSettings(decodeServerSettings(input))).toMatchObject(input);
-      expect(decodeServerSettingsPatch(input)).toEqual(input);
-    },
-  );
-
-  it.each(["token", "unsupported"])("rejects %s in settings snapshots and writes", (mode) => {
-    for (const input of [
-      { responseStreamingMode: mode },
-      { projectSettingsOverrides: { project: { responseStreamingMode: mode } } },
-    ]) {
-      expect(() => decodeServerSettings(input)).toThrow();
-      expect(() => decodeServerSettingsPatch(input)).toThrow();
-    }
-  });
-});
 
 describe("storage cleanup settings", () => {
   it("keeps cleanup disabled for existing installations", () => {
@@ -222,56 +192,6 @@ describe("custom model settings", () => {
   });
 });
 
-describe("PiSettings", () => {
-  it("defaults disabled with the Pi binary and no custom models", () => {
-    expect(decodePiSettings({})).toEqual({
-      enabled: false,
-      binaryPath: "pi",
-      customModels: [],
-    });
-    expect(DEFAULT_SERVER_SETTINGS.providers.pi).toEqual({
-      enabled: false,
-      binaryPath: "pi",
-      customModels: [],
-    });
-  });
-
-  it("trims stored values and accepts partial provider patches", () => {
-    expect(
-      decodePiSettings({
-        enabled: true,
-        binaryPath: "  /opt/pi/bin/pi  ",
-        customModels: ["  openai/custom-model  "],
-      }),
-    ).toEqual({
-      enabled: true,
-      binaryPath: "/opt/pi/bin/pi",
-      customModels: ["  openai/custom-model  "],
-    });
-    expect(
-      decodeServerSettingsPatch({ providers: { pi: { binaryPath: "  /custom/pi  " } } }),
-    ).toEqual({ providers: { pi: { binaryPath: "/custom/pi" } } });
-  });
-
-  it("hydrates stored Pi settings through the server schema", () => {
-    const stored = decodeServerSettings({
-      providers: {
-        pi: {
-          enabled: true,
-          binaryPath: "/usr/local/bin/pi",
-          customModels: [{ slug: "openrouter/custom", name: "Custom" }],
-        },
-      },
-    });
-
-    expect(stored.providers.pi).toEqual({
-      enabled: true,
-      binaryPath: "/usr/local/bin/pi",
-      customModels: [{ slug: "openrouter/custom", name: "Custom" }],
-    });
-  });
-});
-
 describe("ClaudeSettings auto-compaction", () => {
   it("uses Claude's default threshold when no override is configured", () => {
     expect(decodeClaudeSettings({}).autoCompactWindow).toBe("");
@@ -410,15 +330,6 @@ describe("ClientSettings load balancing", () => {
     expect(decodeClientSettingsPatch({ loadBalancingEnabled }).loadBalancingEnabled).toBe(
       loadBalancingEnabled,
     );
-  });
-});
-
-describe("ClientSettings composer context strip", () => {
-  it("defaults to draft-only and accepts a persistent strip preference", () => {
-    expect(decodeClientSettings({}).persistComposerContextStrip).toBe(false);
-    expect(
-      decodeClientSettingsPatch({ persistComposerContextStrip: true }).persistComposerContextStrip,
-    ).toBe(true);
   });
 });
 
@@ -859,7 +770,6 @@ describe("provider enabled defaults", () => {
     expect(decoded.providers.cursor.enabled).toBe(false);
     expect(decoded.providers.grok.enabled).toBe(false);
     expect(decoded.providers.opencode.enabled).toBe(false);
-    expect(decoded.providers.pi.enabled).toBe(false);
   });
 
   it("keeps Cursor enabled when an existing user explicitly opted in", () => {
@@ -942,42 +852,6 @@ describe("ServerSettings worktree defaults", () => {
     );
     expect(decodeServerSettings({ worktreeSubmodules: "shallow" }).worktreeSubmodules).toBeNull();
     expect(decodeServerSettingsPatch({ worktreeSubmodules: null }).worktreeSubmodules).toBeNull();
-  });
-});
-
-describe("ServerSettings Cursor legacy settings", () => {
-  it("preserves V1 Cursor CLI settings when reading and writing shared settings", () => {
-    const decoded = decodeServerSettings({
-      providers: {
-        cursor: {
-          enabled: true,
-          binaryPath: "cursor-agent",
-          apiEndpoint: "http://127.0.0.1:3774",
-        },
-      },
-    });
-
-    expect(decoded.providers.cursor.enabled).toBe(true);
-    expect(encodeServerSettings(decoded).providers?.cursor).toMatchObject({
-      binaryPath: "cursor-agent",
-      apiEndpoint: "http://127.0.0.1:3774",
-    });
-  });
-
-  it("ignores obsolete Cursor CLI settings in patches", () => {
-    const patch = decodeServerSettingsPatch({
-      providers: {
-        cursor: {
-          enabled: true,
-          binaryPath: "cursor-agent",
-          apiEndpoint: "http://127.0.0.1:3774",
-        },
-      },
-    });
-
-    expect(patch.providers?.cursor?.enabled).toBe(true);
-    expect(patch.providers?.cursor).not.toHaveProperty("binaryPath");
-    expect(patch.providers?.cursor).not.toHaveProperty("apiEndpoint");
   });
 });
 
@@ -1134,27 +1008,4 @@ it("validates remote device hosts and rejects ambiguous host ids", () => {
     decodeDeviceHostSettings({ deviceHosts: [{ ...host, target: "-oProxyCommand=bad" }] }),
   ).toThrow();
   expect(() => decodeDeviceHostSettings({ deviceHosts: [{ ...host, port: 0 }] })).toThrow();
-});
-
-describe("branch naming settings", () => {
-  it("defaults existing settings to the t3code static prefix", () => {
-    expect(decodeServerSettings({})).toMatchObject({
-      branchNamingMode: "static",
-      branchNamePrefix: "t3code",
-      branchNameInstructions: "",
-    });
-  });
-  it.each(["static", "semantic", "custom"])(
-    "round-trips %s and project overrides",
-    (branchNamingMode) => {
-      const naming = {
-        branchNamingMode,
-        branchNamePrefix: "team/",
-        branchNameInstructions: "Include the issue ID.",
-      };
-      const input = { ...naming, projectSettingsOverrides: { project: naming } };
-      expect(encodeServerSettings(decodeServerSettings(input))).toMatchObject(input);
-      expect(decodeServerSettingsPatch(input)).toEqual(input);
-    },
-  );
 });

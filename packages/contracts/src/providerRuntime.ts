@@ -15,7 +15,7 @@ import {
 } from "./baseSchemas.ts";
 import { ProviderInstanceId, ProviderDriverKind } from "./providerInstance.ts";
 import { ProviderUsageLimitsUpdate } from "./providerUsageLimits.ts";
-import { ProviderApprovalOption } from "./providerPolicy.ts";
+import { ProviderApprovalOption } from "./orchestration.ts";
 
 const TrimmedNonEmptyStringSchema = TrimmedNonEmptyString;
 const UnknownRecordSchema = Schema.Record(Schema.String, Schema.Unknown);
@@ -197,7 +197,6 @@ const DeprecationNoticeType = Schema.Literal("deprecation.notice");
 const FilesPersistedType = Schema.Literal("files.persisted");
 const ToolDeniedType = Schema.Literal("tool.denied");
 const RuntimeWarningType = Schema.Literal("runtime.warning");
-const RuntimeNoticeType = Schema.Literal("runtime.notice");
 const RuntimeErrorType = Schema.Literal("runtime.error");
 
 const ProviderRuntimeEventBase = Schema.Struct({
@@ -278,12 +277,6 @@ export const ThreadTokenUsageSnapshot = Schema.Struct({
   durationMs: Schema.optional(NonNegativeInt),
   compactsAutomatically: Schema.optional(Schema.Boolean),
   autoCompactThreshold: Schema.optional(PositiveInt),
-  cost: Schema.optional(
-    Schema.Struct({
-      amount: Schema.Number.check(Schema.isFinite()),
-      currency: TrimmedNonEmptyStringSchema.check(Schema.isMaxLength(32)),
-    }),
-  ),
 });
 export type ThreadTokenUsageSnapshot = typeof ThreadTokenUsageSnapshot.Type;
 
@@ -542,6 +535,43 @@ export const TaskRunHandles = Schema.Struct({
 export type TaskRunHandles = typeof TaskRunHandles.Type;
 
 /**
+ * Watch-loop task types: Monitor-tool tasks plus background shells (a shell
+ * that outlives its turn is in practice a watch loop). Canonical single copy —
+ * the server liveness registry, ingestion's agentKind stamp, and the client
+ * fold's legacy fallback all classify with these sets.
+ */
+export const MONITOR_TASK_TYPES: ReadonlySet<string> = new Set([
+  "monitor",
+  "monitor_mcp",
+  "local_bash",
+  "shell",
+]);
+/** Task types that are neither agents nor watch loops (plan-mode bookkeeping). */
+export const INERT_TASK_TYPES: ReadonlySet<string> = new Set(["plan", "dream"]);
+
+/**
+ * Agent-vs-background classification, stamped by ingestion as `agentKind` so
+ * persisted rows are self-describing. A deliberate denylist: the SDK's
+ * agent-flavored type names drift (subagent, local_agent, local_workflow, …)
+ * and an allowlist silently dropped real subagents when "local_agent"
+ * appeared. A task launched from inside a subagent (agentId set) is
+ * agent-internal background work UNLESS it is itself agent-flavored — a
+ * nested agent can outlive its parent and stays in the roster.
+ */
+export function classifyTaskAgentKind(input: {
+  readonly taskType?: string | undefined;
+  readonly agentId?: string | undefined;
+}): "agent" | "background" {
+  const { taskType, agentId } = input;
+  const nonAgentType =
+    taskType !== undefined && (MONITOR_TASK_TYPES.has(taskType) || INERT_TASK_TYPES.has(taskType));
+  if (agentId !== undefined && agentId.trim().length > 0) {
+    return taskType === undefined || nonAgentType ? "background" : "agent";
+  }
+  return nonAgentType ? "background" : "agent";
+}
+
+/**
  * Optional agent-identity linkage carried on every task lifecycle payload.
  * Repeated on progress and terminal rows (not just start) so client folds can
  * reconstruct an agent even when its start row aged out of activity retention.
@@ -552,7 +582,7 @@ const taskAgentLinkageFields = {
    * every row so folds can classify without the start row. */
   taskType: Schema.optional(TrimmedNonEmptyStringSchema),
   /**
-   * Server-stamped classification, set at ingestion.
+   * Server-stamped classification (classifyTaskAgentKind at ingestion).
    * Clients trust this stamp outright; rows without it (legacy, pre-stamp)
    * fall back to client-side heuristics.
    */
@@ -580,8 +610,6 @@ const taskAgentLinkageFields = {
   outputFile: Schema.optional(TrimmedNonEmptyStringSchema),
   /** Codex agent hierarchy path, e.g. "/root/marlow". */
   agentPath: Schema.optional(TrimmedNonEmptyStringSchema),
-  /** Identifies subagent activity emitted by Gentle AI in Pi. */
-  taskSource: Schema.optional(Schema.Literal("gentle-pi")),
   /**
    * Set on provider-synthesized child-agent events (Codex) whose activity
    * belongs in the Agents surface, never the parent timeline.
@@ -618,14 +646,6 @@ const TaskProgressPayload = Schema.Struct({
   usage: Schema.optional(Schema.Unknown),
   typedUsage: Schema.optional(RuntimeTaskUsage),
   lastToolName: Schema.optional(TrimmedNonEmptyStringSchema),
-  recentThread: Schema.optional(
-    Schema.Array(
-      Schema.Union([
-        Schema.Struct({ kind: Schema.Literals(["text", "thinking", "note"]), text: Schema.String }),
-        Schema.Struct({ kind: Schema.Literal("tool"), name: Schema.String, output: Schema.String }),
-      ]),
-    ),
-  ),
   /** Present on synthesized member/child progress rows that carry state. */
   status: Schema.optional(RuntimeTaskStatus),
   error: Schema.optional(TrimmedNonEmptyStringSchema),
@@ -786,12 +806,6 @@ const RuntimeWarningPayload = Schema.Struct({
   detail: Schema.optional(Schema.Unknown),
 });
 export type RuntimeWarningPayload = typeof RuntimeWarningPayload.Type;
-
-/** Informational output a provider reports outside assistant text, such as a command's result. */
-const RuntimeNoticePayload = Schema.Struct({
-  message: TrimmedNonEmptyStringSchema,
-});
-export type RuntimeNoticePayload = typeof RuntimeNoticePayload.Type;
 
 const RuntimeErrorPayload = Schema.Struct({
   message: TrimmedNonEmptyStringSchema,
@@ -1154,13 +1168,6 @@ const ProviderRuntimeWarningEvent = Schema.Struct({
 });
 export type ProviderRuntimeWarningEvent = typeof ProviderRuntimeWarningEvent.Type;
 
-const ProviderRuntimeNoticeEvent = Schema.Struct({
-  ...ProviderRuntimeEventBase.fields,
-  type: RuntimeNoticeType,
-  payload: RuntimeNoticePayload,
-});
-export type ProviderRuntimeNoticeEvent = typeof ProviderRuntimeNoticeEvent.Type;
-
 const ProviderRuntimeErrorEvent = Schema.Struct({
   ...ProviderRuntimeEventBase.fields,
   type: RuntimeErrorType,
@@ -1217,7 +1224,6 @@ export const ProviderRuntimeEventV2 = Schema.Union([
   ProviderRuntimeFilesPersistedEvent,
   ProviderRuntimeToolDeniedEvent,
   ProviderRuntimeWarningEvent,
-  ProviderRuntimeNoticeEvent,
   ProviderRuntimeErrorEvent,
 ]);
 export type ProviderRuntimeEventV2 = typeof ProviderRuntimeEventV2.Type;

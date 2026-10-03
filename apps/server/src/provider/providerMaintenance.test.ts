@@ -39,7 +39,7 @@ const windowsHost = HostProcessPlatform.defaultValue() === "win32";
 const makeTempDir = (name: string) =>
   Crypto.Crypto.pipe(
     Effect.flatMap((crypto) => crypto.randomUUIDv4),
-    Effect.map((id) => NodePath.join(NodeFS.realpathSync(NodeOS.tmpdir()), `${name}-${id}`)),
+    Effect.map((id) => NodePath.join(NodeOS.tmpdir(), `${name}-${id}`)),
   );
 const isNativeTestCommandPath =
   (expectedPathSegment: string) =>
@@ -231,23 +231,14 @@ it.layer(NodeServices.layer)("providerMaintenance", (it) => {
     });
   });
 
-  it.effect("offers a global npm install when the binary cannot be located", () =>
+  it.effect("stays manual-only when the binary cannot be located", () =>
     resolveProviderMaintenanceCapabilitiesEffect(packageToolUpdate, {
       binaryPath: "package-tool",
       env: { PATH: "" },
     }).pipe(
       Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, noSpawn),
       Effect.map((capabilities) => {
-        expect(capabilities).toEqual({
-          ...manualPackageTool,
-          update: {
-            command: "npm install -g @example/package-tool@latest",
-            executable: "npm",
-            args: ["install", "-g", "@example/package-tool@latest"],
-            lockKey: "npm-global:install",
-            installs: true,
-          },
-        });
+        expect(capabilities).toEqual(manualPackageTool);
       }),
     ),
   );

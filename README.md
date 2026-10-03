@@ -12,11 +12,8 @@ We wanted something performant, remote-ready, and truly open. If we ever go the 
 
 ## Installation
 
-> [!NOTE]
-> This is [santiago-ramos-02](https://github.com/santiago-ramos-02)'s fork of [T3 Code](https://github.com/pingdotgg/t3code). It follows upstream closely and adds a full [Gentle AI](https://github.com/santiago-ramos-02/gentle-ai) integration. Every push to `main` publishes a new Nightly.
-
 > [!WARNING]
-> T3 Code currently supports Codex, Claude, Cursor, Grok Build, OpenCode, Antigravity, and Pi. Install and authenticate at least one provider before use:
+> T3 Code currently supports Codex, Claude, Cursor, Grok Build, OpenCode, and Antigravity. Install and authenticate at least one provider before use:
 >
 > - Codex: install [Codex CLI](https://developers.openai.com/codex/cli) and run `codex login`
 > - Claude: install [Claude Code](https://claude.com/product/claude-code) and run `claude auth login`
@@ -25,34 +22,61 @@ We wanted something performant, remote-ready, and truly open. If we ever go the 
 > - OpenCode: install [OpenCode](https://opencode.ai) and run `opencode auth login`
 > - Antigravity: enable it in Settings, then use **Install Antigravity** and **Sign in with Google**. No CLI is required.
 
-### Desktop app
-
-Download the latest **Nightly** for your system from [this fork's releases](https://github.com/santiago-ramos-02/t3code/releases):
-
-| System               | File                        |
-| -------------------- | --------------------------- |
-| Windows              | `T3-Code-…-x64.exe`         |
-| macOS, Apple Silicon | `T3-Code-…-arm64.dmg`       |
-| macOS, Intel         | `T3-Code-…-x64.dmg`         |
-| Linux                | `T3-Code-…-x86_64.AppImage` |
-
-The app updates itself to each new Nightly. Windows and macOS may warn that the app is unsigned; choose **More info > Run anyway** on Windows, or **Open** from the Finder's context menu on macOS.
-
-### Gentle AI
-
-To use Gentle AI in T3 Code, install [this fork of gentle-ai](https://github.com/santiago-ramos-02/gentle-ai#get-started), which carries the API T3 Code uses:
-
-```powershell
-# Windows (PowerShell)
-irm https://raw.githubusercontent.com/santiago-ramos-02/gentle-ai/main/scripts/t3-install.ps1 | iex
-```
+### Command line
 
 ```bash
-# macOS / Linux
-curl -fsSL https://raw.githubusercontent.com/santiago-ramos-02/gentle-ai/main/scripts/t3-install.sh | sh
+curl -fsSL https://t3.codes/install.sh | sh
 ```
 
-Then open **Settings > Gentle AI** in T3 Code and set it up for the agents you use.
+On Windows, in PowerShell:
+
+```powershell
+irm https://t3.codes/install.ps1 | iex
+```
+
+Then run `t3` to start the server and open the local web app. `t3 service install` keeps it running in the background, `t3 update` moves to a newer release, and `t3 --help` has the full reference.
+
+To try it once without installing, run `npx t3@latest` instead.
+
+### Desktop app
+
+Install the latest version of the desktop app from [GitHub Releases](https://github.com/pingdotgg/t3code/releases), or from your favorite package registry:
+
+#### Windows (`winget`)
+
+```bash
+winget install T3Tools.T3Code
+```
+
+#### macOS (Homebrew)
+
+```bash
+brew install --cask t3-code
+```
+
+#### Debian, Ubuntu (`.deb`)
+
+Download the `.deb` from [GitHub Releases](https://github.com/pingdotgg/t3code/releases), then:
+
+```bash
+sudo apt install ./T3-Code-*.deb
+```
+
+#### Arch Linux (AUR)
+
+Stable:
+
+```bash
+yay -S t3code-bin
+```
+
+Nightly:
+
+```bash
+yay -S t3code-nightly-bin
+```
+
+The AUR packaging is maintained in this repository under [`packaging/aur`](./packaging/aur).
 
 ## Some notes
 
@@ -68,7 +92,6 @@ Full docs live in [docs/](./docs). There's no docs site yet.
 - [Permission modes](./docs/user/permission-modes.md)
 - [Keyboard shortcuts](./docs/user/keybindings.md)
 - [Project settings](./docs/user/project-settings.md)
-- [Appearance preferences](./docs/user/appearance.md)
 - [Remote access from a phone or another machine](./docs/user/remote-access.md)
 - [Keeping app and server in sync](./docs/user/updating.md)
 - [Source control integrations](./docs/user/source-control.md)

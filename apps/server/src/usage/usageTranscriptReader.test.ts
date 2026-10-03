@@ -76,31 +76,6 @@ function codexModelLine(model: string): string {
   })}\n`;
 }
 
-function piLine(value: unknown, newline = true): string {
-  return `${JSON.stringify(value)}${newline ? "\n" : ""}`;
-}
-
-function piUsageEntry(id: string, output: number, timestamp: string) {
-  return {
-    type: "usage",
-    id,
-    parentId: null,
-    timestamp,
-    kind: "cache_warm",
-    provider: "openai",
-    model: "gpt-5",
-    usage: {
-      input: 10,
-      output,
-      cacheRead: 2,
-      cacheWrite: 1,
-      reasoning: 1,
-      totalTokens: 13 + output,
-      cost: { input: 0.1, output: 0.2, cacheRead: 0.01, cacheWrite: 0.02, total: 0.33 },
-    },
-  };
-}
-
 function codexUsageLine(outputTokens: number, secondsOffset: number): string {
   return `${JSON.stringify({
     type: "event_msg",
@@ -150,57 +125,6 @@ describe("readTranscriptRecords resume", () => {
     assert.strictEqual(second.records.length, 1);
     assert.strictEqual(second.records[0]?.model, "gpt-5.2-codex");
     assert.strictEqual(second.records[0]?.sessionId, "codex-session-1");
-  });
-
-  it("carries Pi session and active-model state across a partial-line resume", async () => {
-    const path = NodePath.join(dir, "pi-session.jsonl");
-    const initial =
-      piLine({
-        type: "session",
-        version: 3,
-        id: "pi-session-1",
-        timestamp: "2026-08-01T10:00:00Z",
-        cwd: "/private",
-      }) +
-      piLine({
-        type: "model_change",
-        id: "model-1",
-        parentId: null,
-        timestamp: "2026-08-01T10:00:01Z",
-        provider: "anthropic",
-        modelId: "opus",
-      });
-    await NodeFSP.writeFile(
-      path,
-      initial + piLine(piUsageEntry("warm-1", 5, "2026-08-01T10:00:02Z"), false),
-    );
-    const first = await readTranscriptRecords(path, "pi");
-    assert.isNotNull(first);
-    assert.strictEqual(first.records.length, 0);
-    assert.strictEqual(first.tailRecords[0]?.sessionId, "pi-session-1");
-
-    await NodeFSP.appendFile(
-      path,
-      "\n" +
-        piLine({
-          type: "compaction",
-          id: "compact-1",
-          parentId: "warm-1",
-          timestamp: "2026-08-01T10:00:03Z",
-          usage: piUsageEntry("ignored", 7, "2026-08-01T10:00:03Z").usage,
-        }),
-    );
-    const second = await readTranscriptRecords(path, "pi", first.position);
-    assert.isNotNull(second);
-    assert.isTrue(second.resumed);
-    assert.deepStrictEqual(
-      second.records.map((record) => [record.sessionId, record.model, record.totals.outputTokens]),
-      [
-        ["pi-session-1", "openai/gpt-5", 5],
-        ["pi-session-1", "anthropic/opus", 7],
-      ],
-    );
-    assert.strictEqual(second.tailRecords.length, 0);
   });
 
   it("suppresses a Codex duplicate usage event that straddles the boundary", async () => {
@@ -304,37 +228,6 @@ describe("readTranscriptRecords resume", () => {
     assert.deepStrictEqual(
       parsed.records.map((record) => record.totals.outputTokens),
       [42, 7],
-    );
-  });
-
-  it("parses a Pi assistant message whose line is past the streaming threshold", async () => {
-    // A tool-heavy Pi turn is one long message line; streaming it keeps only the usage fields.
-    const path = NodePath.join(dir, "pi-big.jsonl");
-    const usage = piUsageEntry("big", 42, "2026-08-01T10:00:02Z").usage;
-    await NodeFSP.writeFile(
-      path,
-      piLine({
-        type: "message",
-        id: "big",
-        parentId: null,
-        timestamp: "2026-08-01T10:00:02Z",
-        message: {
-          role: "assistant",
-          provider: "anthropic",
-          model: "opus",
-          content: [{ type: "text", text: "x".repeat(64 * 1024) }],
-          usage,
-        },
-      }),
-    );
-
-    const parsed = await readTranscriptRecords(path, "pi", undefined, {
-      streamingThresholdBytes: 1024,
-    });
-    assert.isNotNull(parsed);
-    assert.deepStrictEqual(
-      parsed.records.map((record) => [record.model, record.totals.outputTokens]),
-      [["anthropic/opus", 42]],
     );
   });
 

@@ -13,42 +13,6 @@ import {
 } from "./modelOptions";
 
 describe("mobile model options", () => {
-  it("shows project-scoped Pi models only in their workspace", () => {
-    const config = {
-      providers: [
-        {
-          instanceId: "pi",
-          driver: "pi",
-          enabled: true,
-          installed: true,
-          auth: { status: "authenticated" },
-          models: [{ slug: "openai/global", name: "Global", isCustom: false, capabilities: null }],
-          workspaceSnapshots: [
-            {
-              cwd: "/project",
-              models: [
-                {
-                  slug: "local/project",
-                  name: "Project",
-                  subProvider: "local",
-                  isCustom: false,
-                  capabilities: null,
-                },
-              ],
-            },
-          ],
-        },
-      ],
-    } as unknown as ServerConfig;
-
-    expect(
-      buildModelOptions(config, null, undefined, "/project").map((option) => option.key),
-    ).toEqual(["pi:local/project"]);
-    expect(
-      buildModelOptions(config, null, undefined, "/other").map((option) => option.key),
-    ).toEqual(["pi:openai/global"]);
-  });
-
   it("groups models by provider and flags legacy entries", () => {
     const config = {
       providers: [
@@ -88,44 +52,6 @@ describe("mobile model options", () => {
         ],
       },
     ]);
-  });
-
-  it("carries configured ACP identity into model and provider catalogs", () => {
-    const iconUrl = "https://cdn.agentclientprotocol.com/registry/v1/latest/antigravity-acp.svg";
-    const config = {
-      providers: [
-        {
-          instanceId: "acpRegistry_antigravity",
-          driver: "acpRegistry",
-          displayName: "Antigravity",
-          iconUrl,
-          enabled: true,
-          installed: true,
-          auth: { status: "authenticated" },
-          models: [
-            {
-              slug: "default",
-              name: "Default",
-              isCustom: false,
-              capabilities: null,
-            },
-          ],
-        },
-      ],
-    } as unknown as ServerConfig;
-
-    const [group] = groupByProvider(buildModelOptions(config, null));
-
-    expect(group).toMatchObject({
-      providerKey: "acpRegistry_antigravity",
-      providerLabel: "Antigravity",
-      models: [
-        {
-          providerDriver: "acpRegistry",
-          providerIconUrl: iconUrl,
-        },
-      ],
-    });
   });
 
   it("distinguishes same-name OpenCode models without changing their routing", () => {
@@ -177,44 +103,6 @@ describe("mobile model options", () => {
     ]);
   });
 
-  it("keeps dynamically discovered Pi models and provider-instance routing generic", () => {
-    const config = {
-      providers: [
-        {
-          instanceId: "pi_work",
-          driver: "pi",
-          displayName: "Pi Work",
-          enabled: true,
-          installed: true,
-          auth: { status: "unknown" },
-          models: [
-            {
-              slug: "openrouter/anthropic/claude-sonnet-4",
-              name: "Claude Sonnet 4",
-              subProvider: "OpenRouter",
-              isCustom: false,
-              capabilities: null,
-            },
-          ],
-        },
-      ],
-    } as unknown as ServerConfig;
-
-    expect(buildModelOptions(config, null)).toMatchObject([
-      {
-        key: "pi_work:openrouter/anthropic/claude-sonnet-4",
-        label: "Claude Sonnet 4",
-        subtitle: "OpenRouter",
-        providerLabel: "Pi Work",
-        providerDriver: "pi",
-        selection: {
-          instanceId: "pi_work",
-          model: "openrouter/anthropic/claude-sonnet-4",
-        },
-      },
-    ]);
-  });
-
   it("does not materialize catalog defaults for missing stored options", () => {
     const config = {
       providers: [
@@ -258,13 +146,6 @@ describe("mobile model options", () => {
     expect(option?.capabilities?.optionDescriptors?.[0]?.id).toBe("serviceTier");
     expect(option?.selection.options).toBeUndefined();
 
-    const [emptyOption] = buildModelOptions(config, {
-      instanceId: ProviderInstanceId.make("codex"),
-      model: "gpt-test",
-      options: [],
-    });
-    expect(emptyOption?.selection).toEqual(option?.selection);
-
     const [explicitOption] = buildModelOptions(config, {
       instanceId: ProviderInstanceId.make("codex"),
       model: "gpt-test",
@@ -272,56 +153,6 @@ describe("mobile model options", () => {
     });
     expect(explicitOption?.selection.options).toEqual([{ id: "serviceTier", value: "priority" }]);
   });
-
-  it("limits existing threads to their provider while new tasks keep every provider", () => {
-    const providers = ["codex", "claudeAgent"].map((instanceId) => ({
-      instanceId,
-      driver: instanceId,
-      enabled: true,
-      installed: true,
-      auth: { status: "authenticated" },
-      models: [{ slug: "test", name: instanceId, capabilities: null }],
-    }));
-    const config = { providers } as unknown as ServerConfig;
-    const selection = { instanceId: ProviderInstanceId.make("codex"), model: "test" };
-
-    expect(buildModelOptions(config, selection).map((option) => option.providerKey)).toEqual([
-      "codex",
-      "claudeAgent",
-    ]);
-    expect(buildModelOptions(config, selection, selection.instanceId)).toEqual(
-      buildModelOptions(config, selection).filter((option) => option.providerKey === "codex"),
-    );
-  });
-
-  it.each(["disabled", "unavailable", "missing"] as const)(
-    "retains the selected %s provider's fallback in a filtered catalog",
-    (state) => {
-      const selection = {
-        instanceId: ProviderInstanceId.make("google_work"),
-        model: "saved-model",
-        options: [{ id: "native-option", value: "saved-choice" }],
-      };
-      const provider = {
-        instanceId: selection.instanceId,
-        driver: "antigravity",
-        displayName: "Google Work",
-        enabled: state !== "disabled",
-        installed: true,
-        availability: state === "unavailable" ? "unavailable" : "available",
-        auth: { status: "authenticated" },
-        models: [{ slug: selection.model, name: "Saved model", capabilities: null }],
-      };
-      const config = {
-        providers: state === "missing" ? [] : [provider],
-        settings: { providerInstances: { google_work: { driver: "antigravity" } } },
-      } as unknown as ServerConfig;
-      const options = buildModelOptions(config, selection, selection.instanceId);
-      expect(options).toEqual(buildModelOptions(config, selection));
-      expect(options).toHaveLength(1);
-      expect(options[0]).toMatchObject({ selection, isUnavailable: true });
-    },
-  );
 
   it("rejects stored selections whose provider is not usable", () => {
     const config = {

@@ -8,7 +8,6 @@ import {
   resolveDevProtocolClient,
   resolveElectronLaunchCommand,
 } from "./electron-launcher.mjs";
-import { startServerBundleWatcher, stopServerBundleWatcher } from "./server-bundle-watcher.mjs";
 import { waitForResources } from "./wait-for-resources.mjs";
 
 const devServerUrl = process.env.VITE_DEV_SERVER_URL?.trim();
@@ -78,7 +77,6 @@ if (devProtocolClient) {
 let shuttingDown = false;
 let restartTimer = null;
 let currentApp = null;
-let serverBundleWatcher = null;
 let restartQueue = Promise.resolve();
 const expectedExits = new WeakSet();
 const watchers = [];
@@ -246,10 +244,6 @@ async function shutdown(exitCode) {
     watcher.close();
   }
 
-  // Stop only the captured bundle watcher child; never pattern-kill by name.
-  await stopServerBundleWatcher(serverBundleWatcher);
-  serverBundleWatcher = null;
-
   await stopApp();
   killChildTree("TERM");
   await new Promise((resolve) => {
@@ -259,22 +253,6 @@ async function shutdown(exitCode) {
 
   process.exit(exitCode);
 }
-
-// Rebuild the server bundle while Electron runs. The dev runner performs one
-// initial `t3#build`; without this watch, edits under `apps/server/src/**`
-// never rebuild `apps/server/dist/bin.mjs`, and the dist watcher below would
-// keep restarting Electron against a stale native backend. The dist watcher
-// already restarts Electron when `bin.mjs` changes, so the rebuild here
-// flows through to a restart.
-serverBundleWatcher = startServerBundleWatcher({
-  spawnImpl: NodeChildProcess.spawn,
-  desktopDir,
-  env: process.env,
-  onFailure: (error) => {
-    console.error(`[desktop-dev] ${error.message}`);
-    void shutdown(1);
-  },
-});
 
 startWatchers();
 cleanupStaleDevApps();

@@ -3,16 +3,11 @@ import type {
   ProjectId,
   ProviderInteractionMode,
   ServerProvider,
-  ThreadId,
 } from "@t3tools/contracts";
-import { matchComposerThreadItems } from "@t3tools/client-runtime/composerThreadItems";
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
-
-const EMPTY_THREAD_SHELLS: ReadonlyArray<EnvironmentThreadShell> = [];
 import { COMPOSER_CONTEXT_MAX_RECORDS } from "@t3tools/contracts";
 import { Alert } from "react-native";
 import { formatComposerContextReference } from "@t3tools/shared/composerContextReferences";
-import { pullRequestComposerContext, threadComposerContext } from "../../lib/composerContext";
+import { pullRequestComposerContext } from "../../lib/composerContext";
 import { uuidv4 } from "../../lib/uuid";
 import {
   getComposerDraftSnapshot,
@@ -39,7 +34,6 @@ import {
   resolveProviderSkillsForCwd,
   resolveProviderSlashCommandsForCwd,
 } from "@t3tools/client-runtime/providerSkills";
-import { resourcesForGentle } from "@t3tools/client-runtime/piGentleComposer";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { ComposerEditorSelection } from "../../components/ComposerEditor";
@@ -170,8 +164,6 @@ export function useComposerCommandMenu({
   draftMessage,
   ownerKey,
   environmentId,
-  threadShells = EMPTY_THREAD_SHELLS,
-  currentThreadId = null,
   projectCwd,
   pullRequestProjectId = null,
   pullRequestRepository = null,
@@ -179,7 +171,6 @@ export function useComposerCommandMenu({
   hasThread,
   hasCompactableConversation,
   offersUsageLimits = false,
-  gentleEnabled = true,
   enabled = true,
   onChangeDraftMessage,
   onUpdateInteractionMode,
@@ -188,10 +179,6 @@ export function useComposerCommandMenu({
   readonly draftMessage: string;
   readonly ownerKey: string | null;
   readonly environmentId: EnvironmentId | null;
-  /** Candidates for `@` thread suggestions; the caller reads them from the entity store. */
-  readonly threadShells?: ReadonlyArray<EnvironmentThreadShell>;
-  /** Left out of `@` thread suggestions: a thread is never context for itself. */
-  readonly currentThreadId?: ThreadId | null;
   readonly projectCwd: string | null;
   readonly pullRequestProjectId?: ProjectId | null;
   readonly pullRequestRepository?: string | null;
@@ -200,8 +187,6 @@ export function useComposerCommandMenu({
   readonly hasCompactableConversation: boolean;
   /** Whether T3 itself offers /usage-limits for the selected provider. */
   readonly offersUsageLimits?: boolean;
-  /** A Pi thread with Gentle AI off loads none of its packages, so their commands are hidden. */
-  readonly gentleEnabled?: boolean;
   readonly enabled?: boolean;
   readonly onChangeDraftMessage: (value: string) => void;
   readonly onUpdateInteractionMode?: (mode: ProviderInteractionMode) => void;
@@ -242,13 +227,8 @@ export function useComposerCommandMenu({
 
   const skills = useMemo(
     () =>
-      selectedProviderStatus
-        ? resourcesForGentle(
-            resolveProviderSkillsForCwd(selectedProviderStatus, projectCwd),
-            gentleEnabled,
-          )
-        : [],
-    [gentleEnabled, projectCwd, selectedProviderStatus],
+      selectedProviderStatus ? resolveProviderSkillsForCwd(selectedProviderStatus, projectCwd) : [],
+    [projectCwd, selectedProviderStatus],
   );
   const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders, {
     reportFailure: false,
@@ -363,10 +343,7 @@ export function useComposerCommandMenu({
           ? {
               ...selectedProviderStatus,
               slashCommands: getProviderSlashCommandsForSlashMenu(
-                resourcesForGentle(
-                  resolveProviderSlashCommandsForCwd(selectedProviderStatus, projectCwd),
-                  gentleEnabled,
-                ),
+                resolveProviderSlashCommandsForCwd(selectedProviderStatus, projectCwd),
                 visibleSkills,
               ),
             }
@@ -470,36 +447,21 @@ export function useComposerCommandMenu({
     }
 
     if (trigger.kind === "path") {
-      const threadItems = environmentId
-        ? matchComposerThreadItems({
-            shells: threadShells,
-            environmentId,
-            excludeThreadId: currentThreadId,
-            query: trigger.query,
-          })
-        : [];
-      return [
-        ...threadItems,
-        ...pathSearch.entries.map((entry) => {
-          const parts = entry.path.split("/");
-          return {
-            id: `path:${entry.path}`,
-            type: "path" as const,
-            path: entry.path,
-            kind: entry.kind,
-            label: parts[parts.length - 1] ?? entry.path,
-            description: parts.length > 1 ? parts.slice(0, -1).join("/") : "",
-          };
-        }),
-      ];
+      return pathSearch.entries.map((entry) => {
+        const parts = entry.path.split("/");
+        return {
+          id: `path:${entry.path}`,
+          type: "path" as const,
+          path: entry.path,
+          kind: entry.kind,
+          label: parts[parts.length - 1] ?? entry.path,
+          description: parts.length > 1 ? parts.slice(0, -1).join("/") : "",
+        };
+      });
     }
 
     return [];
   }, [
-    gentleEnabled,
-    currentThreadId,
-    environmentId,
-    threadShells,
     hasThread,
     hasCompactableConversation,
     onUpdateInteractionMode,
@@ -515,41 +477,6 @@ export function useComposerCommandMenu({
   const onSelect = useCallback(
     (item: ComposerCommandItem) => {
       if (!trigger) return;
-      if (item.type === "thread") {
-        if (!ownerKey || trigger.kind !== "path") return;
-        const shell = threadShells.find(
-          (candidate) =>
-            candidate.environmentId === item.thread.environmentId &&
-            candidate.id === item.thread.threadId,
-        );
-        if (!shell) return;
-        const record = threadComposerContext(item.thread, shell.title);
-        const existing = getComposerDraftSnapshot(ownerKey).context?.records ?? [];
-        const alreadyAttached = existing.some((entry) => entry.contextId === record.contextId);
-        if (!alreadyAttached && existing.length >= COMPOSER_CONTEXT_MAX_RECORDS) {
-          Alert.alert(
-            "Too many context items",
-            "Remove some context from the draft and try again.",
-          );
-          return;
-        }
-        const result = replaceTextRange(
-          draftMessage,
-          trigger.rangeStart,
-          trigger.rangeEnd,
-          `${formatComposerContextReference(record)} `,
-        );
-        onChangeDraftMessage(result.text);
-        if (!alreadyAttached) {
-          const draft = getComposerDraftSnapshot(ownerKey);
-          setComposerDraftContext(ownerKey, {
-            version: 1,
-            records: [...(draft.context?.records ?? []), record],
-          });
-        }
-        setSelection({ start: result.cursor, end: result.cursor });
-        return;
-      }
       if (item.type === "pull-request") {
         if (
           !ownerKey ||
@@ -618,7 +545,6 @@ export function useComposerCommandMenu({
       onUpdateInteractionMode,
       onUsageLimits,
       selectedProviderStatus?.showInteractionModeToggle,
-      threadShells,
       trigger,
     ],
   );

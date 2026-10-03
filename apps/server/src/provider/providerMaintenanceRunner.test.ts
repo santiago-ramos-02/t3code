@@ -1,5 +1,3 @@
-import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
-import * as NodePath from "@effect/platform-node/NodePath";
 import { describe, it, assert } from "@effect/vitest";
 import {
   ProviderDriverKind,
@@ -12,9 +10,7 @@ import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
-import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
-import * as Path from "effect/Path";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Sink from "effect/Sink";
@@ -24,7 +20,7 @@ import { ChildProcessSpawner } from "effect/unstable/process";
 import { HostProcessEnvironment, HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { SpawnExecutableResolution } from "@t3tools/shared/shell";
 
-import * as ProviderRegistry from "./Services/ProviderRegistry.ts";
+import { ProviderRegistry, type ProviderRegistryShape } from "./Services/ProviderRegistry.ts";
 import * as ModelManifest from "./ModelManifest.ts";
 import * as ProviderMaintenanceRunner from "./providerMaintenanceRunner.ts";
 import {
@@ -35,10 +31,10 @@ import {
 const isServerProviderUpdateError = Schema.is(ServerProviderUpdateError);
 
 const CODEX_DRIVER = ProviderDriverKind.make("codex");
-const NATIVE_CLI_DRIVER = ProviderDriverKind.make("nativeCli");
+const CURSOR_DRIVER = ProviderDriverKind.make("cursor");
 const OPENCODE_DRIVER = ProviderDriverKind.make("opencode");
 const CODEX_INSTANCE_ID = ProviderInstanceId.make("codex");
-const NATIVE_CLI_INSTANCE_ID = ProviderInstanceId.make("nativeCli");
+const CURSOR_INSTANCE_ID = ProviderInstanceId.make("cursor");
 const OPENCODE_INSTANCE_ID = ProviderInstanceId.make("opencode");
 const encoder = new TextEncoder();
 
@@ -49,13 +45,13 @@ const encoder = new TextEncoder();
 const NonWindowsPlatform = Layer.succeed(HostProcessPlatform, "linux");
 
 function lifecycleFor(provider: ProviderDriverKind): ProviderMaintenanceCapabilities {
-  if (provider === NATIVE_CLI_DRIVER) {
+  if (provider === CURSOR_DRIVER) {
     return makeProviderMaintenanceCapabilities({
       provider,
       packageName: null,
-      updateExecutable: "native-agent",
+      updateExecutable: "cursor-agent",
       updateArgs: ["update"],
-      updateLockKey: "native-agent",
+      updateLockKey: "cursor-agent",
     });
   }
   return makeProviderMaintenanceCapabilities({
@@ -84,10 +80,10 @@ const baseProvider: ServerProvider = {
   skills: [],
 };
 
-const baseNativeCliProvider: ServerProvider = {
+const baseCursorProvider: ServerProvider = {
   ...baseProvider,
-  instanceId: NATIVE_CLI_INSTANCE_ID,
-  driver: NATIVE_CLI_DRIVER,
+  instanceId: CURSOR_INSTANCE_ID,
+  driver: CURSOR_DRIVER,
 };
 
 const baseOpenCodeProvider: ServerProvider = {
@@ -194,7 +190,7 @@ function makeRegistry(
       );
     });
 
-    const registry: ProviderRegistry.ProviderRegistryShape = {
+    const registry: ProviderRegistryShape = {
       getProviders: Ref.get(providersRef),
       refresh: () => Ref.get(providersRef),
       refreshInstance: () => Ref.get(providersRef),
@@ -214,13 +210,13 @@ function makeRegistry(
 }
 
 const makeTestRunner = (
-  registry: ProviderRegistry.ProviderRegistryShape,
+  registry: ProviderRegistryShape,
   // Generic updater fixtures use synthetic versions. Keep their compatibility
   // unknown so real harness minimums do not bypass the command under test.
   manifest: ModelManifest.ModelManifestData = {
     version: 1,
     currentModels: {},
-    compatibility: [CODEX_DRIVER, OPENCODE_DRIVER].map((driver) => ({
+    compatibility: [CODEX_DRIVER, CURSOR_DRIVER, OPENCODE_DRIVER].map((driver) => ({
       driver,
       t3CodeRange: ">=0.0.42",
       ranges: [],
@@ -232,7 +228,7 @@ const makeTestRunner = (
       ProviderMaintenanceRunner.layer.pipe(
         Layer.provide(
           Layer.mergeAll(
-            Layer.succeed(ProviderRegistry.ProviderRegistry, registry),
+            Layer.succeed(ProviderRegistry, registry),
             Layer.succeed(ModelManifest.ModelManifest, {
               current: Effect.succeed(manifest),
               refresh: Effect.succeed(manifest),
@@ -241,8 +237,6 @@ const makeTestRunner = (
             }),
             // Fresh per runner so a version cached by one test cannot leak into another.
             Layer.sync(ProviderVersionCache, () => new Map()),
-            NodeFileSystem.layer,
-            NodePath.layer,
           ),
         ),
       ),
@@ -253,13 +247,13 @@ describe("providerMaintenanceRunner", () => {
   it.effect("runs the allowlisted provider update command and records success", () => {
     const calls: Array<{ command: string; args: ReadonlyArray<string> }> = [];
     return Effect.gen(function* () {
-      const { registry, updateStatesRef } = yield* makeRegistry(baseNativeCliProvider);
+      const { registry, updateStatesRef } = yield* makeRegistry(baseCursorProvider);
       const updater = yield* makeTestRunner(registry);
 
-      const result = yield* updater.updateProvider(NATIVE_CLI_DRIVER);
+      const result = yield* updater.updateProvider(CURSOR_DRIVER);
       assert.deepStrictEqual(calls, [
         {
-          command: "native-agent",
+          command: "cursor-agent",
           args: ["update"],
         },
       ]);
@@ -312,8 +306,9 @@ describe("providerMaintenanceRunner", () => {
     "keeps a successful update when the binary is present but its version is unreadable",
     () => {
       return Effect.gen(function* () {
-        const { registry, providersRef } = yield* makeRegistry(baseNativeCliProvider);
-        // A native CLI version probe can fail immediately after a successful update.
+        const { registry, providersRef } = yield* makeRegistry(baseCursorProvider);
+        // Cursor's `agent about` probe can fail right after an update while the
+        // new binary is perfectly fine.
         const updater = yield* makeTestRunner({
           ...registry,
           refreshInstance: () =>
@@ -322,7 +317,7 @@ describe("providerMaintenanceRunner", () => {
             ),
         });
 
-        const result = yield* updater.updateProvider(NATIVE_CLI_DRIVER);
+        const result = yield* updater.updateProvider(CURSOR_DRIVER);
         assert.strictEqual(result.providers[0]?.updateState?.status, "succeeded");
       }).pipe(
         Effect.provide(
@@ -935,111 +930,6 @@ describe("providerMaintenanceRunner", () => {
       ),
     );
   });
-});
-
-describe("installing a missing provider", () => {
-  const installCapabilities = {
-    provider: OPENCODE_DRIVER,
-    packageName: "@example/opencode",
-    update: {
-      command: "npm install -g @example/opencode@latest",
-      executable: "npm",
-      args: ["install", "-g", "@example/opencode@latest"],
-      lockKey: "npm-global:install",
-      installs: true as const,
-    },
-  };
-  const missingProvider: ServerProvider = {
-    ...baseOpenCodeProvider,
-    installed: false,
-    version: null,
-  };
-  const registryInstalling = Effect.gen(function* () {
-    const made = yield* makeRegistry(missingProvider);
-    return {
-      ...made,
-      registry: {
-        ...made.registry,
-        getProviderMaintenanceCapabilitiesForInstance: () => Effect.succeed(installCapabilities),
-        // The install put the CLI in place, so the next check finds it.
-        refreshInstance: () =>
-          Ref.updateAndGet(made.providersRef, (providers) =>
-            providers.map((provider) => ({ ...provider, installed: true, version: "1.0.0" })),
-          ),
-      },
-    };
-  });
-  // A folder holding a stand-in npm, for the npm lookup that runs before installing.
-  const pathWithNpm = Effect.gen(function* () {
-    const fileSystem = yield* FileSystem.FileSystem;
-    const path = yield* Path.Path;
-    const platform = yield* HostProcessPlatform;
-    const dir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-npm-" });
-    const npm = path.join(dir, platform === "win32" ? "npm.cmd" : "npm");
-    yield* fileSystem.writeFileString(npm, platform === "win32" ? "@echo off\r\n" : "#!/bin/sh\n");
-    if (platform !== "win32") yield* fileSystem.chmod(npm, 0o755);
-    return dir;
-  });
-
-  it.effect("runs npm's global install and reports the provider installed", () => {
-    const calls: Array<ReadonlyArray<string>> = [];
-    return Effect.gen(function* () {
-      const dir = yield* pathWithNpm;
-      const { registry, updateStatesRef } = yield* registryInstalling;
-      const runner = yield* makeTestRunner(registry);
-      const result = yield* runner
-        .updateProvider(OPENCODE_DRIVER)
-        .pipe(
-          Effect.provideService(HostProcessEnvironment, { PATH: dir, Path: dir, PATHEXT: ".CMD" }),
-        );
-      assert.deepStrictEqual(calls, [["install", "-g", "@example/opencode@latest"]]);
-      assert.strictEqual(result.providers[0]?.installed, true);
-      assert.deepStrictEqual(
-        (yield* Ref.get(updateStatesRef)).map((state) => state.message),
-        [
-          "Waiting for another provider update to finish.",
-          "Installing provider.",
-          "Provider installed.",
-        ],
-      );
-    }).pipe(
-      Effect.scoped,
-      Effect.provide(
-        Layer.mergeAll(
-          NodeFileSystem.layer,
-          NodePath.layer,
-          latestVersionHttpClient("1.0.0"),
-          mockSpawnerLayer((_command, args) => {
-            // On Windows npm is npm.cmd, run through the shell with escaped arguments.
-            calls.push(args.map((arg) => arg.replace(/[\^"]/g, "")));
-            return { stdout: "added 1 package" };
-          }),
-        ),
-      ),
-    );
-  });
-
-  it.effect("says npm is needed when the environment has none", () =>
-    Effect.gen(function* () {
-      const { registry } = yield* registryInstalling;
-      const runner = yield* makeTestRunner(registry);
-      const failure = yield* Effect.flip(
-        runner
-          .updateProvider(OPENCODE_DRIVER)
-          .pipe(Effect.provideService(HostProcessEnvironment, { PATH: "", Path: "" })),
-      );
-      assert.include(failure.reason, "needs npm");
-    }).pipe(
-      Effect.provide(
-        Layer.mergeAll(
-          NodeFileSystem.layer,
-          NodePath.layer,
-          latestVersionHttpClient("1.0.0"),
-          mockSpawnerLayer(() => ({ stdout: "" })),
-        ),
-      ),
-    ),
-  );
 });
 
 it.effect("refuses incompatible latest versions and unapproved or unpinnable targets", () => {

@@ -18,26 +18,23 @@ export function ElectronBrowserHost() {
   const previewByThreadKey = useActivePreviewSessions();
   const sessions = useMemo(
     () =>
-      Object.entries(previewByThreadKey)
-        .flatMap(([threadKey, previewState]) => {
-          const threadRef = parseScopedThreadKey(threadKey);
-          return threadRef
-            ? Object.values(previewState.sessions).map((snapshot) => ({
+      Object.entries(previewByThreadKey).flatMap(([threadKey, previewState]) => {
+        const threadRef = parseScopedThreadKey(threadKey);
+        return threadRef
+          ? Object.values(previewState.sessions).map((snapshot) => ({
+              threadRef,
+              snapshot,
+              runtimeTabId: previewRuntimeTabId(
                 threadRef,
-                snapshot,
-                runtimeTabId: previewRuntimeTabId(
-                  threadRef,
-                  previewState.serverEpoch,
-                  snapshot.tabId,
-                ),
-                pictureInPicture:
-                  previewState.desktopByTabId[snapshot.tabId]?.pictureInPicture ?? false,
-                zoomFactor: previewState.desktopByTabId[snapshot.tabId]?.zoomFactor ?? 1,
-              }))
-            : [];
-        })
-        // Electron destroys a webview's page when React moves its element, so the order is fixed.
-        .toSorted((left, right) => left.runtimeTabId.localeCompare(right.runtimeTabId)),
+                previewState.serverEpoch,
+                snapshot.tabId,
+              ),
+              pictureInPicture:
+                previewState.desktopByTabId[snapshot.tabId]?.pictureInPicture ?? false,
+              zoomFactor: previewState.desktopByTabId[snapshot.tabId]?.zoomFactor ?? 1,
+            }))
+          : [];
+      }),
     [previewByThreadKey],
   );
 

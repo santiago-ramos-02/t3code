@@ -79,8 +79,6 @@ export interface ProviderMaintenanceCommandAction {
    * must update that home and not the default one.
    */
   readonly env?: NodeJS.ProcessEnv;
-  /** Installs a provider that is missing, rather than updating one that is installed. */
-  readonly installs?: true;
 }
 
 /** Where the provider executable was found; every path is absolute. */
@@ -163,8 +161,6 @@ export function makeProviderMaintenanceCapabilities(input: {
   readonly platform?: NodeJS.Platform;
   readonly env?: NodeJS.ProcessEnv;
   readonly latestVersion?: string | null;
-  /** The command installs a missing provider (see ProviderMaintenanceCommandAction.installs). */
-  readonly installs?: boolean;
 }): ProviderMaintenanceCapabilities {
   const platform = input.platform ?? HostProcessPlatform.defaultValue();
   const update =
@@ -181,7 +177,6 @@ export function makeProviderMaintenanceCapabilities(input: {
           args: input.updateArgs,
           lockKey: input.updateLockKey,
           ...(input.env ? { env: input.env } : {}),
-          ...(input.installs ? { installs: true as const } : {}),
         };
   return {
     provider: input.provider,
@@ -390,16 +385,8 @@ export const resolvePackageManagedProviderMaintenance = Effect.fn(
     provider: definition.provider,
     packageName: definition.npmPackageName,
   });
-  // Not found: a global npm install puts it on the PATH npm's global bin is on.
   if (!context) {
-    return makeProviderMaintenanceCapabilities({
-      provider: definition.provider,
-      packageName: definition.npmPackageName,
-      updateExecutable: "npm",
-      updateArgs: ["install", "-g", `${definition.npmPackageName}@latest`],
-      updateLockKey: "npm-global:install",
-      installs: true,
-    });
+    return manual;
   }
   const commandPaths = [context.resolvedCommandPath, context.realCommandPath];
   const packageName = definition.npmPackageName;
@@ -673,9 +660,7 @@ export function createProviderVersionAdvisory(input: {
   };
 }
 
-export const fetchNpmLatestVersion = Effect.fn("fetchNpmLatestVersion")(function* (
-  packageName: string,
-) {
+const fetchNpmLatestVersion = Effect.fn("fetchNpmLatestVersion")(function* (packageName: string) {
   const client = yield* HttpClient.HttpClient;
   const request = HttpClientRequest.get(
     `https://registry.npmjs.org/${encodeURIComponent(packageName)}/latest`,

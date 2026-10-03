@@ -1,14 +1,9 @@
-import {
-  AuthOrchestrationOperateScope,
-  ProviderDriverKind,
-  ServerProvider,
-} from "@t3tools/contracts";
+import { AuthOrchestrationOperateScope, ServerProvider } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import {
   canMaintainEnvironment,
-  canInstallEnvironmentProvider,
   canUpdateEnvironmentProvider,
   findEnvironmentUpdate,
   supportsEnvironmentUpdate,
@@ -65,26 +60,6 @@ describe("environment maintenance access", () => {
     expect(
       supportsEnvironmentUpdate({ serverSelfUpdate: "desktop-managed", desktopAppUpdate: true }),
     ).toBe(true);
-  });
-
-  it("offers to install Pi only while it is enabled, missing, and not already installing", () => {
-    const missingPi = { ...provider, driver: ProviderDriverKind.make("pi"), installed: false };
-    expect(canInstallEnvironmentProvider(missingPi)).toBe(true);
-    expect(canInstallEnvironmentProvider({ ...missingPi, installed: true })).toBe(false);
-    expect(canInstallEnvironmentProvider({ ...missingPi, enabled: false })).toBe(false);
-    expect(canInstallEnvironmentProvider({ ...provider, installed: false })).toBe(false);
-    expect(
-      canInstallEnvironmentProvider({
-        ...missingPi,
-        updateState: {
-          status: "running",
-          startedAt: null,
-          finishedAt: null,
-          message: null,
-          output: null,
-        },
-      }),
-    ).toBe(false);
   });
 
   it("excludes unavailable, manual, busy, and incompatible provider updates", () => {

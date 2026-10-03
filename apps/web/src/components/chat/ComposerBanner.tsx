@@ -123,7 +123,7 @@ function Dock({ className, ...props }: ComponentProps<"div">) {
   return (
     <Attachment
       className={cn(
-        "@container flex flex-wrap items-end gap-1 not-has-data-[composer-banner-surface=attached]:hidden",
+        "flex items-end gap-1 not-has-data-[composer-banner-surface=attached]:hidden",
         className,
       )}
       {...props}
@@ -131,16 +131,12 @@ function Dock({ className, ...props }: ComponentProps<"div">) {
   );
 }
 
-/**
- * Attachments share a column while neighboring tabs keep their own surface. Notices truncate
- * beside the tabs; only a top drawer (approval, question, plan) takes the full narrow width.
- */
+/** Attachments share a column while neighboring tabs keep their own surface. */
 function Column({ className, ...props }: ComponentProps<"div">) {
   return (
     <div
       className={cn(
         "flex min-w-0 flex-1 flex-col empty:hidden",
-        "@max-[560px]:has-data-[chat-composer-top-drawer]:w-full @max-[560px]:has-data-[chat-composer-top-drawer]:flex-none",
         "[&>[data-slot=composer-banner-attachment]]:w-full [&>[data-slot=composer-banner-attachment]:last-child]:mb-0",
         className,
       )}

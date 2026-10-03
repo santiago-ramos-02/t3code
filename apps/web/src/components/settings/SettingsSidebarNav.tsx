@@ -14,7 +14,6 @@ import {
   BlocksIcon,
   BotIcon,
   createLucideIcon,
-  CalendarClockIcon,
   GitBranchIcon,
   HardDriveIcon,
   PanelsTopLeftIcon,
@@ -22,7 +21,6 @@ import {
   Link2Icon,
   PaletteIcon,
   SearchIcon,
-  WaypointsIcon,
   Settings2Icon,
   XIcon,
 } from "lucide-react";
@@ -41,8 +39,6 @@ import {
   SidebarInput,
 } from "../ui/sidebar";
 import { SidebarUtilityMenu } from "../sidebar/SidebarChrome";
-import { GentleRoseIcon } from "../GentleRoseIcon";
-import { useEnvironments } from "~/state/environments";
 import { scrollToSettingsTarget } from "./settingsLayout";
 import {
   searchSettings,
@@ -86,10 +82,7 @@ const SETTINGS_SECTION_ICONS: Readonly<
   "/settings/keybindings": KeyboardIcon,
   "/settings/snap-shot": SnapShotIcon,
   "/settings/providers": BotIcon,
-  "/settings/gentle-ai": GentleRoseIcon,
-  "/settings/cli-proxy": WaypointsIcon,
   "/settings/integrations": BlocksIcon,
-  "/settings/scheduled-tasks": CalendarClockIcon,
   "/settings/source-control": GitBranchIcon,
   "/settings/storage": HardDriveIcon,
   "/settings/connections": Link2Icon,
@@ -116,13 +109,8 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
   const currentHash = useLocation({ select: (location) => location.hash });
   const currentSearch = useLocation({ select: (location) => location.search });
   const scopeSearch = useMemo(() => validateSettingsScopeSearch(currentSearch), [currentSearch]);
-  const { environments } = useEnvironments();
-  // Gentle AI's page is where it is installed when missing, so it shows for any environment.
-  const gentleAiVisible = environments.length > 0;
   const navItems = SETTINGS_NAV_ITEMS.filter(
-    (item) =>
-      (item.to !== "/settings/projects" || isSettingsOverviewVisible(scopeSearch)) &&
-      (item.to !== "/settings/gentle-ai" || gentleAiVisible),
+    (item) => item.to !== "/settings/projects" || isSettingsOverviewVisible(scopeSearch),
   );
   const { isMobile, setOpenMobile, open, setOpen } = useSidebar();
   const searchInputRef = useRef<HTMLInputElement>(null);

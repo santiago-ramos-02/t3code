@@ -22,15 +22,16 @@ import {
   createEnvironmentQueryAtomFamily,
 } from "./runtime.ts";
 import { createPullRequestRouter } from "./pullRequestRouting.ts";
-import * as PullRequestDiffLoader from "./pullRequestDiffHttp.ts";
+import { PullRequestDiffLoader } from "./pullRequestDiffHttp.ts";
 import type { EnvironmentRegistry } from "../connection/registry.ts";
-import * as EnvironmentSupervisor from "../connection/supervisor.ts";
+import { EnvironmentSupervisor } from "../connection/supervisor.ts";
 
 export {
   type PullRequestDiffLoadError,
   PullRequestDiffCredentialRejectedError,
+  PullRequestDiffLoader,
+  pullRequestDiffLoaderLayer,
 } from "./pullRequestDiffHttp.ts";
-export * as PullRequestDiffLoader from "./pullRequestDiffHttp.ts";
 
 /** @public Required to name the error in consumers' inferred pull request results. */
 export class EnvironmentHttpConnectionNotReadyError extends Data.TaggedError(
@@ -64,18 +65,12 @@ function writableQueryFamily<A, E>(
   );
   return ({
     environmentId,
-    input: { projectId, host, repository, number, allowStale },
+    input: { projectId, host, repository, number },
   }: Parameters<typeof family>[0]) =>
     writable(
       family({
         environmentId,
-        input: {
-          projectId,
-          ...(host === undefined ? {} : { host }),
-          repository,
-          number,
-          ...(allowStale === undefined ? {} : { allowStale }),
-        },
+        input: { projectId, ...(host === undefined ? {} : { host }), repository, number },
       }),
     );
 }
@@ -154,10 +149,7 @@ export function pullRequestDetailToVcsStatus(
  * pull request are order-sensitive. Confirmed label and reviewer edits update cached state.
  */
 export function createPullRequestEnvironmentAtoms<R, E>(
-  runtime: Atom.AtomRuntime<
-    EnvironmentRegistry | PullRequestDiffLoader.PullRequestDiffLoader | R,
-    E
-  >,
+  runtime: Atom.AtomRuntime<EnvironmentRegistry | PullRequestDiffLoader | R, E>,
 ) {
   const refreshes = createPullRequestRefreshAtomFamily(runtime);
   const commandScheduler = createAtomCommandScheduler();
@@ -239,13 +231,6 @@ export function createPullRequestEnvironmentAtoms<R, E>(
     }),
     detail,
     preview,
-    checks: createEnvironmentRpcQueryAtomFamily(runtime, {
-      label: "environment-data:pull-requests:checks",
-      tag: WS_METHODS.pullRequestsChecks,
-      execute: (input) => routedRequest(WS_METHODS.pullRequestsChecks, input),
-      staleTimeMs: 45_000,
-      refreshTrigger: ({ environmentId }) => refreshes({ environmentId, input: {} }),
-    }),
     activity,
     threadComments: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:pull-requests:thread-comments",
@@ -263,8 +248,8 @@ export function createPullRequestEnvironmentAtoms<R, E>(
       staleTimeMs: 60_000,
       execute: (input: PullRequestDiffInput) =>
         Effect.gen(function* () {
-          const supervisor = yield* EnvironmentSupervisor.EnvironmentSupervisor;
-          const loader = yield* PullRequestDiffLoader.PullRequestDiffLoader;
+          const supervisor = yield* EnvironmentSupervisor;
+          const loader = yield* PullRequestDiffLoader;
           const prepared = yield* SubscriptionRef.get(supervisor.prepared);
           if (Option.isNone(prepared)) {
             return yield* new EnvironmentHttpConnectionNotReadyError({

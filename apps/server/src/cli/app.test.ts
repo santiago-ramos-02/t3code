@@ -20,7 +20,7 @@ import * as Layer from "effect/Layer";
 import { Command } from "effect/unstable/cli";
 import { afterEach, describe, expect, vi } from "vite-plus/test";
 
-import { makeCli } from "../binCli.ts";
+import { makeCli } from "../bin.ts";
 
 vi.mock("node:os", async (importOriginal) => {
   const os = await importOriginal<typeof import("node:os")>();
@@ -256,9 +256,8 @@ describe("t3 app", () => {
     ),
   );
 
-  it.effect.each(["failure", "invalid"] as const)(
-    "never falls back after the default desktop sends a %s response",
-    (responseKind) =>
+  for (const responseKind of ["failure", "invalid"] as const) {
+    it.effect(`never falls back after the default desktop sends a ${responseKind} response`, () =>
       withTempDirectory("t3-app-response-test-", (root) =>
         Effect.gen(function* () {
           vi.mocked(NodeOS.homedir).mockReturnValue(root);
@@ -303,5 +302,6 @@ describe("t3 app", () => {
           }
         }).pipe(Effect.scoped),
       ),
-  );
+    );
+  }
 });

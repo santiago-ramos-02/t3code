@@ -1,7 +1,11 @@
 import {
-  ClientCapabilities,
+  ClientPresentation,
+  CloudSession,
+  EnvironmentOwnedDataCleanup,
   PlatformConnectionSource,
-  Persistence,
+  PrimaryEnvironmentAuth,
+  RelayDeviceIdentity,
+  SshEnvironmentGateway,
 } from "@t3tools/client-runtime/platform";
 import {
   ConnectionBlockedError,
@@ -112,8 +116,8 @@ const capabilitiesLayer = Layer.effectContext(
   Effect.gen(function* () {
     const storage = yield* MobileStorage.MobileStorage;
     return Context.make(
-      ClientCapabilities.CloudSession,
-      ClientCapabilities.CloudSession.of({
+      CloudSession,
+      CloudSession.of({
         identity: Effect.sync(() =>
           Option.fromNullishOr(appAtomRegistry.get(managedRelaySessionAtom)),
         ),
@@ -145,14 +149,12 @@ const capabilitiesLayer = Layer.effectContext(
       }),
     ).pipe(
       Context.add(
-        ClientCapabilities.PrimaryEnvironmentAuth,
-        ClientCapabilities.PrimaryEnvironmentAuth.of({
-          bearerToken: Effect.succeed(Option.none()),
-        }),
+        PrimaryEnvironmentAuth,
+        PrimaryEnvironmentAuth.of({ bearerToken: Effect.succeed(Option.none()) }),
       ),
       Context.add(
-        ClientCapabilities.RelayDeviceIdentity,
-        ClientCapabilities.RelayDeviceIdentity.of({
+        RelayDeviceIdentity,
+        RelayDeviceIdentity.of({
           deviceId: storage.loadOrCreateAgentAwarenessDeviceId.pipe(
             Effect.mapError(
               (cause) =>
@@ -166,15 +168,15 @@ const capabilitiesLayer = Layer.effectContext(
         }),
       ),
       Context.add(
-        ClientCapabilities.ClientPresentation,
-        ClientCapabilities.ClientPresentation.of({
+        ClientPresentation,
+        ClientPresentation.of({
           metadata: authClientMetadata(Constants.expoConfig?.version),
           scopes: AuthStandardClientScopes,
         }),
       ),
       Context.add(
-        ClientCapabilities.SshEnvironmentGateway,
-        ClientCapabilities.SshEnvironmentGateway.of({
+        SshEnvironmentGateway,
+        SshEnvironmentGateway.of({
           provision: () =>
             Effect.fail(
               new ConnectionBlockedError({
@@ -197,8 +199,8 @@ const capabilitiesLayer = Layer.effectContext(
 );
 
 const platformConnectionSourceLayer = Layer.succeed(
-  PlatformConnectionSource.PlatformConnectionSource,
-  PlatformConnectionSource.PlatformConnectionSource.of({
+  PlatformConnectionSource,
+  PlatformConnectionSource.of({
     registrations: Stream.empty,
   }),
 );
@@ -211,8 +213,8 @@ const providedCapabilitiesLayer = capabilitiesLayer.pipe(
 );
 
 const environmentOwnedDataCleanupLayer = Layer.succeed(
-  Persistence.EnvironmentOwnedDataCleanup,
-  Persistence.EnvironmentOwnedDataCleanup.of({
+  EnvironmentOwnedDataCleanup,
+  EnvironmentOwnedDataCleanup.of({
     clear: (environmentId) =>
       Effect.all(
         [

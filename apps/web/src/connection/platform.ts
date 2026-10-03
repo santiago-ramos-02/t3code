@@ -1,7 +1,11 @@
 import {
-  ClientCapabilities,
+  ClientPresentation,
+  CloudSession,
+  EnvironmentOwnedDataCleanup,
   PlatformConnectionSource,
-  Persistence,
+  PrimaryEnvironmentAuth,
+  RelayDeviceIdentity,
+  SshEnvironmentGateway,
 } from "@t3tools/client-runtime/platform";
 import {
   BearerConnectionCredential,
@@ -174,11 +178,11 @@ export const provisionDesktopSshEnvironment = Effect.fn(
 
 const capabilitiesLayer = Layer.effectContext(
   Effect.sync(() => {
-    const presentation = ClientCapabilities.ClientPresentation.of({
+    const presentation = ClientPresentation.of({
       metadata: clientMetadata(),
       scopes: AuthStandardClientScopes,
     });
-    const cloudSession = ClientCapabilities.CloudSession.of({
+    const cloudSession = CloudSession.of({
       identity: Effect.sync(() =>
         Option.fromNullishOr(appAtomRegistry.get(managedRelaySessionAtom)),
       ),
@@ -208,10 +212,10 @@ const capabilitiesLayer = Layer.effectContext(
         return token;
       }),
     });
-    const identity = ClientCapabilities.RelayDeviceIdentity.of({
+    const identity = RelayDeviceIdentity.of({
       deviceId: Effect.succeedNone,
     });
-    const primaryAuth = ClientCapabilities.PrimaryEnvironmentAuth.of({
+    const primaryAuth = PrimaryEnvironmentAuth.of({
       bearerToken: Effect.tryPromise({
         try: readDesktopPrimaryBearerToken,
         catch: (cause) =>
@@ -221,7 +225,7 @@ const capabilitiesLayer = Layer.effectContext(
           }),
       }).pipe(Effect.map(Option.fromNullishOr)),
     });
-    const ssh = ClientCapabilities.SshEnvironmentGateway.of({
+    const ssh = SshEnvironmentGateway.of({
       provision: Effect.fn("web.connectionPlatform.ssh.provision")(function* (target) {
         const bridge = window.desktopBridge;
         if (bridge === undefined) {
@@ -279,11 +283,11 @@ const capabilitiesLayer = Layer.effectContext(
       }),
     });
 
-    return Context.make(ClientCapabilities.CloudSession, cloudSession).pipe(
-      Context.add(ClientCapabilities.PrimaryEnvironmentAuth, primaryAuth),
-      Context.add(ClientCapabilities.RelayDeviceIdentity, identity),
-      Context.add(ClientCapabilities.ClientPresentation, presentation),
-      Context.add(ClientCapabilities.SshEnvironmentGateway, ssh),
+    return Context.make(CloudSession, cloudSession).pipe(
+      Context.add(PrimaryEnvironmentAuth, primaryAuth),
+      Context.add(RelayDeviceIdentity, identity),
+      Context.add(ClientPresentation, presentation),
+      Context.add(SshEnvironmentGateway, ssh),
     );
   }),
 );
@@ -459,10 +463,10 @@ export function secondaryRegistrationsToRetainAfterTopologyRead(
 }
 
 const platformConnectionSourceLayer = Layer.effect(
-  PlatformConnectionSource.PlatformConnectionSource,
+  PlatformConnectionSource,
   Effect.gen(function* () {
     if (isHostedStaticApp() || isLocalEnvironmentDisabled()) {
-      return PlatformConnectionSource.PlatformConnectionSource.of({
+      return PlatformConnectionSource.of({
         registrations: Stream.empty,
       });
     }
@@ -570,7 +574,7 @@ const platformConnectionSourceLayer = Layer.effect(
       return registrations as ReadonlyArray<PlatformConnectionRegistration>;
     }).pipe(Effect.provide(FetchHttpClient.layer));
 
-    return PlatformConnectionSource.PlatformConnectionSource.of({
+    return PlatformConnectionSource.of({
       registrations: Stream.tick(PLATFORM_POLL_INTERVAL).pipe(
         Stream.mapEffect(() => buildPlatformRegistrations),
       ),
@@ -579,8 +583,8 @@ const platformConnectionSourceLayer = Layer.effect(
 );
 
 const environmentOwnedDataCleanupLayer = Layer.succeed(
-  Persistence.EnvironmentOwnedDataCleanup,
-  Persistence.EnvironmentOwnedDataCleanup.of({
+  EnvironmentOwnedDataCleanup,
+  EnvironmentOwnedDataCleanup.of({
     clear: (environmentId) =>
       Effect.sync(() => {
         clearComposerDraftsEnvironment(environmentId);

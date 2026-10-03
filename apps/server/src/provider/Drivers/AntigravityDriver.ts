@@ -1,7 +1,6 @@
 import { withAgentDeviceEnvironment } from "../../mcp/McpProviderSession.ts";
 import { AntigravitySettings, ProviderDriverKind, ProviderSetupError } from "@t3tools/contracts";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
-import { resolveSelfInvocation } from "@t3tools/shared/nodeRuntime";
 import {
   NodeRuntimeUnavailableError,
   nodeRuntimeUnavailableMessage,
@@ -19,14 +18,14 @@ import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawne
 import type { AcpError } from "effect-acp/errors";
 
 import * as BackgroundPolicy from "../../background/BackgroundPolicy.ts";
-import * as ServerConfig from "../../config.ts";
-import * as ServerSettings from "../../serverSettings.ts";
+import { ServerConfig } from "../../config.ts";
+import { ServerSettingsService } from "../../serverSettings.ts";
 import {
   isAntigravityTextGenerationAvailable,
   makeAntigravityTextGeneration,
 } from "../../textGeneration/AntigravityTextGeneration.ts";
 import { makeAntigravityAuth, type AntigravityAuth } from "../AntigravityAuth.ts";
-import * as AntigravityInstallation from "../AntigravityInstallation.ts";
+import { AntigravityInstallation } from "../AntigravityInstallation.ts";
 import {
   antigravityAuthConfigIssue,
   antigravityAuthLabel,
@@ -47,13 +46,10 @@ import {
   removeAntigravityRuntimeTempDirs,
   removeAntigravitySessionFiles,
 } from "../acp/AntigravitySessionFiles.ts";
-import * as IdAllocator from "../../orchestration-v2/IdAllocator.ts";
-import * as ProviderContinuationRequests from "../../orchestration-v2/ProviderContinuationRequests.ts";
-import { makeAntigravityAdapterV2 } from "../../orchestration-v2/Adapters/AntigravityAdapterV2.ts";
-import { makeAcpNativeLoggerFactory } from "../acp/AcpNativeLogging.ts";
 import { ProviderDriverError } from "../Errors.ts";
+import { makeAntigravityAdapter } from "../Layers/AntigravityAdapter.ts";
 import { makeAntigravityProvider } from "../Layers/AntigravityProvider.ts";
-import * as ProviderEventLoggers from "../Layers/ProviderEventLoggers.ts";
+import { ProviderEventLoggers } from "../Layers/ProviderEventLoggers.ts";
 import * as ModelManifest from "../ModelManifest.ts";
 import {
   defaultProviderContinuationIdentity,
@@ -62,10 +58,6 @@ import {
 } from "../ProviderDriver.ts";
 import { mergeProviderInstanceEnvironment } from "../ProviderInstanceEnvironment.ts";
 import { withInstanceIdentity } from "./instanceIdentity.ts";
-import {
-  gentleAiOffDirectory,
-  materializeAntigravityPlainHome,
-} from "../../gentleAi/GentleAiOff.ts";
 import { discoverAntigravitySkills, resolveAntigravityUserHome } from "./AntigravitySkills.ts";
 
 const DRIVER = ProviderDriverKind.make("antigravity");
@@ -73,17 +65,16 @@ const decodeSettings = Schema.decodeSync(AntigravitySettings);
 const isNodeRuntimeUnavailableError = Schema.is(NodeRuntimeUnavailableError);
 
 export type AntigravityDriverEnv =
-  | AntigravityInstallation.AntigravityInstallation
+  | AntigravityInstallation
   | BackgroundPolicy.BackgroundPolicy
   | ChildProcessSpawner.ChildProcessSpawner
   | Crypto.Crypto
   | FileSystem.FileSystem
-  | IdAllocator.IdAllocatorV2
   | ModelManifest.ModelManifest
   | Path.Path
-  | ProviderEventLoggers.ProviderEventLoggers
-  | ServerConfig.ServerConfig
-  | ServerSettings.ServerSettingsService;
+  | ProviderEventLoggers
+  | ServerConfig
+  | ServerSettingsService;
 
 /** Each instance owns its Google profile. Executable releases are shared by the environment. */
 export const AntigravityDriver: ProviderDriver<AntigravitySettings, AntigravityDriverEnv> = {
@@ -97,14 +88,10 @@ export const AntigravityDriver: ProviderDriver<AntigravitySettings, AntigravityD
       const fileSystem = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-      const serverConfig = yield* ServerConfig.ServerConfig;
-      const selfInvocation = yield* resolveSelfInvocation();
-      const installation = yield* AntigravityInstallation.AntigravityInstallation;
-      const loggers = yield* ProviderEventLoggers.ProviderEventLoggers;
+      const serverConfig = yield* ServerConfig;
+      const installation = yield* AntigravityInstallation;
+      const loggers = yield* ProviderEventLoggers;
       const modelManifest = yield* ModelManifest.ModelManifest;
-      const idAllocator = yield* IdAllocator.IdAllocatorV2;
-      const continuationRequests = yield* ProviderContinuationRequests.ProviderContinuationRequests;
-      const makeNativeLogger = yield* makeAcpNativeLoggerFactory();
       const settings = { ...config, enabled } satisfies AntigravitySettings;
       const auth: AntigravityAuthConfig = {
         authMethod: settings.authMethod,
@@ -114,8 +101,7 @@ export const AntigravityDriver: ProviderDriver<AntigravitySettings, AntigravityD
       };
       const authConfigIssue = antigravityAuthConfigIssue(auth);
       const processEnvironment = mergeProviderInstanceEnvironment(environment);
-      const hostPlatform = yield* HostProcessPlatform;
-      const userHome = resolveAntigravityUserHome(hostPlatform, processEnvironment);
+      const userHome = resolveAntigravityUserHome(yield* HostProcessPlatform, processEnvironment);
       const directories = yield* resolveAntigravityInstanceDirectories(
         serverConfig.stateDir,
         instanceId,
@@ -166,9 +152,7 @@ export const AntigravityDriver: ProviderDriver<AntigravitySettings, AntigravityD
         );
 
       const makeRuntime = Effect.fn("AntigravityDriver.makeRuntime")(function* (
-        input: Omit<AntigravityAcpRuntimeInput, "spawn" | "childProcessSpawner"> & {
-          readonly gentleAiOff?: boolean;
-        },
+        input: Omit<AntigravityAcpRuntimeInput, "spawn" | "childProcessSpawner">,
       ): Effect.fn.Return<
         AcpSessionRuntime["Service"],
         AcpError | ProviderSetupError,
@@ -241,42 +225,13 @@ export const AntigravityDriver: ProviderDriver<AntigravitySettings, AntigravityD
                 ),
               ),
         );
-        // With Gentle AI off, the thread runs on a plain mirror of the profile that lives as long
-        // as the runtime: the same sign-in, without gentle-ai's skills.
-        const runProfile = input.gentleAiOff
-          ? {
-              ...profile,
-              geminiHome: yield* Effect.gen(function* () {
-                const target = yield* gentleAiOffDirectory("antigravity");
-                yield* materializeAntigravityPlainHome({
-                  source: profile.geminiHome,
-                  target,
-                  platform: hostPlatform,
-                });
-                return target;
-              }).pipe(
-                Effect.provideService(FileSystem.FileSystem, fileSystem),
-                Effect.provideService(Path.Path, path),
-                Effect.mapError(
-                  (cause) =>
-                    new ProviderSetupError({
-                      instanceId,
-                      operation: "start",
-                      detail: "Antigravity could not start with Gentle AI off.",
-                      cause,
-                    }),
-                ),
-              ),
-            }
-          : profile;
-        const { gentleAiOff: _gentleAiOff, ...runtimeInput } = input;
         const runtime = yield* makeAntigravityAcpRuntime({
-          ...runtimeInput,
+          ...input,
           authMethod: auth.authMethod,
           childProcessSpawner: spawner,
           spawn: buildAntigravityAcpSpawnInput({
             installation: executable,
-            profile: runProfile,
+            profile,
             cwd: input.cwd,
             baseEnv: withAgentDeviceEnvironment(processEnvironment, input),
             auth,
@@ -440,33 +395,16 @@ export const AntigravityDriver: ProviderDriver<AntigravitySettings, AntigravityD
       const defaultModel = modelManifest.current.pipe(
         Effect.map((manifest) => ModelManifest.manifestDefaultModel(manifest, DRIVER)),
       );
-      const orchestrationAdapter = makeAntigravityAdapterV2({
+      const adapter = yield* makeAntigravityAdapter(settings, {
         instanceId,
-        crypto,
-        fileSystem,
-        path,
-        idAllocator,
-        serverConfig,
-        selfInvocation,
         makeRuntime,
         withProcess: authFlow.withProcess,
         defaultModel,
         onSessionStarted: provider.onSessionStarted,
-        onSessionEvent: (event) => {
-          if (event._tag === "ConfigOptionsUpdated") {
-            return provider.onConfigOptionsUpdated(event.configOptions);
-          }
-          return event._tag === "AvailableCommandsUpdated"
-            ? provider.onAvailableCommands(event.availableCommands)
-            : Effect.void;
-        },
-        continuationRequests,
-        nativeLogging: (threadId) =>
-          makeNativeLogger({
-            nativeEventLogger: loggers.native,
-            provider: DRIVER,
-            threadId,
-          }),
+        onConfigOptionsUpdated: provider.onConfigOptionsUpdated,
+        onAvailableCommands: provider.onAvailableCommands,
+        onAuthRequired: provider.onAuthRequired,
+        ...(loggers.native ? { nativeEventLogger: loggers.native } : {}),
       });
       const textGeneration = yield* makeAntigravityTextGeneration({
         profileDirectory,
@@ -552,7 +490,7 @@ export const AntigravityDriver: ProviderDriver<AntigravitySettings, AntigravityD
                     }),
                 ),
               ),
-        orchestrationAdapter,
+        adapter,
         textGeneration,
         auth: authFlow.controller,
         refreshModels,

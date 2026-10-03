@@ -121,255 +121,95 @@ function totalOutputTokens(summary: { buckets: readonly { totals: { outputTokens
 }
 
 describe("UsageService", () => {
-  it("resolves Pi roots with absolute and tilde environment/global precedence", () => {
-    const pathOps = {
-      sep: NodePath.sep,
-      isAbsolute: NodePath.isAbsolute,
-      join: NodePath.join,
-      resolve: NodePath.resolve,
-    };
-    assert.deepStrictEqual(
-      UsageService.resolvePiSessionsRoot({}, undefined, "/home/test", pathOps),
-      {
-        directory: NodePath.resolve("/home/test/.pi/agent/sessions"),
-        ignoredRelativePaths: [],
-      },
-    );
-    assert.deepStrictEqual(
-      UsageService.resolvePiSessionsRoot(
-        { PI_CODING_AGENT_DIR: "/custom/agent" },
-        "/global/sessions",
-        "/home/test",
-        pathOps,
-      ),
-      {
-        directory: NodePath.resolve("/global/sessions"),
-        ignoredRelativePaths: [],
-      },
-    );
-    assert.deepStrictEqual(
-      UsageService.resolvePiSessionsRoot(
-        {
-          PI_CODING_AGENT_DIR: "/ignored/agent",
-          PI_CODING_AGENT_SESSION_DIR: "/environment/sessions",
-        },
-        "/ignored/global-sessions",
-        "/home/test",
-        pathOps,
-      ),
-      {
-        directory: NodePath.resolve("/environment/sessions"),
-        ignoredRelativePaths: [],
-      },
-    );
-    assert.deepStrictEqual(
-      UsageService.resolvePiSessionsRoot(
-        { PI_CODING_AGENT_SESSION_DIR: "~/environment-sessions" },
-        "/ignored/global-sessions",
-        "/home/test",
-        pathOps,
-      ),
-      {
-        directory: NodePath.resolve("/home/test/environment-sessions"),
-        ignoredRelativePaths: [],
-      },
-    );
-    assert.deepStrictEqual(
-      UsageService.resolvePiSessionsRoot({}, "~/pi-sessions", "/home/test", pathOps),
-      {
-        directory: NodePath.resolve("/home/test/pi-sessions"),
-        ignoredRelativePaths: [],
-      },
-    );
-    assert.deepStrictEqual(
-      UsageService.resolvePiSessionsRoot(
-        { PI_CODING_AGENT_DIR: "~/custom-agent" },
-        undefined,
-        "/home/test",
-        pathOps,
-      ),
-      {
-        directory: NodePath.resolve("/home/test/custom-agent/sessions"),
-        ignoredRelativePaths: [],
-      },
-    );
-    assert.deepStrictEqual(
-      UsageService.resolvePiSessionsRoot(
-        { PI_CODING_AGENT_DIR: "/custom/agent" },
-        "relative-sessions",
-        "/home/test",
-        pathOps,
-      ),
-      {
-        directory: NodePath.resolve("/custom/agent/sessions"),
-        ignoredRelativePaths: ["settings.json sessionDir"],
-      },
-    );
-  });
-
-  it.live("reads Pi sessions from the home its environment names", () =>
-    Effect.gen(function* () {
-      const { settings, home } = yield* setup;
-      const sessions = NodePath.join(home, ".pi", "agent", "sessions");
-      yield* Effect.promise(() => NodeFSP.mkdir(sessions, { recursive: true }));
-      const service = yield* UsageService.make.pipe(
-        Effect.provide(serviceLayers({ prefix: "usage-service-pi-home-test", home, settings })),
-      );
-      const summary = yield* service.readSummary(WINDOW);
-      const pi = summary.sources.filter((source) => source.fingerprint.provider === "pi");
-      assert.strictEqual(pi.length, 1);
-      assert.strictEqual(
-        pi[0]?.fingerprint.resolvedHomePath,
-        yield* Effect.promise(() => NodeFSP.realpath(sessions)),
-      );
-    }).pipe(Effect.scoped),
-  );
-
-  it("never resolves relative Pi environment paths against the server cwd", () => {
-    const serverCwd = "/server-cwd-that-is-not-a-thread-cwd";
-    const pathOps = {
-      sep: NodePath.sep,
-      isAbsolute: NodePath.isAbsolute,
-      join: NodePath.join,
-      resolve: (...parts: ReadonlyArray<string>) => NodePath.resolve(serverCwd, ...parts),
-    };
-
-    assert.deepStrictEqual(
-      UsageService.resolvePiSessionsRoot(
-        {
-          PI_CODING_AGENT_SESSION_DIR: "thread-relative-sessions",
-          PI_CODING_AGENT_DIR: "/absolute/agent",
-        },
-        "/absolute/global-sessions",
-        "/home/test",
-        pathOps,
-      ),
-      {
-        directory: NodePath.resolve("/absolute/global-sessions"),
-        ignoredRelativePaths: ["PI_CODING_AGENT_SESSION_DIR"],
-      },
-    );
-    assert.deepStrictEqual(
-      UsageService.resolvePiSessionsRoot(
-        {
-          PI_CODING_AGENT_SESSION_DIR: "thread-relative-sessions",
-          PI_CODING_AGENT_DIR: "/absolute/agent",
-        },
-        undefined,
-        "/home/test",
-        pathOps,
-      ),
-      {
-        directory: NodePath.resolve("/absolute/agent/sessions"),
-        ignoredRelativePaths: ["PI_CODING_AGENT_SESSION_DIR"],
-      },
-    );
-    const relativeAgent = UsageService.resolvePiSessionsRoot(
-      { PI_CODING_AGENT_DIR: "thread-relative-agent" },
-      "/unusable-global-settings-because-agent-location-is-relative",
-      "/home/test",
-      pathOps,
-    );
-    assert.deepStrictEqual(relativeAgent, {
-      directory: NodePath.resolve("/home/test/.pi/agent/sessions"),
-      ignoredRelativePaths: ["PI_CODING_AGENT_DIR"],
-    });
-    const diagnostic = UsageService.piSourceDiagnostic(false, relativeAgent.ignoredRelativePaths);
-    assert.include(diagnostic, "PI_CODING_AGENT_DIR");
-    assert.include(diagnostic, "each invocation cwd");
-    assert.notInclude(diagnostic, serverCwd);
-  });
-
-  it.live.each([
-    { explicitDefault: true, label: "explicit" },
-    { explicitDefault: false, label: "legacy" },
-  ])(
-    "reads shared managed $label default and disabled extra account history once",
-    ({ explicitDefault }) =>
-      Effect.gen(function* () {
-        const { home, settings } = yield* setup;
-        const summary = yield* Effect.gen(function* () {
-          for (const [id, output] of [
-            ["codex", 17],
-            ["codex-personal", 23],
-          ] as const) {
-            const sessions = NodePath.join(home, "shared-codex", "sessions");
-            yield* Effect.promise(async () => {
-              await NodeFSP.mkdir(sessions, { recursive: true });
-              await NodeFSP.writeFile(
-                NodePath.join(sessions, `${id}-rollout.jsonl`),
-                [
-                  { type: "session_meta", payload: { id } },
-                  { type: "turn_context", payload: { model: "gpt-5.6-sol" } },
-                  {
-                    type: "event_msg",
-                    timestamp: "2026-08-01T10:00:00Z",
-                    payload: {
-                      type: "token_count",
-                      info: { last_token_usage: { input_tokens: 10, output_tokens: output } },
-                    },
-                  },
-                ]
-                  .map((line) => encodeUnknownJsonString(line))
-                  .join("\n") + "\n",
-              );
-            });
-          }
-          const service = yield* UsageService.make;
-          return yield* service.readSummary(WINDOW);
-        }).pipe(
-          Effect.provide(
-            serviceLayers({
-              prefix: "usage-managed-accounts",
-              home,
-              settings: {
-                ...settings,
-                providers: {
-                  ...settings.providers,
-                  codex: { setupMode: "managed", homePath: NodePath.join(home, "shared-codex") },
-                },
-                providerInstances: {
-                  ...(explicitDefault
-                    ? {
-                        [ProviderInstanceId.make("codex")]: {
-                          driver: ProviderDriverKind.make("codex"),
-                          config: {
-                            setupMode: "managed",
-                            homePath: NodePath.join(home, "shared-codex"),
-                          },
-                        },
-                      }
-                    : {}),
-                  [ProviderInstanceId.make("codex-personal")]: {
-                    driver: ProviderDriverKind.make("codex"),
-                    enabled: false,
-                    config: {
-                      setupMode: "managed",
-                      homePath: NodePath.join(home, "shared-codex"),
-                      shadowHomePath: NodePath.join(home, "personal-shadow"),
-                    },
-                    environment: [
-                      {
-                        name: "CODEX_HOME",
-                        value: NodePath.join(home, "ignored-environment"),
-                        sensitive: false,
+  for (const explicitDefault of [true, false]) {
+    it.live(
+      `reads shared managed ${explicitDefault ? "explicit" : "legacy"} default and disabled extra account history once`,
+      () =>
+        Effect.gen(function* () {
+          const { home, settings } = yield* setup;
+          const summary = yield* Effect.gen(function* () {
+            for (const [id, output] of [
+              ["codex", 17],
+              ["codex-personal", 23],
+            ] as const) {
+              const sessions = NodePath.join(home, "shared-codex", "sessions");
+              yield* Effect.promise(async () => {
+                await NodeFSP.mkdir(sessions, { recursive: true });
+                await NodeFSP.writeFile(
+                  NodePath.join(sessions, `${id}-rollout.jsonl`),
+                  [
+                    { type: "session_meta", payload: { id } },
+                    { type: "turn_context", payload: { model: "gpt-5.6-sol" } },
+                    {
+                      type: "event_msg",
+                      timestamp: "2026-08-01T10:00:00Z",
+                      payload: {
+                        type: "token_count",
+                        info: { last_token_usage: { input_tokens: 10, output_tokens: output } },
                       },
-                    ],
+                    },
+                  ]
+                    .map((line) => encodeUnknownJsonString(line))
+                    .join("\n") + "\n",
+                );
+              });
+            }
+            const service = yield* UsageService.make;
+            return yield* service.readSummary(WINDOW);
+          }).pipe(
+            Effect.provide(
+              serviceLayers({
+                prefix: "usage-managed-accounts",
+                home,
+                settings: {
+                  ...settings,
+                  providers: {
+                    ...settings.providers,
+                    codex: { setupMode: "managed", homePath: NodePath.join(home, "shared-codex") },
+                  },
+                  providerInstances: {
+                    ...(explicitDefault
+                      ? {
+                          [ProviderInstanceId.make("codex")]: {
+                            driver: ProviderDriverKind.make("codex"),
+                            config: {
+                              setupMode: "managed",
+                              homePath: NodePath.join(home, "shared-codex"),
+                            },
+                          },
+                        }
+                      : {}),
+                    [ProviderInstanceId.make("codex-personal")]: {
+                      driver: ProviderDriverKind.make("codex"),
+                      enabled: false,
+                      config: {
+                        setupMode: "managed",
+                        homePath: NodePath.join(home, "shared-codex"),
+                        shadowHomePath: NodePath.join(home, "personal-shadow"),
+                      },
+                      environment: [
+                        {
+                          name: "CODEX_HOME",
+                          value: NodePath.join(home, "ignored-environment"),
+                          sensitive: false,
+                        },
+                      ],
+                    },
                   },
                 },
-              },
-            }),
-          ),
-        );
-        assert.strictEqual(totalOutputTokens(summary), 40);
-        assert.strictEqual(
-          summary.sources.filter(
-            (source) => source.fingerprint.provider === "codex" && source.status === "ok",
-          ).length,
-          1,
-        );
-      }).pipe(Effect.scoped),
-  );
+              }),
+            ),
+          );
+          assert.strictEqual(totalOutputTokens(summary), 40);
+          assert.strictEqual(
+            summary.sources.filter(
+              (source) => source.fingerprint.provider === "codex" && source.status === "ok",
+            ).length,
+            1,
+          );
+        }).pipe(Effect.scoped),
+    );
+  }
   it.live("omits Cursor account usage when no file login is saved", () =>
     Effect.gen(function* () {
       const { settings, home } = yield* setup;

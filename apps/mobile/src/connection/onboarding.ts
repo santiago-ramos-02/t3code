@@ -15,7 +15,7 @@ export const connectPairingUrl = createRuntimeCommand(connectionAtomRuntime, {
   scheduler: onboardingScheduler,
   concurrency: { mode: "singleFlight", key: (pairingUrl: string) => pairingUrl },
   execute: (pairingUrl: string) =>
-    ConnectionOnboarding.ConnectionOnboarding.pipe(
+    ConnectionOnboarding.pipe(
       Effect.flatMap((onboarding) => onboarding.registerPairing({ pairingUrl })),
     ),
 });
@@ -31,8 +31,5 @@ export const updateBearerConnection = createRuntimeCommand(connectionAtomRuntime
     readonly environmentId: EnvironmentId;
     readonly label: string;
     readonly httpBaseUrl: string;
-  }) =>
-    ConnectionOnboarding.ConnectionOnboarding.pipe(
-      Effect.flatMap((onboarding) => onboarding.updateBearer(input)),
-    ),
+  }) => ConnectionOnboarding.pipe(Effect.flatMap((onboarding) => onboarding.updateBearer(input))),
 });
