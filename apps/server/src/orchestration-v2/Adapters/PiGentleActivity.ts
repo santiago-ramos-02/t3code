@@ -6,7 +6,7 @@ import {
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
-import { boundedText, nonEmpty } from "./PiText.ts";
+import { boundedText, nonEmpty } from "../../provider/PiText.ts";
 
 /**
  * gentle-pi publishes subagent activity to RPC hosts as a single JSON line in its
@@ -24,6 +24,9 @@ const GentleActivitySchema = Schema.Struct({
       summary: Schema.Struct({
         id: TrimmedNonEmptyString,
         agent: Schema.String,
+        // Newer gentle-pi only: whether the parent waits for it, and what it runs on.
+        mode: Schema.optional(Schema.String),
+        model: Schema.optional(Schema.String),
         label: Schema.String,
         prompt: Schema.String,
         status: Schema.Literals([
@@ -40,6 +43,8 @@ const GentleActivitySchema = Schema.Struct({
       }),
       thread: Schema.Struct({
         version: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
+        // Newer gentle-pi only: items the task ever had, which numbers the kept ones.
+        total: Schema.optional(Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0))),
         items: Schema.Array(
           Schema.Union([
             Schema.Struct({
@@ -49,6 +54,9 @@ const GentleActivitySchema = Schema.Struct({
             Schema.Struct({
               kind: Schema.Literal("tool"),
               name: Schema.String,
+              args: Schema.optional(Schema.String),
+              running: Schema.optional(Schema.Boolean),
+              isError: Schema.optional(Schema.Boolean),
               output: Schema.String,
             }),
           ]),
@@ -61,24 +69,30 @@ const decodeGentleActivity = Schema.decodeUnknownOption(
   Schema.fromJsonString(GentleActivitySchema),
 );
 
-type GentleTaskStatus = (typeof GentleActivitySchema.Type)["tasks"][number]["summary"]["status"];
+type GentleActivityTask = (typeof GentleActivitySchema.Type)["tasks"][number];
+type GentleTaskStatus = GentleActivityTask["summary"]["status"];
+export type GentleThreadItem = GentleActivityTask["thread"]["items"][number];
 
-/** What was last published for a subagent, so unchanged widget redraws emit nothing. */
-export interface GentleTaskSnapshot {
-  readonly status: GentleTaskStatus;
-  readonly progress: string;
-  readonly threadVersion: number;
-}
-
-/** One gentle-pi subagent as a V2 subagent. */
-export interface GentleSubagentUpdate {
+/** One gentle-pi subagent, read from a widget snapshot. */
+export interface GentleTask {
   readonly id: string;
   readonly title: string;
   readonly prompt: string;
   readonly status: OrchestrationV2Subagent["status"];
   readonly terminal: boolean;
+  /** Runs while the parent goes on, so it can finish after the turn that started it. */
+  readonly background: boolean;
+  /** The `provider/model` it runs on, when gentle-pi reports a specific one. */
+  readonly model: string | null;
   readonly progress: string;
   readonly result: string | null;
+  /** Changes whenever anything in the task's thread changes. */
+  readonly version: number;
+  /**
+   * The kept thread items with their item number, which stays the same while an item streams
+   * in place. Empty for a gentle-pi that does not number them.
+   */
+  readonly items: ReadonlyArray<{ readonly number: number; readonly item: GentleThreadItem }>;
 }
 
 const V2_STATUS = {
@@ -98,62 +112,47 @@ const TERMINAL_STATUSES: ReadonlySet<GentleTaskStatus> = new Set([
   "timed_out",
 ]);
 
-/**
- * Reads one `gentle-agents` widget snapshot. `updates` are the subagents that changed since
- * `published`, which is updated in place; `live` lists every unfinished subagent, the work that
- * keeps the thread running after its turn.
- */
-export function gentleActivityUpdates(
-  widgetLines: ReadonlyArray<string> | undefined,
-  published: Map<string, GentleTaskSnapshot>,
-): {
-  readonly updates: ReadonlyArray<GentleSubagentUpdate>;
-  readonly live: ReadonlyArray<{ readonly id: string; readonly title: string }>;
-} {
-  const line = widgetLines?.length === 1 ? widgetLines[0] : undefined;
-  if (line === undefined || line.length > MAX_WIDGET_LINE_CHARS) return { updates: [], live: [] };
-  const activity = decodeGentleActivity(line);
-  if (Option.isNone(activity)) return { updates: [], live: [] };
+function readTask(task: GentleActivityTask): GentleTask {
+  const summary = task.summary;
+  const title = nonEmpty(summary.label, summary.agent || "Pi subagent");
+  const terminal = TERMINAL_STATUSES.has(summary.status);
+  const items = task.thread.items;
+  const lastItem = items.at(-1);
+  const output = lastItem?.kind === "tool" ? lastItem.output : lastItem?.text;
+  const progress = nonEmpty(
+    lastItem?.kind === "text" && output?.trim() ? output : summary.lastStep || output,
+    title,
+  ).slice(0, MAX_PROGRESS_CHARS);
+  const resultItem = items.findLast((item) => item.kind === "text");
+  const finalText = summary.error || (resultItem?.kind === "text" ? resultItem.text : "");
+  const total = task.thread.total;
+  const model = summary.model?.trim();
+  return {
+    id: summary.id,
+    title,
+    prompt: nonEmpty(summary.prompt, title),
+    status: V2_STATUS[summary.status],
+    terminal,
+    background: summary.mode === "background",
+    model: model && model !== "default" ? model : null,
+    progress,
+    result: terminal && finalText.trim() ? boundedText(finalText.trim(), MAX_RESULT_CHARS) : null,
+    version: task.thread.version,
+    items:
+      total === undefined
+        ? []
+        : items.map((item, index) => ({ number: total - items.length + index, item })),
+  };
+}
 
-  const updates: Array<GentleSubagentUpdate> = [];
-  const live: Array<{ readonly id: string; readonly title: string }> = [];
-  for (const task of activity.value.tasks) {
-    const summary = task.summary;
-    const title = nonEmpty(summary.label, summary.agent || "Pi subagent");
-    const terminal = TERMINAL_STATUSES.has(summary.status);
-    if (!terminal) live.push({ id: summary.id, title });
-    const lastItem = task.thread.items.at(-1);
-    const output = lastItem?.kind === "tool" ? lastItem.output : lastItem?.text;
-    const progress = nonEmpty(
-      lastItem?.kind === "text" && output?.trim() ? output : summary.lastStep || output,
-      title,
-    ).slice(0, MAX_PROGRESS_CHARS);
-    const previous = published.get(summary.id);
-    if (
-      previous?.status === summary.status &&
-      previous.progress === progress &&
-      previous.threadVersion === task.thread.version
-    ) {
-      continue;
-    }
-    const resultItem = task.thread.items.findLast((item) => item.kind === "text");
-    const finalText = summary.error || (resultItem?.kind === "text" ? resultItem.text : "");
-    updates.push({
-      id: summary.id,
-      title,
-      prompt: nonEmpty(summary.prompt, title),
-      status: V2_STATUS[summary.status],
-      terminal,
-      progress,
-      result: terminal && finalText.trim() ? boundedText(finalText.trim(), MAX_RESULT_CHARS) : null,
-    });
-    published.set(summary.id, {
-      status: summary.status,
-      progress,
-      threadVersion: task.thread.version,
-    });
-  }
-  return { updates, live };
+/** The subagents in one `gentle-agents` widget snapshot, or null when it is not one. */
+export function readGentleActivity(
+  widgetLines: ReadonlyArray<string> | undefined,
+): ReadonlyArray<GentleTask> | null {
+  const line = widgetLines?.length === 1 ? widgetLines[0] : undefined;
+  if (line === undefined || line.length > MAX_WIDGET_LINE_CHARS) return null;
+  const activity = decodeGentleActivity(line);
+  return Option.isNone(activity) ? null : activity.value.tasks.map(readTask);
 }
 
 /**

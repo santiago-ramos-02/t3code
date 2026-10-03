@@ -20,10 +20,8 @@ import * as ServerSettings from "../../serverSettings.ts";
 import { makePiTextGeneration } from "../../textGeneration/PiTextGeneration.ts";
 import { makePiGentleSession } from "../../gentleAi/GentleAiSessions.ts";
 import { makePiGentleSettings } from "../PiGentleSettings.ts";
-import {
-  createPiAdapterV2,
-  type PiAdapterV2DriverEnv,
-} from "../../orchestration-v2/Adapters/PiAdapterV2.ts";
+import { type PiAdapterV2DriverEnv } from "../../orchestration-v2/Adapters/PiAdapterV2.ts";
+import { createPiAdapterV2 } from "../../orchestration-v2/Adapters/PiAdapterV2Gentle.ts";
 import { ProviderDriverError } from "../Errors.ts";
 import {
   buildInitialPiProviderSnapshot,

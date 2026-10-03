@@ -40,6 +40,7 @@ import {
   type ProviderAdapterV2SessionRuntime,
 } from "../ProviderAdapter.ts";
 import { handoffBudget } from "../ContextHandoffBudget.ts";
+import type { ProviderContinuationRequest } from "../ProviderContinuationRequests.ts";
 import { makePiAdapterV2, PI_PROVIDER } from "./PiAdapterV2.ts";
 import { makePiRpcConnection, type PiRpcRecord } from "./PiRpc.ts";
 
@@ -1155,7 +1156,79 @@ describe("PiAdapterV2", () => {
     }).pipe(Effect.scoped, Effect.provide(testLayer)),
   );
 
-  it.effect("shows gentle-pi subagents and keeps the thread working until they finish", () =>
+  // ── gentle-pi (fork) ──────────────────────────────────
+
+  /** One `gentle-agents` widget redraw with a single subagent. */
+  const gentleWidget = (
+    status: string,
+    items: ReadonlyArray<Record<string, unknown>>,
+    summary: Record<string, unknown> = {},
+  ) => ({
+    type: "extension_ui_request",
+    id: `widget-${status}-${items.length}`,
+    method: "setWidget",
+    widgetKey: "gentle-agents",
+    widgetLines: [
+      JSON.stringify({
+        schema: "gentle-agents.activity/v1",
+        tasks: [
+          {
+            summary: {
+              id: "task-1",
+              agent: "explorer",
+              mode: "task",
+              model: "claude-bridge/claude-sonnet-5-5",
+              label: "Map the repo",
+              prompt: "Find the reducer",
+              status,
+              lastStep: "Reading",
+              error: null,
+              ...summary,
+            },
+            thread: { version: items.length, total: items.length, items },
+          },
+        ],
+      }),
+    ],
+  });
+
+  /** A runtime whose adapter can request continuation runs, as the live server's can. */
+  const openRuntimeWithContinuations = Effect.fnUntraced(function* (fake: FakePi) {
+    const offers = yield* Queue.unbounded<ProviderContinuationRequest>();
+    const adapter = makePiAdapterV2({
+      instanceId: PI_INSTANCE_ID,
+      settings: { enabled: true, binaryPath: "pi", launchArgs: "", customModels: [] },
+      environment: {},
+      spawner: fake.spawner,
+      fileSystem: yield* FileSystem.FileSystem,
+      idAllocator: yield* IdAllocator.IdAllocatorV2,
+      serverConfig: yield* ServerConfig.ServerConfig,
+      continuationRequests: {
+        offer: (request) => Queue.offer(offers, request).pipe(Effect.asVoid),
+      },
+    });
+    const runtime = yield* adapter.openSession({
+      threadId: THREAD_ID,
+      providerSessionId: SESSION_ID,
+      modelSelection: modelSelection("default"),
+      runtimePolicy,
+    });
+    const emitted = yield* Queue.unbounded<ProviderAdapterV2Event>();
+    yield* runtime.events.pipe(
+      Stream.runForEach((event) => Queue.offer(emitted, event)),
+      Effect.forkScoped,
+    );
+    const takeEvent = (predicate: (event: ProviderAdapterV2Event) => boolean) =>
+      Effect.gen(function* () {
+        while (true) {
+          const event = yield* Queue.take(emitted);
+          if (predicate(event)) return event;
+        }
+      });
+    return { runtime, takeEvent, offers };
+  });
+
+  it.effect("gives each gentle-pi subagent a child thread with its prompt, replies and model", () =>
     Effect.gen(function* () {
       const fake = yield* makeFakePi;
       const { runtime, takeEvent } = yield* openRuntime(fake);
@@ -1167,40 +1240,45 @@ describe("PiAdapterV2", () => {
       yield* startTurn(runtime, providerThread);
       yield* fake.takeRequest("prompt");
       yield* fake.emit({ type: "agent_start" });
-      const widget = (status: string, items: ReadonlyArray<Record<string, string>>) => ({
-        type: "extension_ui_request",
-        id: `widget-${status}`,
-        method: "setWidget",
-        widgetKey: "gentle-agents",
-        widgetLines: [
-          JSON.stringify({
-            schema: "gentle-agents.activity/v1",
-            tasks: [
-              {
-                summary: {
-                  id: "task-1",
-                  agent: "explorer",
-                  label: "Map the repo",
-                  prompt: "Find the reducer",
-                  status,
-                  lastStep: "Reading",
-                  error: null,
-                },
-                thread: { version: items.length, items },
-              },
-            ],
-          }),
-        ],
-      });
 
-      yield* fake.emit(widget("running", [{ kind: "text", text: "scanning" }]));
+      yield* fake.emit(gentleWidget("running", [{ kind: "text", text: "scanning" }]));
+      const created = yield* takeEvent((event) => event.type === "app_thread.created");
+      assert.isTrue(
+        created.type === "app_thread.created" &&
+          created.appThread.lineage.parentThreadId === THREAD_ID &&
+          created.appThread.lineage.relationshipToParent === "subagent" &&
+          created.appThread.creationSource === "provider" &&
+          created.appThread.modelSelection.model === "claude-bridge/claude-sonnet-5-5",
+      );
+      const childThreadId = created.type === "app_thread.created" ? created.appThread.id : null;
+      const prompt = yield* takeEvent(
+        (event) => event.type === "message.updated" && event.message.threadId === childThreadId,
+      );
+      assert.isTrue(
+        prompt.type === "message.updated" &&
+          prompt.message.role === "user" &&
+          prompt.message.text === "Find the reducer",
+      );
       const running = yield* takeEvent(
         (event) => event.type === "subagent.updated" && event.subagent.status === "running",
       );
       assert.isTrue(
         running.type === "subagent.updated" &&
+          running.subagent.childThreadId === childThreadId &&
+          running.subagent.model === "claude-bridge/claude-sonnet-5-5" &&
           running.subagent.title === "Map the repo" &&
           running.subagent.progress === "scanning",
+      );
+      const reply = yield* takeEvent(
+        (event) =>
+          event.type === "turn_item.updated" &&
+          event.turnItem.threadId === childThreadId &&
+          event.turnItem.type === "assistant_message",
+      );
+      assert.isTrue(
+        reply.type === "turn_item.updated" &&
+          reply.turnItem.type === "assistant_message" &&
+          reply.turnItem.text === "scanning",
       );
       const roster = yield* takeEvent(
         (event) =>
@@ -1238,8 +1316,9 @@ describe("PiAdapterV2", () => {
       );
 
       yield* fake.emit(
-        widget("completed", [
+        gentleWidget("completed", [
           { kind: "text", text: "scanning" },
+          { kind: "tool", name: "read", args: '{"path":"state.ts"}', running: false, output: "ok" },
           { kind: "text", text: "The reducer lives in state.ts" },
         ]),
       );
@@ -1250,12 +1329,155 @@ describe("PiAdapterV2", () => {
         done.type === "subagent.updated" &&
           done.subagent.result === "The reducer lives in state.ts",
       );
+      // The tool call and the final answer join the child thread; the first reply, unchanged,
+      // is not sent again.
+      const tool = yield* takeEvent(
+        (event) => event.type === "turn_item.updated" && event.turnItem.threadId === childThreadId,
+      );
+      assert.isTrue(
+        tool.type === "turn_item.updated" &&
+          tool.turnItem.type === "dynamic_tool" &&
+          tool.turnItem.toolName === "read" &&
+          tool.turnItem.status === "completed",
+      );
+      const answer = yield* takeEvent(
+        (event) =>
+          event.type === "turn_item.updated" &&
+          event.turnItem.threadId === childThreadId &&
+          event.turnItem.type === "assistant_message",
+      );
+      assert.isTrue(
+        answer.type === "turn_item.updated" &&
+          answer.turnItem.type === "assistant_message" &&
+          answer.turnItem.text === "The reducer lives in state.ts",
+      );
       const cleared = yield* takeEvent(
         (event) =>
           event.type === "provider_thread.updated" &&
           event.providerThread.pendingBackgroundTasks?.length === 0,
       );
       assert.equal(cleared.type, "provider_thread.updated");
+    }).pipe(Effect.scoped, Effect.provide(testLayer)),
+  );
+
+  it.effect("hands gentle-pi's background wake-up to a continuation run", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakePi;
+      const { runtime, takeEvent, offers } = yield* openRuntimeWithContinuations(fake);
+      const providerThread = yield* runtime.ensureThread({
+        threadId: THREAD_ID,
+        modelSelection: modelSelection("default"),
+        runtimePolicy,
+      });
+      yield* startTurn(runtime, providerThread);
+      yield* fake.takeRequest("prompt");
+      yield* fake.emit({ type: "agent_start" });
+      yield* fake.emit(gentleWidget("running", [], { mode: "background" }));
+      yield* takeEvent((event) => event.type === "subagent.updated");
+      fake.queueState({ isStreaming: false, isCompacting: false, pendingMessageCount: 0 });
+      yield* fake.emit({ type: "agent_settled" });
+      yield* fake.takeRequest("get_state");
+      yield* takeEvent((event) => event.type === "turn.terminal");
+      // The background subagent keeps the session from being released while it runs.
+      assert.isTrue(yield* runtime.hasPendingBackgroundWork!);
+
+      // It finishes, and gentle-pi wakes the parent agent itself.
+      yield* fake.emit(
+        gentleWidget("completed", [{ kind: "text", text: "Found it" }], { mode: "background" }),
+      );
+      yield* fake.emit({ type: "agent_start" });
+      const offer = yield* Queue.take(offers);
+      assert.isTrue(
+        offer.delivery === "adapter_buffered" &&
+          offer.threadId === THREAD_ID &&
+          offer.notification?.source.kind === "subagent",
+      );
+      yield* fake.emit({ type: "message_start", message: { role: "assistant" } });
+      yield* fake.emit({
+        type: "message_update",
+        assistantMessageEvent: {
+          type: "text_end",
+          contentIndex: 0,
+          content: "The explorer found it",
+        },
+      });
+      yield* fake.emit({
+        type: "message_end",
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "The explorer found it" }],
+          stopReason: "stop",
+        },
+      });
+      fake.queueState({ isStreaming: false, isCompacting: false, pendingMessageCount: 0 });
+      yield* fake.emit({ type: "agent_settled" });
+
+      // The continuation run takes over the run Pi already started, without prompting again.
+      const appThread = yield* makeAppThread("default");
+      const runId = RunId.make(`run:${THREAD_ID}:2`);
+      yield* runtime.startTurn({
+        appThread,
+        threadId: THREAD_ID,
+        runId,
+        runOrdinal: 2,
+        providerTurnOrdinal: 2,
+        attemptId: RunAttemptId.make(`run-attempt:${runId}:1`),
+        rootNodeId: NodeId.make(`node:${runId}:root`),
+        providerThread,
+        message: {
+          messageId: `message:${THREAD_ID}:2` as never,
+          text: "A background subagent finished.",
+          attachments: [],
+          createdBy: "agent",
+          creationSource: "provider",
+        },
+        modelSelection: modelSelection("default"),
+        runtimePolicy,
+      });
+      const reply = yield* takeEvent(
+        (event) =>
+          event.type === "turn_item.updated" &&
+          event.turnItem.runId === runId &&
+          event.turnItem.type === "assistant_message",
+      );
+      assert.isTrue(
+        reply.type === "turn_item.updated" &&
+          reply.turnItem.type === "assistant_message" &&
+          reply.turnItem.text === "The explorer found it",
+      );
+      const terminal = yield* takeEvent((event) => event.type === "turn.terminal");
+      assert.isTrue(terminal.type === "turn.terminal" && terminal.status === "completed");
+      assert.equal(fake.allRequests().filter((request) => request.type === "prompt").length, 1);
+    }).pipe(Effect.scoped, Effect.provide(testLayer)),
+  );
+
+  it.effect("still stops Pi when it starts work outside a turn for no known reason", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakePi;
+      const { runtime, takeEvent, offers } = yield* openRuntimeWithContinuations(fake);
+      const providerThread = yield* runtime.ensureThread({
+        threadId: THREAD_ID,
+        modelSelection: modelSelection("default"),
+        runtimePolicy,
+      });
+      yield* startTurn(runtime, providerThread);
+      yield* fake.takeRequest("prompt");
+      yield* fake.emit({ type: "agent_start" });
+      fake.queueState({ isStreaming: false, isCompacting: false, pendingMessageCount: 0 });
+      yield* fake.emit({ type: "agent_settled" });
+      yield* fake.takeRequest("get_state");
+      yield* takeEvent((event) => event.type === "turn.terminal");
+
+      yield* fake.emit({ type: "agent_start" });
+      const stopped = yield* takeEvent(
+        (event) =>
+          event.type === "provider_session.updated" && event.providerSession.status === "error",
+      );
+      assert.isTrue(
+        stopped.type === "provider_session.updated" &&
+          stopped.providerSession.lastError?.startsWith("Pi started agent work outside") === true,
+      );
+      assert.equal(yield* Queue.size(offers), 0);
     }).pipe(Effect.scoped, Effect.provide(testLayer)),
   );
 
