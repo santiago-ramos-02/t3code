@@ -194,6 +194,26 @@ describe("scan cache round trip", () => {
     expect(restored?.position.codexState).toBeNull();
   });
 
+  it("keeps Pi usage across a round trip", () => {
+    const piState = { model: "openrouter/meta/llama-4", sessionId: "pi-session" };
+    const cache: ScanCache = new Map([
+      [
+        "/pi.jsonl",
+        {
+          size: 100,
+          mtimeMs: 100,
+          provider: "pi",
+          records: [record({ provider: "pi", model: piState.model })],
+          tailRecords: [],
+          position: position({ piState }),
+        },
+      ],
+    ]);
+    const restored = decodeScanCache(JSON.parse(JSON.stringify(encodeScanCache(cache))));
+    expect(restored.get("/pi.jsonl")?.records).toHaveLength(1);
+    expect(restored.get("/pi.jsonl")?.position.piState).toEqual(piState);
+  });
+
   it("reads an upstream server's entry, which has no Pi state", () => {
     const encoded = JSON.parse(
       JSON.stringify(encodeScanCache(cacheWith([["/a.jsonl", 100, [record()]]]))),

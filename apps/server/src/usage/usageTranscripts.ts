@@ -568,7 +568,7 @@ function reducePiEntry(
     totals,
     reportedCostUsd: usage.cost.total,
     // Pi reports the billed cost itself, so no fast-mode multiplier applies.
-    fast: false,
+    speed: "standard",
     dedupeKey: piDedupeKey({
       entryType: entry.type,
       entryId: entry.id,

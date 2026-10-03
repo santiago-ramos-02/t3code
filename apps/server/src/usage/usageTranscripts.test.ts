@@ -340,15 +340,15 @@ describe("parsePiLine", () => {
         reasoningTokens: 3,
       },
       reportedCostUsd: 0.37,
-      fast: false,
+      speed: "standard",
     });
     expect(Object.keys(record ?? {}).toSorted()).toEqual([
       "dedupeKey",
-      "fast",
       "model",
       "provider",
       "reportedCostUsd",
       "sessionId",
+      "speed",
       "timestampMs",
       "totals",
     ]);
