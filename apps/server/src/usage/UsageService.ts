@@ -54,7 +54,7 @@ import { mergeProviderInstanceEnvironment } from "../provider/ProviderInstanceEn
 import { readOpenCodeUsage } from "./opencodeUsageReader.ts";
 import { readAntigravityUsage } from "./antigravityUsageReader.ts";
 import { readCursorAccountUsage } from "./cursorUsageReader.ts";
-import { UsageAggregator } from "./usageAggregation.ts";
+import { resolveModelAliases, UsageAggregator } from "./usageAggregation.ts";
 import { createOverrideRateTable, parseRateTable, type RateTable } from "./usagePricing.ts";
 import {
   listTranscriptFiles,
@@ -1015,6 +1015,7 @@ export const make = Effect.gen(function* () {
       ...hourlyWindow,
       rates,
       priceOverrides: createOverrideRateTable(settings.usagePriceOverrides),
+      modelAliases: resolveModelAliases(settings.usageModelAliases),
     });
 
     const sources: UsageSource[] = [];
@@ -1119,17 +1120,13 @@ export const make = Effect.gen(function* () {
   });
 
   /**
-   * In-flight scans by window and custom prices, so concurrent identical requests (the usage
+   * In-flight scans by window and usage settings, so concurrent identical requests (the usage
    * page open on two clients at once) share one scan instead of racing over
    * the same corpus twice.
    */
   const inflightScans = new Map<string, Deferred.Deferred<UsageSummary, UsageReadError>>();
 
-  const scanKey = (
-    input: UsageSummaryInput,
-    priceOverrides: ServerSettingsValue["usagePriceOverrides"],
-    cursorKeychainUsageEnabled: boolean,
-  ): string =>
+  const scanKey = (input: UsageSummaryInput, settings: ServerSettingsValue): string =>
     JSON.stringify([
       input.timeZone,
       input.sinceDay,
@@ -1137,13 +1134,14 @@ export const make = Effect.gen(function* () {
       input.resolution ?? "day",
       input.sinceTime ?? null,
       input.untilTime ?? null,
-      priceOverrides,
-      cursorKeychainUsageEnabled,
+      settings.usagePriceOverrides,
+      settings.usageModelAliases,
+      settings.cursorKeychainUsageEnabled,
     ]);
 
   const readSummary = Effect.fn("UsageService.readSummary")(function* (input: UsageSummaryInput) {
     const settings = yield* readSettings;
-    const key = scanKey(input, settings.usagePriceOverrides, settings.cursorKeychainUsageEnabled);
+    const key = scanKey(input, settings);
     const deferred = yield* Effect.uninterruptible(
       Effect.gen(function* () {
         const existing = inflightScans.get(key);
