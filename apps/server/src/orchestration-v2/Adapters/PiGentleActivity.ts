@@ -114,7 +114,12 @@ const TERMINAL_STATUSES: ReadonlySet<GentleTaskStatus> = new Set([
 
 function readTask(task: GentleActivityTask): GentleTask {
   const summary = task.summary;
-  const title = nonEmpty(summary.label, summary.agent || "Pi subagent");
+  // Gentle AI's subagents have names, such as odd-explorer, and the user follows the work by
+  // them: the card leads with the name, then what this one was asked to do.
+  const agent = summary.agent.trim();
+  const label = summary.label.trim();
+  const title =
+    agent && label && label !== agent ? `${agent} · ${label}` : agent || label || "Pi subagent";
   const terminal = TERMINAL_STATUSES.has(summary.status);
   const items = task.thread.items;
   const lastItem = items.at(-1);

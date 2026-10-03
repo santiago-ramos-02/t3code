@@ -51,13 +51,34 @@ describe("readGentleActivity", () => {
       ["f", "completed", true],
     ]);
     expect(tasks.find((entry) => entry.id === "b")).toMatchObject({
-      title: "Map b",
+      title: "explorer · Map b",
       prompt: "Look into b",
       progress: "Found the reducer",
       result: null,
     });
     expect(tasks.find((entry) => entry.id === "e")?.result).toBe("Gave up");
     expect(tasks.find((entry) => entry.id === "f")?.result).toBe("All done");
+  });
+
+  it("names each subagent by its Gentle AI agent, then what it was asked", () => {
+    const titles = (
+      readGentleActivity(
+        widget(
+          task("a", "running"),
+          task("b", "running", [], { summary: { label: "" } }),
+          task("c", "running", [], { summary: { agent: "", label: "Look around" } }),
+          task("d", "running", [], { summary: { label: "explorer" } }),
+          task("e", "running", [], { summary: { agent: "", label: "" } }),
+        ),
+      ) ?? []
+    ).map((entry) => entry.title);
+    expect(titles).toEqual([
+      "explorer · Map a",
+      "explorer",
+      "Look around",
+      "explorer",
+      "Pi subagent",
+    ]);
   });
 
   it("reads what a newer gentle-pi adds: mode, model and numbered thread items", () => {

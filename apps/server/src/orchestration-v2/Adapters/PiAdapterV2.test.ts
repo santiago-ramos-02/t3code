@@ -1266,7 +1266,7 @@ describe("PiAdapterV2", () => {
         running.type === "subagent.updated" &&
           running.subagent.childThreadId === childThreadId &&
           running.subagent.model === "claude-bridge/claude-sonnet-5-5" &&
-          running.subagent.title === "Map the repo" &&
+          running.subagent.title === "explorer · Map the repo" &&
           running.subagent.progress === "scanning",
       );
       const reply = yield* takeEvent(
@@ -1392,7 +1392,7 @@ describe("PiAdapterV2", () => {
         offer.delivery === "adapter_buffered" &&
           offer.threadId === THREAD_ID &&
           offer.notification?.source.kind === "subagent" &&
-          offer.notification.summary === 'Subagent "Map the repo" finished',
+          offer.notification.summary === 'Subagent "explorer · Map the repo" finished',
       );
       yield* fake.emit({ type: "message_start", message: { role: "assistant" } });
       yield* fake.emit({
