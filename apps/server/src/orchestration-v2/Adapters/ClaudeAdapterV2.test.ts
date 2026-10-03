@@ -5530,6 +5530,75 @@ describe("ClaudeAdapterV2 background wake turns", () => {
     return { childThreadId, toolThreadIds, assistantTexts };
   };
 
+  it.effect("steers around a working subagent instead of cancelling it", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeWakeHarness;
+        const idAllocator = yield* IdAllocator.IdAllocatorV2;
+        const taskId = "task-steer-around";
+        const toolUseId = "toolu_steer_around";
+        const attemptId = RunAttemptId.make("attempt-steer-around");
+        const input = makeClaudeTestTurnInput({
+          threadId: harness.threadId,
+          providerThread: harness.providerThread,
+          now: yield* DateTime.now,
+          attemptId,
+          text: "Audit the repository.",
+          attachments: [],
+        });
+        const steer = (text: string) =>
+          harness.runtime.steerTurn({
+            threadId: harness.threadId,
+            runId: input.runId,
+            providerThread: harness.providerThread,
+            providerTurnId: idAllocator.derive.providerTurn({
+              driver: ClaudeAdapterV2.CLAUDE_PROVIDER,
+              nativeTurnId: `turn:${attemptId}`,
+            }),
+            message: {
+              createdBy: "user",
+              creationSource: "web",
+              messageId: MessageId.make(`message-${text}`),
+              text,
+              attachments: [],
+            },
+          });
+        const subagentStatus = () =>
+          harness.events.findLast((event) => event.type === "subagent.updated")?.subagent.status;
+        yield* harness.runtime.startTurn(input);
+        // A foreground subagent is an in-flight tool call, which "now" would cancel.
+        yield* Queue.offer(
+          harness.sdkMessages,
+          claudeSdkFrame({
+            ...makeSubagentTaskStartedFrame({
+              taskId,
+              toolUseId,
+              uuid: "00000000-0000-4000-8000-000000000a01",
+            }),
+            is_backgrounded: false,
+          }),
+        );
+        yield* awaitUntil(() => subagentStatus() === "running", "subagent running");
+        yield* steer("Also check the tags.");
+        assert.equal(harness.offeredMessages.at(-1)?.priority, "next");
+
+        // With the subagent done, a steer cuts in right away again.
+        yield* Queue.offer(
+          harness.sdkMessages,
+          makeSubagentNotificationFrame({
+            taskId,
+            toolUseId,
+            summary: "AUDITED",
+            uuid: "00000000-0000-4000-8000-000000000a02",
+          }),
+        );
+        yield* awaitUntil(() => subagentStatus() === "completed", "subagent completed");
+        yield* steer("And the branches.");
+        assert.equal(harness.offeredMessages.at(-1)?.priority, "now");
+      }),
+    ).pipe(Effect.provide(Layer.merge(IdAllocator.layer, NodeServices.layer))),
+  );
+
   it.effect("a subagent re-run in the foreground does not join a later wake", () =>
     Effect.scoped(
       Effect.gen(function* () {

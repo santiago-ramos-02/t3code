@@ -2766,6 +2766,22 @@ interface PendingClaudeSubagentLaunch {
   readonly ownerToolUseId?: string;
 }
 
+const WORKING_SUBAGENT_STATUSES: ReadonlySet<OrchestrationV2Subagent["status"]> = new Set([
+  "pending",
+  "running",
+  "waiting",
+]);
+
+/** Whether a turn still has a subagent at work, which a steer must not cancel. */
+function hasWorkingClaudeSubagent(turn: {
+  readonly subagentsByTaskId: ReadonlyMap<string, ActiveClaudeSubagent>;
+}): boolean {
+  for (const subagent of turn.subagentsByTaskId.values()) {
+    if (WORKING_SUBAGENT_STATUSES.has(subagent.task.status)) return true;
+  }
+  return false;
+}
+
 const PENDING_CLAUDE_SUBAGENT_CAP = 64;
 // Per-subagent bound on frames held while waiting for task_started.
 const PENDING_CLAUDE_SUBAGENT_FRAME_CAP = 256;
@@ -7373,7 +7389,10 @@ export function makeClaudeAdapterV2(
                 compileClaudeModelSelection(currentTurn.input.modelSelection).promptEffort,
               ),
               attachments: turnInput.message.attachments,
-              priority: "now",
+              // "now" aborts the turn's in-flight tool calls, and a working subagent is one of
+              // them, so it would be cancelled mid-task. "next" waits for the current step instead
+              // and reaches the turn as soon as the subagent's call returns.
+              priority: hasWorkingClaudeSubagent(currentTurn) ? "next" : "now",
               attachmentsDir,
               fileSystem,
               skillNames: yield* userInvocableSkillNames(currentTurn.input.runtimePolicy.cwd),
