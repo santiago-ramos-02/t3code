@@ -27,6 +27,7 @@ import { MemoryActivity } from "./MemoryActivity";
 import { MemoryBrainMap } from "./MemoryBrainMap";
 import { MemoryConflicts } from "./MemoryConflicts";
 import { MemoryHealthLine } from "./MemoryHealthLine";
+import { MemoryObsidianExport } from "./MemoryObsidianExport";
 import { buildMemoryGraph, pendingConflicts } from "./memoryModel";
 
 // Engram does not announce changes, so an open page reads it again on this interval.
@@ -127,6 +128,14 @@ export function MemoryPage() {
               ))}
             </SelectPopup>
           </Select>
+        ) : null}
+        {running && environment ? (
+          <MemoryObsidianExport
+            environmentId={environment.environmentId}
+            environmentLabel={environment.environmentLabel}
+            local={environment.environmentId === primaryEnvironmentId}
+            project={project === ALL ? null : project}
+          />
         ) : null}
         <Button
           onClick={refresh}
