@@ -1078,6 +1078,16 @@ describe("memory surfaces", () => {
     expect(state.isOpen).toBe(true);
   });
 
+  it("keeps one Memories tab beside the memories it opened", () => {
+    const store = useRightPanelStore.getState();
+    store.open(refA, "memories");
+    store.openMemory(refA, { id: 4, title: "A memory" });
+    store.open(refA, "memories");
+    const state = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA);
+    expect(state.surfaces.map((surface) => surface.id)).toEqual(["memories", "memory:4"]);
+    expect(state.activeSurfaceId).toBe("memories");
+  });
+
   it("restores saved memory tabs and drops broken ones", () => {
     const migrated = migratePersistedRightPanelState({
       byThreadKey: {

@@ -272,6 +272,7 @@ import { PullRequestsUnavailableState } from "./pullRequest/PullRequestsUnavaila
 import { RightPanelTabs } from "./RightPanelTabs";
 import { LinkPullRequestDialogHost } from "./pullRequest/LinkPullRequestDialog";
 import { ThreadPullRequestsPanel } from "./pullRequest/ThreadPullRequestsPanel";
+import { MemoriesPanel } from "./memory/MemoriesPanel";
 import { MemoryPanel } from "./memory/MemoryPanel";
 import { useDeviceState } from "~/state/device";
 import { DeviceSetup } from "./device/DeviceSetup";
@@ -394,7 +395,11 @@ import { vcsEnvironment } from "../state/vcs";
 import { sourceControlEnvironment } from "../state/sourceControl";
 import { useProjectClone } from "../state/projectClones";
 import { projectCloneDisplayName, projectCloneProgressSummary } from "@t3tools/contracts";
-import { useEnvironments, usePrimaryEnvironment } from "../state/environments";
+import {
+  useEnvironments,
+  useMemoryEnvironments,
+  usePrimaryEnvironment,
+} from "../state/environments";
 import {
   resolveThreadDetailRef,
   useProject,
@@ -5075,6 +5080,16 @@ export default function ChatView(props: ChatViewProps) {
     if (!activeThreadRef || !pullRequestsSurfaceAvailable) return;
     useRightPanelStore.getState().open(activeThreadRef, "pull-requests");
   }, [activeThreadRef, pullRequestsSurfaceAvailable]);
+  const memoryEnvironments = useMemoryEnvironments();
+  const memoriesSurfaceAvailable =
+    isServerThread &&
+    memoryEnvironments.some(
+      (environment) => environment.environmentId === activeThreadRef?.environmentId,
+    );
+  const addMemoriesSurface = useCallback(() => {
+    if (!activeThreadRef || !memoriesSurfaceAvailable) return;
+    useRightPanelStore.getState().open(activeThreadRef, "memories");
+  }, [activeThreadRef, memoriesSurfaceAvailable]);
   const { state: deviceState, loaded: deviceStateLoaded } = useDeviceState(
     activeThreadRef?.environmentId ?? null,
   );
@@ -10389,6 +10404,8 @@ export default function ChatView(props: ChatViewProps) {
       />
     ) : renderedRightPanelSurface?.kind === "pull-requests" && activeThreadRef ? (
       <ThreadPullRequestsPanel threadRef={activeThreadRef} />
+    ) : renderedRightPanelSurface?.kind === "memories" && activeThreadRef ? (
+      <MemoriesPanel threadRef={activeThreadRef} />
     ) : renderedRightPanelSurface?.kind === "memory" && activeThreadRef ? (
       <MemoryPanel
         key={renderedRightPanelSurface.id}
@@ -11265,6 +11282,7 @@ export default function ChatView(props: ChatViewProps) {
           onAddFiles={addFilesSurface}
           onAddPullRequest={addPullRequestSurface}
           onAddPullRequests={addPullRequestsSurface}
+          onAddMemories={addMemoriesSurface}
           onAddDevice={addDeviceSurface}
           browserAvailable={isPreviewSupportedInRuntime()}
           terminalAvailable={activeProject !== null}
@@ -11272,6 +11290,7 @@ export default function ChatView(props: ChatViewProps) {
           filesAvailable={activeProject !== null}
           pullRequestAvailable={pullRequestSurfaceAvailable}
           pullRequestsAvailable={pullRequestsSurfaceAvailable}
+          memoriesAvailable={memoriesSurfaceAvailable}
           deviceAvailable={activeThreadRef !== null}
         >
           {rightPanelContent}
@@ -11320,6 +11339,7 @@ export default function ChatView(props: ChatViewProps) {
             onAddFiles={addFilesSurface}
             onAddPullRequest={addPullRequestSurface}
             onAddPullRequests={addPullRequestsSurface}
+            onAddMemories={addMemoriesSurface}
             onAddDevice={addDeviceSurface}
             browserAvailable={isPreviewSupportedInRuntime()}
             terminalAvailable={activeProject !== null}
@@ -11327,6 +11347,7 @@ export default function ChatView(props: ChatViewProps) {
             filesAvailable={activeProject !== null}
             pullRequestAvailable={pullRequestSurfaceAvailable}
             pullRequestsAvailable={pullRequestsSurfaceAvailable}
+            memoriesAvailable={memoriesSurfaceAvailable}
             deviceAvailable={activeThreadRef !== null}
           >
             {rightPanelContent}
