@@ -136,6 +136,13 @@ describe("pendingConflicts", () => {
       older.syncId,
     ]);
   });
+
+  it("drops pairs Engram marked orphaned because one memory was deleted", () => {
+    const gone = { ...link(1, 9, "pending", "orphaned"), targetTitle: "" };
+    expect(pendingConflicts([gone, link(1, 2, "pending", "pending")]).map((r) => r.syncId)).toEqual(
+      ["rel-1-2"],
+    );
+  });
 });
 
 describe("memoryActivity", () => {
@@ -166,6 +173,10 @@ describe("parseMemoryTime", () => {
     );
     expect(new Date(parseMemoryTime("2026-10-01T10:00:00Z")).toISOString()).toBe(
       "2026-10-01T10:00:00.000Z",
+    );
+    // Session times carry Go's nanoseconds.
+    expect(new Date(parseMemoryTime("2026-10-03 06:20:28.579015200")).toISOString()).toBe(
+      "2026-10-03T06:20:28.579Z",
     );
   });
 });

@@ -47,7 +47,7 @@ export function MemoryDetailSheet(props: {
   const relations = useMemo(() => {
     if (!observation) return [];
     return (props.overview?.relations ?? []).flatMap((relation) => {
-      if (relation.relation === "not_conflict") return [];
+      if (relation.relation === "not_conflict" || relation.judgmentStatus === "orphaned") return [];
       const from =
         relation.sourceId === observation.syncId
           ? "source"

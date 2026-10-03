@@ -28,7 +28,7 @@ import { MemoryBrainMap } from "./MemoryBrainMap";
 import { MemoryConflicts } from "./MemoryConflicts";
 import { MemoryHealthLine } from "./MemoryHealthLine";
 import { MemoryObsidianExport } from "./MemoryObsidianExport";
-import { buildMemoryGraph, pendingConflicts } from "./memoryModel";
+import { buildMemoryGraph } from "./memoryModel";
 
 // Engram does not announce changes, so an open page reads it again on this interval.
 const OVERVIEW_REFRESH_MS = 30_000;
@@ -248,7 +248,6 @@ function MemoryContent(props: {
       (relation) => ids.has(relation.sourceId) || ids.has(relation.targetId),
     );
   }, [overview.relations, observations, project]);
-  const conflicts = pendingConflicts(relations).length;
   const graph = useMemo(
     () => buildMemoryGraph(overview.observations, overview.relations, project, MAP_LIMIT),
     [overview.observations, overview.relations, project],
@@ -275,7 +274,6 @@ function MemoryContent(props: {
         <MemoryStat label="Memories" value={observations.length} />
         <MemoryStat label="Sessions" value={sessions.length} />
         {project === null ? <MemoryStat label="Projects" value={overview.projects.length} /> : null}
-        {conflicts > 0 ? <MemoryStat label="Need your call" value={conflicts} /> : null}
       </dl>
       {overview.observationsTruncated ? (
         <p className="text-sm text-muted-foreground">

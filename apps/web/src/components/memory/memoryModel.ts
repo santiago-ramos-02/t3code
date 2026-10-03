@@ -28,11 +28,14 @@ export const MEMORY_GROUP_LABELS: Record<MemoryGroup, string> = {
   other: "Other",
 };
 
-/** Engram writes UTC as `YYYY-MM-DD HH:MM:SS`, which `Date` would read as local time. */
-export const parseMemoryTime = (value: string) =>
-  Date.parse(
-    /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value) ? `${value.replace(" ", "T")}Z` : value,
-  );
+/**
+ * Engram writes UTC as `YYYY-MM-DD HH:MM:SS`, sessions with nanoseconds after it, which `Date`
+ * would read as local time.
+ */
+export const parseMemoryTime = (value: string) => {
+  const match = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})(\.\d+)?$/.exec(value);
+  return Date.parse(match ? `${match[1]}T${match[2]}${match[3]?.slice(0, 4) ?? ""}Z` : value);
+};
 
 /** An Engram time as ISO, for the shared timestamp formatters; empty when unreadable. */
 export const memoryIsoTime = (value: string) => {
@@ -58,9 +61,12 @@ export function memoryRelationLabel(kind: string, from: "source" | "target") {
   }
 }
 
-/** A relation nobody has given a verdict yet. */
+/**
+ * A relation waiting for a verdict. Engram keeps `relation: "pending"` on pairs it later marks
+ * `orphaned` when one memory is deleted; those have nothing left to judge.
+ */
 export const isPendingRelation = (relation: MemoryRelation) =>
-  relation.judgmentStatus === "pending" || relation.relation === "pending";
+  relation.judgmentStatus === "pending";
 
 export interface MemoryGraphNode {
   readonly id: string;

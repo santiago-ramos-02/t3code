@@ -1,9 +1,14 @@
 import { TriangleAlertIcon } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import { memoryTimeLabel } from "./MemoryDetailSheet";
-import { MEMORY_NODE_RADIUS, layoutMemoryGraph, type MemoryLayout } from "./memoryLayout";
+import {
+  fitLayoutToAspect,
+  layoutMemoryGraph,
+  MEMORY_NODE_RADIUS,
+  type MemoryLayout,
+} from "./memoryLayout";
 import {
   MEMORY_GROUP_LABELS,
   type MemoryGraph,
@@ -119,8 +124,21 @@ function MemoryMapPlot(props: {
   readonly layout: MemoryLayout;
   readonly onOpenMemory: (id: number) => void;
 }) {
-  const { graph, layout } = props;
+  const { graph } = props;
   const plotRef = useRef<HTMLDivElement | null>(null);
+  // The plot's width over its height, so the layout can spread to fill it.
+  const [aspect, setAspect] = useState(0);
+  useEffect(() => {
+    const plot = plotRef.current;
+    if (plot === null || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(([entry]) => {
+      const box = entry?.contentRect;
+      if (box && box.height > 0) setAspect(Math.round((box.width / box.height) * 20) / 20);
+    });
+    observer.observe(plot);
+    return () => observer.disconnect();
+  }, []);
+  const layout = useMemo(() => fitLayoutToAspect(props.layout, aspect), [props.layout, aspect]);
   const [hover, setHover] = useState<{
     readonly node: MemoryGraphNode;
     readonly left: number;

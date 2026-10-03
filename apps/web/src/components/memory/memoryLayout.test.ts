@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { layoutMemoryGraph } from "./memoryLayout";
+import { fitLayoutToAspect, layoutMemoryGraph } from "./memoryLayout";
 
 const node = (id: string) => ({ id });
 
@@ -39,5 +39,30 @@ describe("layoutMemoryGraph", () => {
       return a && b ? Math.hypot(a.x - b.x, a.y - b.y) : Number.NaN;
     };
     expect(distance("a", "b")).toBeLessThan(distance("a", "f"));
+  });
+});
+
+describe("fitLayoutToAspect", () => {
+  const square = {
+    positions: new Map([
+      ["a", { x: -10, y: -10 }],
+      ["b", { x: 10, y: 10 }],
+    ]),
+    viewBox: { x: -20, y: -20, width: 40, height: 40 },
+  };
+
+  it("spreads a round layout across a wide plot", () => {
+    const wide = fitLayoutToAspect(square, 2);
+    expect(wide.viewBox).toEqual({ x: -40, y: -20, width: 80, height: 40 });
+    expect(wide.positions.get("a")).toEqual({ x: -20, y: -10 });
+  });
+
+  it("stops before the map turns into streaks", () => {
+    expect(fitLayoutToAspect(square, 10).viewBox.width).toBe(120);
+  });
+
+  it("leaves a layout that already fits alone", () => {
+    expect(fitLayoutToAspect(square, 1)).toBe(square);
+    expect(fitLayoutToAspect(square, 0)).toBe(square);
   });
 });
