@@ -349,6 +349,7 @@ export function ThreadRelationshipsPanel(props: {
               const relationshipTooltip = agent ? (
                 <SubagentTooltipContent
                   title={threadTitle}
+                  agentName={agent.role ?? undefined}
                   model={agent.model}
                   provider={provider}
                   driver={providerDriver}
@@ -372,10 +373,16 @@ export function ThreadRelationshipsPanel(props: {
                     fallbackIcon={RelationshipIcon}
                     status={status}
                   />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-left text-sm font-medium leading-4 text-foreground/85">
+                  <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
+                    <span className="min-w-0 truncate text-left text-sm font-medium leading-4 text-foreground/85">
                       {threadTitle}
                     </span>
+                    {/* A named agent, such as Gentle AI's odd-explorer, reads beside what it was asked. */}
+                    {agent?.role ? (
+                      <span className="max-w-[45%] shrink-0 truncate font-mono text-3xs text-muted-foreground">
+                        {agent.role}
+                      </span>
+                    ) : null}
                   </span>
                   {agent ? (
                     agent.startedAt ? (
