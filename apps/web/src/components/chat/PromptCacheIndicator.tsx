@@ -1,4 +1,3 @@
-import { Minimize2Icon } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import {
@@ -12,7 +11,6 @@ import {
   promptCacheNextMessage,
   type PromptCacheSnapshot,
   promptCacheState,
-  promptCacheSuggestsCompact,
   promptCacheTone,
 } from "~/lib/promptCache";
 import { cn } from "~/lib/utils";
@@ -36,8 +34,6 @@ export function PromptCacheIndicator(props: {
   readonly cache: PromptCacheSnapshot;
   /** What the next request sends, which it re-reads in full once the cache has expired. */
   readonly contextTokens: number | null;
-  readonly onCompact?: (() => void) | undefined;
-  readonly compactDisabled?: boolean | undefined;
 }) {
   const { cache } = props;
   const [open, setOpen] = useState(false);
@@ -117,18 +113,6 @@ export function PromptCacheIndicator(props: {
             <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", TONE_FILL[tone])} />
             {nextMessage}
           </div>
-          {promptCacheSuggestsCompact(state, props.contextTokens) && props.onCompact ? (
-            <Button
-              size="xs"
-              variant="outline"
-              className="w-full justify-center"
-              disabled={props.compactDisabled}
-              onClick={props.onCompact}
-            >
-              <Minimize2Icon aria-hidden="true" />
-              Compact context
-            </Button>
-          ) : null}
         </div>
       </PopoverPopup>
     </Popover>

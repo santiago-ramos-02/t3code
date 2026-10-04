@@ -200,8 +200,8 @@ request, so the next message re-reads it cheaply. On web and desktop, once a tur
 cache use, the composer shows how long the cache lives on, such as **44m**, and **warm** while
 the agent works. Once it expires, your next message sends the whole conversation again at full
 price. Hover the readout to see the countdown and what your next message gets: it reuses the
-context, should be sent now to keep it, or rebuilds it. On a large expired context it offers to
-compact first.
+context, should be sent now to keep it, or rebuilds it. On a large expired context it suggests
+compacting first.
 
 Claude reports how long it keeps the cache, so its readout counts down. Codex, OpenCode,
 and Pi show how long ago the cache was last used instead. Cursor, Grok, and Antigravity do
