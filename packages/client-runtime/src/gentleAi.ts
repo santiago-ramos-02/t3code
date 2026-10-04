@@ -160,12 +160,32 @@ export function gentleOddThreadFeaturePaths(
     ...thread.messages.map((message) => message.text),
     ...thread.records.map(recordText),
   ];
-  return new Set(
-    paths.filter((path) => {
-      const spellings = [path, path.replaceAll("/", "\\"), path.replaceAll("/", "\\\\")];
-      return texts.some((text) => spellings.some((spelling) => text.includes(spelling)));
-    }),
+  return new Set(paths.filter((path) => texts.some((text) => namesPath(text, path))));
+}
+
+/** Whether a text names a path, with either slash or JSON-escaped backslashes. */
+function namesPath(text: string, path: string) {
+  return [path, path.replaceAll("/", "\\"), path.replaceAll("/", "\\\\")].some((spelling) =>
+    text.includes(spelling),
   );
+}
+
+/**
+ * The feature document an agent works on now: the one the newest entry names alone. Entries are
+ * messages' text and work records, oldest first. One naming several, such as a listing of the
+ * folder, says nothing about which, so it is passed over.
+ */
+export function gentleOddCurrentFeaturePath(
+  entries: ReadonlyArray<unknown>,
+  paths: ReadonlyArray<string>,
+): string | null {
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const entry = entries[index];
+    const text = typeof entry === "string" ? entry : recordText(entry);
+    const named = paths.filter((path) => namesPath(text, path));
+    if (named.length === 1) return named[0] ?? null;
+  }
+  return null;
 }
 
 /**

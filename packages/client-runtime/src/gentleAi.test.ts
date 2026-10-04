@@ -18,6 +18,7 @@ import {
   gentleOddContinuePrompt,
   gentleOddFeatureSummary,
   gentleOddMenuFeatures,
+  gentleOddCurrentFeaturePath,
   gentleOddFeatureRecordCount,
   gentleOddThreadFeaturePaths,
   gentlePiProfileSummary,
@@ -114,6 +115,19 @@ describe("ODD feature menu", () => {
     expect(
       gentleOddThreadFeaturePaths(thread, ["odd/tasks/a.md", "odd/tasks/b.md", "odd/tasks/c.md"]),
     ).toEqual(new Set(["odd/tasks/a.md", "odd/tasks/b.md"]));
+  });
+
+  it("picks the document the newest entry names alone, past listings that name several", () => {
+    const paths = ["odd/tasks/a.md", "odd/tasks/b.md", "odd/tasks/c.md"];
+    const entries = [
+      "Implement [a.md](odd/tasks/a.md) ",
+      { detail: String.raw`Edited C:\repo\odd\tasks\b.md` },
+      { output: "odd/tasks/a.md\nodd/tasks/b.md\nodd/tasks/c.md" },
+      { detail: "ran tests" },
+    ];
+    expect(gentleOddCurrentFeaturePath(entries, paths)).toBe("odd/tasks/b.md");
+    expect(gentleOddCurrentFeaturePath(entries.slice(0, 1), paths)).toBe("odd/tasks/a.md");
+    expect(gentleOddCurrentFeaturePath([{ detail: "ran tests" }], paths)).toBeNull();
   });
 
   it("counts the work records that touch a feature document, so a reader knows to re-read them", () => {

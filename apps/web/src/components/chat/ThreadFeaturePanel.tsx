@@ -1,10 +1,11 @@
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import {
+  gentleOddCurrentFeaturePath,
   gentleOddFeatureRecordCount,
   gentleOddFeatureSummary,
-  gentleOddThreadFeaturePaths,
 } from "@t3tools/client-runtime/gentle-ai";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import * as DateTime from "effect/DateTime";
 import { FileTextIcon } from "lucide-react";
 import { useEffect, useMemo } from "react";
 
@@ -21,8 +22,8 @@ import {
 } from "./threadDetailsPanelStyles";
 
 /**
- * Thread details panel section listing the ODD feature documents this thread works on, with
- * where each stands, each opening beside the thread. Renders nothing without any, or without a
+ * Thread details panel section showing the ODD feature document the thread's agent works on now,
+ * with where it stands, opening beside the thread. Renders nothing without one, or without a
  * Gentle AI that lists them.
  */
 export function ThreadFeaturePanel(props: {
@@ -44,57 +45,72 @@ export function ThreadFeaturePanel(props: {
     { cwd: props.cwd ?? "" },
     { enabled: listed && props.cwd !== null },
   );
-  const messages = useThreadProjection(threadRef)?.projection?.messages;
+  const projection = useThreadProjection(threadRef)?.projection;
   const items = useThreadVisibleTurnItems(threadRef);
-  const trail = useMemo(
-    () => ({ messages: messages ?? [], records: items ?? [] }),
-    [messages, items],
-  );
   // An agent touching a document, as when it checks a task off, is when its progress changes.
-  const touches = gentleOddFeatureRecordCount(trail);
+  const touches = gentleOddFeatureRecordCount({ messages: [], records: items ?? [] });
   const { refresh } = features;
   useEffect(() => {
     if (touches > 0) refresh();
   }, [refresh, touches]);
-  const inThread = useMemo(() => {
-    const all = features.data?.features ?? [];
-    const paths = gentleOddThreadFeaturePaths(
-      trail,
-      all.map((feature) => feature.path),
+  // The thread's messages and its main agent's work, oldest first. A subagent's work runs on its
+  // own node, and may read other documents than the one the agent works on.
+  const entries = useMemo(() => {
+    if (!projection) return [];
+    const rootNodes = new Set(projection.runs.flatMap((run) => run.rootNodeId ?? []));
+    const records = (items ?? []).filter(
+      ({ item }) => item.nodeId === null || rootNodes.has(item.nodeId),
     );
-    const mine = all.filter((feature) => paths.has(feature.path));
-    // The work still going on comes first; Gentle AI lists each part newest first.
-    const finished = (feature: (typeof mine)[number]) =>
-      feature.tasksTotal > 0 && feature.tasksDone === feature.tasksTotal;
-    return [...mine.filter((feature) => !finished(feature)), ...mine.filter(finished)];
-  }, [features.data, trail]);
-  if (inThread.length === 0) return null;
+    const merged: Array<unknown> = [];
+    let next = 0;
+    for (const message of projection.messages) {
+      const at = DateTime.toEpochMillis(message.createdAt);
+      while (next < records.length) {
+        const record = records[next];
+        if (
+          !record ||
+          DateTime.toEpochMillis(record.item.startedAt ?? record.item.updatedAt) > at
+        ) {
+          break;
+        }
+        merged.push(record);
+        next += 1;
+      }
+      merged.push(message.text);
+    }
+    merged.push(...records.slice(next));
+    return merged;
+  }, [projection, items]);
+  const feature = useMemo(() => {
+    const all = features.data?.features ?? [];
+    const path = gentleOddCurrentFeaturePath(
+      entries,
+      all.map((entry) => entry.path),
+    );
+    return all.find((entry) => entry.path === path) ?? null;
+  }, [entries, features.data]);
+  if (feature === null) return null;
 
   return (
     <ThreadDetailsSection headingId="thread-details-feature-heading" title="Feature">
-      <ul className="m-0 list-none p-0">
-        {inThread.map((feature) => (
-          <li
-            key={feature.path}
-            className={cn(
-              "flex items-center rounded-lg py-1.5",
-              THREAD_DETAILS_PANEL_ROW_CONTENT_CLASS,
-            )}
-          >
-            <FileTextIcon aria-hidden className={THREAD_DETAILS_PANEL_ICON_CLASS} />
-            <button
-              type="button"
-              className="min-w-0 flex-1 cursor-pointer truncate text-start text-sm font-medium text-foreground/80 underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-ring"
-              onClick={() => useRightPanelStore.getState().openFile(threadRef, feature.path)}
-            >
-              {feature.title}
-            </button>
-            <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-              {gentleOddFeatureSummary(feature)}
-            </span>
-          </li>
-        ))}
-      </ul>
+      <div
+        className={cn(
+          "flex items-center rounded-lg py-1.5",
+          THREAD_DETAILS_PANEL_ROW_CONTENT_CLASS,
+        )}
+      >
+        <FileTextIcon aria-hidden className={THREAD_DETAILS_PANEL_ICON_CLASS} />
+        <button
+          type="button"
+          className="min-w-0 flex-1 cursor-pointer truncate text-start text-sm font-medium text-foreground/80 underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-ring"
+          onClick={() => useRightPanelStore.getState().openFile(threadRef, feature.path)}
+        >
+          {feature.title}
+        </button>
+        <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+          {gentleOddFeatureSummary(feature)}
+        </span>
+      </div>
     </ThreadDetailsSection>
   );
 }
