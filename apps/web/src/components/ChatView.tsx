@@ -3562,8 +3562,6 @@ export default function ChatView(props: ChatViewProps) {
         : derivePromptCache({
             providerTurns: serverProjection.providerTurns,
             providerThreadId: serverProjection.thread.activeProviderThreadId,
-            attempts: serverProjection.attempts,
-            runs: serverProjection.runs,
           }),
     [serverProjection],
   );

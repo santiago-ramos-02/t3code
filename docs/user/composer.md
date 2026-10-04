@@ -197,16 +197,15 @@ provider supports it. Web and desktop also offer compaction from the context met
 
 Providers keep the start of a conversation in a prompt cache for a while after each
 request, so the next message re-reads it cheaply. On web and desktop, once a turn reports
-cache use, the composer shows how much of the last turn the cache served and how long it
-lives on, such as **94% · 44m**. After it expires, your next message sends the whole
-conversation again at full price. Hover the readout for the full meter: the countdown,
-what to do (keep going, send a message soon, or compact first), the last turn's read,
-written, and new tokens, and one row per recent turn. When a turn rebuilt the cache, it
-says why: it had expired, the model changed, or the start of the conversation changed.
+cache use, the composer shows how long the cache lives on, such as **44m**, and **warm** while
+the agent works. Once it expires, your next message sends the whole conversation again at full
+price. Hover the readout to see the countdown and what your next message gets: it reuses the
+context, should be sent now to keep it, or rebuilds it. On a large expired context it offers to
+compact first.
 
 Claude reports how long it keeps the cache, so its readout counts down. Codex, OpenCode,
-and Pi show how much of each turn came from the cache instead. Cursor, Grok, and
-Antigravity do not report cache use.
+and Pi show how long ago the cache was last used instead. Cursor, Grok, and Antigravity do
+not report cache use.
 
 ## Context in your message
 
