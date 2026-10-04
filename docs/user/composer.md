@@ -197,10 +197,11 @@ provider supports it. Web and desktop also offer compaction from the context met
 
 Providers keep the start of a conversation in a prompt cache for a while after each
 request, so the next message re-reads it cheaply. On web and desktop, once a turn reports
-cache use, the composer shows how long the cache lives on, such as **44m**, and **warm** while
-the agent works. Once it expires, your next message sends the whole conversation again at full
-price. Hover the readout to see the countdown and whether your next message reuses the context
-or rebuilds it.
+cache use, the composer shows how much of the last turn the cache served and how long it lives
+on, such as **98% · 44m**. The dot turns yellow as the cache runs low and red once it has
+expired, when your next message sends the whole conversation again at full price. Hover the
+readout for the countdown, whether your next message reuses the context, the last turn's read,
+written, and new tokens, why it rebuilt the cache if it did, and the recent turns.
 
 Claude reports how long it keeps the cache, so its readout counts down. Codex, OpenCode,
 and Pi show how long ago the cache was last used instead. Cursor, Grok, and Antigravity do

@@ -1,4 +1,9 @@
-import type { OrchestrationV2ProviderTurn, ProviderThreadId } from "@t3tools/contracts";
+import type {
+  OrchestrationV2ProviderTurn,
+  OrchestrationV2Run,
+  OrchestrationV2RunAttempt,
+  ProviderThreadId,
+} from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 
 import { formatContextWindowTokens } from "./contextWindow";
@@ -6,6 +11,7 @@ import { formatContextWindowTokens } from "./contextWindow";
 export type PromptCacheTurn = Pick<
   OrchestrationV2ProviderTurn,
   | "providerThreadId"
+  | "runAttemptId"
   | "ordinal"
   | "status"
   | "startedAt"
@@ -14,15 +20,63 @@ export type PromptCacheTurn = Pick<
   | "turnTokenUsage"
 >;
 
-/** What decides whether the next message reuses the active provider session's prompt cache. */
+/** Why the last measured turn rebuilt the cache instead of reusing it. */
+export type PromptCacheMiss =
+  | { readonly kind: "expired"; readonly idleSeconds: number }
+  | { readonly kind: "model" }
+  | { readonly kind: "context" };
+
+/** One measured turn's cache use. */
+export interface PromptCacheTurnRow {
+  /** Its place among the session's measured turns, from 1. */
+  readonly number: number;
+  readonly readTokens: number;
+  readonly writtenTokens: number | null;
+  readonly uncachedTokens: number;
+  readonly hitRate: number;
+}
+
+/**
+ * The active provider session's prompt cache: whether the next message still finds it, and how
+ * the last turns used it.
+ */
 export interface PromptCacheSnapshot {
+  /** The last measured turn's input tokens read from the cache. */
+  readonly readTokens: number;
+  /** Its input tokens written to the cache; null for providers that do not say. */
+  readonly writtenTokens: number | null;
+  /** Its input tokens neither read from nor written to the cache. */
+  readonly uncachedTokens: number;
+  /** The share of its input read from the cache, from 0 to 1. */
+  readonly hitRate: number;
   /** How long the provider keeps the cache after a request, when it says. */
   readonly ttlSeconds: number | null;
   /** When a request last used the cache, in epoch milliseconds. */
   readonly lastUsedAt: number;
   /** A turn is running, so its requests keep the cache warm. */
   readonly working: boolean;
+  readonly miss: PromptCacheMiss | null;
+  /** The session's latest measured turns, oldest first, the last one being the turn above. */
+  readonly turns: ReadonlyArray<PromptCacheTurnRow>;
 }
+
+const TURN_ROWS = 8;
+
+function turnRow(usage: NonNullable<PromptCacheTurn["turnTokenUsage"]>, number: number) {
+  const inputTokens = usage.inputTokens ?? 0;
+  const readTokens = usage.cachedInputTokens ?? 0;
+  const writtenTokens = usage.cacheCreationTokens ?? null;
+  return {
+    number,
+    readTokens,
+    writtenTokens,
+    uncachedTokens: Math.max(0, inputTokens - readTokens - (writtenTokens ?? 0)),
+    hitRate: inputTokens === 0 ? 0 : readTokens / inputTokens,
+  } satisfies PromptCacheTurnRow;
+}
+
+// Writing at least this share of the previous context again means the old cache went unused.
+const REWRITE_SHARE = 0.5;
 
 /** When a turn's requests last used the cache: its latest usage report, else when it ended. */
 function lastUsedAt(turn: PromptCacheTurn) {
@@ -34,33 +88,78 @@ function lastUsedAt(turn: PromptCacheTurn) {
 }
 
 /**
- * Whether the active provider session's prompt cache is still there for the next message, read
- * from when its requests last used it and how long the provider keeps it. Null when the provider
- * reports no cache use.
+ * The active provider session's prompt cache, read from what its turns reported: when a request
+ * last used it and how long the provider keeps it, the last measured turn's cache use, and why
+ * that turn rebuilt the cache when it did. Null when the provider reports no cache use.
  */
 export function derivePromptCache(input: {
   readonly providerTurns: ReadonlyArray<PromptCacheTurn>;
   readonly providerThreadId: ProviderThreadId | null;
+  readonly attempts: ReadonlyArray<Pick<OrchestrationV2RunAttempt, "id" | "runId">>;
+  readonly runs: ReadonlyArray<Pick<OrchestrationV2Run, "id" | "modelSelection">>;
 }): PromptCacheSnapshot | null {
   // The cache belongs to one provider session.
   const turns = input.providerTurns
     .filter((turn) => turn.providerThreadId === input.providerThreadId)
     .toSorted((left, right) => left.ordinal - right.ordinal);
-  const reportsCache = turns.some(
+  const measured = turns.filter(
     (turn) =>
       turn.turnTokenUsage?.cachedInputTokens !== undefined &&
       (turn.turnTokenUsage.inputTokens ?? 0) > 0,
   );
+  const last = measured.at(-1);
   const latest = turns.at(-1);
-  if (!reportsCache || latest === undefined) return null;
+  const usage = last?.turnTokenUsage;
+  if (last === undefined || latest === undefined || usage === undefined) return null;
+  // The latest request counts even from a turn without cache use, as a compaction leaves a cache
+  // the next message reads.
   const latestUsedAt = lastUsedAt(latest);
   if (latestUsedAt === null) return null;
+
+  const rows = measured.flatMap((turn, index) =>
+    turn.turnTokenUsage === undefined ? [] : [turnRow(turn.turnTokenUsage, index + 1)],
+  );
+  const { readTokens, writtenTokens, uncachedTokens, hitRate } = turnRow(usage, measured.length);
+  const ttlSeconds =
+    turns.findLast((turn) => turn.tokenUsage?.cacheTtlSeconds !== undefined)?.tokenUsage
+      ?.cacheTtlSeconds ?? null;
+
+  const modelOf = (turn: PromptCacheTurn) => {
+    const runId = input.attempts.find((attempt) => attempt.id === turn.runAttemptId)?.runId;
+    const selection = input.runs.find((run) => run.id === runId)?.modelSelection;
+    return selection === undefined ? null : `${selection.instanceId}:${selection.model}`;
+  };
+  const miss = (): PromptCacheMiss | null => {
+    // Only a provider that reports writes shows the cache being rebuilt.
+    const previous = measured.at(-2);
+    const previousContext = previous?.tokenUsage?.inputTokens ?? 0;
+    if (previous === undefined || writtenTokens === null || previousContext === 0) return null;
+    if (writtenTokens < previousContext * REWRITE_SHARE) return null;
+    const previousUsedAt = lastUsedAt(previous);
+    const idleSeconds =
+      previousUsedAt === null || last.startedAt === null
+        ? null
+        : Math.round((DateTime.toEpochMillis(last.startedAt) - previousUsedAt) / 1000);
+    if (ttlSeconds !== null && idleSeconds !== null && idleSeconds > ttlSeconds) {
+      return { kind: "expired", idleSeconds };
+    }
+    const model = modelOf(last);
+    if (model !== null && modelOf(previous) !== null && model !== modelOf(previous)) {
+      return { kind: "model" };
+    }
+    return { kind: "context" };
+  };
+
   return {
-    ttlSeconds:
-      turns.findLast((turn) => turn.tokenUsage?.cacheTtlSeconds !== undefined)?.tokenUsage
-        ?.cacheTtlSeconds ?? null,
+    readTokens,
+    writtenTokens,
+    uncachedTokens,
+    hitRate,
+    ttlSeconds,
     lastUsedAt: latestUsedAt,
     working: latest.status === "running" || latest.status === "pending",
+    miss: miss(),
+    turns: rows.slice(-TURN_ROWS),
   };
 }
 
@@ -91,8 +190,9 @@ const CLOSE_SECONDS = 300;
 export type PromptCacheTone = "good" | "warning" | "critical" | "neutral";
 
 /**
- * How much life the cache has left, as a colour reads it: good, warning once less than 40% is
- * left, critical in its last minute and once expired, neutral when the provider does not say.
+ * Whether the next message finds the cache, as a colour reads it: good, warning once less than
+ * 40% of its life is left, critical in its last minute and once expired, neutral when the
+ * provider does not say how long it keeps it.
  */
 export function promptCacheTone(
   cache: PromptCacheSnapshot,
@@ -111,6 +211,11 @@ export function promptCacheTone(
     case "unknown":
       return "neutral";
   }
+}
+
+/** A turn's hit rate as a colour reads it: good from 80%, warning from 40%, critical below. */
+export function promptCacheHitTone(hitRate: number): Exclude<PromptCacheTone, "neutral"> {
+  return hitRate >= 0.8 ? "good" : hitRate >= 0.4 ? "warning" : "critical";
 }
 
 /** The share of the cache's life still left, from 0 to 1, or null when it has no known end. */
@@ -144,6 +249,23 @@ export function promptCacheNextMessage(state: PromptCacheState, contextTokens: n
   }
 }
 
+/** Why the last turn rebuilt the cache, shown under its token split. */
+export function promptCacheMissReason(miss: PromptCacheMiss) {
+  switch (miss.kind) {
+    case "expired":
+      return `Rebuilt the cache: it expired after ${formatPromptCacheDuration(miss.idleSeconds)} idle`;
+    case "model":
+      return "Rebuilt the cache: the model changed";
+    case "context":
+      return "Rebuilt the cache: the context changed";
+  }
+}
+
+/** A share such as `98%`. */
+export function formatPromptCacheShare(share: number) {
+  return `${Math.round(share * 100)}%`;
+}
+
 /** A countdown such as `4:05`, or `1:00:00` from an hour up. */
 export function formatPromptCacheCountdown(seconds: number) {
   const hours = Math.floor(seconds / 3600);
@@ -168,22 +290,28 @@ function formatShortSpan(seconds: number) {
   return `${Math.floor(seconds / 3600)}h`;
 }
 
+/** Time left as the readout shows it: `43m`, then `4:12` in the last five minutes. */
+function formatTimeLeft(seconds: number) {
+  return seconds <= CLOSE_SECONDS
+    ? formatPromptCacheCountdown(seconds)
+    : `${Math.ceil(seconds / 60)}m`;
+}
+
 /**
- * The composer readout's label: `43m`, then `4:12` in the last five minutes, `expired`, `warm`
- * while the agent works, or how long ago it was used when the provider gives no lifetime.
+ * The composer readout's timer: the time left, its full lifetime while the agent keeps it warm,
+ * or how long ago it was used when the provider gives no lifetime. Null once expired, where the
+ * readout's colour already says so.
  */
-export function promptCacheClockLabel(state: PromptCacheState) {
+export function promptCacheClockLabel(cache: PromptCacheSnapshot, state: PromptCacheState) {
   switch (state.kind) {
     case "working":
-      return "warm";
+      return cache.ttlSeconds === null ? null : formatTimeLeft(cache.ttlSeconds);
     case "expiresIn":
-      return state.seconds <= CLOSE_SECONDS
-        ? formatPromptCacheCountdown(state.seconds)
-        : `${Math.ceil(state.seconds / 60)}m`;
+      return formatTimeLeft(state.seconds);
     case "expired":
-      return "expired";
+      return null;
     case "unknown":
-      return `used ${formatShortSpan(state.idleSeconds)} ago`;
+      return `${formatShortSpan(state.idleSeconds)} ago`;
   }
 }
 
