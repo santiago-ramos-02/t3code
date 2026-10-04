@@ -47,6 +47,8 @@ export function makeSubagentChildThread(input: {
   readonly providerInstanceId: ProviderInstanceId;
   readonly modelSelection: ModelSelection;
   readonly title: string;
+  /** The named agent the parent ran the subagent as, when the provider names one. */
+  readonly agentName?: string | undefined;
   readonly now: DateTime.Utc;
   readonly createdBy: OrchestrationV2Actor;
   readonly creationSource: OrchestrationV2CreationSource;
@@ -65,6 +67,7 @@ export function makeSubagentChildThread(input: {
       parentThreadId: input.parentThread.id,
       relationshipToParent: "subagent",
       rootThreadId: input.parentThread.lineage.rootThreadId,
+      ...(input.agentName === undefined ? {} : { agentName: input.agentName }),
     },
     forkedFrom: {
       type: "node",

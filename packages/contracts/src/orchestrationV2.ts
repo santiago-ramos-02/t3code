@@ -104,6 +104,8 @@ export const OrchestrationV2AppThreadLineage = Schema.Struct({
   parentThreadId: Schema.NullOr(ThreadId),
   relationshipToParent: Schema.NullOr(Schema.Literals(["fork", "subagent"])),
   rootThreadId: ThreadId,
+  /** The named agent a subagent thread runs as, such as Gentle AI's `gentle-ai-worker`. */
+  agentName: Schema.optional(Schema.String),
 });
 export type OrchestrationV2AppThreadLineage = typeof OrchestrationV2AppThreadLineage.Type;
 

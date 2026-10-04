@@ -290,6 +290,7 @@ export function makePiGentle<Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>
             title: task.title,
             ordinal: tasks.size,
           }),
+          ...(task.agent === null ? {} : { agentName: task.agent }),
           now,
           createdBy: "agent",
           creationSource: "provider",

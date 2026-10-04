@@ -11060,6 +11060,7 @@ export default function ChatView(props: ChatViewProps) {
                           {showProviderSubagentBar ? (
                             <ProviderSubagentBar
                               provider={selectedProviderEntry ?? null}
+                              agentName={activeThread?.lineage.agentName ?? null}
                               modelLabel={providerSubagentModelLabel}
                               effortLabel={providerSubagentEffortLabel}
                               status={providerSubagentStatus}

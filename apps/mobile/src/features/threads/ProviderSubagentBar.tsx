@@ -13,11 +13,13 @@ import { RequestActionButton } from "./RequestActionButton";
 /**
  * Replaces the composer on a provider-native subagent thread. The provider
  * runs that conversation, so there is nothing to send; the bar says which
- * model is working, for how long, and leads back to the parent.
+ * agent and model are working, for how long, and leads back to the parent.
  */
 export function ProviderSubagentBar(props: {
   /** Driver and catalog icon of the provider running the subagent. */
   readonly provider: { readonly driver: string; readonly iconUrl?: string | undefined } | null;
+  /** The named agent it runs as, such as Gentle AI's `gentle-ai-worker`. */
+  readonly agentName: string | null;
   readonly modelLabel: string;
   /** Reasoning effort as the composer names it, when the subagent has one. */
   readonly effortLabel: string | null;
@@ -33,8 +35,12 @@ export function ProviderSubagentBar(props: {
     return () => clearInterval(id);
   }, [live]);
   const statusLabel = formatProviderSubagentStatus(props.status, nowMs);
-  const modelDescription =
-    props.effortLabel === null ? props.modelLabel : `${props.modelLabel}, ${props.effortLabel}`;
+  const modelDescription = [
+    props.agentName,
+    props.effortLabel === null ? props.modelLabel : `${props.modelLabel}, ${props.effortLabel}`,
+  ]
+    .filter((part) => part !== null)
+    .join(" on ");
 
   return (
     <View className="flex-row items-center gap-3 rounded-[20px] border border-border-subtle bg-card-alt py-2 pe-2 ps-4">
@@ -52,7 +58,20 @@ export function ProviderSubagentBar(props: {
               size={16}
             />
           ) : null}
-          <Text numberOfLines={1} className="min-w-0 shrink font-t3-bold text-sm text-foreground">
+          {/* The agent's name stays whole; its model shrinks instead. */}
+          {props.agentName === null ? null : (
+            <Text numberOfLines={1} className="shrink-0 font-t3-bold text-sm text-foreground">
+              {props.agentName}
+            </Text>
+          )}
+          <Text
+            numberOfLines={1}
+            className={
+              props.agentName === null
+                ? "min-w-0 shrink font-t3-bold text-sm text-foreground"
+                : "min-w-0 shrink font-sans text-sm text-foreground-secondary"
+            }
+          >
             {props.modelLabel}
           </Text>
           {props.effortLabel === null ? null : (

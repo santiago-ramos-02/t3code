@@ -1279,6 +1279,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                   >
                     <ProviderSubagentBar
                       provider={providerSubagentProvider ?? null}
+                      agentName={props.selectedThread.lineage.agentName ?? null}
                       modelLabel={
                         providerSubagentCatalogModel?.name ??
                         formatModelSlugName(props.selectedThread.modelSelection.model)

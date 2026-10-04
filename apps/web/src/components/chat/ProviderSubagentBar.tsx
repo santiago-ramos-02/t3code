@@ -6,6 +6,7 @@ import { isOrchestrationV2WorkActive } from "@t3tools/contracts";
 import { ArrowUpLeftIcon } from "lucide-react";
 import { useLayoutEffect, useRef } from "react";
 
+import { cn } from "~/lib/utils";
 import type { ProviderInstanceEntry } from "../../providerInstances";
 import { Button } from "../ui/button";
 import { ProviderInstanceIcon } from "./ProviderInstanceIcon";
@@ -13,11 +14,13 @@ import { ProviderInstanceIcon } from "./ProviderInstanceIcon";
 /**
  * Stands in for the composer on a provider-native subagent thread. The
  * provider runs that conversation, so there is nothing to send; the bar says
- * which model is working, for how long, and leads back to the parent.
+ * which agent and model are working, for how long, and leads back to the parent.
  */
 export function ProviderSubagentBar(props: {
   /** The provider running the subagent; no icon while its catalog loads. */
   readonly provider: ProviderInstanceEntry | null;
+  /** The named agent it runs as, such as Gentle AI's `gentle-ai-worker`. */
+  readonly agentName: string | null;
   readonly modelLabel: string;
   /** Reasoning effort as the composer names it, when the subagent has one. */
   readonly effortLabel: string | null;
@@ -28,8 +31,12 @@ export function ProviderSubagentBar(props: {
   const statusRef = useRef<HTMLSpanElement>(null);
   const { status } = props;
   const live = status !== null && isOrchestrationV2WorkActive(status.status);
-  const modelDescription =
-    props.effortLabel === null ? props.modelLabel : `${props.modelLabel}, ${props.effortLabel}`;
+  const modelDescription = [
+    props.agentName,
+    props.effortLabel === null ? props.modelLabel : `${props.modelLabel}, ${props.effortLabel}`,
+  ]
+    .filter((part) => part !== null)
+    .join(" on ");
   // Announced once per transition; the ticking label below is not.
   const announcement = formatProviderSubagentStatus(
     status === null ? null : { ...status, startedAt: null },
@@ -52,7 +59,12 @@ export function ProviderSubagentBar(props: {
 
   return (
     <div className="flex min-h-12 items-center gap-3 rounded-3xl py-2 ps-5 pe-2 text-sm">
-      <span className="flex min-w-0 items-center gap-2">
+      <span
+        className={cn(
+          "flex min-w-0 items-center gap-2",
+          props.agentName !== null && "max-sm:shrink-0",
+        )}
+      >
         {props.provider ? (
           <ProviderInstanceIcon
             driverKind={props.provider.driverKind}
@@ -64,9 +76,29 @@ export function ProviderSubagentBar(props: {
             iconClassName="size-4"
           />
         ) : null}
-        <span className="min-w-0 truncate font-medium text-foreground">{props.modelLabel}</span>
+        {/* The agent's name never truncates; on a narrow screen its model gives way instead. */}
+        {props.agentName === null ? null : (
+          <span className="shrink-0 font-medium text-foreground">{props.agentName}</span>
+        )}
+        <span
+          className={cn(
+            "min-w-0 truncate",
+            props.agentName === null
+              ? "font-medium text-foreground"
+              : "text-muted-foreground max-sm:hidden",
+          )}
+        >
+          {props.modelLabel}
+        </span>
         {props.effortLabel === null ? null : (
-          <span className="shrink-0 text-muted-foreground">{props.effortLabel}</span>
+          <span
+            className={cn(
+              "shrink-0 text-muted-foreground",
+              props.agentName !== null && "max-sm:hidden",
+            )}
+          >
+            {props.effortLabel}
+          </span>
         )}
       </span>
       <span

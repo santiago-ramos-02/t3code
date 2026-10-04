@@ -1300,6 +1300,8 @@ describe("PiAdapterV2", () => {
         created.type === "app_thread.created" &&
           created.appThread.lineage.parentThreadId === THREAD_ID &&
           created.appThread.lineage.relationshipToParent === "subagent" &&
+          // The child thread names the agent it runs as, for its own view.
+          created.appThread.lineage.agentName === "explorer" &&
           created.appThread.creationSource === "provider" &&
           created.appThread.modelSelection.model === "claude-bridge/claude-sonnet-5-5",
       );
