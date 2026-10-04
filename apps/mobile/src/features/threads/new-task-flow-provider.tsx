@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Alert } from "react-native";
 
 import type {
   EnvironmentId,
@@ -44,8 +45,8 @@ import { scopedProjectKey } from "../../lib/scopedEntities";
 import { appAtomRegistry } from "../../state/atom-registry";
 import { projectEnvironment } from "../../state/projects";
 import { serverEnvironment } from "../../state/server";
-import { useAtomCommand } from "../../state/use-atom-command";
 import { useEnvironmentQuery } from "../../state/query";
+import { useAtomCommand } from "../../state/use-atom-command";
 import {
   appendComposerDraftAttachments,
   type ComposerDraftInsertion,
@@ -92,6 +93,10 @@ import {
   useSavedRemoteConnections,
 } from "../../state/use-remote-environment-registry";
 import { availableScratchWorkspaceRoot } from "@t3tools/client-runtime/operations/projects";
+import {
+  isAtomCommandInterrupted,
+  squashAtomCommandFailure,
+} from "@t3tools/client-runtime/state/runtime";
 import { isScratchProject } from "@t3tools/client-runtime/state/projects";
 import { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { type VcsRef } from "@t3tools/client-runtime/state/vcs";
@@ -203,6 +208,13 @@ type NewTaskFlowContextValue = {
    */
   readonly openDraft: (draftKey: string) => boolean;
   readonly selectEnvironment: (environmentId: EnvironmentId) => void;
+  /**
+   * Moves the draft to another machine. A draft without a project resolves to
+   * that machine's "No project" folder first, creating it when needed.
+   */
+  readonly switchEnvironment: (environmentId: EnvironmentId) => Promise<boolean>;
+  /** The machine a switch in progress is heading to. */
+  readonly switchingToEnvironmentId: EnvironmentId | null;
   readonly setSelectedModelKey: (
     key: string | null,
     options?: ReadonlyArray<ProviderOptionSelection>,
@@ -827,6 +839,53 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
     [projects, selectedProject, carryDraftContentTo],
   );
 
+  const openScratch = useAtomCommand(projectEnvironment.openScratch, { reportFailure: false });
+  const [switchingToEnvironmentId, setSwitchingToEnvironmentId] = useState<EnvironmentId | null>(
+    null,
+  );
+  // The latest switch wins: a slower, earlier one must not retarget the draft.
+  const latestSwitchRef = useRef<object | null>(null);
+  const switchEnvironment = useCallback(
+    async (environmentId: EnvironmentId): Promise<boolean> => {
+      if (environmentId === selectedEnvironmentId) {
+        latestSwitchRef.current = null;
+        setSwitchingToEnvironmentId(null);
+        return true;
+      }
+      if (!isScratchDraft) {
+        selectEnvironment(environmentId);
+        return true;
+      }
+      const request = {};
+      latestSwitchRef.current = request;
+      setSwitchingToEnvironmentId(environmentId);
+      try {
+        const result = await openScratch({ environmentId, input: {} });
+        if (latestSwitchRef.current !== request) return false;
+        if (result._tag === "Success") {
+          setProject(result.value);
+          return true;
+        }
+        if (!isAtomCommandInterrupted(result)) {
+          const error = squashAtomCommandFailure(result);
+          Alert.alert(
+            "Could not switch machine",
+            error instanceof Error
+              ? error.message
+              : "The folder for threads without a project could not be created.",
+          );
+        }
+        return false;
+      } finally {
+        if (latestSwitchRef.current === request) {
+          latestSwitchRef.current = null;
+          setSwitchingToEnvironmentId(null);
+        }
+      }
+    },
+    [isScratchDraft, openScratch, selectEnvironment, selectedEnvironmentId, setProject],
+  );
+
   const setWorkspaceMode = useCallback(
     (mode: WorkspaceMode) => {
       if (!selectedProjectDraftKey) {
@@ -1273,6 +1332,8 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       setProject,
       openDraft,
       selectEnvironment,
+      switchEnvironment,
+      switchingToEnvironmentId,
       setSelectedModelKey,
       setWorkspaceMode,
       selectBranch,
@@ -1339,6 +1400,8 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       openDraft,
       selectBranch,
       selectEnvironment,
+      switchEnvironment,
+      switchingToEnvironmentId,
       setInteractionMode,
       setPrompt,
       setRuntimeMode,
