@@ -83,12 +83,10 @@ export function promptCacheState(cache: PromptCacheSnapshot, nowMs: number): Pro
   return left > 0 ? { kind: "expiresIn", seconds: left } : { kind: "expired", secondsAgo: -left };
 }
 
-// The last minute is when to send a message.
+// The cache reads as critical in its last minute.
 const SOON_SECONDS = 60;
 // From here on the readout counts minutes and seconds.
 const CLOSE_SECONDS = 300;
-// A context this large is worth compacting before its cache is rebuilt.
-const COMPACT_AT_TOKENS = 100_000;
 
 export type PromptCacheTone = "good" | "warning" | "critical" | "neutral";
 
@@ -130,33 +128,17 @@ export function promptCacheLifeLeft(cache: PromptCacheSnapshot, state: PromptCac
   }
 }
 
-/** Whether the cache has expired on a context large enough to compact before rebuilding it. */
-export function promptCacheSuggestsCompact(state: PromptCacheState, contextTokens: number | null) {
-  return state.kind === "expired" && contextTokens !== null && contextTokens >= COMPACT_AT_TOKENS;
-}
-
-/**
- * What the next message gets from the cache, in a few words: it reuses the context, should be
- * sent soon to, or rebuilds it.
- */
+/** Whether the next message reuses the cache or rebuilds it, and how many tokens that is. */
 export function promptCacheNextMessage(state: PromptCacheState, contextTokens: number | null) {
   const tokens =
-    contextTokens === null ? null : `${formatContextWindowTokens(contextTokens)} tokens`;
+    contextTokens === null ? "the cache" : `${formatContextWindowTokens(contextTokens)} tokens`;
   switch (state.kind) {
     case "working":
       return "Kept warm while the agent works";
     case "expiresIn":
-      if (state.seconds <= SOON_SECONDS) {
-        return tokens === null ? "Send now to reuse the cache" : `Send now to reuse ${tokens}`;
-      }
-      return tokens === null ? "Next message reuses the cache" : `Next message reuses ${tokens}`;
+      return `Next message reuses ${tokens}`;
     case "expired":
-      if (promptCacheSuggestsCompact(state, contextTokens)) {
-        return `Next message rebuilds ${tokens}: compact first`;
-      }
-      return tokens === null
-        ? "Next message rebuilds the cache"
-        : `Next message rebuilds ${tokens}`;
+      return `Next message rebuilds ${tokens}`;
     case "unknown":
       return "This provider doesn't say how long it keeps the cache";
   }

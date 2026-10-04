@@ -123,21 +123,15 @@ describe("promptCacheState", () => {
     );
   });
 
-  it("says what the next message gets from the cache", () => {
+  it("says whether the next message reuses the cache or rebuilds it", () => {
     expect(promptCacheNextMessage({ kind: "working" }, 50_000)).toBe(
       "Kept warm while the agent works",
     );
     expect(promptCacheNextMessage({ kind: "expiresIn", seconds: 600 }, 50_000)).toBe(
       "Next message reuses 50k tokens",
     );
-    expect(promptCacheNextMessage({ kind: "expiresIn", seconds: 30 }, 50_000)).toBe(
-      "Send now to reuse 50k tokens",
-    );
-    expect(promptCacheNextMessage({ kind: "expired", secondsAgo: 5 }, 40_000)).toBe(
-      "Next message rebuilds 40k tokens",
-    );
     expect(promptCacheNextMessage({ kind: "expired", secondsAgo: 5 }, 151_000)).toBe(
-      "Next message rebuilds 151k tokens: compact first",
+      "Next message rebuilds 151k tokens",
     );
     expect(promptCacheNextMessage({ kind: "expired", secondsAgo: 5 }, null)).toBe(
       "Next message rebuilds the cache",
