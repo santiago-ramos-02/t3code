@@ -1,4 +1,5 @@
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { resolveProviderInstanceDisplayName } from "@t3tools/client-runtime/state/provider-instance-display";
 import { resolveSubagentMetadata } from "@t3tools/client-runtime/state/subagent-display";
 import type { EnvironmentId, OrchestrationV2Subagent } from "@t3tools/contracts";
 import type { ReactNode } from "react";
@@ -128,7 +129,7 @@ function SubagentMetadata(props: {
       <Text className="min-w-0 shrink text-xs text-foreground-muted" numberOfLines={1}>
         {/* A named agent, such as Gentle AI's odd-explorer, leads what the subagent runs as. */}
         {subagent.agentName ? `${subagent.agentName} · ` : ""}
-        {provider?.displayName ? `${provider.displayName} · ` : ""}
+        {provider ? `${resolveProviderInstanceDisplayName(provider)} · ` : ""}
         {modelLabel}
       </Text>
       {workspace.map(({ label, value }) => (

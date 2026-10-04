@@ -318,6 +318,7 @@ import {
   applyProviderInstanceSettings,
   deriveProviderInstanceEntries,
   NO_PROVIDER_MODEL_SELECTION,
+  shouldShowInstanceBadge,
   sortProviderInstanceEntries,
 } from "../providerInstances";
 import {
@@ -11183,6 +11184,13 @@ export default function ChatView(props: ChatViewProps) {
                             <ProviderSubagentBar
                               provider={selectedProviderEntry ?? null}
                               agentName={activeThread?.lineage.agentName ?? null}
+                              showInstanceBadge={
+                                selectedProviderEntry !== undefined &&
+                                shouldShowInstanceBadge(
+                                  selectedProviderEntry,
+                                  providerInstanceEntries,
+                                )
+                              }
                               modelLabel={providerSubagentModelLabel}
                               effortLabel={providerSubagentEffortLabel}
                               status={providerSubagentStatus}

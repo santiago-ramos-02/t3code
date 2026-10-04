@@ -385,6 +385,7 @@ export function ThreadRelationshipsPanel(props: {
                   agentName={agent.role ?? undefined}
                   model={agent.model}
                   provider={provider}
+                  providers={providers}
                   driver={providerDriver}
                   elapsed={<AgentElapsed agent={agent} />}
                   status={agent.status}
