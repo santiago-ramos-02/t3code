@@ -298,6 +298,7 @@ describe("promptCacheState", () => {
       "Rebuilt the cache: it expired after 10 min idle",
     );
     expect(promptCacheMissReason({ kind: "model" })).toBe("Rebuilt the cache: the model changed");
+    expect(promptCacheMissReason({ kind: "context" })).toBe("Rebuilt the cache");
   });
 
   it("formats countdowns and durations", () => {

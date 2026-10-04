@@ -257,7 +257,7 @@ export function promptCacheMissReason(miss: PromptCacheMiss) {
     case "model":
       return "Rebuilt the cache: the model changed";
     case "context":
-      return "Rebuilt the cache: the context changed";
+      return "Rebuilt the cache";
   }
 }
 
