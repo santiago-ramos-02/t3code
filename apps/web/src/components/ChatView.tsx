@@ -267,7 +267,10 @@ import {
   selectThreadPreviewMiniPlayer,
   usePreviewMiniPlayerStore,
 } from "../previewMiniPlayerStore";
-import { pullRequestPanelContext } from "./pullRequest/pullRequestDetail.logic";
+import {
+  pullRequestPanelContext,
+  threadPullRequestPanelTarget,
+} from "./pullRequest/pullRequestDetail.logic";
 import { PullRequestDetailPanel } from "./pullRequest/PullRequestDetailPanel";
 import { PullRequestDetailGhost } from "./pullRequest/PullRequestGhosts";
 import { PullRequestsUnavailableState } from "./pullRequest/PullRequestsUnavailableState";
@@ -297,7 +300,10 @@ import {
 import { cn, randomUUID } from "~/lib/utils";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "~/workspaceTitlebar";
 import { stackedThreadToast, toastManager } from "./ui/toast";
-import { decodeProjectScriptKeybindingRule } from "~/lib/projectScriptKeybindings";
+import {
+  decodeProjectScriptKeybindingRule,
+  keybindingValueForCommand,
+} from "~/lib/projectScriptKeybindings";
 import { type NewProjectScriptInput } from "./ProjectScriptsControl";
 import {
   buildProjectScript,
@@ -392,6 +398,7 @@ import {
 } from "../state/server";
 import { terminalEnvironment } from "../state/terminal";
 import { threadEnvironment } from "../state/threads";
+import { workspacePreparationRetryRunIds } from "@t3tools/client-runtime/state/turn-item-presentation";
 import { resolveProviderSkillsForCwd } from "@t3tools/client-runtime/providerSkills";
 import { vcsEnvironment } from "../state/vcs";
 import { sourceControlEnvironment } from "../state/sourceControl";
@@ -1512,6 +1519,9 @@ function releaseChatTimelineAnchor<T extends { readonly messageId: MessageId | n
   return current.messageId === null ? current : { ...current, messageId: null };
 }
 
+/** Runs with a workspace preparation retry in flight, across ChatView instances. */
+const retryingWorkspacePreparationRunIds = new Set<RunId>();
+
 export default function ChatView(props: ChatViewProps) {
   const {
     environmentId,
@@ -1540,6 +1550,9 @@ export default function ChatView(props: ChatViewProps) {
     reportFailure: false,
   });
   const upsertKeybinding = useAtomCommand(serverEnvironment.upsertKeybinding, {
+    reportFailure: false,
+  });
+  const removeKeybinding = useAtomCommand(serverEnvironment.removeKeybinding, {
     reportFailure: false,
   });
   const openTerminal = useAtomCommand(terminalEnvironment.open, "terminal open");
@@ -3956,6 +3969,34 @@ export default function ChatView(props: ChatViewProps) {
   const cancelWorktreeSetup = useAtomCommand(vcsEnvironment.cancelWorktreeSetup, {
     reportFailure: false,
   });
+  const retryWorkspacePreparation = useAtomCommand(threadEnvironment.retryWorkspacePreparation);
+  const retryableRunIdsKey = useMemo(
+    () =>
+      [
+        ...workspacePreparationRetryRunIds(
+          serverProjection?.runs ?? [],
+          serverProjection?.turnItems ?? [],
+        ),
+      ].join("\n"),
+    [serverProjection?.runs, serverProjection?.turnItems],
+  );
+  // Keyed by content so the timeline context only changes when a retry appears or clears.
+  const retryableWorkspacePreparationRunIds = useMemo(
+    () => new Set(retryableRunIdsKey === "" ? [] : (retryableRunIdsKey.split("\n") as RunId[])),
+    [retryableRunIdsKey],
+  );
+  const onRetryWorkspacePreparation = useCallback(
+    (runId: RunId) => {
+      // One retry per failed run: a second click lands after the run is preparing again.
+      if (!activeThreadRef || retryingWorkspacePreparationRunIds.has(runId)) return;
+      retryingWorkspacePreparationRunIds.add(runId);
+      void retryWorkspacePreparation({
+        environmentId: activeThreadRef.environmentId,
+        input: { threadId: activeThreadRef.threadId, runId },
+      }).finally(() => retryingWorkspacePreparationRunIds.delete(runId));
+    },
+    [activeThreadRef, retryWorkspacePreparation],
+  );
   const onCancelWorktreeSetup = useCallback(() => {
     if (!worktreeSetup || worktreeSetup.phase !== "running") return;
     void cancelWorktreeSetup({
@@ -4985,20 +5026,64 @@ export default function ChatView(props: ChatViewProps) {
         command: input.keybindingCommand,
       });
 
-      if (isElectron && keybindingRule) {
-        return mapAtomCommandResult(
-          await upsertKeybinding({
-            environmentId,
-            input: keybindingRule,
-          }),
-          () => undefined,
-        );
+      if (!isElectron) return updateResult;
+
+      const scriptId = input.keybindingCommand
+        ? projectScriptIdFromCommand(input.keybindingCommand)
+        : null;
+      if (!keybindingRule && !input.previousScripts.some((script) => script.id === scriptId)) {
+        return updateResult;
       }
-      return updateResult;
+      const retainedElsewhere =
+        !input.nextScripts.some((script) => script.id === scriptId) &&
+        (settings.defaultProjectScripts.some((script) => script.id === scriptId) ||
+          Object.entries(settings.projectSettingsOverrides).some(
+            ([projectId, entry]) =>
+              projectId !== input.projectId &&
+              entry.defaultProjectScripts?.some((script) => script.id === scriptId),
+          ) ||
+          allProjects.some(
+            (other) =>
+              other.environmentId === environmentId &&
+              other.id !== input.projectId &&
+              resolveProjectScripts(settings, other).some((script) => script.id === scriptId),
+          ));
+      if (!keybindingRule && retainedElsewhere) return updateResult;
+
+      const previousRules = (
+        environmentById.get(environmentId)?.serverConfig?.keybindings ?? []
+      ).flatMap((binding) => {
+        if (binding.command !== input.keybindingCommand || binding.whenAst) return [];
+        const previous = decodeProjectScriptKeybindingRule({
+          keybinding: keybindingValueForCommand([binding], input.keybindingCommand),
+          command: input.keybindingCommand,
+        });
+        return previous ? [previous] : [];
+      });
+      const previous = previousRules.at(-1);
+      for (const rule of keybindingRule ? previousRules.slice(0, -1) : previousRules) {
+        const result = await removeKeybinding({ environmentId, input: rule });
+        if (result._tag === "Failure") return mapAtomCommandResult(result, () => undefined);
+      }
+      return keybindingRule
+        ? mapAtomCommandResult(
+            await upsertKeybinding({
+              environmentId,
+              input:
+                previous && previous.key !== keybindingRule.key
+                  ? { ...keybindingRule, replace: previous }
+                  : keybindingRule,
+            }),
+            () => undefined,
+          )
+        : updateResult;
     },
     [
+      allProjects,
+      environmentById,
       environmentId,
-      settings.projectSettingsOverrides,
+      removeKeybinding,
+      settings,
       supportsProjectSettingsOverrides,
       updateProjectScriptSettings,
       upsertKeybinding,
@@ -6785,12 +6870,20 @@ export default function ChatView(props: ChatViewProps) {
       },
     );
   }, [activeThreadReferenceCopyTarget]);
+  const pullRequestPanelTarget = activeThread
+    ? threadPullRequestPanelTarget({
+        projectId: activeThread.projectId,
+        pullRequests: visiblePullRequests,
+        linkedPullRequest: linkedThreadPullRequest,
+        branchPullRequest: activeThreadShell?.branchPullRequest ?? activeThread.branchPullRequest,
+      })
+    : null;
   const addPullRequestSurface = useCallback(() => {
-    if (!supportsPullRequests || activeThreadRef === null || linkedThreadPullRequest === null)
+    if (!supportsPullRequests || activeThreadRef === null || pullRequestPanelTarget === null)
       return;
-    useRightPanelStore.getState().openPullRequest(activeThreadRef, linkedThreadPullRequest);
-  }, [activeThreadRef, linkedThreadPullRequest, supportsPullRequests]);
-  const pullRequestSurfaceAvailable = supportsPullRequests && linkedThreadPullRequest !== null;
+    useRightPanelStore.getState().openPullRequest(activeThreadRef, pullRequestPanelTarget);
+  }, [activeThreadRef, pullRequestPanelTarget, supportsPullRequests]);
+  const pullRequestSurfaceAvailable = supportsPullRequests && pullRequestPanelTarget !== null;
   const supportsSettlement = serverConfig?.environment.capabilities.threadSettlement === true;
   const supportsSnooze = serverConfig?.environment.capabilities.threadSnooze === true;
   const supportsPinning = serverConfig?.environment.capabilities.threadPinning === true;
@@ -10544,6 +10637,8 @@ export default function ChatView(props: ChatViewProps) {
             projectId: activeThread.projectId,
             pullRequests: visiblePullRequests,
             linkedPullRequest: linkedThreadPullRequest,
+            branchPullRequest:
+              activeThreadShell?.branchPullRequest ?? activeThread.branchPullRequest,
           },
           renderedRightPanelSurface,
         )}
@@ -10800,7 +10895,7 @@ export default function ChatView(props: ChatViewProps) {
           ref={threadPanelPopoverAnchorRef}
           data-chat-header
           className={cn(
-            "relative bg-background transition-[padding-left] duration-200 ease-linear motion-reduce:transition-none",
+            "relative bg-background [[data-panel-animations=true]_&]:motion-safe:transition-[padding-left] [[data-panel-animations=true]_&]:motion-safe:duration-(--panel-animation-duration) [[data-panel-animations=true]_&]:motion-safe:ease-out",
             isElectron
               ? cn(
                   "drag-region flex h-[var(--workspace-topbar-height)] min-h-[var(--workspace-topbar-height)] shrink-0 items-center px-3 sm:px-5",
@@ -10901,6 +10996,9 @@ export default function ChatView(props: ChatViewProps) {
                 activeTurnStartedAt={paintOnlyDisplayedTimeline ? null : activeWorkStartedAt}
                 worktreeSetup={paintOnlyDisplayedTimeline ? null : worktreeSetup}
                 onCancelWorktreeSetup={onCancelWorktreeSetup}
+                {...(paintOnlyDisplayedTimeline
+                  ? {}
+                  : { retryableWorkspacePreparationRunIds, onRetryWorkspacePreparation })}
                 {...(draftId ? { onWorktreeSetupWorkLocally } : {})}
                 {...(onOpenWorktreeSetupTerminal ? { onOpenWorktreeSetupTerminal } : {})}
                 isPreparingWorktree={!paintOnlyDisplayedTimeline && isPreparingWorktree}
