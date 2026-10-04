@@ -12,6 +12,7 @@ import {
   type GentleAiOddFeatures,
   type GentleAiReviewMode,
   type GentleAiReviewStore,
+  type OrchestrationV2ExecutionNode,
 } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -168,6 +169,33 @@ function namesPath(text: string, path: string) {
   return [path, path.replaceAll("/", "\\"), path.replaceAll("/", "\\\\")].some((spelling) =>
     text.includes(spelling),
   );
+}
+
+/**
+ * The main agent's work records, leaving out its subagents'. A record belongs to a subagent when
+ * its node is a subagent node or sits under one; the main agent's tool calls sit on their own
+ * nodes under the run's root.
+ */
+export function gentleOddMainAgentRecords<
+  R extends { readonly item: { readonly nodeId: string | null } },
+>(
+  records: ReadonlyArray<R>,
+  nodes: ReadonlyArray<Pick<OrchestrationV2ExecutionNode, "id" | "kind" | "parentNodeId">>,
+): ReadonlyArray<R> {
+  const byId = new Map<string, (typeof nodes)[number]>(nodes.map((node) => [node.id, node]));
+  const subagentWork = new Map<string, boolean>();
+  const isSubagentWork = (nodeId: string): boolean => {
+    const known = subagentWork.get(nodeId);
+    if (known !== undefined) return known;
+    const node = byId.get(nodeId);
+    const result =
+      node !== undefined &&
+      (node.kind === "subagent" ||
+        (node.parentNodeId !== null && isSubagentWork(node.parentNodeId)));
+    subagentWork.set(nodeId, result);
+    return result;
+  };
+  return records.filter(({ item }) => item.nodeId === null || !isSubagentWork(item.nodeId));
 }
 
 /**

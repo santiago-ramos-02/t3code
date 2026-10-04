@@ -3,6 +3,7 @@ import {
   gentleOddCurrentFeaturePath,
   gentleOddFeatureRecordCount,
   gentleOddFeatureSummary,
+  gentleOddMainAgentRecords,
 } from "@t3tools/client-runtime/gentle-ai";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import * as DateTime from "effect/DateTime";
@@ -53,14 +54,11 @@ export function ThreadFeaturePanel(props: {
   useEffect(() => {
     if (touches > 0) refresh();
   }, [refresh, touches]);
-  // The thread's messages and its main agent's work, oldest first. A subagent's work runs on its
-  // own node, and may read other documents than the one the agent works on.
+  // The thread's messages and its main agent's work, oldest first. A subagent's work may read
+  // other documents than the one the agent works on.
   const entries = useMemo(() => {
     if (!projection) return [];
-    const rootNodes = new Set(projection.runs.flatMap((run) => run.rootNodeId ?? []));
-    const records = (items ?? []).filter(
-      ({ item }) => item.nodeId === null || rootNodes.has(item.nodeId),
-    );
+    const records = gentleOddMainAgentRecords(items ?? [], projection.nodes);
     const merged: Array<unknown> = [];
     let next = 0;
     for (const message of projection.messages) {

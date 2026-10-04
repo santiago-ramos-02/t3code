@@ -1,7 +1,7 @@
 import { collectComposerInlineTokens } from "@t3tools/shared/composerInlineTokens";
 import { describe, expect, it } from "vite-plus/test";
 
-import { ProviderDriverKind } from "@t3tools/contracts";
+import { NodeId, ProviderDriverKind } from "@t3tools/contracts";
 
 import {
   claudeProfileSlotModels,
@@ -20,6 +20,7 @@ import {
   gentleOddMenuFeatures,
   gentleOddCurrentFeaturePath,
   gentleOddFeatureRecordCount,
+  gentleOddMainAgentRecords,
   gentleOddThreadFeaturePaths,
   gentlePiProfileSummary,
 } from "./gentleAi.ts";
@@ -128,6 +129,35 @@ describe("ODD feature menu", () => {
     expect(gentleOddCurrentFeaturePath(entries, paths)).toBe("odd/tasks/b.md");
     expect(gentleOddCurrentFeaturePath(entries.slice(0, 1), paths)).toBe("odd/tasks/a.md");
     expect(gentleOddCurrentFeaturePath([{ detail: "ran tests" }], paths)).toBeNull();
+  });
+
+  it("keeps the main agent's work, its tool calls included, and leaves out its subagents'", () => {
+    const node = (
+      id: string,
+      kind: "root_turn" | "tool_call" | "subagent",
+      parentNodeId: string | null,
+    ) => ({
+      id: NodeId.make(id),
+      kind,
+      parentNodeId: parentNodeId === null ? null : NodeId.make(parentNodeId),
+    });
+    const nodes = [
+      node("root", "root_turn", null),
+      node("edit", "tool_call", "root"),
+      node("explorer", "subagent", "root"),
+      node("explorer-read", "tool_call", "explorer"),
+    ];
+    const records = ["root", "edit", "explorer", "explorer-read", null, "unknown"].map(
+      (nodeId) => ({
+        item: { nodeId },
+      }),
+    );
+    expect(gentleOddMainAgentRecords(records, nodes).map(({ item }) => item.nodeId)).toEqual([
+      "root",
+      "edit",
+      null,
+      "unknown",
+    ]);
   });
 
   it("counts the work records that touch a feature document, so a reader knows to re-read them", () => {
