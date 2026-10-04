@@ -118,7 +118,12 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 
 /** How many of the feature's tasks are done, as a ring that fills green, with the count on hover. */
 function FeatureProgressRing(props: { readonly done: number; readonly total: number }) {
-  const label = `${props.done} of ${props.total} ${props.total === 1 ? "task" : "tasks"} done`;
+  const label =
+    props.done < props.total
+      ? `${props.done} of ${props.total} ${props.total === 1 ? "task" : "tasks"} done`
+      : props.total === 1
+        ? "Task done"
+        : `All ${props.total} tasks done`;
   return (
     <Tooltip>
       <TooltipTrigger
