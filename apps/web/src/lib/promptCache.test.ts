@@ -256,19 +256,17 @@ describe("promptCacheState", () => {
     );
   });
 
-  it("says what to do: keep going, send something soon, or compact first", () => {
+  it("says what to do in a few words: keep going, send something soon, or compact first", () => {
     const hour = cache({ ttlSeconds: 3_600 });
-    expect(promptCacheAdvice(hour, { kind: "expiresIn", seconds: 600 }, 50_000)).toBe(
-      "Warm: keep going",
-    );
+    expect(promptCacheAdvice(hour, { kind: "expiresIn", seconds: 600 }, 50_000)).toBe("Keep going");
     expect(promptCacheAdvice(hour, { kind: "expiresIn", seconds: 30 }, 50_000)).toBe(
-      "Expires soon: any message refreshes it for free",
+      "Send a message to keep it",
     );
     expect(promptCacheAdvice(hour, { kind: "expired", secondsAgo: 5 }, 151_000)).toBe(
-      "Expired: the next message rewrites 151k tokens. Compact first, or start a new thread if the task is done",
+      "Expired: compact first",
     );
     expect(promptCacheAdvice(hour, { kind: "expired", secondsAgo: 5 }, 40_000)).toBe(
-      "Expired: only 40k tokens to rebuild, just keep going",
+      "Expired: rebuilds 40k tokens",
     );
     expect(
       promptCacheAdvice(
@@ -276,7 +274,8 @@ describe("promptCacheState", () => {
         { kind: "expiresIn", seconds: 290 },
         null,
       ),
-    ).toBe("Cache missed: it had expired after 10 min idle");
+    ).toBe("Missed: expired after 10 min idle");
+    expect(promptCacheAdvice(cache({ ttlSeconds: null }), { kind: "unknown" }, null)).toBeNull();
   });
 
   it("formats countdowns and durations", () => {

@@ -47,7 +47,6 @@ export function PromptCacheIndicator(props: {
   readonly cache: PromptCacheSnapshot;
   /** What the next request sends, which it re-reads in full once the cache has expired. */
   readonly contextTokens: number | null;
-  readonly modelDisplayName: string | null;
   readonly onCompact?: (() => void) | undefined;
   readonly compactDisabled?: boolean | undefined;
 }) {
@@ -84,7 +83,7 @@ export function PromptCacheIndicator(props: {
           <Button
             size="compact"
             variant="ghost-muted"
-            aria-label={`Prompt cache ${percent(cache.hitRate)} reused${clockLabel === null ? "" : `, ${clockLabel}`}. ${advice}`}
+            aria-label={`Prompt cache ${percent(cache.hitRate)} reused${clockLabel === null ? "" : `, ${clockLabel}`}${advice === null ? "" : `. ${advice}`}`}
           />
         }
       >
@@ -106,7 +105,7 @@ export function PromptCacheIndicator(props: {
         side="top"
         align="end"
         padding="none"
-        width="md"
+        width="sm"
         className="text-left whitespace-normal"
       >
         <PromptCacheMeter
@@ -115,7 +114,6 @@ export function PromptCacheIndicator(props: {
           tone={tone}
           advice={advice}
           contextTokens={props.contextTokens}
-          modelDisplayName={props.modelDisplayName}
           onCompact={props.onCompact}
           compactDisabled={props.compactDisabled}
         />
@@ -128,9 +126,8 @@ function PromptCacheMeter(props: {
   readonly cache: PromptCacheSnapshot;
   readonly state: PromptCacheState;
   readonly tone: PromptCacheTone;
-  readonly advice: string;
+  readonly advice: string | null;
   readonly contextTokens: number | null;
-  readonly modelDisplayName: string | null;
   readonly onCompact: (() => void) | undefined;
   readonly compactDisabled: boolean | undefined;
 }) {
@@ -141,93 +138,58 @@ function PromptCacheMeter(props: {
     written: cache.writtenTokens,
     uncached: cache.uncachedTokens,
   };
-  const total = cache.readTokens + (cache.writtenTokens ?? 0) + cache.uncachedTokens;
   const shownParts = PARTS.filter((part) => parts[part.key] !== null);
-  const prompt = [
-    props.modelDisplayName,
-    props.contextTokens === null
-      ? null
-      : `prompt ${formatContextWindowTokens(props.contextTokens)} tokens`,
-  ].filter((part) => part !== null);
 
   return (
-    <div className="flex flex-col gap-3 p-(--floating-content-inset) text-2xs">
+    <div className="flex flex-col gap-2.5 p-(--floating-content-inset) text-2xs">
       <div className="flex items-baseline justify-between gap-3">
-        <div className="font-medium text-muted-foreground text-xs">Prompt cache</div>
-        {cache.ttlSeconds !== null ? (
-          <div className="text-secondary-label">
-            {cache.ttlSeconds >= 3_600 ? "1 hour" : `${Math.round(cache.ttlSeconds / 60)} minute`}{" "}
-            lifetime
-          </div>
+        <span className="font-medium text-muted-foreground text-xs">Prompt cache</span>
+        {state.kind === "expiresIn" ? (
+          <span className="font-semibold text-foreground text-sm tabular-nums">
+            {formatPromptCacheCountdown(state.seconds)}
+          </span>
         ) : null}
       </div>
-
       {life !== null ? (
-        <div className="flex flex-col gap-1.5">
-          <div className="flex items-baseline justify-between gap-3">
-            <span className="font-semibold text-foreground text-lg tabular-nums leading-none">
-              {state.kind === "expiresIn"
-                ? formatPromptCacheCountdown(state.seconds)
-                : state.kind === "working"
-                  ? "Warm"
-                  : "0:00"}
-            </span>
-            <span className="text-secondary-label tabular-nums">{percent(life)} left</span>
-          </div>
+        <div
+          className="h-1 w-full overflow-hidden rounded-full bg-muted"
+          role="progressbar"
+          aria-label="Cache life left"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={Math.round(life * 100)}
+        >
           <div
-            className="h-1.5 w-full overflow-hidden rounded-full bg-muted"
-            role="progressbar"
-            aria-label="Cache life left"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={Math.round(life * 100)}
-          >
-            <div
-              className={cn("h-full rounded-full", TONE_FILL[promptCacheLifeTone(cache, state)])}
-              style={{ width: percent(life) }}
-            />
-          </div>
+            className={cn("h-full rounded-full", TONE_FILL[promptCacheLifeTone(cache, state)])}
+            style={{ width: percent(life) }}
+          />
+        </div>
+      ) : null}
+      {props.advice !== null ? (
+        <div className="flex items-center gap-1.5 font-medium text-foreground text-xs">
+          <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", TONE_FILL[tone])} />
+          {props.advice}
         </div>
       ) : null}
 
-      <div className="flex flex-col gap-0.5">
-        <div className="flex items-start gap-1.5 font-medium text-foreground text-xs">
-          <span
-            aria-hidden
-            className={cn("mt-1 size-1.5 shrink-0 rounded-full", TONE_FILL[tone])}
-          />
-          <span className="text-pretty">{props.advice}</span>
-        </div>
-        {prompt.length > 0 ? (
-          <div className="ps-3 text-secondary-label">{prompt.join(", ")}</div>
-        ) : null}
-      </div>
-
       <div className="flex flex-col gap-1.5">
-        <div className="flex items-center gap-2">
-          <div aria-hidden className="flex h-2 min-w-0 flex-1 gap-0.5 overflow-hidden rounded-full">
-            {total === 0
-              ? null
-              : shownParts.map((part) =>
-                  (parts[part.key] ?? 0) > 0 ? (
-                    <span
-                      key={part.key}
-                      className={cn("h-full first:rounded-s-full last:rounded-e-full", part.fill)}
-                      style={{ flexGrow: parts[part.key] ?? 0, flexBasis: 0, minWidth: 2 }}
-                    />
-                  ) : null,
-                )}
-          </div>
-          <span className="shrink-0 font-medium text-foreground tabular-nums">
-            {percent(cache.hitRate)} hit
-          </span>
+        <div aria-hidden className="flex h-1.5 gap-0.5 overflow-hidden rounded-full">
+          {shownParts.map((part) =>
+            (parts[part.key] ?? 0) > 0 ? (
+              <span
+                key={part.key}
+                className={cn("h-full", part.fill)}
+                style={{ flexGrow: parts[part.key] ?? 0, flexBasis: 0, minWidth: 2 }}
+              />
+            ) : null,
+          )}
         </div>
-        <div className="flex flex-wrap gap-x-3 gap-y-0.5">
+        <div className="flex gap-3 text-secondary-label">
           {shownParts.map((part) => (
-            <span key={part.key} className="flex items-center gap-1 text-secondary-label">
-              <span aria-hidden className={cn("size-2 shrink-0 rounded-sm", part.fill)} />
+            <span key={part.key} className="flex items-center gap-1">
+              <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", part.fill)} />
               {part.label}
-              <span className="font-medium text-foreground tabular-nums">
+              <span className="text-foreground tabular-nums">
                 {formatContextWindowTokens(parts[part.key] ?? 0)}
               </span>
             </span>
@@ -235,7 +197,7 @@ function PromptCacheMeter(props: {
         </div>
       </div>
 
-      {cache.turns.length > 1 ? <TurnTable cache={cache} /> : null}
+      {cache.turns.length > 1 ? <TurnHits cache={cache} /> : null}
 
       {promptCacheSuggestsCompact(state, props.contextTokens) && props.onCompact ? (
         <Button
@@ -253,59 +215,25 @@ function PromptCacheMeter(props: {
   );
 }
 
-/** One row per recent turn, so a miss stands out against the turns around it. */
-function TurnTable(props: { readonly cache: PromptCacheSnapshot }) {
-  const writes = props.cache.writtenTokens !== null;
+/** Each recent turn's hit rate as a bar, so a miss stands out against the turns around it. */
+function TurnHits(props: { readonly cache: PromptCacheSnapshot }) {
+  const turns = props.cache.turns;
   return (
-    <table className="w-full border-separate border-spacing-0 tabular-nums">
-      <caption className="sr-only">Prompt cache use per turn</caption>
-      <thead>
-        <tr className="text-secondary-label">
-          <th scope="col" className="pb-1 text-start font-normal">
-            Turn
-          </th>
-          <th scope="col" className="pb-1 text-end font-normal">
-            Read
-          </th>
-          {writes ? (
-            <th scope="col" className="pb-1 text-end font-normal">
-              Wrote
-            </th>
-          ) : null}
-          <th scope="col" className="pb-1 text-end font-normal">
-            New
-          </th>
-          <th scope="col" className="pb-1 text-end font-normal">
-            Hit
-          </th>
-        </tr>
-      </thead>
-      <tbody>
-        {props.cache.turns.map((row) => (
-          <tr key={row.number} className="text-foreground">
-            <td className="py-0.5 text-secondary-label">{row.number}</td>
-            <td className="py-0.5 text-end">{formatContextWindowTokens(row.readTokens)}</td>
-            {writes ? (
-              <td className="py-0.5 text-end">
-                {formatContextWindowTokens(row.writtenTokens ?? 0)}
-              </td>
-            ) : null}
-            <td className="py-0.5 text-end">{formatContextWindowTokens(row.uncachedTokens)}</td>
-            <td className="py-0.5 text-end">
-              <span className="inline-flex items-center justify-end gap-1">
-                <span
-                  aria-hidden
-                  className={cn(
-                    "size-1.5 rounded-full",
-                    TONE_FILL[promptCacheHitTone(row.hitRate)],
-                  )}
-                />
-                {percent(row.hitRate)}
-              </span>
-            </td>
-          </tr>
+    <div className="flex items-end justify-between gap-3">
+      <span className="text-secondary-label">Last {turns.length} turns</span>
+      <div
+        role="img"
+        aria-label={`Hit rate of the last ${turns.length} turns: ${turns.map((row) => percent(row.hitRate)).join(", ")}`}
+        className="flex h-4 items-end gap-0.5"
+      >
+        {turns.map((row) => (
+          <span
+            key={row.number}
+            className={cn("w-1.5 rounded-sm", TONE_FILL[promptCacheHitTone(row.hitRate)])}
+            style={{ height: `${Math.max(12, Math.round(row.hitRate * 100))}%` }}
+          />
         ))}
-      </tbody>
-    </table>
+      </div>
+    </div>
   );
 }

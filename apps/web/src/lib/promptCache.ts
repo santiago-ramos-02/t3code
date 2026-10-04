@@ -237,11 +237,11 @@ export function promptCacheLifeLeft(cache: PromptCacheSnapshot, state: PromptCac
 function missCause(miss: PromptCacheMiss) {
   switch (miss.kind) {
     case "expired":
-      return `it had expired after ${formatPromptCacheDuration(miss.idleSeconds)} idle`;
+      return `expired after ${formatPromptCacheDuration(miss.idleSeconds)} idle`;
     case "model":
-      return "the model changed";
+      return "model changed";
     case "context":
-      return "the start of the conversation changed, such as its instructions or tools";
+      return "context changed";
   }
 }
 
@@ -250,7 +250,10 @@ export function promptCacheSuggestsCompact(state: PromptCacheState, contextToken
   return state.kind === "expired" && contextTokens !== null && contextTokens >= COMPACT_AT_TOKENS;
 }
 
-/** What to do about the cache now: keep going, send a message soon, or compact first. */
+/**
+ * What to do about the cache now, in a few words: keep going, send a message soon, or compact
+ * first. Null when there is nothing to say, as for a provider without a lifetime that hit.
+ */
 export function promptCacheAdvice(
   cache: PromptCacheSnapshot,
   state: PromptCacheState,
@@ -259,20 +262,16 @@ export function promptCacheAdvice(
   switch (state.kind) {
     case "working":
       return "Warm while the agent works";
-    case "expired": {
-      if (contextTokens === null) return "Expired: the next message rebuilds the cache";
-      const size = formatContextWindowTokens(contextTokens);
-      return promptCacheSuggestsCompact(state, contextTokens)
-        ? `Expired: the next message rewrites ${size} tokens. Compact first, or start a new thread if the task is done`
-        : `Expired: only ${size} tokens to rebuild, just keep going`;
-    }
+    case "expired":
+      if (promptCacheSuggestsCompact(state, contextTokens)) return "Expired: compact first";
+      return contextTokens === null
+        ? "Expired"
+        : `Expired: rebuilds ${formatContextWindowTokens(contextTokens)} tokens`;
     case "expiresIn":
-      if (state.seconds <= SOON_SECONDS) return "Expires soon: any message refreshes it for free";
-      return cache.miss === null ? "Warm: keep going" : `Cache missed: ${missCause(cache.miss)}`;
+      if (state.seconds <= SOON_SECONDS) return "Send a message to keep it";
+      return cache.miss === null ? "Keep going" : `Missed: ${missCause(cache.miss)}`;
     case "unknown":
-      return cache.miss === null
-        ? "This provider does not say how long it keeps the cache"
-        : `Cache missed: ${missCause(cache.miss)}`;
+      return cache.miss === null ? null : `Missed: ${missCause(cache.miss)}`;
   }
 }
 
