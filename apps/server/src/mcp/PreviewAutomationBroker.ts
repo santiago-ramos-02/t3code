@@ -75,6 +75,8 @@ interface ClientConnection {
   readonly focused: boolean;
   readonly liveTabs: NonNullable<PreviewAutomationHostFocus["liveTabs"]>;
   readonly focusOrder: number;
+  /** How many requests this connection has answered, which shows it is still alive. */
+  readonly answered: number;
   readonly queue: Queue.Queue<PreviewAutomationStreamEvent, Cause.Done>;
 }
 
@@ -379,6 +381,7 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
       focused: false,
       liveTabs: [],
       focusOrder: 0,
+      answered: 0,
       queue,
     };
     const registration = yield* SynchronizedRef.modify(state, (current) => {
@@ -455,7 +458,11 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
       }
       const next = new Map(current.pending);
       next.delete(response.requestId);
-      return [entry, { ...current, pending: next }] as const;
+      const host = current.clients.get(response.clientId);
+      if (host?.queue !== entry.queue) return [entry, { ...current, pending: next }] as const;
+      const clients = new Map(current.clients);
+      clients.set(response.clientId, { ...host, answered: host.answered + 1 });
+      return [entry, { ...current, clients, pending: next }] as const;
     });
     if (!pending) return;
     if (response.ok) {
@@ -583,11 +590,9 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
       const offered = yield* SynchronizedRef.modifyEffect(state, (current) => {
         // A route can outlive its generation while another request evicts it.
         // Serialize the live-generation check and offer with queue closure.
-        if (
-          current.clients.get(connection.clientId)?.queue !== connection.queue ||
-          !current.pending.has(requestId)
-        ) {
-          return Effect.succeed([false, current] as const);
+        const host = current.clients.get(connection.clientId);
+        if (host?.queue !== connection.queue || !current.pending.has(requestId)) {
+          return Effect.succeed([null, current] as const);
         }
         return Queue.offer(connection.queue, {
           type: "request",
@@ -601,9 +606,12 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
             input: input.input,
             timeoutMs,
           },
-        }).pipe(Effect.map((offered) => [offered, current] as const));
+        }).pipe(
+          // What the host had answered when the request went out.
+          Effect.map((offered) => [offered ? host.answered : null, current] as const),
+        );
       });
-      if (!offered) {
+      if (offered === null) {
         const completion = yield* Deferred.poll(deferred);
         if (Option.isSome(completion)) {
           return (yield* completion.value) as A;
@@ -614,9 +622,14 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
       return yield* Option.match(result, {
         onNone: () =>
           Effect.gen(function* () {
-            // An unanswered request invalidates this connection. Do not replay
-            // actions: the client may have applied them before becoming unreachable.
-            yield* disconnect(connection.clientId, connection.queue, true);
+            // A host that answered nothing since the request went out is unreachable, so the
+            // connection goes. One still answering other requests stays: evicting it would fail
+            // every thread's work in flight on it for this one request. Do not replay actions
+            // either way: the client may have applied them.
+            const host = (yield* SynchronizedRef.get(state)).clients.get(connection.clientId);
+            if (host?.queue !== connection.queue || host.answered === offered) {
+              yield* disconnect(connection.clientId, connection.queue, true);
+            }
             return yield* new PreviewAutomationTimeoutError(requestContext);
           }),
         onSome: (value) => Effect.succeed(value as A),

@@ -1354,6 +1354,55 @@ it.effect("evicts an unanswered host and lets later calls use a healthy runtime"
   ),
 );
 
+it.effect("fails only the unanswered request while its host keeps answering others", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const broker = yield* makeBroker;
+      const stuck = yield* Deferred.make<void>();
+      const inFlight = yield* Deferred.make<RoutedRequest>();
+      const connected = yield* Deferred.make<void>();
+      // One thread's snapshot never comes back; the host keeps serving every other thread.
+      yield* Stream.runForEach(yield* broker.connect(makeHost()), (event) => {
+        if (event.type === "connected") return Deferred.succeed(connected, undefined);
+        const request = { ...event.request, connectionId: event.connectionId };
+        if (request.operation === "snapshot") return Deferred.succeed(stuck, undefined);
+        if (request.operation === "waitFor") return Deferred.succeed(inFlight, request);
+        return broker.respond({
+          clientId: "client-1",
+          connectionId: event.connectionId,
+          requestId: request.requestId,
+          ok: true,
+          result: request.operation,
+        });
+      }).pipe(Effect.forkScoped);
+      yield* Deferred.await(connected);
+
+      const timedOut = yield* broker
+        .invoke<void>({ scope, operation: "snapshot", input: {}, timeoutMs: 1_000 })
+        .pipe(Effect.flip, Effect.forkScoped);
+      yield* Deferred.await(stuck);
+      expect(yield* broker.invoke({ scope, operation: "evaluate", input: {} })).toBe("evaluate");
+      const waiting = yield* broker
+        .invoke({ scope, operation: "waitFor", input: {}, timeoutMs: 10_000 })
+        .pipe(Effect.forkScoped);
+      const waitRequest = yield* Deferred.await(inFlight);
+      yield* TestClock.adjust(1_000);
+
+      expect(yield* Fiber.join(timedOut)).toMatchObject({ _tag: "PreviewAutomationTimeoutError" });
+      // The host stays connected: its other requests finish, and later calls still reach it.
+      yield* broker.respond({
+        clientId: "client-1",
+        connectionId: waitRequest.connectionId,
+        requestId: waitRequest.requestId,
+        ok: true,
+        result: "waited",
+      });
+      expect(yield* Fiber.join(waiting)).toBe("waited");
+      expect(yield* broker.invoke({ scope, operation: "status", input: {} })).toBe("status");
+    }),
+  ),
+);
+
 it.effect("discards buffered actions before completing an evicted host stream", () =>
   Effect.scoped(
     Effect.gen(function* () {
