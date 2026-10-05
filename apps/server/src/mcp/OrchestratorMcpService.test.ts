@@ -25,6 +25,12 @@ import { buildUnavailableProviderSnapshot } from "../provider/unavailableProvide
 import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
 import type { McpInvocationScope } from "./McpInvocationContext.ts";
 import * as OrchestratorMcpService from "./OrchestratorMcpService.ts";
+import * as GentleAi from "../gentleAi/GentleAi.ts";
+
+// Gentle AI is not installed unless a test sets it up.
+const orchestratorMcpLayer = OrchestratorMcpService.layer.pipe(
+  Layer.provide(Layer.mock(GentleAi.GentleAi)({ current: Effect.succeed(GentleAi.NOT_INSTALLED) })),
+);
 
 describe("OrchestratorMcpService", () => {
   it.effect("retries terminal acknowledgement with a fresh command id", () =>
@@ -148,7 +154,7 @@ describe("OrchestratorMcpService", () => {
         const commandIds = yield* Ref.get(acknowledgementCommandIds);
         assert.equal(commandIds.length, 2);
         assert.notEqual(commandIds[0], commandIds[1]);
-      }).pipe(Effect.provide(OrchestratorMcpService.layer.pipe(Layer.provide(dependencies))));
+      }).pipe(Effect.provide(orchestratorMcpLayer.pipe(Layer.provide(dependencies))));
     }),
   );
 
@@ -229,7 +235,7 @@ describe("OrchestratorMcpService", () => {
         const settled = yield* service.taskStatus(scope, taskId);
         assert.equal(settled.status, "cancelled");
         assert.equal(yield* Ref.get(dispatched), 1);
-      }).pipe(Effect.provide(OrchestratorMcpService.layer.pipe(Layer.provide(dependencies))));
+      }).pipe(Effect.provide(orchestratorMcpLayer.pipe(Layer.provide(dependencies))));
     }),
   );
 
@@ -296,7 +302,7 @@ describe("OrchestratorMcpService", () => {
           .pipe(Effect.flip);
         assert.equal(error.code, "task_not_cancellable");
         assert.deepEqual(yield* Ref.get(dispatched), []);
-      }).pipe(Effect.provide(OrchestratorMcpService.layer.pipe(Layer.provide(dependencies))));
+      }).pipe(Effect.provide(orchestratorMcpLayer.pipe(Layer.provide(dependencies))));
     }),
   );
 
@@ -367,7 +373,7 @@ describe("OrchestratorMcpService", () => {
           (yield* Ref.get(dispatched)).map((command) => (command as { type: string }).type),
           ["run.interrupt"],
         );
-      }).pipe(Effect.provide(OrchestratorMcpService.layer.pipe(Layer.provide(dependencies))));
+      }).pipe(Effect.provide(orchestratorMcpLayer.pipe(Layer.provide(dependencies))));
     }),
   );
 
@@ -443,7 +449,7 @@ describe("OrchestratorMcpService", () => {
           (yield* Ref.get(dispatched)).map((command) => (command as { type: string }).type),
           ["run.interrupt", "delegated_task.completion-delivery.dispose"],
         );
-      }).pipe(Effect.provide(OrchestratorMcpService.layer.pipe(Layer.provide(dependencies))));
+      }).pipe(Effect.provide(orchestratorMcpLayer.pipe(Layer.provide(dependencies))));
     }),
   );
 });
@@ -683,7 +689,7 @@ describe("OrchestratorMcpService provider resolution", () => {
           assert.isTrue(
             fork!.constraints.includes("Driver 'forkOnly' is not registered in this build."),
           );
-        }).pipe(Effect.provide(OrchestratorMcpService.layer.pipe(Layer.provide(dependencies))));
+        }).pipe(Effect.provide(orchestratorMcpLayer.pipe(Layer.provide(dependencies))));
       }),
   );
 
@@ -778,7 +784,7 @@ describe("OrchestratorMcpService provider resolution", () => {
           assert.equal(request.type, "delegated_task.request");
           assert.equal(request.modelSelection.instanceId, antigravityInstanceId);
           assert.equal(request.modelSelection.model, "ant-model");
-        }).pipe(Effect.provide(OrchestratorMcpService.layer.pipe(Layer.provide(dependencies))));
+        }).pipe(Effect.provide(orchestratorMcpLayer.pipe(Layer.provide(dependencies))));
       }),
   );
 
@@ -868,11 +874,11 @@ describe("OrchestratorMcpService provider resolution", () => {
         };
         assert.equal(request.modelSelection.instanceId, antigravityInstanceId);
         assert.equal(request.modelSelection.model, "ant-model");
-      }).pipe(Effect.provide(OrchestratorMcpService.layer.pipe(Layer.provide(dependencies))));
+      }).pipe(Effect.provide(orchestratorMcpLayer.pipe(Layer.provide(dependencies))));
     }),
   );
 
-  it.effect("leaves delegation to Gentle AI on a Pi thread that runs it", () =>
+  it.effect("leaves delegation to Gentle AI on a Pi thread that runs it, unless turned off", () =>
     Effect.gen(function* () {
       const piInstanceId = ProviderInstanceId.make("pi");
       const piSelection = (gentleAi: boolean | undefined) => ({
@@ -922,7 +928,7 @@ describe("OrchestratorMcpService provider resolution", () => {
                   })
                   .pipe(Effect.flip);
           return { capabilities, delegated };
-        }).pipe(Effect.provide(OrchestratorMcpService.layer.pipe(Layer.provide(dependencies))));
+        }).pipe(Effect.provide(orchestratorMcpLayer.pipe(Layer.provide(dependencies))));
       };
 
       // Gentle AI is on unless the thread turns it off, so its subagents own delegated work.
@@ -937,6 +943,59 @@ describe("OrchestratorMcpService provider resolution", () => {
       const { capabilities } = yield* run(false);
       assert.isTrue(capabilities.features.appOwnedSubagents);
       assert.isTrue(capabilities.providers.every((provider) => provider.canRunChildTask));
+    }),
+  );
+
+  it.effect("leaves delegation to Gentle AI on any harness it set up", () =>
+    Effect.gen(function* () {
+      const claudeInstanceId = ProviderInstanceId.make("claudeAgent");
+      const claudeDriver = ProviderDriverKind.make("claudeAgent");
+      const dependencies = Layer.mergeAll(
+        NodeServices.layer,
+        Layer.mock(ThreadManagementService.ThreadManagementService)({
+          getThreadRecords: () =>
+            Effect.succeed(
+              parentProjection([], { instanceId: claudeInstanceId, model: "claude-opus-5-5" }),
+            ),
+        }),
+        Layer.mock(ProviderRegistry.ProviderRegistry)({
+          getProviders: Effect.succeed([
+            providerSnapshot({
+              instanceId: claudeInstanceId,
+              driver: claudeDriver,
+              model: "claude-opus-5-5",
+            }),
+            providerSnapshot({
+              instanceId: codexInstanceId,
+              driver: ProviderDriverKind.make("codex"),
+              model: "gpt-6-luna",
+            }),
+          ]),
+        }),
+        adapterRegistryLayer([claudeInstanceId, codexInstanceId]),
+        Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),
+        // Gentle AI set up Claude Code, which reports no flag of its own.
+        Layer.mock(GentleAi.GentleAi)({
+          current: Effect.succeed({
+            ...GentleAi.NOT_INSTALLED,
+            installed: true,
+            drivers: [claudeDriver],
+          }),
+        }),
+      );
+
+      yield* Effect.gen(function* () {
+        const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+        const delegated = yield* service
+          .delegateTask(scope, {
+            task: "Review the diff.",
+            target: { providerInstanceId: codexInstanceId, model: "gpt-6-luna" },
+            mode: "async",
+            clientRequestId: "delegate-gentle-claude",
+          })
+          .pipe(Effect.flip);
+        assert.equal(delegated.code, "delegation_owned_by_gentle_ai");
+      }).pipe(Effect.provide(OrchestratorMcpService.layer.pipe(Layer.provide(dependencies))));
     }),
   );
 
@@ -993,7 +1052,7 @@ describe("OrchestratorMcpService provider resolution", () => {
         assert.isTrue(
           byDriver.message.includes("No V2 provider adapter is registered for driver forkOnly."),
         );
-      }).pipe(Effect.provide(OrchestratorMcpService.layer.pipe(Layer.provide(dependencies))));
+      }).pipe(Effect.provide(orchestratorMcpLayer.pipe(Layer.provide(dependencies))));
     }),
   );
 
@@ -1200,7 +1259,7 @@ describe("OrchestratorMcpService provider resolution", () => {
             } else {
               assert.equal(request.modelSelection.model, "codex-alt-model", testCase.name);
             }
-          }).pipe(Effect.provide(OrchestratorMcpService.layer.pipe(Layer.provide(dependencies))));
+          }).pipe(Effect.provide(orchestratorMcpLayer.pipe(Layer.provide(dependencies))));
         }
       }),
   );

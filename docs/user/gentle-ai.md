@@ -91,6 +91,12 @@ directly keeps its own models, and nothing changes in `~/.claude`. A profile can
 Gentle AI's phases to slots; phases are shared by every Claude Code, so a phase pinned to
 `haiku` runs whatever `haiku` is on the provider running it.
 
+## Delegated work
+
+In a thread with Gentle AI on, Gentle AI's own subagents run the work the agent hands off, so
+T3 Code's delegated tasks (`delegate_task`) decline there. To delegate through T3 Code instead,
+for example to another provider, turn Gentle AI off for the thread.
+
 ## Turn Gentle AI off for a thread
 
 In a new thread, open the Gentle AI chip in the composer and clear **Gentle AI**; the

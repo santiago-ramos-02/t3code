@@ -54,9 +54,6 @@ installs Pi's example `subagent` extension, T3 Code also shows its task progress
 UI. Pi runs those children without a session, so they cannot be opened or resumed as T3 Code
 threads.
 
-When Gentle AI is on for a Pi thread, its own subagents run delegated work and `delegate_task`
-declines. Turn Gentle AI off for the thread to delegate through T3 Code instead.
-
 ## Troubleshooting
 
 - If Pi is unavailable, confirm that the configured binary runs on the server machine, then refresh

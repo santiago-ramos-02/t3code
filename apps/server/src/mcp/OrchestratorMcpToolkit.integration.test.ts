@@ -73,6 +73,7 @@ import {
 import { makeProviderRegistryLayer } from "../provider/testUtils/providerRegistryMock.ts";
 import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
 import * as McpHttpServer from "./McpHttpServer.ts";
+import * as GentleAi from "../gentleAi/GentleAi.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
 import { delegatedTaskRun, hasPendingChildRuns } from "./OrchestratorMcpService.ts";
 
@@ -90,6 +91,10 @@ const createdThreadPrompt = "Complete the newly created ordinary thread.";
 const queuedFollowupPrompt = "Complete the queued follow-up and return the final result.";
 const queuedFollowupResult = "Queued delegated follow-up completed.";
 
+// These threads run without Gentle AI, so T3 Code owns their delegated work.
+const gentleAiNotInstalledLayer = Layer.mock(GentleAi.GentleAi)({
+  current: Effect.succeed(GentleAi.NOT_INSTALLED),
+});
 const decodeCreateThreadsResult = Schema.decodeUnknownEffect(OrchestratorMcpCreateThreadsResult);
 const decodeDelegateTaskResult = Schema.decodeUnknownEffect(OrchestratorMcpDelegateTaskResult);
 const decodeTaskCancelResult = Schema.decodeUnknownEffect(OrchestratorMcpTaskCancelResult);
@@ -631,6 +636,7 @@ describe("orchestrator MCP toolkit", () => {
             Layer.provide(registryLayer),
             Layer.provide(providerRegistryLayer),
             Layer.provide(scheduledTaskStubLayer),
+            Layer.provide(gentleAiNotInstalledLayer),
             Layer.provide(NodeServices.layer),
           );
 
@@ -3548,6 +3554,7 @@ describe("orchestrator MCP toolkit", () => {
           ),
           Layer.provide(providerRegistryLayer),
           Layer.provide(unusedScheduledTaskStubLayer),
+          Layer.provide(gentleAiNotInstalledLayer),
           Layer.provide(NodeServices.layer),
         );
 
