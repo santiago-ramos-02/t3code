@@ -9,7 +9,7 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentId, GentleAiJobMethod, GentleAiParams } from "@t3tools/contracts";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import { Alert, Pressable } from "react-native";
 
 import { AppText as Text } from "../../components/AppText";
