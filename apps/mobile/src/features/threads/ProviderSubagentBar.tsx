@@ -36,11 +36,11 @@ export function ProviderSubagentBar(props: {
   }, [live]);
   const statusLabel = formatProviderSubagentStatus(props.status, nowMs);
   const modelDescription = [
-    props.agentName,
     props.effortLabel === null ? props.modelLabel : `${props.modelLabel}, ${props.effortLabel}`,
+    props.agentName,
   ]
     .filter((part) => part !== null)
-    .join(" on ");
+    .join(" as ");
 
   return (
     <View className="flex-row items-center gap-3 rounded-[20px] border border-border-subtle bg-card-alt py-2 pe-2 ps-4">
@@ -59,11 +59,6 @@ export function ProviderSubagentBar(props: {
             />
           ) : null}
           {/* The agent's name stays whole; its model shrinks instead. */}
-          {props.agentName === null ? null : (
-            <Text numberOfLines={1} className="shrink-0 font-t3-bold text-sm text-foreground">
-              {props.agentName}
-            </Text>
-          )}
           <Text
             numberOfLines={1}
             className={
@@ -80,6 +75,11 @@ export function ProviderSubagentBar(props: {
               className="shrink-0 font-sans text-sm text-foreground-secondary"
             >
               {props.effortLabel}
+            </Text>
+          )}
+          {props.agentName === null ? null : (
+            <Text numberOfLines={1} className="shrink-0 font-t3-bold text-sm text-foreground">
+              {props.agentName}
             </Text>
           )}
         </View>

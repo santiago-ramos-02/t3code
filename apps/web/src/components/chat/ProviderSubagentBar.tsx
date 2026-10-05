@@ -34,11 +34,11 @@ export function ProviderSubagentBar(props: {
   const { status } = props;
   const live = status !== null && isOrchestrationV2WorkActive(status.status);
   const modelDescription = [
-    props.agentName,
     props.effortLabel === null ? props.modelLabel : `${props.modelLabel}, ${props.effortLabel}`,
+    props.agentName,
   ]
     .filter((part) => part !== null)
-    .join(" on ");
+    .join(" as ");
   // Announced once per transition; the ticking label below is not.
   const announcement = formatProviderSubagentStatus(
     status === null ? null : { ...status, startedAt: null },
@@ -80,10 +80,6 @@ export function ProviderSubagentBar(props: {
             badgeClassName="right-[-0.125rem] bottom-[-0.125rem] h-3 min-w-3 px-0.5 text-5xs"
           />
         ) : null}
-        {/* The agent's name never truncates; on a narrow screen its model gives way instead. */}
-        {props.agentName === null ? null : (
-          <span className="shrink-0 font-medium text-foreground">{props.agentName}</span>
-        )}
         <span
           className={cn(
             "min-w-0 truncate",
@@ -103,6 +99,10 @@ export function ProviderSubagentBar(props: {
           >
             {props.effortLabel}
           </span>
+        )}
+        {/* The agent's name never truncates; on a narrow screen its model gives way instead. */}
+        {props.agentName === null ? null : (
+          <span className="shrink-0 font-medium text-foreground">{props.agentName}</span>
         )}
       </span>
       <span
