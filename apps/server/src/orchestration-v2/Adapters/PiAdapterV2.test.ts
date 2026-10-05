@@ -515,7 +515,7 @@ describe("PiAdapterV2", () => {
     }).pipe(Effect.scoped, Effect.provide(testLayer)),
   );
 
-  it.effect("says how long the cache lives from the model the turn called", () =>
+  it.effect("says how long the cache lives from where the turn's calls wrote it", () =>
     Effect.gen(function* () {
       const fake = yield* makeFakePi;
       const { runtime, takeEvent } = yield* openRuntime(fake);
@@ -527,18 +527,27 @@ describe("PiAdapterV2", () => {
       yield* startTurn(runtime, providerThread);
       yield* fake.takeRequest("prompt");
       yield* fake.emit({ type: "agent_start" });
-      // Pi's usage carries no cache lifetime, but its claude-bridge runs the Claude Code CLI.
-      yield* fake.emit({
-        type: "message_start",
-        message: { role: "assistant", provider: "claude-bridge", model: "claude-opus-5-5" },
-      });
-      yield* fake.emit({
-        type: "message_end",
-        message: { role: "assistant", content: [], stopReason: "stop" },
-      });
+      // Pi reports how much of a Claude cache write went to the 1 hour cache.
+      for (const usage of [
+        { input: 3, output: 200, cacheRead: 0, cacheWrite: 40_000, cacheWrite1h: 40_000 },
+        // A later call that only read the cache leaves the lifetime the write set.
+        { input: 2, output: 100, cacheRead: 40_000, cacheWrite: 0, cacheWrite1h: 0 },
+      ]) {
+        yield* fake.emit({ type: "message_start", message: { role: "assistant" } });
+        yield* fake.emit({
+          type: "message_end",
+          message: {
+            role: "assistant",
+            model: "claude-opus-5-5",
+            content: [],
+            stopReason: "stop",
+            usage: { ...usage, totalTokens: usage.input + usage.output },
+          },
+        });
+      }
       fake.queueStats({
         contextUsage: { tokens: 40_000, contextWindow: 200_000 },
-        tokens: { input: 3, cacheRead: 39_000, output: 200 },
+        tokens: { input: 5, cacheRead: 40_000, output: 300 },
       });
       fake.queueState({ isStreaming: false, isCompacting: false, pendingMessageCount: 0 });
       yield* fake.emit({ type: "agent_settled" });

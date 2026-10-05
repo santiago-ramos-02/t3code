@@ -2,8 +2,9 @@
 // the only lifetime those models offer:
 // https://developers.openai.com/api/docs/guides/prompt-caching
 const OPENAI_CACHE_TTL_SECONDS = 1_800;
-// The Claude Code CLI writes every request to Claude's 1 hour cache.
-const CLAUDE_CODE_CACHE_TTL_SECONDS = 3_600;
+// Claude writes to a 5 minute or a 1 hour cache.
+const CLAUDE_SHORT_CACHE_TTL_SECONDS = 300;
+const CLAUDE_LONG_CACHE_TTL_SECONDS = 3_600;
 
 /** Whether an OpenAI model id names GPT-5.6 or later, as in `gpt-6.1-sol` or `gpt-5.6-codex`. */
 function isFixedLifetimeOpenAiModel(model: string) {
@@ -24,10 +25,18 @@ export function openAiCacheTtlSeconds(model: string) {
 }
 
 /**
- * How long a Pi model's provider keeps the prompt cache, read from the Pi provider and model an
- * assistant message names: Claude through the Claude Code CLI bridge, or GPT-5.6 and later.
+ * How long the cache a Pi model call wrote lives. Pi reports how much of a write went to Claude's
+ * 1 hour cache (`cacheWrite1h`) when its provider says; otherwise only OpenAI's fixed lifetime is
+ * known. Undefined when neither says, and for a reporting call that wrote nothing, whose cache
+ * keeps the lifetime an earlier write gave it.
  */
-export function piCacheTtlSeconds(provider: string, model: string) {
-  if (provider === "claude-bridge") return CLAUDE_CODE_CACHE_TTL_SECONDS;
-  return openAiCacheTtlSeconds(model);
+export function piCallCacheTtlSeconds(
+  usage: { readonly cacheWrite: number | undefined; readonly cacheWrite1h: number | undefined },
+  model: string | undefined,
+) {
+  if (usage.cacheWrite1h !== undefined) {
+    if ((usage.cacheWrite ?? 0) === 0) return undefined;
+    return usage.cacheWrite1h > 0 ? CLAUDE_LONG_CACHE_TTL_SECONDS : CLAUDE_SHORT_CACHE_TTL_SECONDS;
+  }
+  return model === undefined ? undefined : openAiCacheTtlSeconds(model);
 }

@@ -98,7 +98,7 @@ import {
   resolvePiLaunchArgs,
 } from "./piT3McpInjection.ts";
 import { PI_FILE_CHANGE_TOOLS } from "./piT3McpExtensionSource.ts";
-import { piCacheTtlSeconds } from "./promptCacheLifetime.ts";
+import { piCallCacheTtlSeconds } from "./promptCacheLifetime.ts";
 
 export const PI_PROVIDER = ProviderDriverKind.make("pi");
 const PI_DRIVER_KIND = PI_PROVIDER;
@@ -334,7 +334,7 @@ interface ActivePiTurn {
   latestCompactionAfterTokens: number | null;
   /** Last streamed usage total already emitted on the running turn. */
   lastLiveUsedTokens: number | null;
-  /** How long the provider of the turn's latest model call keeps the prompt cache, when known. */
+  /** How long the cache the turn's latest writing model call left lives, when its usage says. */
   cacheTtlSeconds: number | undefined;
   /** The turn's model calls added up, from each assistant message Pi ends; null before one. */
   callUsage: PiCallUsage | null;
@@ -1667,12 +1667,6 @@ export function makePiAdapterV2(
             if (turn !== null && recordString(event["message"], "role") === "assistant") {
               turn.sawAgentActivity = true;
               turn.messageOrdinal += 1;
-              // Pi's usage does not say how long the cache lives, but the model it called does.
-              const provider = recordString(event["message"], "provider");
-              const model = recordString(event["message"], "model");
-              if (provider !== undefined && model !== undefined) {
-                turn.cacheTtlSeconds = piCacheTtlSeconds(provider, model);
-              }
             }
             return;
           }
@@ -1712,7 +1706,16 @@ export function makePiAdapterV2(
             if (turn === null) return;
             const message = event["message"];
             if (recordString(message, "role") !== "assistant") return;
-            turn.callUsage = addPiCallUsage(turn.callUsage, recordField(message, "usage"));
+            const usage = recordField(message, "usage");
+            turn.callUsage = addPiCallUsage(turn.callUsage, usage);
+            turn.cacheTtlSeconds =
+              piCallCacheTtlSeconds(
+                {
+                  cacheWrite: nonNegativeInteger(usage, "cacheWrite"),
+                  cacheWrite1h: nonNegativeInteger(usage, "cacheWrite1h"),
+                },
+                recordString(message, "model"),
+              ) ?? turn.cacheTtlSeconds;
             yield* completeOpenStreamItems(turn);
             if (recordString(message, "stopReason") === "error" && turn.failure === null) {
               turn.failure = makeProviderFailure({
