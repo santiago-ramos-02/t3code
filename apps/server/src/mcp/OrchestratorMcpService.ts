@@ -50,6 +50,7 @@ import {
   type ScheduledTask,
   type ScheduledTaskUpsertInput,
   type ServerProvider,
+  gentleAiEnabled,
   ThreadId,
 } from "@t3tools/contracts";
 import { runRanAfter } from "@t3tools/shared/orchestrationV2ThreadError";
@@ -205,6 +206,25 @@ function scheduledTaskSummary(task: ScheduledTask): OrchestratorMcpScheduledTask
     nextRunAt: task.nextRunAt,
     lastRunStatus: task.lastRunStatus,
   };
+}
+
+const GENTLE_AI_DELEGATION =
+  "Gentle AI orchestrates this thread, so its own subagents run delegated work. Turn Gentle AI off for this thread to delegate through T3 Code.";
+
+/**
+ * Whether the Gentle AI orchestrator runs this thread on Pi, where its own subagents own
+ * delegated work and T3 Code starts no child tasks.
+ */
+function gentleAiOwnsDelegation(
+  thread: Pick<OrchestrationV2ThreadProjection["thread"], "modelSelection">,
+  providers: ReadonlyArray<ServerProvider>,
+) {
+  const provider = providers.find((entry) => entry.instanceId === thread.modelSelection.instanceId);
+  return (
+    provider?.driver === "pi" &&
+    provider.gentleAi === true &&
+    gentleAiEnabled(thread.modelSelection.options)
+  );
 }
 
 function providerConstraints(
@@ -1326,6 +1346,7 @@ const make = Effect.gen(function* () {
         const parent = yield* loadProjection(scope.threadId);
         const providers = yield* loadProviders;
         const orchestrationCapableInstanceIds = yield* loadOrchestrationCapableInstanceIds();
+        const gentleAiDelegation = gentleAiOwnsDelegation(parent.thread, providers);
         return {
           parentThreadId: scope.threadId,
           inheritedProviderInstanceId: parent.thread.modelSelection.instanceId,
@@ -1333,10 +1354,13 @@ const make = Effect.gen(function* () {
           runtimeMode: parent.thread.runtimeMode,
           interactionMode: parent.thread.interactionMode,
           providers: providers.map((provider) => {
-            const constraints = providerConstraints(
-              provider,
-              orchestrationCapableInstanceIds.has(provider.instanceId),
-            );
+            const constraints = [
+              ...providerConstraints(
+                provider,
+                orchestrationCapableInstanceIds.has(provider.instanceId),
+              ),
+              ...(gentleAiDelegation ? [GENTLE_AI_DELEGATION] : []),
+            ];
             return {
               providerInstanceId: provider.instanceId,
               driverKind: provider.driver,
@@ -1355,7 +1379,7 @@ const make = Effect.gen(function* () {
             };
           }),
           features: {
-            appOwnedSubagents: true,
+            appOwnedSubagents: !gentleAiDelegation,
             asyncPolling: true,
             cancellation: true,
             batchThreadCreation: true,
@@ -1384,6 +1408,9 @@ const make = Effect.gen(function* () {
           );
         }
         const providers = yield* loadProviders;
+        if (gentleAiOwnsDelegation(parent.thread, providers)) {
+          return yield* failure("delegation_owned_by_gentle_ai", GENTLE_AI_DELEGATION);
+        }
         const target = yield* resolveTarget({
           parent,
           target: input.target,

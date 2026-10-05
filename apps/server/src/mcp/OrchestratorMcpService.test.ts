@@ -872,6 +872,74 @@ describe("OrchestratorMcpService provider resolution", () => {
     }),
   );
 
+  it.effect("leaves delegation to Gentle AI on a Pi thread that runs it", () =>
+    Effect.gen(function* () {
+      const piInstanceId = ProviderInstanceId.make("pi");
+      const piSelection = (gentleAi: boolean | undefined) => ({
+        instanceId: piInstanceId,
+        model: "claude-bridge/claude-opus-5-5",
+        ...(gentleAi === undefined ? {} : { options: [{ id: "gentleAi", value: gentleAi }] }),
+      });
+      const run = (gentleAi: boolean | undefined) => {
+        const dependencies = Layer.mergeAll(
+          NodeServices.layer,
+          Layer.mock(ThreadManagementService.ThreadManagementService)({
+            getThreadRecords: () => Effect.succeed(parentProjection([], piSelection(gentleAi))),
+          }),
+          Layer.mock(ProviderRegistry.ProviderRegistry)({
+            getProviders: Effect.succeed([
+              {
+                ...providerSnapshot({
+                  instanceId: piInstanceId,
+                  driver: ProviderDriverKind.make("pi"),
+                  model: "claude-bridge/claude-opus-5-5",
+                }),
+                gentleAi: true,
+              },
+              providerSnapshot({
+                instanceId: codexInstanceId,
+                driver: ProviderDriverKind.make("codex"),
+                model: "gpt-6-luna",
+              }),
+            ]),
+          }),
+          adapterRegistryLayer([piInstanceId, codexInstanceId]),
+          Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),
+        );
+        return Effect.gen(function* () {
+          const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+          const capabilities = yield* service.capabilities(scope);
+          // Only a refused delegation is checked: one that goes ahead starts a real child task.
+          const delegated =
+            gentleAi === false
+              ? null
+              : yield* service
+                  .delegateTask(scope, {
+                    task: "Wait for the e2e log.",
+                    target: { providerInstanceId: codexInstanceId, model: "gpt-6-luna" },
+                    mode: "async",
+                    clientRequestId: `delegate-gentle-${String(gentleAi)}`,
+                  })
+                  .pipe(Effect.flip);
+          return { capabilities, delegated };
+        }).pipe(Effect.provide(OrchestratorMcpService.layer.pipe(Layer.provide(dependencies))));
+      };
+
+      // Gentle AI is on unless the thread turns it off, so its subagents own delegated work.
+      for (const gentleAi of [undefined, true]) {
+        const { capabilities, delegated } = yield* run(gentleAi);
+        assert.equal(delegated?.code, "delegation_owned_by_gentle_ai");
+        assert.isFalse(capabilities.features.appOwnedSubagents);
+        assert.isTrue(capabilities.providers.every((provider) => !provider.canRunChildTask));
+      }
+
+      // With Gentle AI off, T3 Code delegates as usual.
+      const { capabilities } = yield* run(false);
+      assert.isTrue(capabilities.features.appOwnedSubagents);
+      assert.isTrue(capabilities.providers.every((provider) => provider.canRunChildTask));
+    }),
+  );
+
   it.effect("rejects delegation to a provider without a registered adapter", () =>
     Effect.gen(function* () {
       const forkOnlyInstanceId = ProviderInstanceId.make("forkOnly");

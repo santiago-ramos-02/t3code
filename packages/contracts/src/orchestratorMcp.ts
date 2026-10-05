@@ -575,6 +575,7 @@ export class OrchestratorMcpFailure extends Schema.TaggedError<OrchestratorMcpFa
       "model_unavailable",
       "runtime_mode_escalation_denied",
       "interaction_mode_escalation_denied",
+      "delegation_owned_by_gentle_ai",
       "task_not_found",
       "task_not_cancellable",
       "thread_not_found",
