@@ -515,6 +515,47 @@ describe("PiAdapterV2", () => {
     }).pipe(Effect.scoped, Effect.provide(testLayer)),
   );
 
+  it.effect("says how long the cache lives from the model the turn called", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakePi;
+      const { runtime, takeEvent } = yield* openRuntime(fake);
+      const providerThread = yield* runtime.ensureThread({
+        threadId: THREAD_ID,
+        modelSelection: modelSelection("default"),
+        runtimePolicy,
+      });
+      yield* startTurn(runtime, providerThread);
+      yield* fake.takeRequest("prompt");
+      yield* fake.emit({ type: "agent_start" });
+      // Pi's usage carries no cache lifetime, but its claude-bridge runs the Claude Code CLI.
+      yield* fake.emit({
+        type: "message_start",
+        message: { role: "assistant", provider: "claude-bridge", model: "claude-opus-5-5" },
+      });
+      yield* fake.emit({
+        type: "message_end",
+        message: { role: "assistant", content: [], stopReason: "stop" },
+      });
+      fake.queueStats({
+        contextUsage: { tokens: 40_000, contextWindow: 200_000 },
+        tokens: { input: 3, cacheRead: 39_000, output: 200 },
+      });
+      fake.queueState({ isStreaming: false, isCompacting: false, pendingMessageCount: 0 });
+      yield* fake.emit({ type: "agent_settled" });
+
+      const settled = yield* takeEvent(
+        (event) =>
+          event.type === "provider_turn.updated" && event.providerTurn.status === "completed",
+      );
+      assert.equal(
+        settled.type === "provider_turn.updated"
+          ? settled.providerTurn.tokenUsage?.cacheTtlSeconds
+          : null,
+        3_600,
+      );
+    }).pipe(Effect.scoped, Effect.provide(testLayer)),
+  );
+
   it.effect("stops provider-initiated work that has no T3 turn owner", () =>
     Effect.gen(function* () {
       const fake = yield* makeFakePi;

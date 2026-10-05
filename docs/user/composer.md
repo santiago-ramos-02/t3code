@@ -203,9 +203,10 @@ expired, when your next message sends the whole conversation again at full price
 readout for the countdown, whether your next message reuses the context, the last turn's read,
 written, and new tokens, why it rebuilt the cache if it did, and the recent turns.
 
-Claude reports how long it keeps the cache, so its readout counts down. Codex, OpenCode,
-and Pi show how long ago the cache was last used instead. Cursor, Grok, and Antigravity do
-not report cache use.
+The readout counts down for Claude, for GPT-5.6 and later models on Codex or Pi, which OpenAI
+keeps for 30 minutes, and for Claude through Pi's Claude bridge. For other models, Codex,
+OpenCode, and Pi show how long ago the cache was last used instead. Cursor, Grok, and
+Antigravity do not report cache use.
 
 ## Context in your message
 

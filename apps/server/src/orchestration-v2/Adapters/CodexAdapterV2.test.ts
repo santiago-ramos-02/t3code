@@ -184,6 +184,7 @@ describe("CodexAdapterV2 context usage", () => {
         modelContextWindow: 200_000,
       },
       "2026-08-29T00:00:00.000Z",
+      "gpt-6.1-sol",
     );
 
     assert.deepEqual(usage, {
@@ -193,6 +194,8 @@ describe("CodexAdapterV2 context usage", () => {
       cachedInputTokens: 10_000,
       outputTokens: 5_000,
       reasoningOutputTokens: 1_000,
+      // OpenAI keeps GPT-5.6 and later caches for 30 minutes.
+      cacheTtlSeconds: 1_800,
       updatedAt: "2026-08-29T00:00:00.000Z",
     });
   });

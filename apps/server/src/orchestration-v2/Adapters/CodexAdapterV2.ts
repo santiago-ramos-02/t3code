@@ -157,6 +157,7 @@ import {
   subagentThreadTitle,
 } from "../SubagentProjection.ts";
 import type { PrepareProviderSession } from "../../gentleAi/GentleAiSessions.ts";
+import { openAiCacheTtlSeconds } from "./promptCacheLifetime.ts";
 
 const CODEX_PROVIDER = ProviderDriverKind.make("codex");
 export const CODEX_DRIVER_KIND = CODEX_PROVIDER;
@@ -199,7 +200,10 @@ export function canReuseCodexContextUsage(previous: ModelSelection, next: ModelS
 export function codexProviderTurnTokenUsage(
   tokenUsage: CodexSchema.V2ThreadTokenUsageUpdatedNotification["tokenUsage"],
   updatedAt: string,
+  model: string,
 ) {
+  // Codex does not say how long the cache lives; OpenAI documents it per model.
+  const cacheTtlSeconds = openAiCacheTtlSeconds(model);
   return {
     usedTokens: Math.max(0, tokenUsage.last.totalTokens),
     maxTokens: tokenUsage.modelContextWindow ?? null,
@@ -207,6 +211,7 @@ export function codexProviderTurnTokenUsage(
     cachedInputTokens: Math.max(0, tokenUsage.last.cachedInputTokens),
     outputTokens: Math.max(0, tokenUsage.last.outputTokens),
     reasoningOutputTokens: Math.max(0, tokenUsage.last.reasoningOutputTokens),
+    ...(cacheTtlSeconds === undefined ? {} : { cacheTtlSeconds }),
     updatedAt,
   };
 }
@@ -3879,6 +3884,7 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
                 tokenUsage: codexProviderTurnTokenUsage(
                   payload.tokenUsage,
                   DateTime.formatIso(now),
+                  subagentModels.get(payload.threadId) ?? context.input.modelSelection.model,
                 ),
               },
             });

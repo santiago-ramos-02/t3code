@@ -97,6 +97,7 @@ import {
   resolvePiLaunchArgs,
 } from "./piT3McpInjection.ts";
 import { PI_FILE_CHANGE_TOOLS } from "./piT3McpExtensionSource.ts";
+import { piCacheTtlSeconds } from "./promptCacheLifetime.ts";
 
 export const PI_PROVIDER = ProviderDriverKind.make("pi");
 const PI_DRIVER_KIND = PI_PROVIDER;
@@ -332,6 +333,8 @@ interface ActivePiTurn {
   latestCompactionAfterTokens: number | null;
   /** Last streamed usage total already emitted on the running turn. */
   lastLiveUsedTokens: number | null;
+  /** How long the provider of the turn's latest model call keeps the prompt cache, when known. */
+  cacheTtlSeconds: number | undefined;
   /** The turn's model calls added up, from each assistant message Pi ends; null before one. */
   callUsage: PiCallUsage | null;
   /** Invalidates idle snapshots when new work starts after a settle probe. */
@@ -660,6 +663,7 @@ export function makePiAdapterV2(
         stats: unknown,
         fallbackUsedTokens: number | null,
         updatedAt: DateTime.Utc,
+        cacheTtlSeconds: number | undefined,
       ): OrchestrationV2ProviderTurnTokenUsage | undefined => {
         const contextUsage = recordField(stats, "contextUsage");
         const maxTokens = nonNegativeInteger(contextUsage, "contextWindow");
@@ -678,6 +682,7 @@ export function makePiAdapterV2(
           ...(inputTokens === undefined ? {} : { inputTokens }),
           ...(cachedInputTokens === undefined ? {} : { cachedInputTokens }),
           ...(outputTokens === undefined ? {} : { outputTokens }),
+          ...(cacheTtlSeconds === undefined ? {} : { cacheTtlSeconds }),
           updatedAt: DateTime.formatIso(updatedAt),
         };
       };
@@ -689,9 +694,15 @@ export function makePiAdapterV2(
        * version without stats simply leaves the turn without a report, which
        * keeps the meter on the last turn that had one.
        */
-      const readTokenUsage = (fallbackUsedTokens: number | null, updatedAt: DateTime.Utc) =>
+      const readTokenUsage = (
+        fallbackUsedTokens: number | null,
+        updatedAt: DateTime.Utc,
+        cacheTtlSeconds: number | undefined,
+      ) =>
         request({ type: "get_session_stats" }, 2_000).pipe(
-          Effect.map((stats) => tokenUsageFromStats(stats, fallbackUsedTokens, updatedAt)),
+          Effect.map((stats) =>
+            tokenUsageFromStats(stats, fallbackUsedTokens, updatedAt, cacheTtlSeconds),
+          ),
           Effect.orElseSucceed(() => undefined),
         );
 
@@ -729,6 +740,9 @@ export function makePiAdapterV2(
                 ...(inputTokens === undefined ? {} : { inputTokens }),
                 ...(cachedInputTokens === undefined ? {} : { cachedInputTokens }),
                 ...(outputTokens === undefined ? {} : { outputTokens }),
+                ...(turn.cacheTtlSeconds === undefined
+                  ? {}
+                  : { cacheTtlSeconds: turn.cacheTtlSeconds }),
                 updatedAt: DateTime.formatIso(updatedAt),
               },
             },
@@ -1505,7 +1519,11 @@ export function makePiAdapterV2(
         const treeRefs =
           turn.stopTreeRefs !== undefined ? turn.stopTreeRefs : yield* captureTurnTreeRefs();
         const tokenUsage = readUsage
-          ? yield* readTokenUsage(turn.latestCompactionAfterTokens, completedAt)
+          ? yield* readTokenUsage(
+              turn.latestCompactionAfterTokens,
+              completedAt,
+              turn.cacheTtlSeconds,
+            )
           : undefined;
         const failure = turn.interrupted ? null : turn.failure;
         yield* emit({
@@ -1647,6 +1665,12 @@ export function makePiAdapterV2(
             if (turn !== null && recordString(event["message"], "role") === "assistant") {
               turn.sawAgentActivity = true;
               turn.messageOrdinal += 1;
+              // Pi's usage does not say how long the cache lives, but the model it called does.
+              const provider = recordString(event["message"], "provider");
+              const model = recordString(event["message"], "model");
+              if (provider !== undefined && model !== undefined) {
+                turn.cacheTtlSeconds = piCacheTtlSeconds(provider, model);
+              }
             }
             return;
           }
@@ -2423,6 +2447,7 @@ export function makePiAdapterV2(
                 compactCommand !== null || (payload?.message.trimStart().startsWith("/") ?? false),
               latestCompactionAfterTokens: null,
               lastLiveUsedTokens: null,
+              cacheTtlSeconds: undefined,
               callUsage: null,
               settleProbeGeneration: 0,
               settleWhenIdle: false,
