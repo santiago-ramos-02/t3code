@@ -2,7 +2,7 @@ import { ProviderSetupError, type ProviderInstanceId } from "@t3tools/contracts"
 import * as Effect from "effect/Effect";
 
 import type { PiGentleInstance, PiGentleSettingsError } from "./PiGentleSettings.ts";
-import type * as ProviderInstanceRegistry from "./Services/ProviderInstanceRegistry.ts";
+import type * as ProviderInstanceRegistry from "./ProviderInstanceRegistry.ts";
 
 /**
  * Runs one gentle-pi operation on a Pi provider instance, for its RPC handlers. An instance that

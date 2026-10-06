@@ -2335,19 +2335,27 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     [selectedInstanceId, selectedModel, selectedModelOptionsForDispatch],
   );
   const selectedGentleEnabled = gentleAiEnabled(selectedModelSelection.options);
-  // A thread with Gentle AI off loads nothing from it, so its commands are not offered.
-  const selectedProviderSkills = selectedProviderStatus
-    ? resourcesForGentle(
-        resolveProviderSkillsForCwd(selectedProviderStatus, gitCwd),
-        selectedGentleEnabled,
-      )
-    : [];
-  const selectedProviderSlashCommands = selectedProviderStatus
-    ? resourcesForGentle(
-        resolveProviderSlashCommandsForCwd(selectedProviderStatus, gitCwd),
-        selectedGentleEnabled,
-      )
-    : [];
+  // Memoized so the composer menu can cache between renders. Gentle AI off hides its resources.
+  const selectedProviderSkills = useMemo(
+    () =>
+      selectedProviderStatus
+        ? resourcesForGentle(
+            resolveProviderSkillsForCwd(selectedProviderStatus, gitCwd),
+            selectedGentleEnabled,
+          )
+        : [],
+    [gitCwd, selectedProviderStatus, selectedGentleEnabled],
+  );
+  const selectedProviderSlashCommands = useMemo(
+    () =>
+      selectedProviderStatus
+        ? resourcesForGentle(
+            resolveProviderSlashCommandsForCwd(selectedProviderStatus, gitCwd),
+            selectedGentleEnabled,
+          )
+        : [],
+    [gitCwd, selectedProviderStatus, selectedGentleEnabled],
+  );
   const selectedModelForPicker = selectedModel;
   // Instance-keyed option list so the picker can show each configured
   // instance (built-in + custom) as a first-class sidebar entry. The
@@ -2566,7 +2574,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const settledPullRequestTextQuery =
     pullRequestTextQuery === debouncedPullRequestTextQuery ? pullRequestTextQuery : null;
   const isPathTrigger = composerTriggerKind === "path";
-  const environmentThreadShells = useThreadShells();
+  // Thread shells only feed `@` thread matches, so skip shell updates otherwise.
+  const environmentThreadShells = useThreadShells(isPathTrigger);
   const workspaceEntries = useComposerPathSearch({
     environmentId,
     cwd: isPathTrigger ? gitCwd : null,

@@ -35,7 +35,7 @@ const MALFORMED_SERVER_IDENTITIES = [
   `sha256-${"A".repeat(64)}`,
 ] as const;
 
-const environmentLayer = (input: {
+const layerEnvironment = (input: {
   readonly baseDir: string;
   readonly resourcesPath: string;
   readonly appVersion?: string;
@@ -89,7 +89,7 @@ const ensureWith = (input: {
     const tree = yield* DesktopWslServerTree.DesktopWslServerTree;
     return yield* tree.ensure;
   }).pipe(
-    Effect.provide(DesktopWslServerTree.layer.pipe(Layer.provideMerge(environmentLayer(input)))),
+    Effect.provide(DesktopWslServerTree.layer.pipe(Layer.provideMerge(layerEnvironment(input)))),
   );
 
 describe("DesktopWslServerTree", () => {
@@ -203,7 +203,7 @@ describe("DesktopWslServerTree", () => {
         }).pipe(
           Effect.provide(
             DesktopWslServerTree.layer.pipe(
-              Layer.provideMerge(environmentLayer({ baseDir: tempDir, resourcesPath })),
+              Layer.provideMerge(layerEnvironment({ baseDir: tempDir, resourcesPath })),
             ),
           ),
         );
@@ -465,7 +465,7 @@ describe("DesktopWslServerTree", () => {
         }).pipe(
           Effect.provide(
             DesktopWslServerTree.layer.pipe(
-              Layer.provideMerge(environmentLayer({ baseDir: tempDir, resourcesPath })),
+              Layer.provideMerge(layerEnvironment({ baseDir: tempDir, resourcesPath })),
             ),
           ),
         );
@@ -492,7 +492,7 @@ describe("DesktopWslServerTree", () => {
         const treeRoot = path.dirname(versionDir);
         const extractedEntryPath = path.join(versionDir, "apps/server/dist/bin.mjs");
         let cleanupFailed = false;
-        const partialCleanupFileSystem = Layer.effect(
+        const layerPartialCleanupFileSystem = Layer.effect(
           FileSystem.FileSystem,
           Effect.gen(function* () {
             const realFileSystem = yield* FileSystem.FileSystem;
@@ -523,8 +523,8 @@ describe("DesktopWslServerTree", () => {
         }).pipe(
           Effect.provide(
             DesktopWslServerTree.layer.pipe(
-              Layer.provideMerge(environmentLayer({ baseDir: tempDir, resourcesPath })),
-              Layer.provideMerge(partialCleanupFileSystem),
+              Layer.provideMerge(layerEnvironment({ baseDir: tempDir, resourcesPath })),
+              Layer.provideMerge(layerPartialCleanupFileSystem),
             ),
           ),
         );
@@ -613,7 +613,7 @@ describe("DesktopWslServerTree", () => {
           }).pipe(
             Effect.provide(
               DesktopWslServerTree.layer.pipe(
-                Layer.provideMerge(environmentLayer({ baseDir: tempDir, resourcesPath })),
+                Layer.provideMerge(layerEnvironment({ baseDir: tempDir, resourcesPath })),
                 Layer.provideMerge(countingFileSystem),
               ),
             ),
@@ -655,7 +655,7 @@ describe("DesktopWslServerTree", () => {
           Effect.provide(
             DesktopWslServerTree.layer.pipe(
               Layer.provideMerge(
-                environmentLayer({ baseDir: tempDir, resourcesPath, platform: "darwin" }),
+                layerEnvironment({ baseDir: tempDir, resourcesPath, platform: "darwin" }),
               ),
               Layer.provideMerge(countingFileSystem),
             ),
