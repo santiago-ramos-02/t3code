@@ -1,4 +1,3 @@
-import * as NodeCrypto from "node:crypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -17,8 +16,16 @@ import * as DesktopWslServerTree from "./DesktopWslServerTree.ts";
 // Electron) fs, so a plain directory named server.asar exercises the full
 // extraction path under plain Node.
 
-const serverIdentityOf = (content: string): string =>
-  `sha256-${NodeCrypto.createHash("sha256").update(content).digest("hex")}`;
+// Independent SHA-256 fixtures verify the marker written for each packaged entry.
+const serverIdentities = {
+  "server-entry": "sha256-6373a568748e6edd6676db168048acd7fb2b12377bae65001fcd38ae4466f704",
+  "v2-same-version-rebuild":
+    "sha256-0d9443a1f5aa4e7a38f45bd438d0e4464dc98eb1a27505a063d0b60a44282cd2",
+  "v2-legacy-marker-migrate":
+    "sha256-77bb592a682e4a696dc1f76e7d64cfdbd75085a939fabd0a17cdca3143963d61",
+  v1: "sha256-3bfc269594ef649228e9a74bab00f042efc91d5acc6fbee31a382e80d42388fe",
+} as const;
+const serverIdentityOf = (content: keyof typeof serverIdentities) => serverIdentities[content];
 
 const readMarkerJson = (
   raw: string,

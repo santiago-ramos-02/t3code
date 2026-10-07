@@ -1,7 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import {
-  AuthOrchestrationOperateScope,
   EnvironmentId,
   PreviewAutomationClientDisconnectedError,
   PreviewAutomationInvalidSelectorError,
@@ -11,14 +10,12 @@ import {
   PreviewTabId,
   ProviderInstanceId,
   ThreadId,
-  WS_METHODS,
-  WsRpcGroup,
   type PreviewAutomationHost,
   type PreviewAutomationRequest,
   type PreviewAutomationStreamEvent,
+  SERVER_BROWSER_AUTOMATION_CLIENT_ID,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
-import * as Layer from "effect/Layer";
 import * as Exit from "effect/Exit";
 import * as Deferred from "effect/Deferred";
 import * as Fiber from "effect/Fiber";
@@ -26,10 +23,7 @@ import * as Result from "effect/Result";
 import * as Scheduler from "effect/Scheduler";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
-import * as RpcGroup from "effect/rpc/RpcGroup";
-import * as RpcTest from "effect/rpc/RpcTest";
 
-import * as RpcAuthorization from "../auth/RpcAuthorization.ts";
 import * as PreviewAutomationBroker from "./PreviewAutomationBroker.ts";
 
 const makeBroker = PreviewAutomationBroker.make.pipe(Effect.provide(NodeServices.layer));
@@ -332,6 +326,44 @@ it.effect("announces a live replacement stream before delivering requests", () =
   ),
 );
 
+it.effect(
+  "keeps a server-host open alive for installation without extending other operations",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const broker = yield* makeBroker;
+        const received = yield* Deferred.make<RoutedRequest>();
+        const requests = requestsFrom(yield* broker.connect(makeHost(), { preferred: true }));
+        yield* Stream.runForEach(requests, (request) =>
+          request.operation === "open"
+            ? Deferred.succeed(received, request)
+            : broker.respond({
+                clientId: "client-1",
+                connectionId: request.connectionId,
+                requestId: request.requestId,
+                ok: true,
+                result: request.timeoutMs,
+              }),
+        ).pipe(Effect.forkScoped);
+        const opening = yield* broker
+          .invoke({ scope, operation: "open", input: {} })
+          .pipe(Effect.forkScoped);
+        const request = yield* Deferred.await(received);
+        yield* TestClock.adjust(16_000);
+        yield* broker.respond({
+          clientId: "client-1",
+          connectionId: request.connectionId,
+          requestId: request.requestId,
+          ok: true,
+          result: "opened",
+        });
+        expect(yield* Fiber.join(opening)).toBe("opened");
+        expect(yield* broker.invoke({ scope, operation: "status", input: {} })).toBe(15_000);
+        expect(yield* broker.invoke({ scope, operation: "navigate", input: {} })).toBe(15_000);
+      }),
+    ),
+);
+
 it.effect("preserves bounded request and remote selector diagnostics", () => {
   const locator = "role=button[name='request-secret']";
   const remoteMessage = "Unexpected token near remote-secret.";
@@ -477,6 +509,37 @@ it.effect.each([
       expect(error.cause).toBe(remoteError);
       expect(error.message).toContain("remains on the desktop");
       expect(error.message).not.toContain("remote recording details");
+    }),
+  ),
+);
+
+it.effect.each([
+  { clientId: SERVER_BROWSER_AUTOMATION_CLIENT_ID, shown: true },
+  { clientId: "client-1", shown: false },
+])("tells the agent why its own server browser failed ($clientId)", ({ clientId, shown }) =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const broker = yield* makeBroker;
+      const requests = requestsFrom(yield* broker.connect(makeHost({ clientId })));
+      yield* Stream.runForEach(requests, (request) =>
+        broker.respond({
+          clientId,
+          connectionId: request.connectionId,
+          requestId: request.requestId,
+          ok: false,
+          error: {
+            _tag: "PreviewAutomationExecutionError",
+            message: "page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:4719/",
+          },
+        }),
+      ).pipe(Effect.forkScoped);
+      yield* Effect.yieldNow;
+      const error = yield* broker
+        .invoke<void>({ scope, operation: "open", input: {} })
+        .pipe(Effect.flip);
+      expect(error._tag).toBe("PreviewAutomationExecutionError");
+      // A desktop or other remote host's text stays out of the agent's context.
+      expect(error.message.includes("ERR_CONNECTION_REFUSED")).toBe(shown);
     }),
   ),
 );
@@ -1265,22 +1328,7 @@ it.effect("evicts an unanswered host and lets later calls use a healthy runtime"
       const otherReceived = yield* Deferred.make<void>();
       const otherCompleted = yield* Deferred.make<void>();
       const oldTab = PreviewTabId.make("tab-on-frozen-host");
-      const group = RpcGroup.make(
-        ...Array.from(WsRpcGroup.requests.values()).filter(
-          (rpc) => rpc._tag === WS_METHODS.previewAutomationConnect,
-        ),
-      );
-      const client = yield* RpcTest.makeClient(group).pipe(
-        Effect.provide(
-          Layer.merge(
-            group.toLayer({
-              [WS_METHODS.previewAutomationConnect]: (host) => Stream.unwrap(broker.connect(host)),
-            }),
-            RpcAuthorization.layer([AuthOrchestrationOperateScope]),
-          ),
-        ),
-      );
-      const events = client[WS_METHODS.previewAutomationConnect](makeHost());
+      const events = yield* broker.connect(makeHost());
       const consumer = yield* Stream.runForEach(events, (event) => {
         if (event.type === "connected") return Deferred.succeed(connected, event.connectionId);
         const request = { ...event.request, connectionId: event.connectionId };
@@ -1551,6 +1599,44 @@ it.effect("keeps a host that responds with an operation timeout", () =>
         yield* broker.invoke<void>({ scope, operation: "waitFor", input: {} }).pipe(Effect.flip),
       ).toMatchObject({ _tag: "PreviewAutomationTimeoutError" });
       expect(yield* broker.invoke({ scope, operation: "status", input: {} })).toBe("responsive");
+    }),
+  ),
+);
+
+it.effect("keeps the host connected when a background status read times out", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const broker = yield* makeBroker;
+      const requests = requestsFrom(yield* broker.connect(makeHost()));
+      // A busy host answers its actions but not the metadata read behind them.
+      yield* Stream.runForEach(requests, (request) =>
+        request.operation === "status"
+          ? Effect.void
+          : broker.respond({
+              clientId: "client-1",
+              connectionId: request.connectionId,
+              requestId: request.requestId,
+              ok: true,
+              result: { operation: request.operation },
+            }),
+      ).pipe(Effect.forkScoped);
+      yield* Effect.yieldNow;
+
+      const status = yield* broker
+        .invoke<void>({
+          scope,
+          operation: "status",
+          input: {},
+          timeoutMs: 500,
+          updateCurrentTab: false,
+        })
+        .pipe(Effect.flip, Effect.forkScoped);
+      yield* TestClock.adjust(500);
+      expect(yield* Fiber.join(status)).toMatchObject({ _tag: "PreviewAutomationTimeoutError" });
+
+      expect(yield* broker.invoke({ scope, operation: "snapshot", input: {} })).toEqual({
+        operation: "snapshot",
+      });
     }),
   ),
 );

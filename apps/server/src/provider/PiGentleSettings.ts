@@ -1,4 +1,4 @@
-import * as NodeCrypto from "node:crypto";
+import * as Crypto from "effect/Crypto";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { hostUserHome } from "../hostUserHome.ts";
 import { compareSemverVersions } from "@t3tools/shared/semver";
@@ -206,6 +206,7 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
   readonly httpClient: HttpClient.HttpClient;
 }) {
   const { environment, fileSystem, path, spawner } = input;
+  const crypto = yield* Crypto.Crypto;
   const userHome = hostUserHome(environment, yield* HostProcessPlatform);
   const agentHome =
     environment.GENTLE_PI_AGENT_HOME ||
@@ -224,7 +225,7 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
   const writeAtomicText = (filePath: string, text: string) =>
     Effect.gen(function* () {
       yield* fileSystem.makeDirectory(path.dirname(filePath), { recursive: true });
-      const temporary = `${filePath}.${NodeCrypto.randomUUID()}.tmp`;
+      const temporary = `${filePath}.${yield* crypto.randomUUIDv4}.tmp`;
       yield* fileSystem.writeFileString(temporary, text);
       yield* fileSystem
         .rename(temporary, filePath)

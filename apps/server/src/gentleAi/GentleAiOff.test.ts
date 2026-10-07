@@ -266,7 +266,10 @@ it.layer(NodeServices.layer)("Gentle AI off", (it) => {
         const environment = { HOME: home, USERPROFILE: home };
         if (platform === "darwin") {
           const error = yield* Effect.flip(cursorGentleOffEnvironment({ environment, platform }));
-          expect(error.detail).toContain("macOS");
+          expect(error).toMatchObject({
+            _tag: "PlainConfigMirrorError",
+            detail: expect.stringContaining("macOS"),
+          });
           return;
         }
         const next = yield* cursorGentleOffEnvironment({ environment, platform });

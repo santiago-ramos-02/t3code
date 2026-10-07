@@ -255,6 +255,7 @@ export const AntigravityDriver: ProviderDriver<AntigravitySettings, AntigravityD
                 });
                 return target;
               }).pipe(
+                Effect.provideService(Crypto.Crypto, crypto),
                 Effect.provideService(FileSystem.FileSystem, fileSystem),
                 Effect.provideService(Path.Path, path),
                 Effect.mapError(

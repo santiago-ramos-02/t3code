@@ -1,4 +1,4 @@
-import * as NodeCrypto from "node:crypto";
+import * as Crypto from "effect/Crypto";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ProviderDriverKind, type GentleAiJob, type ServerProvider } from "@t3tools/contracts";
@@ -360,7 +360,8 @@ else line({ type: "error", error: { code: "unsupported", message: "unknown metho
             ChildProcess.make(tar, ["-czf", archive, "-C", path.join(home, "build"), folder]),
           );
           const bytes = yield* fileSystem.readFile(archive);
-          const digest = NodeCrypto.createHash("sha256").update(bytes).digest("hex");
+          const crypto = yield* Crypto.Crypto;
+          const digest = Buffer.from(yield* crypto.digest("SHA-256", bytes)).toString("hex");
 
           // A release server: the latest tag, its checksums, and the archive.
           const release = (checksum: string) =>

@@ -8,6 +8,7 @@ import {
   type ProviderInstanceId,
 } from "@t3tools/contracts";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
@@ -43,6 +44,7 @@ export type PrepareProviderSession<Runtime> = (
 
 /** Runs a Gentle AI off preparation with the services it needs, failing the session open. */
 const gentleOffServices = Effect.gen(function* () {
+  const crypto = yield* Crypto.Crypto;
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const platform = yield* HostProcessPlatform;
@@ -50,9 +52,10 @@ const gentleOffServices = Effect.gen(function* () {
   const provide = <A, E>(
     driver: ProviderDriverKind,
     input: ProviderAdapterV2OpenSessionInput,
-    effect: Effect.Effect<A, E, FileSystem.FileSystem | Path.Path | Scope.Scope>,
+    effect: Effect.Effect<A, E, Crypto.Crypto | FileSystem.FileSystem | Path.Path | Scope.Scope>,
   ) =>
     effect.pipe(
+      Effect.provideService(Crypto.Crypto, crypto),
       Effect.provideService(FileSystem.FileSystem, fileSystem),
       Effect.provideService(Path.Path, path),
       Effect.mapError(

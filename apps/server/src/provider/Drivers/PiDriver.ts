@@ -7,6 +7,7 @@
  * `~/.pi/agent`, so continuation identity uses the default instance grouping.
  */
 import { PiSettings, ProviderDriverKind, type ServerProvider } from "@t3tools/contracts";
+import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
@@ -58,6 +59,7 @@ const UPDATE = makePackageManagedProviderMaintenanceResolver({
 });
 
 export type PiDriverEnv =
+  | Crypto.Crypto
   | PiAdapterV2DriverEnv
   | BackgroundPolicy.BackgroundPolicy
   | ChildProcessSpawner.ChildProcessSpawner
