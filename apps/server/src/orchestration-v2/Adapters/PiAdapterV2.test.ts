@@ -41,6 +41,7 @@ import {
 } from "../ProviderAdapter.ts";
 import { handoffBudget } from "../ContextHandoffBudget.ts";
 import type { ProviderContinuationRequest } from "../ProviderContinuationRequests.ts";
+import * as ClaudeCacheLifetime from "./ClaudeCacheLifetime.ts";
 import { makePiAdapterV2, PI_PROVIDER } from "./PiAdapterV2.ts";
 import { makePiRpcConnection, type PiRpcRecord } from "./PiRpc.ts";
 
@@ -330,6 +331,7 @@ const makeAdapter = Effect.fnUntraced(function* (fake: FakePi, launchArgs = "", 
     fileSystem,
     idAllocator,
     serverConfig,
+    claudeCacheLifetime: yield* ClaudeCacheLifetime.ClaudeCacheLifetime,
   });
 });
 
@@ -563,6 +565,58 @@ describe("PiAdapterV2", () => {
         3_600,
       );
     }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
+  it.effect("gives claude-bridge calls the cache lifetime Claude Code reports", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakePi;
+      const { runtime, takeEvent } = yield* openRuntime(fake);
+      const providerThread = yield* runtime.ensureThread({
+        threadId: THREAD_ID,
+        modelSelection: modelSelection("default"),
+        runtimePolicy,
+      });
+      yield* startTurn(runtime, providerThread);
+      yield* fake.takeRequest("prompt");
+      yield* fake.emit({ type: "agent_start" });
+      // The bridge reports Claude's cache write without saying which cache it went to.
+      yield* fake.emit({ type: "message_start", message: { role: "assistant" } });
+      yield* fake.emit({
+        type: "message_end",
+        message: {
+          role: "assistant",
+          provider: "claude-bridge",
+          model: "claude-opus-5-5",
+          content: [],
+          stopReason: "stop",
+          usage: { input: 3, output: 200, cacheRead: 0, cacheWrite: 40_000, totalTokens: 203 },
+        },
+      });
+      fake.queueStats({
+        contextUsage: { tokens: 40_000, contextWindow: 200_000 },
+        tokens: { input: 3, cacheWrite: 40_000, output: 200 },
+      });
+      fake.queueState({ isStreaming: false, isCompacting: false, pendingMessageCount: 0 });
+      yield* fake.emit({ type: "agent_settled" });
+
+      const settled = yield* takeEvent(
+        (event) =>
+          event.type === "provider_turn.updated" && event.providerTurn.status === "completed",
+      );
+      assert.equal(
+        settled.type === "provider_turn.updated"
+          ? settled.providerTurn.tokenUsage?.cacheTtlSeconds
+          : null,
+        3_600,
+      );
+    }).pipe(
+      Effect.scoped,
+      Effect.provideService(ClaudeCacheLifetime.ClaudeCacheLifetime, {
+        latest: Effect.succeed(3_600),
+        observe: () => Effect.void,
+      }),
+      Effect.provide(layerTest),
+    ),
   );
 
   it.effect("stops provider-initiated work that has no T3 turn owner", () =>

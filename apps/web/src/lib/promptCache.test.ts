@@ -325,12 +325,8 @@ describe("promptCacheState", () => {
     expect(msUntilPromptCacheLabelChanges({ kind: "working" })).toBeNull();
   });
 
-  it("says how long ago the cache was used when the provider gives no lifetime", () => {
-    expect(promptCacheClockLabel(cache({}), { kind: "unknown", idleSeconds: 750 })).toBe("12m ago");
-    // 12:30 idle reads 12m until 13:00.
-    expect(msUntilPromptCacheLabelChanges({ kind: "unknown", idleSeconds: 750 })).toBe(30_000);
-    expect(promptCacheClockLabel(cache({}), { kind: "unknown", idleSeconds: 7_300 })).toBe(
-      "2h ago",
-    );
+  it("shows no timer when the provider gives no lifetime", () => {
+    expect(promptCacheClockLabel(cache({}), { kind: "unknown", idleSeconds: 750 })).toBeNull();
+    expect(msUntilPromptCacheLabelChanges({ kind: "unknown", idleSeconds: 750 })).toBeNull();
   });
 });

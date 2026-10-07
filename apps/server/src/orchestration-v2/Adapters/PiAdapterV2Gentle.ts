@@ -12,11 +12,13 @@ import {
   type ProviderAdapterDriverCreateInput,
 } from "../ProviderAdapterDriver.ts";
 import * as ProviderContinuationRequests from "../ProviderContinuationRequests.ts";
+import * as ClaudeCacheLifetime from "./ClaudeCacheLifetime.ts";
 import { makePiAdapterV2, PI_PROVIDER, type PiAdapterV2Options } from "./PiAdapterV2.ts";
 
 /**
  * Upstream's `PiAdapterV2Driver.create`, plus what the fork's Pi driver adds: Gentle AI's session
- * launch hook, and continuation runs for gentle-pi's background wake-ups (see PiGentle). Kept
+ * launch hook, continuation runs for gentle-pi's background wake-ups (see PiGentle), and the cache
+ * lifetime Claude Code reports, for claude-bridge calls. Kept
  * here so PiAdapterV2.ts keeps upstream's driver as is.
  */
 export const createPiAdapterV2 = Effect.fn("PiAdapterV2Gentle.create")(
@@ -34,6 +36,7 @@ export const createPiAdapterV2 = Effect.fn("PiAdapterV2Gentle.create")(
       idAllocator: yield* IdAllocator.IdAllocatorV2,
       serverConfig: yield* ServerConfig.ServerConfig,
       continuationRequests: yield* ProviderContinuationRequests.ProviderContinuationRequests,
+      claudeCacheLifetime: yield* ClaudeCacheLifetime.ClaudeCacheLifetime,
       ...hooks,
     });
   },

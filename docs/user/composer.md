@@ -205,8 +205,9 @@ written, and new tokens, why it rebuilt the cache if it did, and the recent turn
 
 The readout counts down for Claude, for Pi on Anthropic models, which report how long they
 keep the cache, and for GPT-5.6 and later models on Codex or Pi, which OpenAI keeps for 30
-minutes. For other models, Codex, OpenCode, and Pi show how long ago the cache was last used
-instead. Cursor, Grok, and
+minutes. Pi on claude-bridge counts down from the lifetime your Claude threads last reported,
+since the bridge runs Claude Code on the same login. For other models, the readout shows only
+the cached share, and its popover shows when the cache was last used. Cursor, Grok, and
 Antigravity do not report cache use.
 
 ## Goals

@@ -36,6 +36,7 @@ import * as PullRequestHttp from "./pullRequest/http.ts";
 import * as PullRequestProviderRegistry from "./pullRequest/PullRequestProviderRegistry.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
 import * as SqlitePersistence from "./persistence/Sqlite.ts";
+import * as ClaudeCacheLifetime from "./orchestration-v2/Adapters/ClaudeCacheLifetime.ts";
 import * as PullRequestFilesViewed from "./persistence/PullRequestFilesViewed.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
@@ -615,12 +616,15 @@ const layerRuntimeCoreDependencies = layerRuntimeCoreDependenciesBase.pipe(
   // from the repo's `model-manifest.json` on `main` and applied by the
   // Codex/Claude drivers. `GentleAiFootprints.layer` tells the drivers what
   // gentle-ai added to their agent, for threads with Gentle AI off.
+  // `ClaudeCacheLifetime.layer` carries the cache lifetime Claude Code reports
+  // to drivers that run Claude Code without passing it on.
   Layer.provideMerge(
     Layer.mergeAll(
       ProviderEventLoggers.layer,
       ModelManifest.layer,
       ResetCreditCoordinator.layer,
       GentleAiFootprints.layer,
+      ClaudeCacheLifetime.layer,
     ),
   ),
   // `OpenCodeDriver.create()` yields `OpenCodeRuntime`; previously the old

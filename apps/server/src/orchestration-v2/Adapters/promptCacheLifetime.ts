@@ -24,19 +24,25 @@ export function openAiCacheTtlSeconds(model: string) {
   return isFixedLifetimeOpenAiModel(model) ? OPENAI_CACHE_TTL_SECONDS : undefined;
 }
 
+// The Pi provider pi-claude-bridge, which runs Claude Code on the machine's Claude login.
+const CLAUDE_BRIDGE_PROVIDER = "claude-bridge";
+
 /**
  * How long the cache a Pi model call wrote lives. Pi reports how much of a write went to Claude's
- * 1 hour cache (`cacheWrite1h`) when its provider says; otherwise only OpenAI's fixed lifetime is
- * known. Undefined when neither says, and for a reporting call that wrote nothing, whose cache
- * keeps the lifetime an earlier write gave it.
+ * 1 hour cache (`cacheWrite1h`) when its provider says. pi-claude-bridge does not pass that split
+ * on, so its calls take the lifetime Claude Code last reported for the same login. Otherwise only
+ * OpenAI's fixed lifetime is known. Undefined when none says, and for a reporting call that wrote
+ * nothing, whose cache keeps the lifetime an earlier write gave it.
  */
 export function piCallCacheTtlSeconds(
   usage: { readonly cacheWrite: number | undefined; readonly cacheWrite1h: number | undefined },
-  model: string | undefined,
+  call: { readonly provider: string | undefined; readonly model: string | undefined },
+  claudeCodeTtlSeconds: number | undefined,
 ) {
   if (usage.cacheWrite1h !== undefined) {
     if ((usage.cacheWrite ?? 0) === 0) return undefined;
     return usage.cacheWrite1h > 0 ? CLAUDE_LONG_CACHE_TTL_SECONDS : CLAUDE_SHORT_CACHE_TTL_SECONDS;
   }
-  return model === undefined ? undefined : openAiCacheTtlSeconds(model);
+  if (call.provider === CLAUDE_BRIDGE_PROVIDER) return claudeCodeTtlSeconds;
+  return call.model === undefined ? undefined : openAiCacheTtlSeconds(call.model);
 }

@@ -98,6 +98,7 @@ import {
   resolvePiLaunchArgs,
 } from "./piT3McpInjection.ts";
 import { PI_FILE_CHANGE_TOOLS } from "./piT3McpExtensionSource.ts";
+import type * as ClaudeCacheLifetime from "./ClaudeCacheLifetime.ts";
 import { piCallCacheTtlSeconds } from "./promptCacheLifetime.ts";
 
 export const PI_PROVIDER = ProviderDriverKind.make("pi");
@@ -233,6 +234,8 @@ export interface PiAdapterV2Options {
   readonly fileSystem: FileSystem.FileSystem;
   readonly idAllocator: IdAllocator.IdAllocatorV2["Service"];
   readonly serverConfig: ServerConfig.ServerConfig["Service"];
+  /** The cache lifetime Claude Code reports, for calls that run Claude Code; defaults to none. */
+  readonly claudeCacheLifetime?: ClaudeCacheLifetime.ClaudeCacheLifetimeShape;
   /** Adjusts the process launch for one session. */
   readonly prepareSession?: PrepareProviderSession<{
     readonly args: ReadonlyArray<string>;
@@ -1714,7 +1717,13 @@ export function makePiAdapterV2(
                   cacheWrite: nonNegativeInteger(usage, "cacheWrite"),
                   cacheWrite1h: nonNegativeInteger(usage, "cacheWrite1h"),
                 },
-                recordString(message, "model"),
+                {
+                  provider: recordString(message, "provider"),
+                  model: recordString(message, "model"),
+                },
+                options.claudeCacheLifetime === undefined
+                  ? undefined
+                  : yield* options.claudeCacheLifetime.latest,
               ) ?? turn.cacheTtlSeconds;
             yield* completeOpenStreamItems(turn);
             if (recordString(message, "stopReason") === "error" && turn.failure === null) {

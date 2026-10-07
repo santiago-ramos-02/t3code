@@ -283,13 +283,6 @@ export function formatPromptCacheDuration(seconds: number) {
   return minutes % 60 === 0 ? `${hours} h` : `${hours} h ${minutes % 60} min`;
 }
 
-/** A short span such as `45s`, `12m`, or `3h`, for the composer readout. */
-function formatShortSpan(seconds: number) {
-  if (seconds < 60) return `${seconds}s`;
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
-  return `${Math.floor(seconds / 3600)}h`;
-}
-
 /** Time left as the readout shows it: `43m`, then `4:12` in the last five minutes. */
 function formatTimeLeft(seconds: number) {
   return seconds <= CLOSE_SECONDS
@@ -298,9 +291,9 @@ function formatTimeLeft(seconds: number) {
 }
 
 /**
- * The composer readout's timer: the time left, its full lifetime while the agent keeps it warm,
- * or how long ago it was used when the provider gives no lifetime. Null once expired, where the
- * readout's colour already says so.
+ * The composer readout's timer: the time left, or its full lifetime while the agent keeps it warm.
+ * Null once expired, where the readout's colour already says so, and when the provider gives no
+ * lifetime, as there is no time left to count.
  */
 export function promptCacheClockLabel(cache: PromptCacheSnapshot, state: PromptCacheState) {
   switch (state.kind) {
@@ -309,9 +302,8 @@ export function promptCacheClockLabel(cache: PromptCacheSnapshot, state: PromptC
     case "expiresIn":
       return formatTimeLeft(state.seconds);
     case "expired":
-      return null;
     case "unknown":
-      return `${formatShortSpan(state.idleSeconds)} ago`;
+      return null;
   }
 }
 
@@ -320,13 +312,10 @@ export function msUntilPromptCacheLabelChanges(state: PromptCacheState) {
   switch (state.kind) {
     case "working":
     case "expired":
+    case "unknown":
       return null;
     case "expiresIn":
       if (state.seconds <= CLOSE_SECONDS) return 1000;
       return Math.min(((state.seconds - 1) % 60) + 1, state.seconds - CLOSE_SECONDS) * 1000;
-    case "unknown":
-      if (state.idleSeconds < 60) return 1000;
-      if (state.idleSeconds < 3600) return (60 - (state.idleSeconds % 60)) * 1000;
-      return (3600 - (state.idleSeconds % 3600)) * 1000;
   }
 }
