@@ -6,6 +6,12 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 vi.mock("~/env", () => ({ isElectron: true }));
 
+// This ordering regression runs with preview control granted on the environment.
+vi.mock("~/state/session", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("~/state/session")>()),
+  useEnvironmentScope: () => true,
+}));
+
 vi.mock("~/hooks/useTheme", () => ({
   useTheme: () => ({ resolvedTheme: "light" }),
 }));
