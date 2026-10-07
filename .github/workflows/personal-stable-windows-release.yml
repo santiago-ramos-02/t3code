@@ -78,9 +78,10 @@ jobs:
 
           fork_sha="$(git rev-parse HEAD)"
           git switch --detach "refs/tags/upstream-${upstream_tag}^{commit}"
-          # Keep every workflow from fork main: the candidate's parent is fork main, so
-          # any workflow difference makes the push a workflow edit, which the token can't do.
-          git restore --source="$fork_sha" --staged --worktree -- .github/workflows
+          # Keep release workflows and their local action from fork main. The candidate's
+          # parent is fork main, so workflow differences also require workflow token scope.
+          git restore --source="$fork_sha" --staged --worktree -- \
+            .github/workflows .github/actions/download-artifact-with-retry
 
           git config user.name "personal-release-bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -253,14 +254,14 @@ jobs:
           run-install: true
 
       - name: Download JS bundle
-        uses: actions/download-artifact@v8
+        uses: ./.github/actions/download-artifact-with-retry
         with:
           name: personal-stable-js-bundle
           path: apps
 
       - name: Download WSL runtime
         if: matrix.platform == 'win'
-        uses: actions/download-artifact@v8
+        uses: ./.github/actions/download-artifact-with-retry
         with:
           name: personal-stable-wsl-runtime-x64
           path: wsl-runtime
@@ -398,7 +399,7 @@ jobs:
           run-install: true
 
       - name: Download desktop release assets
-        uses: actions/download-artifact@v8
+        uses: ./.github/actions/download-artifact-with-retry
         with:
           pattern: personal-stable-desktop-release-*
           merge-multiple: true

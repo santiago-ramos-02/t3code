@@ -1,0 +1,48 @@
+name: Download release artifact with retry
+description: Retry transient artifact API or download failures, and fail if every attempt fails.
+inputs:
+  name:
+    description: Artifact name; omit when selecting artifacts by pattern.
+    required: false
+  pattern:
+    description: Pattern used when no artifact name is supplied.
+    required: false
+  path:
+    description: Destination directory.
+    required: true
+  merge-multiple:
+    description: Extract matching artifacts into the same destination directory.
+    required: false
+    default: "false"
+runs:
+  using: composite
+  steps:
+    - name: Download artifact (attempt 1 of 3)
+      id: first
+      continue-on-error: true
+      uses: actions/download-artifact@v8
+      with:
+        name: ${{ inputs.name }}
+        pattern: ${{ inputs.pattern }}
+        path: ${{ inputs.path }}
+        merge-multiple: ${{ inputs.merge-multiple }}
+
+    - name: Download artifact (attempt 2 of 3)
+      id: second
+      if: ${{ !cancelled() && steps.first.outcome == 'failure' }}
+      continue-on-error: true
+      uses: actions/download-artifact@v8
+      with:
+        name: ${{ inputs.name }}
+        pattern: ${{ inputs.pattern }}
+        path: ${{ inputs.path }}
+        merge-multiple: ${{ inputs.merge-multiple }}
+
+    - name: Download artifact (attempt 3 of 3)
+      if: ${{ !cancelled() && steps.second.outcome == 'failure' }}
+      uses: actions/download-artifact@v8
+      with:
+        name: ${{ inputs.name }}
+        pattern: ${{ inputs.pattern }}
+        path: ${{ inputs.path }}
+        merge-multiple: ${{ inputs.merge-multiple }}

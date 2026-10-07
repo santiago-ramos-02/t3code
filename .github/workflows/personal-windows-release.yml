@@ -246,14 +246,14 @@ jobs:
           run-install: true
 
       - name: Download JS bundle
-        uses: actions/download-artifact@v8
+        uses: ./.github/actions/download-artifact-with-retry
         with:
           name: personal-js-bundle
           path: apps
 
       - name: Download WSL runtime
         if: matrix.platform == 'win'
-        uses: actions/download-artifact@v8
+        uses: ./.github/actions/download-artifact-with-retry
         with:
           name: personal-wsl-runtime-x64
           path: wsl-runtime
@@ -394,7 +394,7 @@ jobs:
           run-install: true
 
       - name: Download desktop release assets
-        uses: actions/download-artifact@v8
+        uses: ./.github/actions/download-artifact-with-retry
         with:
           pattern: personal-desktop-release-*
           merge-multiple: true
