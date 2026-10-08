@@ -933,6 +933,68 @@ it.effect("ProviderSessionManagerV2 closes every live session for a provider ins
   }),
 );
 
+it.effect(
+  "ProviderSessionManagerV2 closes a provider instance's sessions only once none is working",
+  () =>
+    Effect.gen(function* () {
+      const state = yield* Ref.make(emptyState);
+      const pendingWork = yield* Ref.make(true);
+      const effect = Effect.gen(function* () {
+        const eventSink = yield* EventSink.EventSinkV2;
+        const idAllocator = yield* IdAllocator.IdAllocatorV2;
+        const manager = yield* ProviderSessionManager.ProviderSessionManagerV2;
+        const now = yield* DateTime.now;
+        const threadIds = [
+          ThreadId.make("thread-provider-session-manager-close-idle-a"),
+          ThreadId.make("thread-provider-session-manager-close-idle-b"),
+        ];
+        yield* eventSink.write({
+          events: yield* Effect.forEach(threadIds, (threadId) =>
+            makeThreadCreatedEvent({ idAllocator, threadId, now }),
+          ),
+        });
+        const providerSessionIds = yield* Effect.forEach(threadIds, (threadId) =>
+          Effect.gen(function* () {
+            const providerSessionId = yield* idAllocator.allocate.providerSession({
+              providerInstanceId: modelSelection.instanceId,
+              threadId,
+            });
+            yield* manager.open({ threadId, providerSessionId, modelSelection, runtimePolicy });
+            return providerSessionId;
+          }),
+        );
+        const close = manager.closeIdleInstance({
+          instanceId: modelSelection.instanceId,
+          detail: "Updating.",
+        });
+
+        // Background work, such as a subagent, keeps every session open.
+        assert.equal(yield* close, "busy");
+        for (const providerSessionId of providerSessionIds) {
+          assert.isTrue(Option.isSome(yield* manager.get(providerSessionId)));
+        }
+        assert.equal((yield* Ref.get(state)).closeCount, 0);
+
+        yield* Ref.set(pendingWork, false);
+        assert.equal(yield* close, "closed");
+        for (const providerSessionId of providerSessionIds) {
+          assert.isTrue(Option.isNone(yield* manager.get(providerSessionId)));
+        }
+        assert.equal((yield* Ref.get(state)).closeCount, 2);
+      });
+
+      yield* effect.pipe(
+        Effect.provide(
+          layerTest({
+            state,
+            idleTimeoutMs: 60_000,
+            hasPendingBackgroundWork: Ref.get(pendingWork),
+          }),
+        ),
+      );
+    }),
+);
+
 it.effect("ProviderSessionManagerV2 records provider session and turn metrics", () =>
   Effect.gen(function* () {
     const state = yield* Ref.make(emptyState);

@@ -22,7 +22,9 @@ environment it runs on:
 
 - The top row says whether Gentle AI is up to date. **Update** appears when
   Gentle AI or its tools have a new version, and also brings your agents' files
-  up to date; **Sync** appears when only the files are behind.
+  up to date; **Sync** appears when only the files are behind. Updating
+  restarts your Pi threads so they run the new version, so it asks you to
+  wait while a Pi thread is still working.
 - **Your agents** lists the agents Gentle AI is set up in, each with the profile
   or model preset it runs and a switch for it. **Add agent** sets Gentle AI up
   in another agent found on the environment, with the setup your other agents

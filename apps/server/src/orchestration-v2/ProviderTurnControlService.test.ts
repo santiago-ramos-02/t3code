@@ -269,6 +269,7 @@ it.effect(
             ),
           close: () => Effect.void,
           closeInstance: () => Effect.void,
+          closeIdleInstance: () => Effect.succeed("closed"),
           release: () => Effect.void,
           detach: () => Effect.void,
         }),

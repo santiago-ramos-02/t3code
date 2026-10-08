@@ -222,7 +222,7 @@ import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
 import * as GentleAi from "./gentleAi/GentleAi.ts";
 import * as CliProxy from "./cliProxy/CliProxy.ts";
 import * as Engram from "./memory/Engram.ts";
-import { runPiGentle } from "./provider/PiGentleRpc.ts";
+import { runPiGentle, runPiGentleAction } from "./provider/PiGentleRpc.ts";
 import * as UsageService from "./usage/UsageService.ts";
 import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
@@ -2319,8 +2319,11 @@ const layerWsRpc = (
             gentle.readComposer(input.cwd),
           ),
         [WS_METHODS.providerPiGentleAction]: (input) =>
-          runPiGentle(providerInstances, input.instanceId, "pi-gentle-action", (gentle) =>
-            gentle.action(input.action),
+          runPiGentleAction(
+            providerInstances,
+            providerSessionManager,
+            input.instanceId,
+            input.action,
           ),
         [WS_METHODS.providerConsumeResetCredit]: (input) =>
           Effect.gen(function* () {
