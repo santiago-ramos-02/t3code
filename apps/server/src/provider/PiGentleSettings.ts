@@ -26,8 +26,8 @@ import { resolveSpawnCommand } from "@t3tools/shared/shell";
 
 import { runGentleAiApi } from "../gentleAi/GentleAiApi.ts";
 import { piPackages } from "./PiPlainExtensions.ts";
-import { fetchNpmLatestVersion } from "./providerMaintenance.ts";
-import { spawnAndCollect } from "./providerSnapshot.ts";
+import { fetchNpmLatestVersion } from "@t3tools/provider-core/server/maintenanceResolver";
+import { spawnAndCollect } from "@t3tools/provider-core/server/snapshotProbe";
 
 // Oldest gentle-pi whose profile and persona files T3 Code reads and writes.
 const MINIMUM_GENTLE_VERSION = "3.5.0";
@@ -212,6 +212,13 @@ function apiCall(
 
 /** What a Pi provider instance offers for gentle-pi: its settings, read and changed through its API. */
 export type PiGentleInstance = Effect.Success<ReturnType<typeof makePiGentleSettings>>;
+
+declare module "@t3tools/provider-core/server/driver" {
+  interface ProviderInstanceExtensions {
+    /** gentle-pi's settings, on Pi instances only. */
+    readonly piGentle?: PiGentleInstance;
+  }
+}
 
 export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* (input: {
   readonly environment: NodeJS.ProcessEnv;

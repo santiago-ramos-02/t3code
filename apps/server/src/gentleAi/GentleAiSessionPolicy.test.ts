@@ -7,7 +7,7 @@ import {
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 
-import type { ProviderAdapterV2Shape } from "../orchestration-v2/ProviderAdapter.ts";
+import type { ProviderAdapterV2Shape } from "@t3tools/provider-core/server/ProviderAdapter";
 import { withGentleAiSessionRestart, withoutGentleAiOff } from "./GentleAiSessionPolicy.ts";
 
 const selection = (gentleAi?: boolean): ModelSelection => ({

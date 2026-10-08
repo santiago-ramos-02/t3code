@@ -92,8 +92,7 @@ vi.mock("./UsagePriceOverrides", () => ({ UsagePriceOverrides: () => null }));
 vi.mock("../chat/ProviderInstanceIcon", () => ({ ProviderInstanceIcon: () => null }));
 vi.mock("../settings/RedactedSensitiveText", () => ({ RedactedSensitiveText: "span" }));
 vi.mock("../settings/providerDriverMeta", () => ({
-  DRIVER_OPTIONS: [],
-  getDriverOption: () => ({ label: "Codex" }),
+  providerClients: { definitions: [], get: () => ({ label: "Codex" }) },
 }));
 
 import { UsagePage } from "./UsagePage";

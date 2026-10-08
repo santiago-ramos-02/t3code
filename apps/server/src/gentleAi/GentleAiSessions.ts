@@ -17,9 +17,9 @@ import type * as Scope from "effect/Scope";
 import {
   ProviderAdapterOpenSessionError,
   type ProviderAdapterV2OpenSessionInput,
-} from "../orchestration-v2/ProviderAdapter.ts";
+} from "@t3tools/provider-core/server/ProviderAdapter";
 import { hostUserHome } from "../hostUserHome.ts";
-import { expandHomePath } from "../pathExpansion.ts";
+import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
 import { resolveClaudeHomePath } from "../provider/Drivers/ClaudeHome.ts";
 import { plainPiExtensionArgs } from "../provider/PiPlainExtensions.ts";
 import { goesThroughProxy, readClaudeGentleProfile } from "./ClaudeGentleProfile.ts";

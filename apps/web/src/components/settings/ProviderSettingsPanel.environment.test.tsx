@@ -282,12 +282,13 @@ describe("EnvironmentProviderSettings routing", () => {
   it("keeps legacy provider configuration visible when disabled", () => {
     settingsState.value = {
       ...DEFAULT_UNIFIED_SETTINGS,
-      providers: {
-        ...DEFAULT_UNIFIED_SETTINGS.providers,
-        grok: {
-          ...DEFAULT_UNIFIED_SETTINGS.providers.grok,
+      providerInstances: {
+        [ProviderInstanceId.make("grok")]: {
+          driver: ProviderDriverKind.make("grok"),
           enabled: false,
-          binaryPath: "/custom/grok",
+          config: {
+            binaryPath: "/custom/grok",
+          },
         },
       },
     };
@@ -338,9 +339,12 @@ describe("EnvironmentProviderSettings routing", () => {
   it("renders Pi through the generic local-binary provider card", () => {
     settingsState.value = {
       ...DEFAULT_UNIFIED_SETTINGS,
-      providers: {
-        ...DEFAULT_UNIFIED_SETTINGS.providers,
-        pi: { ...DEFAULT_UNIFIED_SETTINGS.providers.pi, binaryPath: "/opt/pi/bin/pi" },
+      providerInstances: {
+        [piId]: {
+          driver: ProviderDriverKind.make("pi"),
+          enabled: true,
+          config: { binaryPath: "/opt/pi/bin/pi" },
+        },
       },
     };
     atoms.providers = [
@@ -567,9 +571,8 @@ describe("EnvironmentProviderSettings routing", () => {
 
     const [resetMutation, resetPatch] = settingsState.mutateProviderInstance.mock.lastCall ?? [];
     expect(resetMutation).toEqual({ operation: "remove", instanceId: codexId });
-    expect(Object.keys(resetPatch ?? {}).sort()).toEqual(["providers"]);
-    expect(resetPatch).not.toHaveProperty("favorites");
-    expect(resetPatch).not.toHaveProperty("providerModelPreferences");
+    // Removing the instance is the whole reset; shared preferences stay untouched.
+    expect(resetPatch ?? {}).toEqual({});
   });
 
   it("reports scoped refresh failure with a toast and clears pending", async () => {

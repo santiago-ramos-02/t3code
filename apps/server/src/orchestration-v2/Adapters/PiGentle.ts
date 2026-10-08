@@ -5,11 +5,8 @@ import type {
   OrchestrationV2PlanStep,
   OrchestrationV2ProviderRef,
   OrchestrationV2ProviderThread,
-  OrchestrationV2ProviderTurn,
   OrchestrationV2Subagent,
   PlanId,
-  ProviderDriverKind,
-  ProviderInstanceId,
   ThreadId,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
@@ -17,10 +14,8 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
-import type * as IdAllocator from "../IdAllocator.ts";
+import type { PiGentle, PiGentleDeps, PiGentleTurn } from "@t3tools/provider-pi/server/gentleHooks";
 import { backgroundWorkNotification } from "../Notification.ts";
-import type * as ProviderAdapter from "../ProviderAdapter.ts";
-import type { ProviderContinuationRequest } from "../ProviderContinuationRequests.ts";
 import {
   makeSubagentChildThread,
   makeSubagentConversationArtifacts,
@@ -33,36 +28,6 @@ import {
   type GentleTask,
   type GentleThreadItem,
 } from "./PiGentleActivity.ts";
-import type { PiRpcRecord } from "./PiRpc.ts";
-
-/** The parts of the Pi adapter's turn that gentle-pi activity is attributed to. */
-export interface PiGentleTurn {
-  readonly turnInput: ProviderAdapter.ProviderAdapterV2TurnInput;
-  readonly providerTurn: OrchestrationV2ProviderTurn;
-}
-
-export interface PiGentleThreadState<Turn extends PiGentleTurn> {
-  providerThread: OrchestrationV2ProviderThread;
-  activeTurn: Turn | null;
-}
-
-export interface PiGentleDeps<Turn extends PiGentleTurn> {
-  readonly driver: ProviderDriverKind;
-  readonly instanceId: ProviderInstanceId;
-  readonly idAllocator: IdAllocator.IdAllocatorV2["Service"];
-  readonly emit: (event: ProviderAdapter.ProviderAdapterV2Event) => Effect.Effect<void>;
-  readonly threadState: () => PiGentleThreadState<Turn> | null;
-  readonly updateProviderThread: (
-    state: PiGentleThreadState<Turn>,
-    patch: Partial<OrchestrationV2ProviderThread>,
-  ) => Effect.Effect<void>;
-  /** The item's ordinal in its turn, the same for every update of one item. */
-  readonly itemOrdinal: (turn: Turn, nativeItemId: string) => number;
-  /** Starts a run for a wake-up gentle-pi started on its own; without it, wake-ups stay refused. */
-  readonly continuationRequests:
-    | { readonly offer: (request: ProviderContinuationRequest) => Effect.Effect<void> }
-    | undefined;
-}
 
 // Child thread items sort after the prompt, by their gentle-pi item number.
 const CHILD_PROMPT_ORDINAL = 100;
@@ -100,13 +65,13 @@ interface GentleTaskState<Turn extends PiGentleTurn> {
  * gentle-pi's part of the Pi adapter. gentle-pi runs subagents as their own Pi processes and
  * reports them through its `gentle-agents` widget; each one becomes a native subagent with a
  * read-only child thread, like Claude's and Codex's. Background ones can finish after their
- * turn, when gentle-pi wakes the parent agent itself: that run is held and handed to a
- * continuation run instead of being refused as invisible work.
+ * turn, when gentle-pi wakes the parent agent itself: the adapter hands that run to a
+ * continuation run, which this names after the subagent that finished.
  *
- * Kept out of PiAdapterV2.ts, which calls these hooks, so the fork's change to that upstream
- * file stays a few lines.
+ * The Pi adapter lives in @t3tools/provider-pi and calls these hooks (see its gentleHooks.ts),
+ * so the fork's change to that upstream file stays a few lines.
  */
-export function makePiGentle<Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>) {
+export function makePiGentle<Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>): PiGentle<Turn> {
   const { driver, idAllocator, emit } = deps;
   const ref = (nativeId: string): OrchestrationV2ProviderRef => ({
     driver,
@@ -121,8 +86,6 @@ export function makePiGentle<Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>
   let lastTurn: Turn | null = null;
   /** A background subagent that finished with no turn running, so gentle-pi is about to wake Pi. */
   let finishedBackground: string | null = null;
-  /** Events of a wake-up run, held until a turn takes it over. */
-  let wake: Array<PiRpcRecord> | null = null;
   const planIds = new Map<string, PlanId>();
   let latestPlan: OrchestrationV2PlanArtifact | null = null;
 
@@ -551,7 +514,7 @@ export function makePiGentle<Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>
 
   return {
     /** Handles gentle-pi's activity widget; false for every other UI request. */
-    onExtensionUiRequest: Effect.fnUntraced(function* (event: PiRpcRecord) {
+    onExtensionUiRequest: Effect.fnUntraced(function* (event: Record<string, unknown>) {
       if (event["method"] !== "setWidget" || event["widgetKey"] !== GENTLE_ACTIVITY_WIDGET_KEY) {
         return false;
       }
@@ -581,35 +544,20 @@ export function makePiGentle<Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>
       liveBackground = new Set();
       lastTurn = null;
       finishedBackground = null;
-      wake = null;
       planIds.clear();
       latestPlan = null;
     },
 
-    /**
-     * Pi started a run outside a T3 turn. When a background subagent is the likely reason, the
-     * run is held and a continuation run is requested to take it over; false leaves the
-     * adapter's refusal in place.
-     */
-    adoptUnsolicitedRun: Effect.fnUntraced(function* (event: PiRpcRecord) {
-      const state = deps.threadState();
-      if (deps.continuationRequests === undefined || state === null || lastTurn === null) {
-        return false;
-      }
-      if (wake !== null) {
-        wake.push(event);
-        return true;
-      }
+    /** Names the background subagent whose finish woke Pi, for the continuation run. */
+    describeWake: () => {
+      if (lastTurn === null) return null;
       // gentle-pi's activity can arrive just after the wake-up it caused, so a background
       // subagent still listed as running counts too.
       const backgroundId = finishedBackground ?? liveBackground.values().next().value;
       const background = backgroundId === undefined ? undefined : tasks.get(backgroundId);
-      if (background === undefined) return false;
-      wake = [event];
-      yield* deps.continuationRequests.offer({
-        threadId: lastTurn.turnInput.threadId,
-        providerThreadId: state.providerThread.id,
-        driver,
+      if (background === undefined) return null;
+      finishedBackground = null;
+      return {
         detail: WAKE_TEXT,
         notification: backgroundWorkNotification([
           {
@@ -626,28 +574,7 @@ export function makePiGentle<Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>
             childThreadId: background.childThreadId,
           },
         ]),
-        delivery: "adapter_buffered",
-      });
-      return true;
-    }),
-
-    /** Holds an event of a wake-up run until a turn takes it over. */
-    holdWakeEvent: (event: PiRpcRecord) => {
-      if (wake === null || deps.threadState()?.activeTurn != null) return false;
-      // Dialogs and widgets work without a turn, and the user may need to answer one first.
-      if (event["type"] === "extension_ui_request" || event["type"] === "extension_error") {
-        return false;
-      }
-      wake.push(event);
-      return true;
-    },
-
-    /** The held wake-up run's events, for the turn starting now to replay. */
-    takeWake: () => {
-      const events = wake;
-      wake = null;
-      finishedBackground = null;
-      return events;
+      };
     },
 
     /**
@@ -656,15 +583,13 @@ export function makePiGentle<Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>
      */
     withRoster,
 
-    hasPendingBackgroundWork: Effect.sync(() => live.size > 0 || wake !== null),
+    hasPendingBackgroundWork: Effect.sync(() => live.size > 0),
 
     hasPendingBackgroundWorkForThread: (providerThread: OrchestrationV2ProviderThread) =>
-      Effect.sync(
-        () =>
-          wake !== null ||
-          (providerThread.pendingBackgroundTasks ?? []).some((task) =>
-            task.taskId.startsWith("gentle:"),
-          ),
+      Effect.sync(() =>
+        (providerThread.pendingBackgroundTasks ?? []).some((task) =>
+          task.taskId.startsWith("gentle:"),
+        ),
       ),
   };
 }

@@ -4,15 +4,9 @@ import { Link } from "@tanstack/react-router";
 import { BotIcon, ChevronRightIcon, PlusIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
-import {
-  ClaudeAI,
-  CursorIcon,
-  type Icon,
-  KiroIcon,
-  OpenAI,
-  OpenCodeIcon,
-  PiAgentIcon,
-} from "../../Icons";
+import { ClaudeAI, CursorIcon, type Icon, KiroIcon, OpenAI, OpenCodeIcon } from "../../Icons";
+import { piClient } from "@t3tools/provider-pi/client";
+import { ProviderPackageIcon } from "../../chat/ProviderPackageIcon";
 import { Gemini, GithubCopilotIcon } from "./agentIcons";
 import { Button, InlineButton } from "../../ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../../ui/menu";
@@ -39,11 +33,13 @@ const AGENT_ICONS: Readonly<Record<string, Icon>> = {
   "gemini-cli": Gemini,
   "kiro-ide": KiroIcon,
   opencode: OpenCodeIcon,
-  pi: PiAgentIcon,
   "vscode-copilot": GithubCopilotIcon,
 };
 
 function AgentIcon({ id }: { readonly id: string }) {
+  if (id === "pi" && piClient.icon) {
+    return <ProviderPackageIcon icon={piClient.icon} aria-hidden className="size-4 shrink-0" />;
+  }
   const Glyph = AGENT_ICONS[id] ?? BotIcon;
   return <Glyph aria-hidden className="size-4 shrink-0 text-foreground/80" />;
 }

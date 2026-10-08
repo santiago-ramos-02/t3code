@@ -115,6 +115,10 @@
       "types": "./src/gentleRose.ts",
       "default": "./src/gentleRose.ts"
     },
+    "./providerUpdateRequiredModels": {
+      "types": "./src/providerUpdateRequiredModels.ts",
+      "default": "./src/providerUpdateRequiredModels.ts"
+    },
     "./voice-input": {
       "types": "./src/voice-input/index.ts",
       "default": "./src/voice-input/index.ts"

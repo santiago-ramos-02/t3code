@@ -62,7 +62,7 @@ import {
   resolveGentleAiBinary,
 } from "./GentleAiBinary.ts";
 import { makeGitHubReleases } from "../githubRelease.ts";
-import { spawnAndCollect } from "../provider/providerSnapshot.ts";
+import { spawnAndCollect } from "@t3tools/provider-core/server/snapshotProbe";
 import { ServerSettingsService } from "../serverSettings.ts";
 
 const isGentleAiError = Schema.is(GentleAiError);

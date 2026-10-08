@@ -29,7 +29,7 @@ import * as ChildProcess from "effect/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
 import { hostUserHome } from "../hostUserHome.ts";
-import { spawnAndCollect } from "../provider/providerSnapshot.ts";
+import { spawnAndCollect } from "@t3tools/provider-core/server/snapshotProbe";
 
 /**
  * Engram, the agents' persistent memory, as the Memory page reads it: through the HTTP server

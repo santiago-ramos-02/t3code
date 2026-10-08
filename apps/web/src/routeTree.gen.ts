@@ -189,8 +189,8 @@ const ChatEnvironmentIdThreadIdRoute =
 export interface FileRoutesByFullPath {
   '/': typeof ChatIndexRoute
   '/connect': typeof ConnectRoute
-  '/memory': typeof MemoryRoute
   '/connect-agent': typeof ConnectAgentRoute
+  '/memory': typeof MemoryRoute
   '/pair': typeof PairRoute
   '/settings': typeof SettingsRouteWithChildren
   '/usage': typeof UsageRoute
@@ -218,8 +218,8 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/connect': typeof ConnectRoute
-  '/memory': typeof MemoryRoute
   '/connect-agent': typeof ConnectAgentRoute
+  '/memory': typeof MemoryRoute
   '/pair': typeof PairRoute
   '/settings': typeof SettingsRouteWithChildren
   '/usage': typeof UsageRoute
@@ -250,8 +250,8 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_chat': typeof ChatRouteWithChildren
   '/connect': typeof ConnectRoute
-  '/memory': typeof MemoryRoute
   '/connect-agent': typeof ConnectAgentRoute
+  '/memory': typeof MemoryRoute
   '/pair': typeof PairRoute
   '/settings': typeof SettingsRouteWithChildren
   '/usage': typeof UsageRoute
@@ -283,8 +283,8 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/connect'
-    | '/memory'
     | '/connect-agent'
+    | '/memory'
     | '/pair'
     | '/settings'
     | '/usage'
@@ -312,8 +312,8 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/connect'
-    | '/memory'
     | '/connect-agent'
+    | '/memory'
     | '/pair'
     | '/settings'
     | '/usage'
@@ -343,8 +343,8 @@ export interface FileRouteTypes {
     | '__root__'
     | '/_chat'
     | '/connect'
-    | '/memory'
     | '/connect-agent'
+    | '/memory'
     | '/pair'
     | '/settings'
     | '/usage'
@@ -375,8 +375,8 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   ChatRoute: typeof ChatRouteWithChildren
   ConnectRoute: typeof ConnectRoute
-  MemoryRoute: typeof MemoryRoute
   ConnectAgentRoute: typeof ConnectAgentRoute
+  MemoryRoute: typeof MemoryRoute
   PairRoute: typeof PairRoute
   SettingsRoute: typeof SettingsRouteWithChildren
   UsageRoute: typeof UsageRoute
@@ -653,8 +653,8 @@ const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   ChatRoute: ChatRouteWithChildren,
   ConnectRoute: ConnectRoute,
-  MemoryRoute: MemoryRoute,
   ConnectAgentRoute: ConnectAgentRoute,
+  MemoryRoute: MemoryRoute,
   PairRoute: PairRoute,
   SettingsRoute: SettingsRouteWithChildren,
   UsageRoute: UsageRoute,

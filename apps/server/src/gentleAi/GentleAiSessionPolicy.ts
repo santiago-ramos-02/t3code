@@ -4,7 +4,7 @@ import * as Effect from "effect/Effect";
 import {
   ProviderAdapterOpenSessionError,
   type ProviderAdapterV2Shape,
-} from "../orchestration-v2/ProviderAdapter.ts";
+} from "@t3tools/provider-core/server/ProviderAdapter";
 
 /**
  * For a runtime that cannot start without gentle-ai's footprint, such as a server shared by every

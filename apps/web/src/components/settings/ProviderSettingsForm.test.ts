@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import { ProviderDriverKind } from "@t3tools/contracts";
 
-import { PiAgentIcon } from "../Icons";
-import { DRIVER_OPTION_BY_VALUE } from "./providerDriverMeta";
+import { providerClients } from "./providerDriverMeta";
 import {
   deriveProviderSettingsFields,
   nextProviderConfigWithFieldValue,
@@ -10,7 +9,7 @@ import {
 
 describe("ProviderSettingsForm helpers", () => {
   it("derives visible provider config fields from the client definition schema", () => {
-    const codex = DRIVER_OPTION_BY_VALUE[ProviderDriverKind.make("codex")];
+    const codex = providerClients.get(ProviderDriverKind.make("codex"));
 
     expect(codex).toBeDefined();
     expect(deriveProviderSettingsFields(codex!).map((field) => field.key)).toEqual([
@@ -22,14 +21,17 @@ describe("ProviderSettingsForm helpers", () => {
   });
 
   it("presents Pi as a local binary provider", () => {
-    const pi = DRIVER_OPTION_BY_VALUE[ProviderDriverKind.make("pi")];
+    const pi = providerClients.get(ProviderDriverKind.make("pi"));
 
-    expect(pi).toMatchObject({ label: "Pi", icon: PiAgentIcon });
-    expect(deriveProviderSettingsFields(pi!).map((field) => field.key)).toEqual(["binaryPath"]);
+    expect(pi).toMatchObject({ label: "Pi" });
+    expect(deriveProviderSettingsFields(pi!).map((field) => field.key)).toEqual([
+      "binaryPath",
+      "launchArgs",
+    ]);
   });
 
   it("sources labels and descriptions from schema annotations", () => {
-    const opencode = DRIVER_OPTION_BY_VALUE[ProviderDriverKind.make("opencode")];
+    const opencode = providerClients.get(ProviderDriverKind.make("opencode"));
     expect(opencode).toBeDefined();
 
     const serverPassword = deriveProviderSettingsFields(opencode!).find(
@@ -44,7 +46,7 @@ describe("ProviderSettingsForm helpers", () => {
   });
 
   it("uses a dedicated environment field instead of legacy Cursor CLI settings", () => {
-    const cursor = DRIVER_OPTION_BY_VALUE[ProviderDriverKind.make("cursor")];
+    const cursor = providerClients.get(ProviderDriverKind.make("cursor"));
 
     expect(cursor).toBeDefined();
     expect(deriveProviderSettingsFields(cursor!)).toEqual([]);
@@ -60,7 +62,7 @@ describe("ProviderSettingsForm helpers", () => {
   });
 
   it("exposes ACP Registry as an instance-only configurable driver", () => {
-    const acpRegistry = DRIVER_OPTION_BY_VALUE[ProviderDriverKind.make("acpRegistry")];
+    const acpRegistry = providerClients.get(ProviderDriverKind.make("acpRegistry"));
 
     expect(acpRegistry).toBeDefined();
     expect(acpRegistry?.hasDefaultInstance).toBe(false);
@@ -73,14 +75,14 @@ describe("ProviderSettingsForm helpers", () => {
   });
 
   it("shows the local executable without registry identity or authentication fields", () => {
-    const acpRegistry = DRIVER_OPTION_BY_VALUE[ProviderDriverKind.make("acpRegistry")];
+    const acpRegistry = providerClients.get(ProviderDriverKind.make("acpRegistry"));
     expect(
       deriveProviderSettingsFields(acpRegistry!, { source: "local" }).map((field) => field.key),
     ).toEqual(["source", "commandPath"]);
   });
 
   it("derives a select control with its choices for the Antigravity sign-in method", () => {
-    const antigravity = DRIVER_OPTION_BY_VALUE[ProviderDriverKind.make("antigravity")];
+    const antigravity = providerClients.get(ProviderDriverKind.make("antigravity"));
     expect(antigravity).toBeDefined();
 
     const fields = deriveProviderSettingsFields(antigravity!);
@@ -103,7 +105,7 @@ describe("ProviderSettingsForm helpers", () => {
   });
 
   it("shows the auto-compaction threshold for Claude providers", () => {
-    const claude = DRIVER_OPTION_BY_VALUE[ProviderDriverKind.make("claudeAgent")];
+    const claude = providerClients.get(ProviderDriverKind.make("claudeAgent"));
     expect(claude).toBeDefined();
 
     expect(deriveProviderSettingsFields(claude!).map((field) => field.key)).toEqual([
@@ -115,7 +117,7 @@ describe("ProviderSettingsForm helpers", () => {
   });
 
   it("preserves unknown config keys while omitting empty configurable fields", () => {
-    const opencode = DRIVER_OPTION_BY_VALUE[ProviderDriverKind.make("opencode")];
+    const opencode = providerClients.get(ProviderDriverKind.make("opencode"));
     expect(opencode).toBeDefined();
 
     const serverUrl = deriveProviderSettingsFields(opencode!).find(
