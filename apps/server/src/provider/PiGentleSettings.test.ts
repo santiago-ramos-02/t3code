@@ -425,6 +425,20 @@ if (process.argv[2] === "update" && process.argv[3] === "npm:gentle-pi") {
           path.join(agentHome, "settings.json"),
           encodeJson({ packages: ["npm:gentle-pi"] }),
         );
+        const commandRules = {
+          autonomousMode: true,
+          rules: [
+            {
+              key: "fileDeletion",
+              label: "recursive file deletion",
+              action: "allow",
+              autonomousDefault: "confirm",
+            },
+          ],
+          customCommands: [{ pattern: "rm -rf node_modules", action: "allow" }],
+          alwaysBlocked: ["git reset --hard"],
+          project: null,
+        } as const;
         // Records each call and answers like gentle-pi: a fixed state, and an error for "missing".
         yield* fileSystem.writeFileString(
           path.join(packageDir, "bin", "gentle-pi-api.mjs"),
@@ -442,6 +456,7 @@ const line = params.name === "missing"
       active: "deep",
       persona: "neutral",
       project: params.cwd ? { pinAvailable: true, pinned: { profile: "deep", source: "repo" }, persona: { effective: "gentleman", override: "gentleman" } } : null,
+      commandRules: ${encodeJson(commandRules)},
     } };
 process.stdout.write(JSON.stringify({ schema: "gentle-pi.api/v1", ...line }) + "\\n");
 `,
@@ -480,6 +495,7 @@ process.stdout.write(JSON.stringify({ schema: "gentle-pi.api/v1", ...line }) + "
             pinSource: "repo",
             persona: { effective: "gentleman", global: "neutral", override: "gentleman" },
           },
+          commandRules,
         });
         expect(yield* gentle.readComposer(cwd)).toMatchObject({
           profiles: [{ name: "deep", orchestrator: { model: "anthropic/opus" } }],
@@ -511,6 +527,11 @@ process.stdout.write(JSON.stringify({ schema: "gentle-pi.api/v1", ...line }) + "
         expect(yield* stateReads).toBe(settled + 2);
         yield* gentle.action({ type: "activate", name: "deep", cwd });
         yield* gentle.action({ type: "setPersona", cwd, mode: null });
+        yield* gentle.action({
+          type: "setCommandRules",
+          rules: { fileDeletion: "allow", gitPush: null },
+          customCommands: [{ pattern: "rm -rf dist/*", action: "allow" }],
+        });
         const failure = yield* Effect.flip(gentle.action({ type: "pin", name: "missing", cwd }));
         expect(failure.detail).toBe("Profile does not exist: missing.");
         const actions = (yield* recorded).filter(
@@ -524,6 +545,14 @@ process.stdout.write(JSON.stringify({ schema: "gentle-pi.api/v1", ...line }) + "
           { method: "profiles.apply", params: { name: "deep", cwd }, configHome },
           { method: "profiles.apply", params: { name: "deep", cwd, global: true }, configHome },
           { method: "persona.set", params: { mode: null, cwd }, configHome },
+          {
+            method: "commandRules.set",
+            params: {
+              guardedCommands: { fileDeletion: "allow", gitPush: null },
+              customCommands: [{ pattern: "rm -rf dist/*", action: "allow" }],
+            },
+            configHome,
+          },
           { method: "pin.set", params: { name: "missing", cwd }, configHome },
         ]);
       }),

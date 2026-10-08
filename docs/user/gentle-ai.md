@@ -40,6 +40,19 @@ environment it runs on:
   backups of the files Gentle AI changed, a health check, re-syncing, and
   removing Gentle AI from some or all agents.
 
+### Commands Pi asks about
+
+On Pi's page, **Commands** sets what gentle-pi does before Pi runs a guarded
+shell command, such as `git push` or a recursive `rm`: ask, allow, or block.
+Turn on **Use my command rules** first; while it is off, Pi asks before every
+guarded command. **Command** adds a rule for one exact command, so you can allow
+`rm -rf node_modules` without allowing every recursive delete. A `*` inside a
+word matches within that word, and a `*` on its own matches any further
+arguments. The **Always blocked** commands cannot be allowed, and subagents
+still cannot run data-loss commands. The rules apply to Pi in every project; a
+project's own `.pi/gentle-ai/runtime-guardrails.json` changes them there, and
+the project's section says so.
+
 ### Settings for one project
 
 Choose a project at the top of the page, as on other settings pages. A section
@@ -71,7 +84,7 @@ On mobile, **Settings > Gentle AI** shows task progress, updates, sync, your
 agents with their model presets and Claude Code profile, and backups. A
 project's **Project overview** has its review, review history, and Pi profile
 and persona. Add or
-remove agents, edit profiles and models, and create agents from web or desktop.
+remove agents, edit profiles, models, and Pi command rules, and create agents from web or desktop.
 
 ## Other models in Claude Code
 

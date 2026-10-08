@@ -5,6 +5,7 @@ import { compareSemverVersions } from "@t3tools/shared/semver";
 import {
   PI_GENTLE_ORCHESTRATOR,
   PiGentleActionInput,
+  PiGentleCommandRules,
   PiGentlePersona,
   PiGentleRouting,
   PiGentleRoutingEntry,
@@ -94,6 +95,8 @@ const decodeApiState = Schema.decodeUnknownEffect(
         }),
       }),
     ),
+    // Missing from gentle-pi releases without command rules.
+    commandRules: Schema.optionalKey(PiGentleCommandRules),
   }),
 );
 export class PiGentleSettingsError extends Schema.TaggedError<PiGentleSettingsError>()(
@@ -191,6 +194,19 @@ function apiCall(
       return ["persona.set", { mode: command.mode }];
     case "setPersona":
       return ["persona.set", { mode: command.mode, ...cwd }];
+    case "setCommandRules":
+      return [
+        "commandRules.set",
+        {
+          ...(command.autonomousMode === undefined
+            ? {}
+            : { autonomousMode: command.autonomousMode }),
+          ...(command.rules === undefined ? {} : { guardedCommands: command.rules }),
+          ...(command.customCommands === undefined
+            ? {}
+            : { customCommands: command.customCommands }),
+        },
+      ];
   }
 }
 
@@ -517,6 +533,7 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
                 persona: { ...state.project.persona, global: state.persona },
               }
             : null,
+          ...(state.commandRules === undefined ? {} : { commandRules: state.commandRules }),
         } satisfies PiGentleState;
       }
       const store = yield* loadProfiles;
@@ -737,6 +754,10 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
         yield* callApi(script, method, params);
         return yield* readAfterChange(command.cwd);
       }
+      if (command.type === "setCommandRules")
+        return yield* new PiGentleSettingsError({
+          detail: "Update Gentle AI to edit its command rules from T3 Code.",
+        });
       const store = yield* loadProfiles;
       if (command.type === "create") {
         if (!validProfileName(command.name))

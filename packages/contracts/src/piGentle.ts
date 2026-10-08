@@ -45,6 +45,36 @@ export const PiGentleComposerReadInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
 });
 
+// What gentle-pi does before Pi runs a matching shell command.
+export const PiGentleCommandAction = Schema.Literals(["allow", "confirm", "block"]);
+export type PiGentleCommandAction = typeof PiGentleCommandAction.Type;
+
+// gentle-pi's command rules (its runtime-guardrails.json), read from gentle-pi so new rules
+// show up without a T3 Code change.
+export const PiGentleCommandRules = Schema.Struct({
+  // Set when the global rules file cannot be read; Pi then asks before every guarded command.
+  error: Schema.optionalKey(Schema.String),
+  // gentle-pi applies the rules below only with this on; otherwise every guarded command asks.
+  autonomousMode: Schema.Boolean,
+  rules: Schema.Array(
+    Schema.Struct({
+      key: Schema.String,
+      label: Schema.String,
+      // Null when the rule is not configured and takes `autonomousDefault`.
+      action: Schema.NullOr(PiGentleCommandAction),
+      autonomousDefault: PiGentleCommandAction,
+    }),
+  ),
+  customCommands: Schema.Array(
+    Schema.Struct({ pattern: Schema.String, action: PiGentleCommandAction }),
+  ),
+  // Commands no rule changes.
+  alwaysBlocked: Schema.Array(Schema.String),
+  // A project's own rules file, which changes the rules for that project.
+  project: Schema.NullOr(Schema.Struct({ path: Schema.String, readable: Schema.Boolean })),
+});
+export type PiGentleCommandRules = typeof PiGentleCommandRules.Type;
+
 export const PiGentleState = Schema.Struct({
   available: Schema.Boolean,
   version: Schema.NullOr(Schema.String),
@@ -71,6 +101,9 @@ export const PiGentleState = Schema.Struct({
       }),
     }),
   ),
+
+  // Absent when the installed gentle-pi cannot report its command rules.
+  commandRules: Schema.optionalKey(PiGentleCommandRules),
 });
 export type PiGentleState = typeof PiGentleState.Type;
 
@@ -122,6 +155,19 @@ export const PiGentleActionInput = Schema.Struct({
     Schema.Struct({
       type: Schema.Literal("setGlobalPersona"),
       mode: PiGentlePersona,
+      cwd: Schema.optionalKey(TrimmedNonEmptyString),
+    }),
+    // Changes the global command rules. Fields left out stay as they are; a null rule action
+    // restores that rule's default, and customCommands replaces the whole list.
+    Schema.Struct({
+      type: Schema.Literal("setCommandRules"),
+      autonomousMode: Schema.optionalKey(Schema.Boolean),
+      rules: Schema.optionalKey(Schema.Record(Schema.String, Schema.NullOr(PiGentleCommandAction))),
+      customCommands: Schema.optionalKey(
+        Schema.Array(
+          Schema.Struct({ pattern: TrimmedNonEmptyString, action: PiGentleCommandAction }),
+        ),
+      ),
       cwd: Schema.optionalKey(TrimmedNonEmptyString),
     }),
   ]),
