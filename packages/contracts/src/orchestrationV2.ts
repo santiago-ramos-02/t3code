@@ -680,6 +680,7 @@ export const OrchestrationV2Subagent = Schema.Struct({
   // title, never in it, so thread names stay what the subagent was asked to do.
   agentName: Schema.optional(TrimmedNonEmptyString),
   model: Schema.NullOr(Schema.String),
+  modelSelection: Schema.optional(ModelSelection),
   // Parent-wake policy for app-owned tasks: "always" offers a continuation on
   // every terminal (async delegations; queue_after_active sequences it behind
   // a live parent run), "settled_only" offers only when the parent has no
@@ -3254,6 +3255,11 @@ export const OrchestrationV2SubscribeThreadInput = Schema.Struct({
   requestCompletionMarker: Schema.optionalKey(Schema.Boolean),
   /** Allows snapshot fallbacks to contain a bounded, pageable history window. */
   acceptBoundedSnapshot: Schema.optionalKey(Schema.Boolean),
+  /**
+   * Allows bounded snapshot fallbacks to omit `projection.turnItems` entries
+   * that repeat local visible rows. See `turnItemsOmitLocalVisible`.
+   */
+  acceptCompactTurnItems: Schema.optionalKey(Schema.Boolean),
 });
 export type OrchestrationV2SubscribeThreadInput = typeof OrchestrationV2SubscribeThreadInput.Type;
 
@@ -3293,6 +3299,12 @@ export const OrchestrationV2ThreadBoundedSnapshot = Schema.Struct({
   latestLocalTurnOrdinal: Schema.NullOr(NonNegativeInt),
   /** True when complete turns or required live control state exceed the usual byte budget. */
   payloadBudgetExceeded: Schema.optional(Schema.Boolean),
+  /**
+   * Set only for clients that opted in: `projection.turnItems` omits the items
+   * of local visible rows, which lead the full list. Clients must restore them
+   * with `boundedSnapshotProjection` before using the projection.
+   */
+  turnItemsOmitLocalVisible: Schema.optionalKey(Schema.Literal(true)),
 });
 export type OrchestrationV2ThreadBoundedSnapshot = typeof OrchestrationV2ThreadBoundedSnapshot.Type;
 
@@ -3373,6 +3385,8 @@ export const OrchestrationV2ThreadStreamItem = Schema.Union([
     hasMoreHistory: Schema.optionalKey(Schema.Boolean),
     latestLocalTurnOrdinal: Schema.optionalKey(Schema.NullOr(NonNegativeInt)),
     payloadBudgetExceeded: Schema.optionalKey(Schema.Boolean),
+    /** Same meaning as on `OrchestrationV2ThreadBoundedSnapshot`. */
+    turnItemsOmitLocalVisible: Schema.optionalKey(Schema.Literal(true)),
   }),
   Schema.Struct({
     kind: Schema.Literal("event"),

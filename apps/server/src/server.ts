@@ -158,6 +158,7 @@ import * as GentleAi from "./gentleAi/GentleAi.ts";
 import * as CliProxy from "./cliProxy/CliProxy.ts";
 import * as Engram from "./memory/Engram.ts";
 import * as GentleAiFootprints from "./gentleAi/GentleAiFootprints.ts";
+import * as CursorUsageReader from "./usage/cursorUsageReader.ts";
 import * as UsageService from "./usage/UsageService.ts";
 import * as RuntimeLayer from "./orchestration-v2/runtimeLayer.ts";
 import * as ProjectStore from "./orchestration-v2/ProjectStore.ts";
@@ -230,7 +231,10 @@ const layerBackground = BackgroundPolicy.layer.pipe(
   Layer.provideMerge(layerServerSettings),
 );
 
-const layerUsage = UsageService.layer.pipe(Layer.provide(layerServerSettings));
+const layerUsage = UsageService.layer.pipe(
+  Layer.provide(layerServerSettings),
+  Layer.provide(CursorUsageReader.layer),
+);
 
 const layerResourceDiagnostics = Layer.mergeAll(
   HostResources.layer,
