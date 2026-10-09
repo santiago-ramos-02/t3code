@@ -31,8 +31,8 @@ export interface OpenCodeGentleHooksShape {
   >;
   /** Wraps the OpenCode 2 adapter, which serves every thread from one server. */
   readonly wrapSharedServerAdapter?: (
-    adapter: ProviderAdapter.ProviderAdapterV2Shape,
-  ) => ProviderAdapter.ProviderAdapterV2Shape;
+    adapter: ProviderAdapter.ProviderAdapterV2["Service"],
+  ) => ProviderAdapter.ProviderAdapterV2["Service"];
 }
 
 export class OpenCodeGentleHooks extends Context.Reference<OpenCodeGentleHooksShape>(

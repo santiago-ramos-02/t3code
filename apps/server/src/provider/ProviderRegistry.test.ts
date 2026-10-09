@@ -45,9 +45,11 @@ import * as AntigravityInstallation from "./AntigravityInstallation.ts";
 import * as ModelManifest from "./ModelManifest.ts";
 import { applyProviderCompatibility } from "./providerCompatibility.ts";
 import * as ResetCreditCoordinator from "./resetCreditCoordinator.ts";
+import * as ProviderLatestVersions from "@t3tools/provider-core/server/ProviderLatestVersions";
+import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as OpenCodeRuntime from "@t3tools/provider-opencode/server/OpenCodeRuntime";
 import * as OpenCodeServerLedger from "@t3tools/provider-opencode/server/OpenCodeServerLedger";
-import * as ProviderEventLoggers from "./ProviderEventLoggers.ts";
+import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEventLoggers";
 import * as ProviderInstanceRegistryHydration from "./ProviderInstanceRegistryHydration.ts";
 import * as ServerConfig from "../config.ts";
 import * as ServerSettingsModule from "../serverSettings.ts";
@@ -2795,6 +2797,8 @@ it.layer(
               ProviderEventLoggers.NoOpProviderEventLoggers,
             ),
           ),
+          Layer.provideMerge(ProviderLatestVersions.layer),
+          Layer.provideMerge(McpProviderSessions.layer),
           Layer.provideMerge(ModelManifest.layerTest),
           Layer.provideMerge(ResetCreditCoordinator.layerTest),
           Layer.provideMerge(
@@ -2898,6 +2902,8 @@ it.layer(
               ProviderEventLoggers.NoOpProviderEventLoggers,
             ),
           ),
+          Layer.provideMerge(ProviderLatestVersions.layer),
+          Layer.provideMerge(McpProviderSessions.layer),
           Layer.provideMerge(ModelManifest.layerTest),
           Layer.provideMerge(ResetCreditCoordinator.layerTest),
           Layer.provideMerge(
@@ -3016,6 +3022,8 @@ it.layer(
               ProviderEventLoggers.NoOpProviderEventLoggers,
             ),
           ),
+          Layer.provideMerge(ProviderLatestVersions.layer),
+          Layer.provideMerge(McpProviderSessions.layer),
           Layer.provideMerge(ModelManifest.layerTest),
           Layer.provideMerge(ResetCreditCoordinator.layerTest),
           Layer.provideMerge(
@@ -3077,6 +3085,8 @@ it.layer(
               ProviderEventLoggers.NoOpProviderEventLoggers,
             ),
           ),
+          Layer.provideMerge(ProviderLatestVersions.layer),
+          Layer.provideMerge(McpProviderSessions.layer),
           Layer.provideMerge(ModelManifest.layerTest),
           Layer.provideMerge(ResetCreditCoordinator.layerTest),
           Layer.provideMerge(
@@ -3142,6 +3152,8 @@ it.layer(
                 ProviderEventLoggers.NoOpProviderEventLoggers,
               ),
             ),
+            Layer.provideMerge(ProviderLatestVersions.layer),
+            Layer.provideMerge(McpProviderSessions.layer),
             Layer.provideMerge(ModelManifest.layerTest),
             Layer.provideMerge(ResetCreditCoordinator.layerTest),
             Layer.provideMerge(

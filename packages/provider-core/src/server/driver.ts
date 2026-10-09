@@ -107,7 +107,7 @@ export interface ProviderInstance extends ProviderInstanceExtensions {
     ProviderConsumeResetCreditOutcome,
     ProviderDriverError
   >;
-  readonly orchestrationAdapter: ProviderAdapter.ProviderAdapterV2Shape;
+  readonly orchestrationAdapter: ProviderAdapter.ProviderAdapterV2["Service"];
   readonly textGeneration: ProviderTextGeneration;
   readonly auth?: ProviderAuthController;
   readonly acpSessionManagement?: {

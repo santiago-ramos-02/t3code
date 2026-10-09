@@ -7,7 +7,7 @@ import {
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 
-import type { ProviderAdapterV2Shape } from "@t3tools/provider-core/server/ProviderAdapter";
+import type { ProviderAdapterV2 } from "@t3tools/provider-core/server/ProviderAdapter";
 import { withGentleAiSessionRestart, withoutGentleAiOff } from "./GentleAiSessionPolicy.ts";
 
 const selection = (gentleAi?: boolean): ModelSelection => ({
@@ -18,7 +18,7 @@ const selection = (gentleAi?: boolean): ModelSelection => ({
 
 const adapter = {
   planSelectionTransition: () => Effect.succeed({ type: "apply_on_next_turn" as const }),
-} as unknown as ProviderAdapterV2Shape;
+} as unknown as ProviderAdapterV2["Service"];
 
 const plan = (current: ModelSelection, target: ModelSelection) =>
   withGentleAiSessionRestart(adapter).planSelectionTransition({

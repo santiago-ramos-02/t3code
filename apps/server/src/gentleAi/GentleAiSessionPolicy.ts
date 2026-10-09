@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect";
 
 import {
   ProviderAdapterOpenSessionError,
-  type ProviderAdapterV2Shape,
+  type ProviderAdapterV2,
 } from "@t3tools/provider-core/server/ProviderAdapter";
 
 /**
@@ -11,9 +11,9 @@ import {
  * thread: turning Gentle AI off is refused with the reason instead of silently keeping it on.
  */
 export const withoutGentleAiOff = (
-  adapter: ProviderAdapterV2Shape,
+  adapter: ProviderAdapterV2["Service"],
   reason: string,
-): ProviderAdapterV2Shape => ({
+): ProviderAdapterV2["Service"] => ({
   ...adapter,
   planSelectionTransition: (input) =>
     gentleAiEnabled(input.target.options)
@@ -42,8 +42,8 @@ export const withoutGentleAiOff = (
  * the provider's call.
  */
 export const withGentleAiSessionRestart = (
-  adapter: ProviderAdapterV2Shape,
-): ProviderAdapterV2Shape => ({
+  adapter: ProviderAdapterV2["Service"],
+): ProviderAdapterV2["Service"] => ({
   ...adapter,
   planSelectionTransition: (input) =>
     adapter
