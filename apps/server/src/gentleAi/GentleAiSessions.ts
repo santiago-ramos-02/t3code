@@ -3,10 +3,10 @@ import {
   ProviderSetupError,
   type ClaudeSettings,
   type CodexSettings,
-  type OpenCodeSettings,
   type ProviderDriverKind,
   type ProviderInstanceId,
 } from "@t3tools/contracts";
+import type { OpenCodeServerLaunch } from "@t3tools/provider-opencode/server/gentleHooks";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
@@ -112,10 +112,7 @@ export const makeOpenCodeGentleOffSession = (
 ) =>
   Effect.gen(function* () {
     const { platform, footprints, provide } = yield* gentleOffServices;
-    const prepare: PrepareProviderSession<{
-      readonly environment: NodeJS.ProcessEnv;
-      readonly serverUrl: OpenCodeSettings["serverUrl"];
-    }> = (input, runtime) => {
+    const prepare: PrepareProviderSession<OpenCodeServerLaunch> = (input, runtime) => {
       if (gentleAiEnabled(input.modelSelection.options)) return Effect.succeed(runtime);
       if (runtime.serverUrl?.trim()) {
         return Effect.fail(

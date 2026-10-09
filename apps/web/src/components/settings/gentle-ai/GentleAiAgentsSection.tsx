@@ -4,8 +4,10 @@ import { Link } from "@tanstack/react-router";
 import { BotIcon, ChevronRightIcon, PlusIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
-import { ClaudeAI, CursorIcon, type Icon, KiroIcon, OpenAI, OpenCodeIcon } from "../../Icons";
+import { ClaudeAI, CursorIcon, type Icon, KiroIcon, OpenAI } from "../../Icons";
+import { openCodeClient } from "@t3tools/provider-opencode/client";
 import { piClient } from "@t3tools/provider-pi/client";
+import type { ProviderIcon } from "@t3tools/provider-core/client";
 import { ProviderPackageIcon } from "../../chat/ProviderPackageIcon";
 import { Gemini, GithubCopilotIcon } from "./agentIcons";
 import { Button, InlineButton } from "../../ui/button";
@@ -32,13 +34,19 @@ const AGENT_ICONS: Readonly<Record<string, Icon>> = {
   cursor: CursorIcon,
   "gemini-cli": Gemini,
   "kiro-ide": KiroIcon,
-  opencode: OpenCodeIcon,
   "vscode-copilot": GithubCopilotIcon,
 };
 
+/** Agents whose provider package draws their icon. */
+const PACKAGE_AGENT_ICONS: Readonly<Record<string, ProviderIcon | undefined>> = {
+  opencode: openCodeClient.icon,
+  pi: piClient.icon,
+};
+
 function AgentIcon({ id }: { readonly id: string }) {
-  if (id === "pi" && piClient.icon) {
-    return <ProviderPackageIcon icon={piClient.icon} aria-hidden className="size-4 shrink-0" />;
+  const packageIcon = PACKAGE_AGENT_ICONS[id];
+  if (packageIcon) {
+    return <ProviderPackageIcon icon={packageIcon} aria-hidden className="size-4 shrink-0" />;
   }
   const Glyph = AGENT_ICONS[id] ?? BotIcon;
   return <Glyph aria-hidden className="size-4 shrink-0 text-foreground/80" />;

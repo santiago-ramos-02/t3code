@@ -15,12 +15,12 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
 import type { PiGentle, PiGentleDeps, PiGentleTurn } from "@t3tools/provider-pi/server/gentleHooks";
-import { backgroundWorkNotification } from "../Notification.ts";
+import { backgroundWorkNotification } from "@t3tools/provider-core/server/notification";
 import {
   makeSubagentChildThread,
   makeSubagentConversationArtifacts,
   subagentThreadTitle,
-} from "../SubagentProjection.ts";
+} from "@t3tools/provider-core/server/subagentProjection";
 import {
   GENTLE_ACTIVITY_WIDGET_KEY,
   gentleTodoSteps,
