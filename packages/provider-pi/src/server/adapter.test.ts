@@ -2529,6 +2529,58 @@ describe("PiAdapterV2", () => {
     }).pipe(Effect.scoped, Effect.provide(layerTest)),
   );
 
+  it.effect("previews images the read tool viewed, but not other files", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakePi;
+      const { runtime, takeEvent } = yield* openRuntime(fake);
+      const providerThread = yield* runtime.ensureThread({
+        threadId: THREAD_ID,
+        modelSelection: modelSelection("default"),
+        runtimePolicy,
+      });
+      yield* startTurn(runtime, providerThread);
+      yield* fake.takeRequest("prompt");
+      yield* fake.emit({ type: "agent_start" });
+      const readTool = (toolCallId: string, path: string, content: ReadonlyArray<unknown>) =>
+        Effect.gen(function* () {
+          yield* fake.emit({
+            type: "tool_execution_start",
+            toolCallId,
+            toolName: "read",
+            args: { path },
+          });
+          yield* fake.emit({
+            type: "tool_execution_end",
+            toolCallId,
+            toolName: "read",
+            isError: false,
+            result: { content },
+          });
+          const read = yield* takeEvent(
+            (event) =>
+              event.type === "turn_item.updated" &&
+              event.turnItem.type === "dynamic_tool" &&
+              event.turnItem.status === "completed",
+          );
+          assert.isTrue(read.type === "turn_item.updated" && read.turnItem.type === "dynamic_tool");
+          return read.type === "turn_item.updated" && read.turnItem.type === "dynamic_tool"
+            ? read.turnItem
+            : undefined;
+        });
+
+      const image = yield* readTool("call_read_image", "C:/workspace/output/shot.png", [
+        { type: "text", text: "Read image file [image/png]" },
+        { type: "image", data: "iVBORw0KGgo=", mimeType: "image/png" },
+      ]);
+      assert.equal(image?.viewedImagePath, "C:/workspace/output/shot.png");
+
+      const source = yield* readTool("call_read_source", "src/state.ts", [
+        { type: "text", text: "export {};" },
+      ]);
+      assert.notProperty(source, "viewedImagePath");
+    }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
   it.effect.each([false, true])("follows an extension rewind with summarize=%s", (summarize) =>
     Effect.gen(function* () {
       const fake = yield* makeFakePi;

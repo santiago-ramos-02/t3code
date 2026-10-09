@@ -23,6 +23,7 @@
  * Terminal-only decoration such as status, widget, title, and editor-text
  * updates has no matching T3 surface and is ignored.
  */
+import { isWorkspaceImagePreviewPath } from "@t3tools/shared/filePreview";
 import { HostProcessEnvironment } from "@t3tools/shared/hostProcess";
 import { getModelSelectionStringOptionValue } from "@t3tools/shared/model";
 import {
@@ -1102,6 +1103,16 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
             return;
           }
         }
+        // read returns an image as a base64 block the stored text output drops,
+        // so clients preview the file it viewed instead.
+        const readPath = toolName === "read" ? recordString(args, "path") : undefined;
+        const viewedImagePath =
+          readPath !== undefined &&
+          readPath.length <= 4096 &&
+          !/[\r\n]/.test(readPath) &&
+          isWorkspaceImagePreviewPath(readPath)
+            ? readPath
+            : undefined;
         yield* emit({
           type: "turn_item.updated",
           driver: PI_PROVIDER,
@@ -1111,6 +1122,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
             type: "dynamic_tool",
             ...mcpToolPresentation({ toolName }),
             toolName,
+            ...(viewedImagePath === undefined ? {} : { viewedImagePath }),
             input: args ?? {},
             ...(outputText.length > 0 ? { output: outputText } : {}),
           },
