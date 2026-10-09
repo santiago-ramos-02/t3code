@@ -5,7 +5,7 @@
  * three through its PiGentleHooks service, so @t3tools/provider-pi stays upstream's.
  */
 import type { PiSettings } from "@t3tools/provider-pi/settings";
-import type { ProviderDriver } from "@t3tools/provider-core/server/driver";
+import type { ProviderDriver, ProviderUsageReaderEnv } from "@t3tools/provider-core/server/driver";
 import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment";
 import { PiDriver, type PiDriverEnv } from "@t3tools/provider-pi/server";
 import { PiGentleHooks } from "@t3tools/provider-pi/server/gentleHooks";
@@ -24,7 +24,11 @@ import { makePiGentleSettings } from "../PiGentleSettings.ts";
 
 export type PiGentleDriverEnv = PiDriverEnv | Crypto.Crypto;
 
-export const PiGentleDriver: ProviderDriver<PiSettings, PiGentleDriverEnv> = {
+export const PiGentleDriver: ProviderDriver<
+  PiSettings,
+  PiGentleDriverEnv,
+  ProviderUsageReaderEnv<typeof PiDriver>
+> = {
   ...PiDriver,
   create: (input) =>
     Effect.gen(function* () {

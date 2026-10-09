@@ -5,7 +5,7 @@
  * OpenCodeGentleHooks service, so @t3tools/provider-opencode stays upstream's.
  */
 import type { OpenCodeSettings } from "@t3tools/provider-opencode/settings";
-import type { ProviderDriver } from "@t3tools/provider-core/server/driver";
+import type { ProviderDriver, ProviderUsageReaderEnv } from "@t3tools/provider-core/server/driver";
 import { OpenCodeDriver, type OpenCodeDriverEnv } from "@t3tools/provider-opencode/server";
 import { OpenCodeGentleHooks } from "@t3tools/provider-opencode/server/gentleHooks";
 import type * as Crypto from "effect/Crypto";
@@ -19,7 +19,11 @@ import {
 
 export type OpenCodeGentleDriverEnv = OpenCodeDriverEnv | Crypto.Crypto;
 
-export const OpenCodeGentleDriver: ProviderDriver<OpenCodeSettings, OpenCodeGentleDriverEnv> = {
+export const OpenCodeGentleDriver: ProviderDriver<
+  OpenCodeSettings,
+  OpenCodeGentleDriverEnv,
+  ProviderUsageReaderEnv<typeof OpenCodeDriver>
+> = {
   ...OpenCodeDriver,
   create: (input) =>
     Effect.gen(function* () {
