@@ -199,6 +199,7 @@ jobs:
           name: personal-wsl-runtime-x64
           path: wsl-runtime/*
           if-no-files-found: error
+          retention-days: 1
 
   build_desktop:
     name: Build ${{ matrix.label }}
@@ -374,6 +375,7 @@ jobs:
           name: personal-desktop-release-${{ matrix.platform }}-${{ matrix.arch }}
           path: release-publish/*
           if-no-files-found: error
+          retention-days: 1
 
   release:
     name: Publish personal nightly release
