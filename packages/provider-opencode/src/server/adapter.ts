@@ -439,9 +439,6 @@ export interface OpenCodeAdapterV2Options {
   readonly instanceId: ProviderInstanceId;
   readonly settings: OpenCodeSettings;
   readonly environment: NodeJS.ProcessEnv;
-  readonly runtime: OpenCodeRuntime.OpenCodeRuntimeShape;
-  readonly idAllocator: IdAllocator.IdAllocatorV2Shape;
-  readonly host: ProviderHost.ProviderHostShape;
   readonly nativeEventLogger?: ProviderEventLoggers.EventNdjsonLogger;
   /** Adjusts the server launch for one session. */
   readonly prepareSession?: OpenCodeGentleHooksShape["prepareSession"];
@@ -947,10 +944,12 @@ function unwrapData<A>(operation: string, result: { readonly data?: A }): NonNul
   return result.data as NonNullable<A>;
 }
 
-export function makeOpenCodeAdapterV2(
+export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function* (
   options: OpenCodeAdapterV2Options,
-): ProviderAdapter.ProviderAdapterV2Shape {
-  const { idAllocator, runtime, host } = options;
+) {
+  const runtime = yield* OpenCodeRuntime.OpenCodeRuntime;
+  const idAllocator = yield* IdAllocator.IdAllocatorV2;
+  const host = yield* ProviderHost.ProviderHost;
 
   return ProviderAdapter.ProviderAdapterV2.of({
     instanceId: options.instanceId,
@@ -3734,7 +3733,7 @@ export function makeOpenCodeAdapterV2(
         ),
     ),
   });
-}
+});
 
 export type OpenCodeAdapterV2DriverEnv =
   | OpenCodeRuntime.OpenCodeRuntime
@@ -3752,18 +3751,12 @@ export const OpenCodeAdapterV2Driver: ProviderAdapterDriver<
   create: Effect.fn("OpenCodeAdapterV2Driver.create")(
     function* (input: ProviderAdapterDriverCreateInput<OpenCodeSettings>) {
       const hostEnvironment = yield* HostProcessEnvironment;
-      const openCodeRuntime = yield* OpenCodeRuntime.OpenCodeRuntime;
-      const idAllocator = yield* IdAllocator.IdAllocatorV2;
       const providerEventLoggers = yield* ProviderEventLoggers.ProviderEventLoggers;
-      const host = yield* ProviderHost.ProviderHost;
       const { prepareSession } = yield* OpenCodeGentleHooks;
-      return makeOpenCodeAdapterV2({
+      return yield* makeOpenCodeAdapterV2({
         instanceId: input.instanceId,
         settings: { ...input.config, enabled: input.enabled },
         environment: mergeProviderInstanceEnvironment(input.environment, hostEnvironment),
-        runtime: openCodeRuntime,
-        idAllocator,
-        host,
         ...(providerEventLoggers.native === undefined
           ? {}
           : { nativeEventLogger: providerEventLoggers.native }),
@@ -3790,17 +3783,11 @@ const layer: Layer.Layer<ProviderAdapter.ProviderAdapterV2, never, OpenCodeAdapt
     ProviderAdapter.ProviderAdapterV2,
     Effect.gen(function* () {
       const hostEnvironment = yield* HostProcessEnvironment;
-      const openCodeRuntime = yield* OpenCodeRuntime.OpenCodeRuntime;
-      const idAllocator = yield* IdAllocator.IdAllocatorV2;
       const providerEventLoggers = yield* ProviderEventLoggers.ProviderEventLoggers;
-      const host = yield* ProviderHost.ProviderHost;
-      return makeOpenCodeAdapterV2({
+      return yield* makeOpenCodeAdapterV2({
         instanceId: OPENCODE_DEFAULT_INSTANCE_ID,
         settings: DEFAULT_OPENCODE_SETTINGS,
         environment: hostEnvironment,
-        runtime: openCodeRuntime,
-        idAllocator,
-        host,
         ...(providerEventLoggers.native === undefined
           ? {}
           : { nativeEventLogger: providerEventLoggers.native }),

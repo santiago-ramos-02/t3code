@@ -1,5 +1,4 @@
 // @effect-diagnostics nodeBuiltinImport:off
-import * as NodePath from "node:path";
 
 import {
   type ChatAttachment,
@@ -57,7 +56,7 @@ import type * as EffectAcpProtocol from "effect-acp/protocol";
 import type * as EffectAcpSchema from "effect-acp/compat";
 
 import { formatReadToolLabel, formatSearchToolLabel } from "@t3tools/shared/toolActivity";
-import type * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
+import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 import { makeAcpMcpOverAcpBridge, type AcpMcpOverAcpBridge } from "./mcpOverAcpBridge.ts";
 import { mcpToolPresentation } from "@t3tools/provider-core/server/mcpToolPresentation";
 import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
@@ -482,10 +481,6 @@ export interface AcpAdapterV2SubagentUpdate {
 export interface AcpAdapterV2Options {
   readonly instanceId: ProviderInstanceId;
   readonly flavor: AcpAdapterV2Flavor;
-  readonly crypto: Crypto.Crypto;
-  readonly fileSystem: FileSystem.FileSystem;
-  readonly idAllocator: IdAllocator.IdAllocatorV2Shape;
-  readonly host: ProviderHost.ProviderHostShape;
   /** How agents spawn this install's `acp-mcp-bridge`; see `resolveSelfInvocation`. */
   readonly selfInvocation: SelfInvocation;
   /**
@@ -1492,10 +1487,14 @@ function shouldPersistToolUpdate(
   return persist;
 }
 
-export function makeAcpAdapterV2(
+export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
   options: AcpAdapterV2Options,
-): ProviderAdapter.ProviderAdapterV2Shape {
-  const { flavor, fileSystem, idAllocator, host, selfInvocation: self } = options;
+) {
+  const crypto = yield* Crypto.Crypto;
+  const fileSystem = yield* FileSystem.FileSystem;
+  const idAllocator = yield* IdAllocator.IdAllocatorV2;
+  const host = yield* ProviderHost.ProviderHost;
+  const { flavor, selfInvocation: self } = options;
   const driver = flavor.driver;
   const continuationRequests = options.continuationRequests;
   const postSettleContinuationEnabled =
@@ -6002,7 +6001,7 @@ export function makeAcpAdapterV2(
           const mcpBridge = yield* makeAcpMcpOverAcpBridge({
             endpoint: mcpContext.endpoint,
             authorization: mcpContext.authorization,
-            allocateConnectionId: options.crypto.randomUUIDv4.pipe(Effect.orDie),
+            allocateConnectionId: crypto.randomUUIDv4.pipe(Effect.orDie),
           });
           yield* Scope.addFinalizer(scope, mcpBridge.dispose);
           return mcpBridge;
@@ -6022,7 +6021,7 @@ export function makeAcpAdapterV2(
             .makeRuntime(makeRuntimeInput(runtimeGeneration, threadId, resumeSessionId))
             .pipe(
               Effect.provideService(Scope.Scope, runtimeScope),
-              Effect.provideService(Crypto.Crypto, options.crypto),
+              Effect.provideService(Crypto.Crypto, crypto),
             );
         });
 
@@ -6099,7 +6098,7 @@ export function makeAcpAdapterV2(
               )
               .pipe(
                 Effect.provideService(Scope.Scope, replacementScope),
-                Effect.provideService(Crypto.Crypto, options.crypto),
+                Effect.provideService(Crypto.Crypto, crypto),
               );
             // Session setup may publish commands before it returns. Buffer those
             // notifications, but do not expose request or extension handlers
@@ -8052,6 +8051,6 @@ export function makeAcpAdapterV2(
         ),
     ),
   });
-}
+});
 
 export type AcpAdapterV2Env = FileSystem.FileSystem | IdAllocator.IdAllocatorV2;

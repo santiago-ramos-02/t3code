@@ -235,10 +235,10 @@ export interface PiAdapterV2Options {
   readonly instanceId: ProviderInstanceId;
   readonly settings: PiSettings;
   readonly environment: NodeJS.ProcessEnv;
-  readonly spawner: ChildProcessSpawner.ChildProcessSpawner["Service"];
-  readonly fileSystem: FileSystem.FileSystem;
-  readonly idAllocator: IdAllocator.IdAllocatorV2["Service"];
-  readonly host: ProviderHost.ProviderHostShape;
+  /**
+   * Where to offer a wake turn for provider-initiated work. Without one, such
+   * work has no owner and the adapter stops it.
+   */
   readonly continuationRequests?: {
     readonly offer: (
       request: ProviderContinuationRequests.ProviderContinuationRequest,
@@ -441,10 +441,14 @@ interface PiWake {
 
 // ── adapter ───────────────────────────────────────────────────
 
-export function makePiAdapterV2(
+export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
   options: PiAdapterV2Options,
-): ProviderAdapter.ProviderAdapterV2Shape {
-  const { idAllocator } = options;
+) {
+  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+  const fileSystem = yield* FileSystem.FileSystem;
+  const idAllocator = yield* IdAllocator.IdAllocatorV2;
+  const host = yield* ProviderHost.ProviderHost;
+  const { continuationRequests } = options;
 
   const protocolError = (detail: string, payload?: unknown) =>
     new ProviderAdapter.ProviderAdapterProtocolError({
@@ -462,11 +466,11 @@ export function makePiAdapterV2(
       input: ProviderAdapter.ProviderAdapterV2OpenSessionInput,
     ) {
       const scope = yield* Effect.scope;
-      const cwd = input.runtimePolicy.cwd ?? options.host.paths.cwd;
+      const cwd = input.runtimePolicy.cwd ?? host.paths.cwd;
       const mcpSession = McpProviderSession.readMcpProviderSession(input.threadId);
       const provideCacheFs = <A, E>(effect: Effect.Effect<A, E, FileSystem.FileSystem>) =>
         effect.pipe(
-          Effect.provideService(FileSystem.FileSystem, options.fileSystem),
+          Effect.provideService(FileSystem.FileSystem, fileSystem),
           Effect.mapError(
             (cause) =>
               new ProviderAdapter.ProviderAdapterOpenSessionError({
@@ -480,7 +484,7 @@ export function makePiAdapterV2(
       // hook. Materialize it even when this session has no MCP credential so
       // Supervised never silently degrades to unrestricted tool execution.
       const extensionPath = yield* provideCacheFs(
-        materializePiT3McpExtension(options.host.paths.providerStatusCacheDir),
+        materializePiT3McpExtension(host.paths.providerStatusCacheDir),
       );
       const resolvedLaunchArgs = resolvePiLaunchArgs(options.settings.launchArgs);
       if (!resolvedLaunchArgs.ok) {
@@ -502,7 +506,7 @@ export function makePiAdapterV2(
         cwd,
         env: sessionLaunch.environment,
       }).pipe(
-        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, options.spawner),
+        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
         Effect.mapError(
           (cause) =>
             new ProviderAdapter.ProviderAdapterOpenSessionError({
@@ -1708,7 +1712,7 @@ export function makePiAdapterV2(
             if (
               turn === null &&
               state?.providerThread.appThreadId != null &&
-              options.continuationRequests !== undefined &&
+              continuationRequests !== undefined &&
               !closed &&
               !stopRequested
             ) {
@@ -1719,7 +1723,7 @@ export function makePiAdapterV2(
                 return;
               }
               yield* updateProviderSession("running", null);
-              yield* options.continuationRequests
+              yield* continuationRequests
                 .offer({
                   threadId: state.providerThread.appThreadId,
                   providerThreadId: state.providerThread.id,
@@ -2440,10 +2444,10 @@ export function makePiAdapterV2(
         const images: Array<{ type: "image"; data: string; mimeType: string }> = [];
         const extraLines: Array<string> = [];
         for (const attachment of attachments) {
-          const path = options.host.resolveAttachmentPath(attachment);
+          const path = host.resolveAttachmentPath(attachment);
           if (path === null) continue;
           if (attachment.mimeType.startsWith("image/")) {
-            const bytes = yield* options.fileSystem.readFile(path);
+            const bytes = yield* fileSystem.readFile(path);
             images.push({
               type: "image",
               data: Buffer.from(bytes).toString("base64"),
@@ -3143,7 +3147,7 @@ export function makePiAdapterV2(
                 }
                 return file;
               }),
-            ).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, options.spawner));
+            ).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner));
             const now = yield* DateTime.now;
             return yield* registerThread(
               {
@@ -3192,7 +3196,7 @@ export function makePiAdapterV2(
       return runtime;
     }),
   });
-}
+});
 
 /**
  * Resolve the pi session-tree entry `fork` should re-root at for a rollback.
@@ -3320,20 +3324,12 @@ export const PiAdapterV2Driver: ProviderAdapterDriver<PiSettings, PiAdapterV2Dri
   create: Effect.fn("PiAdapterV2Driver.create")(
     function* (input: ProviderAdapterDriverCreateInput<PiSettings>) {
       const hostEnvironment = yield* HostProcessEnvironment;
-      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-      const fileSystem = yield* FileSystem.FileSystem;
-      const idAllocator = yield* IdAllocator.IdAllocatorV2;
-      const host = yield* ProviderHost.ProviderHost;
       const continuationRequests = yield* ProviderContinuationRequests.ProviderContinuationRequests;
       const gentleHooks = yield* PiGentleHooks;
-      return makePiAdapterV2({
+      return yield* makePiAdapterV2({
         instanceId: input.instanceId,
         settings: { ...input.config, enabled: input.enabled },
         environment: mergeProviderInstanceEnvironment(input.environment, hostEnvironment),
-        spawner,
-        fileSystem,
-        idAllocator,
-        host,
         continuationRequests,
         gentleHooks,
       });
@@ -3358,19 +3354,11 @@ const layer: Layer.Layer<ProviderAdapter.ProviderAdapterV2, never, PiAdapterV2Dr
     ProviderAdapter.ProviderAdapterV2,
     Effect.gen(function* () {
       const hostEnvironment = yield* HostProcessEnvironment;
-      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-      const fileSystem = yield* FileSystem.FileSystem;
-      const idAllocator = yield* IdAllocator.IdAllocatorV2;
-      const host = yield* ProviderHost.ProviderHost;
       const continuationRequests = yield* ProviderContinuationRequests.ProviderContinuationRequests;
-      return makePiAdapterV2({
+      return yield* makePiAdapterV2({
         instanceId: PI_DEFAULT_INSTANCE_ID,
         settings: DEFAULT_PI_SETTINGS,
         environment: hostEnvironment,
-        spawner,
-        fileSystem,
-        idAllocator,
-        host,
         continuationRequests,
       });
     }),
