@@ -40,7 +40,7 @@ import type * as Scope from "effect/Scope";
 import type * as ProviderAdapter from "./ProviderAdapter.ts";
 import type { ProviderAuthController } from "./auth.ts";
 import type { ProviderDriverError } from "./errors.ts";
-import type { ServerProviderShape } from "./snapshot.ts";
+import type { ManagedServerProvider } from "./snapshot.ts";
 import type { ProviderTextGeneration } from "./textGeneration.ts";
 
 /**
@@ -91,7 +91,7 @@ export interface ProviderInstance extends ProviderInstanceExtensions {
   readonly displayName: string | undefined;
   readonly accentColor?: string | undefined;
   readonly enabled: boolean;
-  readonly snapshot: ServerProviderShape;
+  readonly snapshot: ManagedServerProvider;
   readonly snapshotForCwd?: (
     cwd: string,
   ) => Effect.Effect<ProviderWorkspaceSnapshot, ProviderDriverError>;

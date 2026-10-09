@@ -23,7 +23,7 @@ import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
-import { layerTestProviderHost } from "@t3tools/provider-testing/host";
+import * as TestProviderHost from "@t3tools/provider-testing/TestProviderHost";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
@@ -126,7 +126,7 @@ describe("CursorAdapterV2", () => {
                   }),
               }),
           }),
-          Effect.provide(layerTestProviderHost({ cwd: workspace })),
+          Effect.provide(TestProviderHost.layer({ cwd: workspace })),
         );
         const runtime = yield* adapter.openSession({
           threadId,
@@ -259,7 +259,7 @@ describe("CursorAdapterV2", () => {
                 }),
             }),
         }),
-        Effect.provide(layerTestProviderHost({ cwd: workspace })),
+        Effect.provide(TestProviderHost.layer({ cwd: workspace })),
       );
       const runtime = yield* adapter.openSession({
         threadId,
@@ -598,7 +598,7 @@ describe("CursorAdapterV2", () => {
                 }),
             }),
         }),
-        Effect.provide(layerTestProviderHost({ cwd: workspace })),
+        Effect.provide(TestProviderHost.layer({ cwd: workspace })),
       );
       const runtime = yield* adapter.openSession({
         threadId,
