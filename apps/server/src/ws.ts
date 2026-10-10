@@ -100,6 +100,7 @@ import {
   type TerminalMetadataStreamEvent,
   type PullRequestRef,
   WS_METHODS,
+  CoreWsRpcGroup,
   WsRpcGroup,
 } from "@t3tools/contracts";
 import { resolveServerBackgroundActivitySettings } from "@t3tools/shared/backgroundActivitySettings";
@@ -176,6 +177,7 @@ import * as ServerSelfUpdate from "./cloud/selfUpdate.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
 import * as ServerSettings from "./serverSettings.ts";
+import * as StorageCleanup from "./storageCleanup.ts";
 import * as TerminalManager from "./terminal/Manager.ts";
 import { withTerminalOutputWindow } from "./terminal/OutputProtocol.ts";
 import * as PreviewAutomationBroker from "./mcp/PreviewAutomationBroker.ts";
@@ -222,9 +224,7 @@ import * as HostResources from "./resourceTelemetry/HostResources.ts";
 import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
 import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
 import * as GentleAi from "./gentleAi/GentleAi.ts";
-import * as CliProxy from "./cliProxy/CliProxy.ts";
-import * as Engram from "./memory/Engram.ts";
-import { runPiGentle, runPiGentleAction } from "./provider/PiGentleRpc.ts";
+import * as ForkWsRpc from "./forkWsRpc.ts";
 import * as UsageService from "./usage/UsageService.ts";
 import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
@@ -543,6 +543,7 @@ const PROVIDER_STATUS_DEBOUNCE_MS = 200;
 
 // Middleware added later wraps middleware added earlier, so instrumentation wraps authorization.
 const ServerWsRpcGroup = WsRpcGroup.middleware(RpcInstrumentation);
+const ServerCoreWsRpcGroup = CoreWsRpcGroup.middleware(RpcInstrumentation);
 // When a resuming client's cursor is more than this many events behind the
 // current head, skip the per-event catch-up replay and send a fresh shell
 // snapshot instead. Replaying each intervening event costs a shell refetch;
@@ -1190,7 +1191,7 @@ const layerWsRpc = (
   previewAutomationBroker: PreviewAutomationBroker.PreviewAutomationBroker["Service"],
   serverBrowser: ServerBrowser.ServerBrowser["Service"],
 ) =>
-  ServerWsRpcGroup.toLayer(
+  ServerCoreWsRpcGroup.toLayer(
     Effect.gen(function* () {
       const currentSessionId = currentSession.sessionId;
       const sql = yield* SqlClient.SqlClient;
@@ -1260,8 +1261,6 @@ const layerWsRpc = (
       const keybindings = yield* Keybindings.Keybindings;
       const environmentTheme = yield* EnvironmentTheme.EnvironmentThemeService;
       const gentleAi = yield* GentleAi.GentleAi;
-      const cliProxy = yield* CliProxy.CliProxy;
-      const engram = yield* Engram.Engram;
       const externalLauncher = yield* ExternalLauncher.ExternalLauncher;
       const remoteOpenTargets = yield* RemoteOpenTargets.RemoteOpenTargets;
       const directEndpoints = yield* DirectEndpoints.DirectEndpoints;
@@ -1285,6 +1284,7 @@ const layerWsRpc = (
       const serverSelfUpdate = yield* ServerSelfUpdate.ServerSelfUpdate;
       const config = yield* ServerConfig.ServerConfig;
       const lifecycleEvents = yield* ServerLifecycleEvents.ServerLifecycleEvents;
+      const storageCleanup = yield* StorageCleanup.StorageCleanup;
       const serverSettings = yield* ServerSettings.ServerSettingsService;
       const startup = yield* ServerRuntimeStartup.ServerRuntimeStartup;
       const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
@@ -1820,7 +1820,7 @@ const layerWsRpc = (
         return result;
       });
 
-      const handlers = ServerWsRpcGroup.of({
+      const handlers = ServerCoreWsRpcGroup.of({
         [ORCHESTRATION_V2_WS_METHODS.dispatchCommand]: (command) =>
           Effect.annotateCurrentSpan({
             "orchestration_v2.command_id": command.commandId,
@@ -2305,37 +2305,6 @@ const layerWsRpc = (
           ),
         [WS_METHODS.serverUpdateProvider]: (input) =>
           providerMaintenanceRunner.updateProvider(input),
-        [WS_METHODS.gentleAiRead]: () => gentleAi.current,
-        [WS_METHODS.gentleAiAction]: (input) => gentleAi.action(input),
-        [WS_METHODS.gentleAiQuery]: (input) =>
-          gentleAi.query(input.method, input.params).pipe(Effect.map((data) => ({ data }))),
-        [WS_METHODS.gentleAiStartJob]: (input) => gentleAi.startJob(input.method, input.params),
-        [WS_METHODS.gentleAiSubscribeStatus]: () => gentleAi.streamChanges,
-        [WS_METHODS.gentleAiSubscribeJob]: () => gentleAi.streamJob,
-        [WS_METHODS.cliProxySubscribeStatus]: () => cliProxy.streamChanges,
-        [WS_METHODS.cliProxyAction]: (input) => cliProxy.action(input.action),
-        [WS_METHODS.cliProxyManagement]: (input) => cliProxy.management(input),
-        [WS_METHODS.memoryOverview]: () => engram.overview,
-        [WS_METHODS.memorySearch]: (input) => engram.search(input),
-        [WS_METHODS.memoryObservation]: (input) => engram.observation(input.id),
-        [WS_METHODS.memoryHealth]: () => engram.health,
-        [WS_METHODS.memoryJudge]: (input) => engram.judge(input).pipe(Effect.as({})),
-        [WS_METHODS.memoryExportObsidian]: (input) => engram.exportObsidian(input),
-        [WS_METHODS.providerPiGentleRead]: (input) =>
-          runPiGentle(providerInstances, input.instanceId, "pi-gentle-read", (gentle) =>
-            gentle.read(input.cwd, { refresh: input.refresh === true }),
-          ),
-        [WS_METHODS.providerPiGentleComposerRead]: (input) =>
-          runPiGentle(providerInstances, input.instanceId, "pi-gentle-composer-read", (gentle) =>
-            gentle.readComposer(input.cwd),
-          ),
-        [WS_METHODS.providerPiGentleAction]: (input) =>
-          runPiGentleAction(
-            providerInstances,
-            providerSessionManager,
-            input.instanceId,
-            input.action,
-          ),
         [WS_METHODS.providerConsumeResetCredit]: (input) =>
           Effect.gen(function* () {
             if ("sourceId" in input) return yield* usageLimitSources.consumeResetCredit(input);
@@ -2424,6 +2393,8 @@ const layerWsRpc = (
             const keybindingsConfig = yield* keybindings.removeKeybindingRule(rule);
             return { keybindings: keybindingsConfig, issues: [] };
           }),
+        [WS_METHODS.serverRunStorageCleanup]: () => storageCleanup.runNow,
+        [WS_METHODS.serverGetStorageCleanupReport]: () => storageCleanup.reports,
         [WS_METHODS.serverGetSettings]: (_input) =>
           serverSettings.getSettings.pipe(Effect.map(ServerSettings.redactServerSettingsForClient)),
         [WS_METHODS.serverUpdateSettings]: ({ patch, providerInstanceMutation }) =>
@@ -3221,12 +3192,15 @@ export const layer = Layer.unwrap(
           return httpEffect;
         }).pipe(
           Effect.provide(
-            layerWsRpc(
-              session,
-              clientOrigin,
-              clientAnalyticsProps,
-              previewAutomationBroker,
-              serverBrowser,
+            Layer.merge(
+              layerWsRpc(
+                session,
+                clientOrigin,
+                clientAnalyticsProps,
+                previewAutomationBroker,
+                serverBrowser,
+              ),
+              ForkWsRpc.layer,
             ).pipe(
               Layer.provideMerge(RpcSerialization.layerJson),
               // Request fibers run in the handlers' context, so this reporter sees

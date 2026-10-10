@@ -355,7 +355,12 @@ import {
   ProviderConsumeResetCreditResult,
 } from "./providerUsageLimits.ts";
 import { UsagePricing, UsageReadError, UsageSummary, UsageSummaryInput } from "./usage.ts";
-import { ServerSettings, ServerSettingsError, ServerSettingsPatch } from "./settings.ts";
+import {
+  StorageCleanupReport,
+  ServerSettings,
+  ServerSettingsError,
+  ServerSettingsPatch,
+} from "./settings.ts";
 import {
   ScheduledTaskDeleteInput,
   ScheduledTaskDeleteResult,
@@ -524,6 +529,8 @@ export const WS_METHODS = {
   serverCommitDesktopUpdate: "server.commitDesktopUpdate",
   serverUpsertKeybinding: "server.upsertKeybinding",
   serverRemoveKeybinding: "server.removeKeybinding",
+  serverRunStorageCleanup: "server.runStorageCleanup",
+  serverGetStorageCleanupReport: "server.getStorageCleanupReport",
   serverGetSettings: "server.getSettings",
   serverUpdateSettings: "server.updateSettings",
   serverDiscoverSourceControl: "server.discoverSourceControl",
@@ -902,6 +909,18 @@ const WsServerCommitDesktopUpdateRpc = Rpc.make(WS_METHODS.serverCommitDesktopUp
   payload: DesktopUpdateCommitInput,
   success: ServerSelfUpdateResult,
   error: Schema.Union([ServerSelfUpdateError, EnvironmentAuthorizationError]),
+});
+
+const WsServerRunStorageCleanupRpc = Rpc.make(WS_METHODS.serverRunStorageCleanup, {
+  payload: Schema.Struct({}),
+  success: StorageCleanupReport,
+  error: Schema.Union([ServerSettingsError, EnvironmentAuthorizationError]),
+});
+const WsServerGetStorageCleanupReportRpc = Rpc.make(WS_METHODS.serverGetStorageCleanupReport, {
+  payload: Schema.Struct({}),
+  success: Schema.NullOr(StorageCleanupReport),
+  stream: true,
+  error: EnvironmentAuthorizationError,
 });
 
 const WsServerGetSettingsRpc = Rpc.make(WS_METHODS.serverGetSettings, {
@@ -1982,29 +2001,11 @@ export class RpcScopeAuthorization extends RpcMiddleware.Service<RpcScopeAuthori
   { error: EnvironmentAuthorizationError },
 ) {}
 
-export const WsRpcGroup = RpcGroup.make(
+export const CoreWsRpcGroup = RpcGroup.make(
   WsServerProbeRpc,
   WsServerGetConfigRpc,
   WsServerRefreshProvidersRpc,
   WsServerUpdateProviderRpc,
-  WsProviderPiGentleReadRpc,
-  WsProviderPiGentleComposerReadRpc,
-  WsProviderPiGentleActionRpc,
-  WsGentleAiReadRpc,
-  WsGentleAiActionRpc,
-  WsCliProxySubscribeStatusRpc,
-  WsCliProxyActionRpc,
-  WsCliProxyManagementRpc,
-  WsMemoryOverviewRpc,
-  WsMemorySearchRpc,
-  WsMemoryObservationRpc,
-  WsMemoryHealthRpc,
-  WsMemoryJudgeRpc,
-  WsMemoryExportObsidianRpc,
-  WsGentleAiQueryRpc,
-  WsGentleAiStartJobRpc,
-  WsGentleAiSubscribeJobRpc,
-  WsGentleAiSubscribeStatusRpc,
   WsProviderConsumeResetCreditRpc,
   WsProviderAuthStartRpc,
   WsProviderAuthCompleteRpc,
@@ -2025,6 +2026,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerCommitDesktopUpdateRpc,
   WsServerUpsertKeybindingRpc,
   WsServerRemoveKeybindingRpc,
+  WsServerRunStorageCleanupRpc,
+  WsServerGetStorageCleanupReportRpc,
   WsServerGetSettingsRpc,
   WsServerUpdateSettingsRpc,
   WsServerDiscoverSourceControlRpc,
@@ -2187,3 +2190,31 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationV2SubscribeShellRpc,
   WsOrchestrationV2SubscribeThreadRpc,
 ).middleware(RpcScopeAuthorization);
+
+/**
+ * The fork's RPCs. They live in their own group so the server can implement
+ * them in a separate handler layer: one handler object for every RPC exceeds
+ * TypeScript's instantiation depth.
+ */
+export const ForkWsRpcGroup = RpcGroup.make(
+  WsProviderPiGentleReadRpc,
+  WsProviderPiGentleComposerReadRpc,
+  WsProviderPiGentleActionRpc,
+  WsGentleAiReadRpc,
+  WsGentleAiActionRpc,
+  WsCliProxySubscribeStatusRpc,
+  WsCliProxyActionRpc,
+  WsCliProxyManagementRpc,
+  WsMemoryOverviewRpc,
+  WsMemorySearchRpc,
+  WsMemoryObservationRpc,
+  WsMemoryHealthRpc,
+  WsMemoryJudgeRpc,
+  WsMemoryExportObsidianRpc,
+  WsGentleAiQueryRpc,
+  WsGentleAiStartJobRpc,
+  WsGentleAiSubscribeJobRpc,
+  WsGentleAiSubscribeStatusRpc,
+).middleware(RpcScopeAuthorization);
+
+export const WsRpcGroup = CoreWsRpcGroup.merge(ForkWsRpcGroup);
