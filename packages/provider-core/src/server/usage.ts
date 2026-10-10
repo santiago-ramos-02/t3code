@@ -166,16 +166,11 @@ export type ProviderUsageReader<Config, R> =
       /**
        * Transcript directories for one instance. The server canonicalizes,
        * de-duplicates and scans them; `fileName` limits a walk to one basename.
-       * `message` is a note shown on the source. An `optional` directory is
-       * left out while it is missing and holds no cached history.
        */
-      readonly directories: (instance: ProviderUsageInstance<Config>) => Effect.Effect<
-        ReadonlyArray<{
-          readonly dir: string;
-          readonly fileName?: string;
-          readonly message?: string;
-          readonly optional?: true;
-        }>,
+      readonly directories: (
+        instance: ProviderUsageInstance<Config>,
+      ) => Effect.Effect<
+        ReadonlyArray<{ readonly dir: string; readonly fileName?: string }>,
         never,
         R
       >;

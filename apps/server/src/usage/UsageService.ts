@@ -124,7 +124,6 @@ interface TranscriptSource {
   readonly dir: string;
   readonly volumeId: string;
   readonly fileName?: string;
-  readonly message?: string;
 }
 
 /** On-disk shape of the rate snapshot. */
@@ -383,14 +382,7 @@ export const make = Effect.gen(function* () {
         yield* usageInstances(driver, settings),
         (instance) => reader.directories(instance),
       );
-      for (const { dir: directory, fileName, message, optional } of directories.flat()) {
-        if (
-          optional === true &&
-          !(yield* fileSystem.exists(directory).pipe(Effect.orElseSucceed(() => false))) &&
-          !fileCache.keys().some((filePath) => isWithinDirectory(filePath, directory))
-        ) {
-          continue;
-        }
+      for (const { dir: directory, fileName } of directories.flat()) {
         const sourceKey = provider + "\0" + directory;
         const previous = sourceCache.get(sourceKey);
         // Keep canonical paths and source fingerprints stable after root cleanup,
@@ -426,7 +418,6 @@ export const make = Effect.gen(function* () {
           dir,
           volumeId,
           ...(fileName === undefined ? {} : { fileName }),
-          ...(message === undefined ? {} : { message }),
         });
       }
     }
@@ -606,19 +597,11 @@ export const make = Effect.gen(function* () {
     source: TranscriptSource,
     windowStartMs: number,
   ) {
-    const { provider, format, dir, volumeId, fileName, message } = source;
+    const { provider, format, dir, volumeId, fileName } = source;
     const exists = yield* fileSystem
       .exists(dir)
       .pipe(Effect.catchCause(() => Effect.succeed(false)));
-    if (!exists) {
-      return {
-        provider,
-        dir,
-        volumeId,
-        ...(message === undefined ? {} : { message }),
-        files: null,
-      } satisfies ScannedDir;
-    }
+    if (!exists) return { provider, dir, volumeId, files: null } satisfies ScannedDir;
     const { files, failedPaths } = yield* Effect.promise(() =>
       listTranscriptFiles(dir, windowStartMs, fileName === undefined ? undefined : { fileName }),
     );
@@ -654,7 +637,6 @@ export const make = Effect.gen(function* () {
       provider,
       dir,
       volumeId,
-      ...(message === undefined ? {} : { message }),
       files: parsedFiles,
       ...(unread > 0
         ? {

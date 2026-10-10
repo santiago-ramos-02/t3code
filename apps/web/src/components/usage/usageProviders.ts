@@ -43,7 +43,7 @@ export const PROVIDER_PRESENTATION = {
   },
   pi: {
     label: "Pi",
-    color: "color-mix(in oklab, var(--contrast-foreground) 52%, var(--background))",
+    color: "#4d9f8a",
     driverKind: ProviderDriverKind.make("pi"),
   },
 } satisfies Record<UsageProviderKind, UsageProviderPresentation>;

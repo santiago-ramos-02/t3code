@@ -19,7 +19,7 @@ describe("usage provider presentation", () => {
   it("uses Pi branding instead of another coding provider's mark", () => {
     expect(PROVIDER_PRESENTATION.pi).toMatchObject({
       label: "Pi",
-      color: expect.stringContaining("contrast-foreground"),
+      color: "#4d9f8a",
       driverKind: "pi",
     });
   });

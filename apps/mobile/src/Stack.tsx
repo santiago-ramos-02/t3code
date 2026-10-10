@@ -104,6 +104,7 @@ import { SettingsKeyboardRouteScreen } from "./features/settings/SettingsKeyboar
 import { SettingsGentleAiRouteScreen } from "./features/settings/SettingsGentleAiRouteScreen";
 import { SettingsCliProxyRouteScreen } from "./features/settings/SettingsCliProxyRouteScreen";
 import { SettingsLegalRouteScreen } from "./features/settings/SettingsLegalRouteScreen";
+import { SettingsMicrophoneRouteScreen } from "./features/settings/SettingsMicrophoneRouteScreen";
 import {
   SettingsOpenSourceLicenseRouteScreen,
   SettingsOpenSourceLicensesRouteScreen,
@@ -320,6 +321,13 @@ const SettingsContentStack = createV5SheetStackNavigator({
       linking: "keyboard",
       options: {
         title: "Keyboard",
+      },
+    }),
+    SettingsMicrophone: createNativeStackScreen({
+      screen: SettingsMicrophoneRouteScreen,
+      linking: "microphone",
+      options: {
+        title: "Microphone",
       },
     }),
     SettingsFollowUp: createNativeStackScreen({
