@@ -4,7 +4,7 @@
  *
  * @module gentleAi/GentleAiBinary
  */
-import { HostProcessEnvironment, HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import { resolveCommandPath } from "@t3tools/shared/shell";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -62,8 +62,8 @@ export const resolveGentleAiBinary = Effect.fn("resolveGentleAiBinary")(function
   if (onPath) return onPath;
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const hostPlatform = yield* HostProcessPlatform;
-  const environment = yield* HostProcessEnvironment;
+  const hostPlatform = yield* HostProcess.Platform;
+  const environment = yield* HostProcess.Environment;
   const installed = gentleAiInstallPath(path, hostPlatform, environment);
   if (
     installed !== null &&

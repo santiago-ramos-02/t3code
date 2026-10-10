@@ -1,7 +1,7 @@
 import { withAgentDeviceEnvironment } from "@t3tools/provider-core/server/mcpSession";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import { AntigravitySettings, ProviderDriverKind, ProviderSetupError } from "@t3tools/contracts";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import { resolveSelfInvocation } from "@t3tools/shared/nodeRuntime";
 import {
   NodeRuntimeUnavailableError,
@@ -117,9 +117,13 @@ export const AntigravityDriver: ProviderDriver<
         gcpLocation: settings.gcpLocation,
       };
       const authConfigIssue = antigravityAuthConfigIssue(auth);
-      const processEnvironment = mergeProviderInstanceEnvironment(environment);
-      const hostPlatform = yield* HostProcessPlatform;
-      const userHome = resolveAntigravityUserHome(hostPlatform, processEnvironment);
+      const processEnvironment = yield* mergeProviderInstanceEnvironment(environment);
+      const hostPlatform = yield* HostProcess.Platform;
+      const userHome = resolveAntigravityUserHome(
+        hostPlatform,
+        processEnvironment,
+        yield* HostProcess.HomeDirectory,
+      );
       const directories = yield* resolveAntigravityInstanceDirectories(
         host.paths.stateDir,
         instanceId,

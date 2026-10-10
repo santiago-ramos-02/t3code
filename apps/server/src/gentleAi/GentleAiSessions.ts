@@ -7,7 +7,7 @@ import {
   type ProviderInstanceId,
 } from "@t3tools/contracts";
 import type { OpenCodeServerLaunch } from "@t3tools/provider-opencode/server/gentleHooks";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -47,7 +47,7 @@ const gentleOffServices = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const platform = yield* HostProcessPlatform;
+  const platform = yield* HostProcess.Platform;
   const footprints = yield* gentleAiFootprintLookup;
   const provide = <A, E>(
     driver: ProviderDriverKind,
@@ -86,7 +86,7 @@ export const makeCodexGentleOffSession = (driver: ProviderDriverKind) =>
             Effect.gen(function* () {
               const userHome = hostUserHome(runtime.environment, platform);
               const source = runtime.settings.homePath
-                ? path.resolve(expandHomePath(runtime.settings.homePath))
+                ? path.resolve(expandHomePath(runtime.settings.homePath, userHome))
                 : runtime.environment.CODEX_HOME?.trim() || path.join(userHome, ".codex");
               const target = yield* gentleAiOffDirectory("codex");
               yield* materializeCodexPlainHome({

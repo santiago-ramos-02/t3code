@@ -5,8 +5,6 @@
  *
  * @module provider-pi/server/usage
  */
-import * as NodeOS from "node:os";
-
 import type { UsageTokenTotals } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -20,7 +18,7 @@ import {
   type TranscriptUsageFormat,
   type UsageRecord,
 } from "@t3tools/provider-core/server/usage";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import type { PiSettings } from "../settings.ts";
 
 const PiTokenCount = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
@@ -372,8 +370,12 @@ const decodePiGlobalSettings = Schema.decodeUnknownEffect(
 );
 
 /** The user's home as a process started with `environment` sees it. */
-const piUserHome = (environment: NodeJS.ProcessEnv, platform: NodeJS.Platform): string =>
-  (platform === "win32" ? environment.USERPROFILE : environment.HOME)?.trim() || NodeOS.homedir();
+const piUserHome = (
+  environment: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform,
+  fallback: string,
+): string =>
+  (platform === "win32" ? environment.USERPROFILE : environment.HOME)?.trim() || fallback;
 
 export const piUsageReader: ProviderUsageReader<PiSettings, FileSystem.FileSystem | Path.Path> = {
   kind: "transcripts",
@@ -386,7 +388,11 @@ export const piUsageReader: ProviderUsageReader<PiSettings, FileSystem.FileSyste
   directories: Effect.fn("piUsageReader.directories")(function* ({ environment }) {
     const fileSystem = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
-    const homeDir = piUserHome(environment, yield* HostProcessPlatform);
+    const homeDir = piUserHome(
+      environment,
+      yield* HostProcess.Platform,
+      yield* HostProcess.HomeDirectory,
+    );
     const agentDir = resolvePiAgentDir(environment, homeDir, path);
     const hasAbsoluteSessionEnvironment =
       resolveAbsolutePiPath(environment.PI_CODING_AGENT_SESSION_DIR, homeDir, path) !== null;

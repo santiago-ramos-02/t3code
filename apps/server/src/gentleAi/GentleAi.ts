@@ -24,11 +24,7 @@ import {
   type GentleAiStatus,
   type ServerProvider,
 } from "@t3tools/contracts";
-import {
-  HostProcessArchitecture,
-  HostProcessEnvironment,
-  HostProcessPlatform,
-} from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import * as Cache from "effect/Cache";
 import * as Context from "effect/Context";
@@ -247,10 +243,10 @@ export const make = Effect.gen(function* () {
   const path = yield* Path.Path;
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const settingsService = yield* ServerSettingsService;
-  const hostPlatform = yield* HostProcessPlatform;
-  const environment = yield* HostProcessEnvironment;
+  const hostPlatform = yield* HostProcess.Platform;
+  const environment = yield* HostProcess.Environment;
   const crypto = yield* Crypto.Crypto;
-  const arch = yield* HostProcessArchitecture;
+  const arch = yield* HostProcess.Architecture;
   const releases = yield* makeGitHubReleases;
   const installLock = yield* Semaphore.make(1);
   const stateRef = yield* Ref.make<GentleAiStatus>(NOT_INSTALLED);
@@ -261,8 +257,8 @@ export const make = Effect.gen(function* () {
       Effect.provideService(FileSystem.FileSystem, fileSystem),
       Effect.provideService(Path.Path, path),
       Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
-      Effect.provideService(HostProcessPlatform, hostPlatform),
-      Effect.provideService(HostProcessEnvironment, environment),
+      Effect.provideService(HostProcess.Platform, hostPlatform),
+      Effect.provideService(HostProcess.Environment, environment),
     );
 
   /** The configured binary, else gentle-ai on PATH, else the copy gentle-pi bundles. */

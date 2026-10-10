@@ -1,5 +1,5 @@
 import { PI_GENTLE_PACKAGES } from "@t3tools/contracts";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import { hostUserHome } from "../hostUserHome.ts";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
@@ -76,7 +76,7 @@ export const piPackages = Effect.fn("piPackages")(function* (input: {
   const roots = [
     piAgentHome(
       input.environment,
-      hostUserHome(input.environment, yield* HostProcessPlatform),
+      hostUserHome(input.environment, yield* HostProcess.Platform),
       path,
     ),
     ...(input.cwd === undefined ? [] : [path.join(input.cwd, ".pi")]),
@@ -120,7 +120,7 @@ export const plainPiExtensionArgs = Effect.fn("plainPiExtensionArgs")(function* 
 }) {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const userHome = hostUserHome(input.environment, yield* HostProcessPlatform);
+  const userHome = hostUserHome(input.environment, yield* HostProcess.Platform);
   const roots = [piAgentHome(input.environment, userHome, path), path.join(input.cwd, ".pi")];
   const sources: string[] = [];
   const skills: string[] = [];

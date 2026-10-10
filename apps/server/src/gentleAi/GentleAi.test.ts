@@ -2,11 +2,7 @@ import * as Crypto from "effect/Crypto";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ProviderDriverKind, type GentleAiJob, type ServerProvider } from "@t3tools/contracts";
-import {
-  HostProcessArchitecture,
-  HostProcessEnvironment,
-  HostProcessPlatform,
-} from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import { expect, it } from "@effect/vitest";
 import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";
@@ -85,7 +81,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, FetchHttpClient.layer))("GentleAi se
       Effect.gen(function* () {
         const fileSystem = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
-        const platform = yield* HostProcessPlatform;
+        const platform = yield* HostProcess.Platform;
         const home = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-gentle-ai-" });
         const script = path.join(home, "fake-gentle-ai.cjs");
         yield* fileSystem.writeFileString(
@@ -125,7 +121,7 @@ else process.exit(3);
           Effect.provide(
             layer.pipe(Layer.provide(ServerSettings.layerTest({ gentleAiBinaryPath: binary }))),
           ),
-          Effect.provideService(HostProcessEnvironment, {
+          Effect.provideService(HostProcess.Environment, {
             ...process.env,
             HOME: home,
             USERPROFILE: home,
@@ -161,7 +157,7 @@ else process.exit(3);
       Effect.gen(function* () {
         const fileSystem = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
-        const platform = yield* HostProcessPlatform;
+        const platform = yield* HostProcess.Platform;
         const home = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-gentle-ai-api-" });
         const release = path.join(home, "release-sync");
         const releaseEngines = path.join(home, "release-engines");
@@ -214,7 +210,7 @@ else line({ type: "error", error: { code: "unsupported", message: "unknown metho
         const context = yield* Layer.build(
           layer.pipe(Layer.provide(ServerSettings.layerTest({ gentleAiBinaryPath: binary }))),
         ).pipe(
-          Effect.provideService(HostProcessEnvironment, {
+          Effect.provideService(HostProcess.Environment, {
             ...process.env,
             HOME: home,
             USERPROFILE: home,
@@ -342,9 +338,9 @@ else line({ type: "error", error: { code: "unsupported", message: "unknown metho
         Effect.gen(function* () {
           const fileSystem = yield* FileSystem.FileSystem;
           const path = yield* Path.Path;
-          const platform = yield* HostProcessPlatform;
+          const platform = yield* HostProcess.Platform;
           const home = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-gentle-install-" });
-          const asset = gentleAiReleaseAsset("9.9.9", platform, yield* HostProcessArchitecture);
+          const asset = gentleAiReleaseAsset("9.9.9", platform, yield* HostProcess.Architecture);
           if (asset === null) return;
           const program = platform === "win32" ? "gentle-ai.exe" : "gentle-ai";
           const folder = asset.replace(/\.tar\.gz$/, "");
@@ -402,7 +398,7 @@ else line({ type: "error", error: { code: "unsupported", message: "unknown metho
                 layer.pipe(Layer.provide(ServerSettings.layerTest({ gentleAiBinaryPath: "" }))),
               ),
               Effect.provideService(HttpClient.HttpClient, release(checksum)),
-              Effect.provideService(HostProcessEnvironment, environment),
+              Effect.provideService(HostProcess.Environment, environment),
             );
 
           const tampered = yield* Effect.flip(installWith("0".repeat(64)));

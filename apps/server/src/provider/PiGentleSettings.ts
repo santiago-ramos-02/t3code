@@ -1,5 +1,5 @@
 import * as Crypto from "effect/Crypto";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import { hostUserHome } from "../hostUserHome.ts";
 import { compareSemverVersions } from "@t3tools/shared/semver";
 import {
@@ -230,7 +230,7 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
 }) {
   const { environment, fileSystem, path, spawner } = input;
   const crypto = yield* Crypto.Crypto;
-  const userHome = hostUserHome(environment, yield* HostProcessPlatform);
+  const userHome = hostUserHome(environment, yield* HostProcess.Platform);
   const agentHome =
     environment.GENTLE_PI_AGENT_HOME ||
     environment.PI_CODING_AGENT_DIR ||

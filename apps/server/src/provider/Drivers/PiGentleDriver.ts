@@ -47,7 +47,7 @@ export const PiGentleDriver: ProviderDriver<
       );
       // gentle-pi settings, profiles, and setup, read through its own API.
       const piGentle = yield* makePiGentleSettings({
-        environment: mergeProviderInstanceEnvironment(input.environment),
+        environment: yield* mergeProviderInstanceEnvironment(input.environment),
         httpClient: yield* HttpClient.HttpClient,
         piBinaryPath: input.config.binaryPath,
         fileSystem: yield* FileSystem.FileSystem,

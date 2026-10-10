@@ -1,5 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { HostProcessEnvironment, HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import { expect, it } from "@effect/vitest";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -20,7 +20,7 @@ it.layer(NodeServices.layer)("GentleAiFootprints", (it) => {
       Effect.gen(function* () {
         const fileSystem = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
-        const platform = yield* HostProcessPlatform;
+        const platform = yield* HostProcess.Platform;
         const home = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-gentle-footprint-" });
         const skill = path.join(home, ".claude", "skills", "judgment-day");
         const settings = path.join(home, ".claude", "settings.json");
@@ -53,7 +53,7 @@ else line({ type: "result", data: { agents: [], removed: [], rewritten: [], unsi
         const context = yield* Layer.build(
           layer.pipe(Layer.provide(ServerSettings.layerTest({ gentleAiBinaryPath: binary }))),
         ).pipe(
-          Effect.provideService(HostProcessEnvironment, {
+          Effect.provideService(HostProcess.Environment, {
             ...process.env,
             HOME: home,
             USERPROFILE: home,

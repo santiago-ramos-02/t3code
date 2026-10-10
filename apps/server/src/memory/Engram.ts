@@ -12,7 +12,7 @@ import {
   type MemoryStatus,
   type MemoryVerdict,
 } from "@t3tools/contracts";
-import { HostProcessEnvironment, HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import { resolveCommandPath } from "@t3tools/shared/shell";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -221,8 +221,8 @@ export const makeEngram = Effect.fn("makeEngram")(function* (
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-  const environment = yield* HostProcessEnvironment;
-  const platform = yield* HostProcessPlatform;
+  const environment = yield* HostProcess.Environment;
+  const platform = yield* HostProcess.Platform;
   const startServer = options.startServer ?? startDetached;
   const port = Number(environment.ENGRAM_PORT?.trim()) || DEFAULT_PORT;
   const baseUrl = `http://127.0.0.1:${port}`;
@@ -243,8 +243,8 @@ export const makeEngram = Effect.fn("makeEngram")(function* (
     }
     return null;
   }).pipe(
-    Effect.provideService(HostProcessEnvironment, environment),
-    Effect.provideService(HostProcessPlatform, platform),
+    Effect.provideService(HostProcess.Environment, environment),
+    Effect.provideService(HostProcess.Platform, platform),
     Effect.provideService(FileSystem.FileSystem, fileSystem),
     Effect.provideService(Path.Path, path),
   );

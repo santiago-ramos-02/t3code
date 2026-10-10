@@ -1,5 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { HostProcessEnvironment, HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import { expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -89,8 +89,8 @@ const withEngram = <A, E>(
       }).pipe(
         Effect.provideService(HttpClient.HttpClient, httpClient(fake)),
         // No PATH, so only the install folders are looked in.
-        Effect.provideService(HostProcessEnvironment, { HOME: home, PATH: "" }),
-        Effect.provideService(HostProcessPlatform, "linux"),
+        Effect.provideService(HostProcess.Environment, { HOME: home, PATH: "" }),
+        Effect.provideService(HostProcess.Platform, "linux"),
       );
       return yield* use(service);
     }),

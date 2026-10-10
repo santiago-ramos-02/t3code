@@ -1,5 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import { expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -43,7 +43,7 @@ it.layer(NodeServices.layer)("Gentle AI off", (it) => {
     Effect.scoped(
       Effect.gen(function* () {
         const { home, write, path, fileSystem } = yield* makeHome;
-        const platform = yield* HostProcessPlatform;
+        const platform = yield* HostProcess.Platform;
         const codex = path.join(home, ".codex");
         yield* write(".codex/AGENTS.md", `Use tabs.\n\n${GENTLE_SECTION}\n`);
         yield* write(
@@ -74,7 +74,7 @@ it.layer(NodeServices.layer)("Gentle AI off", (it) => {
     Effect.scoped(
       Effect.gen(function* () {
         const { home, write, path, fileSystem } = yield* makeHome;
-        const platform = yield* HostProcessPlatform;
+        const platform = yield* HostProcess.Platform;
         yield* write(
           ".config/opencode/opencode.json",
           encodeJson({
@@ -111,7 +111,7 @@ it.layer(NodeServices.layer)("Gentle AI off", (it) => {
     Effect.scoped(
       Effect.gen(function* () {
         const { home, write, path, fileSystem } = yield* makeHome;
-        const platform = yield* HostProcessPlatform;
+        const platform = yield* HostProcess.Platform;
         const claudeHome = path.join(home, ".claude");
         yield* write(".claude/CLAUDE.md", `Be brief.\n\n${GENTLE_SECTION}\n`);
         yield* write(
@@ -167,7 +167,7 @@ it.layer(NodeServices.layer)("Gentle AI off", (it) => {
     Effect.scoped(
       Effect.gen(function* () {
         const { home, write, path, fileSystem } = yield* makeHome;
-        const platform = yield* HostProcessPlatform;
+        const platform = yield* HostProcess.Platform;
         const codex = path.join(home, ".codex");
         yield* write(".codex/AGENTS.md", "Use tabs.\n\ngentle-ai's part\n");
         yield* write(".codex/auth.json", '{"token":"x"}');
@@ -209,7 +209,7 @@ it.layer(NodeServices.layer)("Gentle AI off", (it) => {
     Effect.scoped(
       Effect.gen(function* () {
         const { home, write, path, fileSystem } = yield* makeHome;
-        const platform = yield* HostProcessPlatform;
+        const platform = yield* HostProcess.Platform;
         const claudeHome = path.join(home, ".claude");
         yield* write(".claude/CLAUDE.md", "Be brief.\n\norchestrator\n");
         yield* write(".claude/settings.json", encodeJson({ model: "opus", theme: "dark" }));
@@ -258,7 +258,7 @@ it.layer(NodeServices.layer)("Gentle AI off", (it) => {
     Effect.scoped(
       Effect.gen(function* () {
         const { home, write, path, fileSystem } = yield* makeHome;
-        const platform = yield* HostProcessPlatform;
+        const platform = yield* HostProcess.Platform;
         yield* write(".cursor/rules/gentle-ai.mdc", "gentle");
         yield* write(".cursor/rules/mine.mdc", "mine");
         yield* write(".claude/skills/sdd-apply/SKILL.md", "gentle");

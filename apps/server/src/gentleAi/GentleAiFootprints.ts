@@ -8,7 +8,7 @@
  *
  * @module gentleAi/GentleAiFootprints
  */
-import { HostProcessEnvironment, HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -50,15 +50,15 @@ export const make = Effect.gen(function* () {
   const path = yield* Path.Path;
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const settingsService = yield* ServerSettingsService;
-  const platform = yield* HostProcessPlatform;
-  const environment = yield* HostProcessEnvironment;
+  const platform = yield* HostProcess.Platform;
+  const environment = yield* HostProcess.Environment;
   const provide = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
     effect.pipe(
       Effect.provideService(FileSystem.FileSystem, fileSystem),
       Effect.provideService(Path.Path, path),
       Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
-      Effect.provideService(HostProcessPlatform, platform),
-      Effect.provideService(HostProcessEnvironment, environment),
+      Effect.provideService(HostProcess.Platform, platform),
+      Effect.provideService(HostProcess.Environment, environment),
     );
 
   const forAgents = (agents: ReadonlyArray<string> | "set-up") =>

@@ -24,7 +24,7 @@ import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 import { HttpClient, HttpClientResponse } from "effect/http";
 import { ChildProcessSpawner } from "effect/process";
-import { HostProcessEnvironment, HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import { SpawnExecutableResolution } from "@t3tools/shared/shell";
 
 import * as ProviderRegistry from "./ProviderRegistry.ts";
@@ -49,7 +49,7 @@ const encoder = new TextEncoder();
 // `{ command, args }` assertions below hold deterministically on any host
 // (including Windows). Windows-specific resolution is covered by the dedicated
 // win32 case at the end of this suite.
-const layerNonWindowsPlatform = Layer.succeed(HostProcessPlatform, "linux");
+const layerNonWindowsPlatform = Layer.succeed(HostProcess.Platform, "linux");
 
 function lifecycleFor(provider: ProviderDriverKind): ProviderMaintenanceCapabilities {
   if (provider === NATIVE_CLI_DRIVER) {
@@ -968,8 +968,8 @@ describe("providerMaintenanceRunner", () => {
     }).pipe(
       Effect.provide(
         Layer.mergeAll(
-          Layer.succeed(HostProcessPlatform, "win32"),
-          Layer.succeed(HostProcessEnvironment, {
+          Layer.succeed(HostProcess.Platform, "win32"),
+          Layer.succeed(HostProcess.Environment, {
             PATH: "C:\\fake\\npm",
             PATHEXT: ".COM;.EXE;.BAT;.CMD",
           }),
@@ -1035,7 +1035,7 @@ describe("installing a missing provider", () => {
   const pathWithNpm = Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
-    const platform = yield* HostProcessPlatform;
+    const platform = yield* HostProcess.Platform;
     const dir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-npm-" });
     const npm = path.join(dir, platform === "win32" ? "npm.cmd" : "npm");
     yield* fileSystem.writeFileString(npm, platform === "win32" ? "@echo off\r\n" : "#!/bin/sh\n");
@@ -1052,7 +1052,7 @@ describe("installing a missing provider", () => {
       const result = yield* runner
         .updateProvider(OPENCODE_DRIVER)
         .pipe(
-          Effect.provideService(HostProcessEnvironment, { PATH: dir, Path: dir, PATHEXT: ".CMD" }),
+          Effect.provideService(HostProcess.Environment, { PATH: dir, Path: dir, PATHEXT: ".CMD" }),
         );
       assert.deepStrictEqual(calls, [["install", "-g", "@example/opencode@latest"]]);
       assert.strictEqual(result.providers[0]?.installed, true);
@@ -1090,7 +1090,7 @@ describe("installing a missing provider", () => {
       const failure = yield* Effect.flip(
         runner
           .updateProvider(OPENCODE_DRIVER)
-          .pipe(Effect.provideService(HostProcessEnvironment, { PATH: "", Path: "" })),
+          .pipe(Effect.provideService(HostProcess.Environment, { PATH: "", Path: "" })),
       );
       assert.include(failure.reason, "needs npm");
     }).pipe(

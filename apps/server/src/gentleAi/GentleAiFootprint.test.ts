@@ -1,5 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -103,7 +103,7 @@ it.layer(NodeServices.layer)("plain config mirror", (it) => {
         Effect.gen(function* () {
           const fileSystem = yield* FileSystem.FileSystem;
           const path = yield* Path.Path;
-          const platform = yield* HostProcessPlatform;
+          const platform = yield* HostProcess.Platform;
           const root = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-plain-mirror-" });
           const source = path.join(root, "home");
           const target = path.join(root, "plain");

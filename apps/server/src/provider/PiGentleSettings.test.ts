@@ -1,5 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import { expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -34,7 +34,7 @@ it.layer(NodeServices.layer)("Pi Gentle settings", (it) => {
         const fileSystem = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
         const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-        const platform = yield* HostProcessPlatform;
+        const platform = yield* HostProcess.Platform;
         const root = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-pi-gentle-cli-" });
         const cwd = path.join(root, "project");
         const agentHome = path.join(root, "agent");
