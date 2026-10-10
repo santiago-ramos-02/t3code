@@ -54,6 +54,7 @@ import {
   sanitizeFeatureBranchName,
 } from "@t3tools/shared/git";
 import {
+  canonicalRepositoryKey,
   getChangeRequestTerminologyForKind,
   isSshRemoteUrl,
   type ChangeRequestTerminology,
@@ -764,7 +765,10 @@ export const make = Effect.gen(function* () {
     Effect.gen(function* () {
       const root = yield* fileSystem.realPath(cwd);
       const instructionPath = yield* fileSystem.realPath(path.join(root, fileName));
-      if (!instructionPath.startsWith(`${root}${path.sep}`)) {
+      // A drive root such as `D:\` already ends with a separator, so compare
+      // with path.relative instead of a `${root}${sep}` prefix.
+      const relative = path.relative(root, instructionPath);
+      if (relative === "" || relative.startsWith("..") || path.isAbsolute(relative)) {
         return "";
       }
       const info = yield* fileSystem.stat(instructionPath);
@@ -958,11 +962,45 @@ export const make = Effect.gen(function* () {
       const repositoryNameWithOwner = resolveHeadRepositoryNameWithOwner(pullRequest) ?? "";
 
       if (repositoryNameWithOwner.length === 0) {
-        yield* gitCore.fetchPullRequestBranch({
-          cwd,
-          prNumber: pullRequest.number,
-          branch: localBranch,
-        });
+        yield* gitCore
+          .fetchPullRequestBranch({
+            cwd,
+            prNumber: pullRequest.number,
+            branch: localBranch,
+          })
+          .pipe(
+            // Azure DevOps, GitLab and Bitbucket publish no `refs/pull/<n>/head`. A head in the
+            // same repository is a branch on the primary remote, so it is fetched by name instead,
+            // but only when that remote is the pull request's own repository: Azure finds a pull
+            // request by number anywhere in the organization. Only while it is open, too: the
+            // branch of a closed one may have moved on past the head it was closed with.
+            Effect.catch((cause) =>
+              pullRequest.isCrossRepository === true || pullRequest.state !== "open"
+                ? Effect.fail(cause)
+                : Effect.gen(function* () {
+                    const remoteName = yield* gitCore.resolvePrimaryRemoteName(cwd);
+                    const remoteUrl = yield* gitCore.readConfigValue(
+                      cwd,
+                      `remote.${remoteName}.url`,
+                    );
+                    const pullRequestKey = pullRequestRepositoryKey(pullRequest.url);
+                    if (
+                      remoteUrl === null ||
+                      pullRequestKey === null ||
+                      canonicalRepositoryKey(pullRequestKey) !==
+                        canonicalRepositoryKey(normalizeGitRemoteUrl(remoteUrl))
+                    ) {
+                      return yield* cause;
+                    }
+                    yield* gitCore.fetchRemoteBranch({
+                      cwd,
+                      remoteName,
+                      remoteBranch: pullRequest.headBranch,
+                      localBranch,
+                    });
+                  }),
+            ),
+          );
         return;
       }
 
