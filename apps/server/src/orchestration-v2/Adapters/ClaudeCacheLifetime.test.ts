@@ -24,7 +24,7 @@ const storeTurn = (input: {
         (provider_turn_id, thread_id, provider_thread_id, node_id, ordinal, status, payload_json)
       VALUES (${`${providerThreadId}:turn-${input.ordinal}`}, 'thread-1', ${providerThreadId},
         'node-1', ${input.ordinal}, 'completed',
-        ${JSON.stringify({ tokenUsage: { cacheTtlSeconds: input.cacheTtlSeconds } })})
+        ${JSON.stringify({ tokenUsage: { promptCacheTtlMs: input.cacheTtlSeconds * 1000 } })})
     `;
   });
 

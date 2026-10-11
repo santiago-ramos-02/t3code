@@ -63,7 +63,7 @@ const turn = (input: {
   tokenUsage: {
     usedTokens: input.context,
     inputTokens: input.context,
-    ...(input.ttl === undefined ? {} : { cacheTtlSeconds: input.ttl }),
+    ...(input.ttl === undefined ? {} : { promptCacheTtlMs: input.ttl * 1000 }),
     updatedAt: iso(input.end),
   },
   ...(input.usage === undefined ? {} : { turnTokenUsage: input.usage }),

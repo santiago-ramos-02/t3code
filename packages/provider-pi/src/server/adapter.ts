@@ -820,7 +820,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
           ...(inputTokens === undefined ? {} : { inputTokens }),
           ...(cachedInputTokens === undefined ? {} : { cachedInputTokens }),
           ...(outputTokens === undefined ? {} : { outputTokens }),
-          ...(cacheTtlSeconds === undefined ? {} : { cacheTtlSeconds }),
+          ...(cacheTtlSeconds === undefined ? {} : { promptCacheTtlMs: cacheTtlSeconds * 1000 }),
           updatedAt: DateTime.formatIso(updatedAt),
         };
       };
@@ -880,7 +880,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
                 ...(outputTokens === undefined ? {} : { outputTokens }),
                 ...(turn.cacheTtlSeconds === undefined
                   ? {}
-                  : { cacheTtlSeconds: turn.cacheTtlSeconds }),
+                  : { promptCacheTtlMs: turn.cacheTtlSeconds * 1000 }),
                 updatedAt: DateTime.formatIso(updatedAt),
               },
             },

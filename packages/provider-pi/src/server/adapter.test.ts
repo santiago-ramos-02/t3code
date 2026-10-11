@@ -598,9 +598,9 @@ describe("PiAdapterV2", () => {
       );
       assert.equal(
         settled.type === "provider_turn.updated"
-          ? settled.providerTurn.tokenUsage?.cacheTtlSeconds
+          ? settled.providerTurn.tokenUsage?.promptCacheTtlMs
           : null,
-        3_600,
+        3_600_000,
       );
     }).pipe(
       Effect.scoped,
@@ -647,9 +647,9 @@ describe("PiAdapterV2", () => {
       );
       assert.equal(
         settled.type === "provider_turn.updated"
-          ? settled.providerTurn.tokenUsage?.cacheTtlSeconds
+          ? settled.providerTurn.tokenUsage?.promptCacheTtlMs
           : null,
-        3_600,
+        3_600_000,
       );
     }).pipe(
       Effect.scoped,

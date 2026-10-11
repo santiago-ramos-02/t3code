@@ -188,7 +188,7 @@ describe("CodexAdapterV2 context usage", () => {
       outputTokens: 5_000,
       reasoningOutputTokens: 1_000,
       // OpenAI keeps GPT-5.6 and later caches for 30 minutes.
-      cacheTtlSeconds: 1_800,
+      promptCacheTtlMs: 1_800_000,
       updatedAt: "2026-08-29T00:00:00.000Z",
     });
   });

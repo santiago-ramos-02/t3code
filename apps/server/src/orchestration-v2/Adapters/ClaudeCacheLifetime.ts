@@ -25,7 +25,11 @@ export const layer = Layer.effect(
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     const stored = yield* sql<{ readonly ttl: number | null }>`
-      SELECT json_extract(turn.payload_json, '$.tokenUsage.cacheTtlSeconds') AS ttl
+      SELECT coalesce(
+        json_extract(turn.payload_json, '$.tokenUsage.promptCacheTtlMs') / 1000,
+        -- Reports stored before the field moved to upstream's milliseconds.
+        json_extract(turn.payload_json, '$.tokenUsage.cacheTtlSeconds')
+      ) AS ttl
       FROM orchestration_v2_projection_provider_turns AS turn
       JOIN orchestration_v2_projection_provider_threads AS thread
         ON thread.provider_thread_id = turn.provider_thread_id

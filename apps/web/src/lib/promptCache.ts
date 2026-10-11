@@ -120,9 +120,9 @@ export function derivePromptCache(input: {
     turn.turnTokenUsage === undefined ? [] : [turnRow(turn.turnTokenUsage, index + 1)],
   );
   const { readTokens, writtenTokens, uncachedTokens, hitRate } = turnRow(usage, measured.length);
-  const ttlSeconds =
-    turns.findLast((turn) => turn.tokenUsage?.cacheTtlSeconds !== undefined)?.tokenUsage
-      ?.cacheTtlSeconds ?? null;
+  const ttlMs = turns.findLast((turn) => turn.tokenUsage?.promptCacheTtlMs !== undefined)
+    ?.tokenUsage?.promptCacheTtlMs;
+  const ttlSeconds = ttlMs === undefined ? null : ttlMs / 1000;
 
   const modelOf = (turn: PromptCacheTurn) => {
     const runId = input.attempts.find((attempt) => attempt.id === turn.runAttemptId)?.runId;

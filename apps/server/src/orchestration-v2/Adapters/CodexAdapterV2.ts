@@ -196,7 +196,7 @@ export function codexProviderTurnTokenUsage(
     cachedInputTokens: Math.max(0, tokenUsage.last.cachedInputTokens),
     outputTokens: Math.max(0, tokenUsage.last.outputTokens),
     reasoningOutputTokens: Math.max(0, tokenUsage.last.reasoningOutputTokens),
-    ...(cacheTtlSeconds === undefined ? {} : { cacheTtlSeconds }),
+    ...(cacheTtlSeconds === undefined ? {} : { promptCacheTtlMs: cacheTtlSeconds * 1000 }),
     updatedAt,
   };
 }

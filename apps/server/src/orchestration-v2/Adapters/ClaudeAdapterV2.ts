@@ -162,15 +162,29 @@ function claudeContextWindow(modelSelection: ModelSelection): number | null {
   );
 }
 
+interface ClaudeCacheCreation {
+  readonly ephemeral_1h_input_tokens: number;
+  readonly ephemeral_5m_input_tokens: number;
+}
+
+// Claude Code writes 1h cache entries on a subscription within its limits and
+// 5m entries otherwise (API key, Bedrock, Vertex, extra usage). A response
+// that wrote nothing leaves the TTL unknown.
+function claudePromptCacheTtlMs(
+  cacheCreation: ClaudeCacheCreation | null | undefined,
+): number | undefined {
+  if (!cacheCreation) return undefined;
+  if (cacheCreation.ephemeral_1h_input_tokens > 0) return 60 * 60_000;
+  if (cacheCreation.ephemeral_5m_input_tokens > 0) return 5 * 60_000;
+  return undefined;
+}
+
 export function claudeProviderTurnTokenUsage(
   usage: {
     readonly input_tokens: number;
     readonly cache_creation_input_tokens?: number | null;
     readonly cache_read_input_tokens?: number | null;
-    readonly cache_creation?: {
-      readonly ephemeral_5m_input_tokens: number;
-      readonly ephemeral_1h_input_tokens: number;
-    } | null;
+    readonly cache_creation?: ClaudeCacheCreation | null;
     readonly output_tokens: number;
   },
   modelSelection: ModelSelection,
@@ -181,7 +195,7 @@ export function claudeProviderTurnTokenUsage(
     (usage.cache_creation_input_tokens ?? 0) +
     (usage.cache_read_input_tokens ?? 0);
   const outputTokens = usage.output_tokens;
-  const cacheTtlSeconds = claudeCacheTtlSeconds(usage.cache_creation);
+  const promptCacheTtlMs = claudePromptCacheTtlMs(usage.cache_creation);
   return {
     usedTokens: inputTokens + outputTokens,
     maxTokens: claudeContextWindow(modelSelection),
@@ -189,26 +203,11 @@ export function claudeProviderTurnTokenUsage(
     cachedInputTokens: usage.cache_read_input_tokens ?? 0,
     outputTokens,
     reasoningOutputTokens: 0,
-    ...(cacheTtlSeconds === undefined ? {} : { cacheTtlSeconds }),
+    ...(promptCacheTtlMs === undefined ? {} : { promptCacheTtlMs }),
     updatedAt,
   };
 }
 
-/**
- * The lifetime of the cache a request wrote: Claude writes to a 5 minute or a 1 hour cache, and
- * says which by where it counts the written tokens. A request that wrote nothing does not say.
- */
-function claudeCacheTtlSeconds(
-  cacheCreation:
-    | { readonly ephemeral_5m_input_tokens: number; readonly ephemeral_1h_input_tokens: number }
-    | null
-    | undefined,
-) {
-  if (!cacheCreation) return undefined;
-  if (cacheCreation.ephemeral_1h_input_tokens > 0) return 3_600;
-  if (cacheCreation.ephemeral_5m_input_tokens > 0) return 300;
-  return undefined;
-}
 export const CLAUDE_DEFAULT_INSTANCE_ID = defaultInstanceIdForDriver(CLAUDE_PROVIDER);
 const DEFAULT_CLAUDE_SETTINGS = Schema.decodeSync(ClaudeSettings)({});
 // Entry extensions the Claude SDK runs through node instead of executing.
@@ -6442,8 +6441,8 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                 context.input.modelSelection,
                 DateTime.formatIso(now),
               );
-              if (cacheLifetime !== undefined && tokenUsage.cacheTtlSeconds !== undefined) {
-                yield* cacheLifetime.observe(tokenUsage.cacheTtlSeconds);
+              if (cacheLifetime !== undefined && tokenUsage.promptCacheTtlMs !== undefined) {
+                yield* cacheLifetime.observe(tokenUsage.promptCacheTtlMs / 1000);
               }
               yield* emitProviderEvent({
                 type: "provider_turn.updated",
