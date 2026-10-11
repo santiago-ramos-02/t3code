@@ -26,6 +26,13 @@ function SettingsProvidersRoute() {
       environmentId={environment.environmentId}
       {...(target.instanceId ? { instanceId: target.instanceId } : {})}
       {...(target.projectCwd ? { projectCwd: target.projectCwd } : {})}
+      projectIds={
+        scope.kind === "project" || scope.kind === "checkout"
+          ? scope.members
+              .filter((member) => member.environmentId === environment.environmentId)
+              .map((member) => member.id)
+          : []
+      }
       scoped
     />
   );

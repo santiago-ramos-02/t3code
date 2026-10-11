@@ -1621,6 +1621,8 @@ export interface ChatComposerProps {
   activeProjectDefaultModelSelection: ModelSelection | null | undefined;
   activeThreadModelSelection: ModelSelection | null | undefined;
   reportedModelSelection?: ModelSelection | null;
+  /** The active project, so the picker can fold in its provider instance overrides. */
+  activeProjectId: ProjectId | null;
 
   // Context window
   activeContextWindow: ContextWindowSnapshot | null;
@@ -1775,6 +1777,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     activeProjectDefaultModelSelection,
     activeThreadModelSelection,
     reportedModelSelection,
+    activeProjectId,
     activeContextWindow,
     activePromptCache,
     compactThreadUnavailable,
@@ -2158,9 +2161,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         applyProviderInstanceSettings(
           deriveProviderInstanceEntries(scopedProviderStatuses),
           settings,
+          activeProjectId,
         ),
       ),
-    [scopedProviderStatuses, settings],
+    [scopedProviderStatuses, settings, activeProjectId],
   );
   const selectedProviderByThreadId = composerDraft.activeProvider ?? null;
   const {
@@ -5565,6 +5569,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         />
       ) : null}
       <ProviderModelPicker
+        environmentId={environmentId}
         compact={false}
         isComposerOwned
         disabled={providerCatalogPending || isSendBusy}
