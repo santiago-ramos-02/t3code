@@ -23,7 +23,7 @@ import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
 import { resolveClaudeHomePath } from "../provider/Drivers/ClaudeHome.ts";
 import { plainPiExtensionArgs } from "../provider/PiPlainExtensions.ts";
 import { goesThroughProxy, readClaudeGentleProfile } from "./ClaudeGentleProfile.ts";
-import { gentleAiFootprintLookup } from "./GentleAiFootprints.ts";
+import { gentleAiBinaryLookup, gentleAiFootprintLookup } from "./GentleAiFootprints.ts";
 import {
   claudeGentleOffOptions,
   gentleAiOffDirectory,
@@ -225,9 +225,13 @@ export const makeClaudeGentleSession = (
  * activity and interactive questions. Off, Pi loads every installed extension, skill, and prompt
  * template except gentle-pi's, since Pi has no per-package opt-out.
  */
+/** Names the gentle-ai T3 Code runs for the fork's gentle-pi (lib/t3-fork-gentle-ai.ts there). */
+const GENTLE_PI_T3_GENTLE_AI = "GENTLE_PI_T3_GENTLE_AI";
+
 export const makePiGentleSession = (driver: ProviderDriverKind) =>
   Effect.gen(function* () {
-    const { provide } = yield* gentleOffServices;
+    const { path, provide } = yield* gentleOffServices;
+    const gentleAiBinary = yield* gentleAiBinaryLookup;
     const prepare: PrepareProviderSession<{
       readonly args: ReadonlyArray<string>;
       readonly environment: NodeJS.ProcessEnv;
@@ -236,7 +240,19 @@ export const makePiGentleSession = (driver: ProviderDriverKind) =>
       const environment = { ...launch.environment };
       if (gentleAiEnabled(input.modelSelection.options)) {
         environment.GENTLE_SHELL_INTERACTIVE_HOST = "1";
-        return Effect.succeed({ ...launch, environment });
+        // The fork's gentle-pi runs this gentle-ai instead of its pinned upstream copy when it
+        // is a fork build, so Pi and T3 Code drive the same one. An explicit value wins.
+        if (environment[GENTLE_PI_T3_GENTLE_AI] !== undefined) {
+          return Effect.succeed({ ...launch, environment });
+        }
+        return gentleAiBinary.pipe(
+          Effect.map((binary) => {
+            if (binary !== null && path.isAbsolute(binary)) {
+              environment[GENTLE_PI_T3_GENTLE_AI] = binary;
+            }
+            return { ...launch, environment };
+          }),
+        );
       }
       delete environment.GENTLE_SHELL_INTERACTIVE_HOST;
       return provide(

@@ -41,6 +41,8 @@ export class GentleAiFootprints extends Context.Service<
     readonly forAgents: (
       agents: ReadonlyArray<string> | "set-up",
     ) => Effect.Effect<GentleAiPlainFootprint | null>;
+    /** The gentle-ai binary T3 Code runs, or null when there is none. */
+    readonly binary: Effect.Effect<string | null>;
   }
 >()("t3/gentleAi/GentleAiFootprints") {}
 
@@ -61,13 +63,15 @@ export const make = Effect.gen(function* () {
       Effect.provideService(HostProcess.Environment, environment),
     );
 
+  const binary = settingsService.getSettings.pipe(
+    Effect.map((settings) => settings.gentleAiBinaryPath),
+    Effect.orElseSucceed(() => ""),
+    Effect.flatMap(resolveGentleAiBinary),
+  );
+
   const forAgents = (agents: ReadonlyArray<string> | "set-up") =>
     Effect.gen(function* () {
-      const binaryPath = yield* settingsService.getSettings.pipe(
-        Effect.map((settings) => settings.gentleAiBinaryPath),
-        Effect.orElseSucceed(() => ""),
-        Effect.flatMap(resolveGentleAiBinary),
-      );
+      const binaryPath = yield* binary;
       if (binaryPath === null) return null;
       // gentle-ai skips agents it did not set up, and simulates the rest together.
       const footprint = yield* runGentleAiApi({
@@ -96,7 +100,7 @@ export const make = Effect.gen(function* () {
       ),
     );
 
-  return GentleAiFootprints.of({ forAgents });
+  return GentleAiFootprints.of({ forAgents, binary: binary.pipe(provide) });
 });
 
 export const layer = Layer.effect(GentleAiFootprints, make);
@@ -110,5 +114,12 @@ export const gentleAiFootprintLookup = Effect.serviceOption(GentleAiFootprints).
     (service) =>
       (agents: ReadonlyArray<string> | "set-up"): Effect.Effect<GentleAiPlainFootprint | null> =>
         Option.isSome(service) ? service.value.forAgents(agents) : Effect.succeed(null),
+  ),
+);
+
+/** The gentle-ai binary T3 Code runs; null when the service is not provided, as in tests. */
+export const gentleAiBinaryLookup = Effect.serviceOption(GentleAiFootprints).pipe(
+  Effect.map((service) =>
+    Option.isSome(service) ? service.value.binary : Effect.succeed<string | null>(null),
   ),
 );
