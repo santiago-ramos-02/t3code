@@ -13,11 +13,11 @@ import { AsyncResult } from "effect/reactivity";
 import { Alert, Pressable } from "react-native";
 
 import { AppText as Text } from "../../components/AppText";
+import { ListRowLayout } from "../../components/ListRowLayout";
 import { useEnvironmentQuery } from "../../state/query";
 import { serverEnvironment } from "../../state/server";
 import { environmentSession } from "../../state/session";
 import { useAtomCommand } from "../../state/use-atom-command";
-import { SettingsControlRow } from "./components/SettingsControlRow";
 import { SettingsSection } from "./components/SettingsSection";
 import { SettingsSwitchRow } from "./components/SettingsSwitchRow";
 import { canMaintainEnvironment } from "./environment-maintenance";
@@ -89,37 +89,38 @@ function ProjectReview(props: {
         disabled={disabled || review === null || (!review.checked && !review.canTurnOn)}
         onValueChange={(enabled) => startJob("review.set", { cwd, enabled, scope: "clone" })}
       />
-      <SettingsControlRow
+      <ListRowLayout
         icon="doc.text"
         label="Review history"
-        subtitle={
+        description={
           store.error ?? (counts === null ? "Reading…" : gentleAiReviewHistoryLabel(counts))
         }
         disabled={disabled || !canClear}
-      >
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Clear review history"
-          disabled={disabled || !canClear}
-          onPress={() =>
-            Alert.alert(
-              "Clear review history?",
-              "Removes this checkout's review history. This cannot be undone.",
-              [
-                { text: "Cancel", style: "cancel" },
-                {
-                  text: "Clear",
-                  style: "destructive",
-                  onPress: () => startJob("reviewStore.reset", { cwd }),
-                },
-              ],
-            )
-          }
-          className="min-h-11 justify-center rounded-full bg-subtle-strong px-4 disabled:opacity-40"
-        >
-          <Text className="text-sm font-t3-medium text-foreground">Clear</Text>
-        </Pressable>
-      </SettingsControlRow>
+        accessory={
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Clear review history"
+            disabled={disabled || !canClear}
+            onPress={() =>
+              Alert.alert(
+                "Clear review history?",
+                "Removes this checkout's review history. This cannot be undone.",
+                [
+                  { text: "Cancel", style: "cancel" },
+                  {
+                    text: "Clear",
+                    style: "destructive",
+                    onPress: () => startJob("reviewStore.reset", { cwd }),
+                  },
+                ],
+              )
+            }
+            className="min-h-11 justify-center rounded-full bg-subtle-strong px-4 disabled:opacity-40"
+          >
+            <Text className="text-sm font-t3-medium text-foreground">Clear</Text>
+          </Pressable>
+        }
+      />
     </SettingsSection>
   );
 }
