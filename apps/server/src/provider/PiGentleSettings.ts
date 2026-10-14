@@ -248,7 +248,7 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
   const writeAtomicText = (filePath: string, text: string) =>
     Effect.gen(function* () {
       yield* fileSystem.makeDirectory(path.dirname(filePath), { recursive: true });
-      const temporary = `${filePath}.${yield* crypto.randomUUIDv4}.tmp`;
+      const temporary = `${filePath}.${yield* crypto.randomUUIDv4()}.tmp`;
       yield* fileSystem.writeFileString(temporary, text);
       yield* fileSystem
         .rename(temporary, filePath)

@@ -94,7 +94,7 @@ export const gentleAiOffDirectory = (agent: string) =>
     Effect.gen(function* () {
       const path = yield* Path.Path;
       const crypto = yield* Crypto.Crypto;
-      const id = yield* crypto.randomUUIDv4;
+      const id = yield* crypto.randomUUIDv4();
       return path.join(NodeOS.tmpdir(), "t3code-gentle-off", `${agent}-${id}`);
     }),
     (directory) =>

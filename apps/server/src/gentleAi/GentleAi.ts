@@ -601,11 +601,13 @@ export const make = Effect.gen(function* () {
     Effect.gen(function* () {
       yield* apiBinary;
       const started: GentleAiJob = {
-        id: yield* crypto.randomUUIDv4.pipe(
-          Effect.mapError(
-            () => new GentleAiError({ detail: "Could not start the Gentle AI task." }),
+        id: yield* crypto
+          .randomUUIDv4()
+          .pipe(
+            Effect.mapError(
+              () => new GentleAiError({ detail: "Could not start the Gentle AI task." }),
+            ),
           ),
-        ),
         method,
         phase: "running",
         startedAt: DateTime.formatIso(yield* DateTime.now),
