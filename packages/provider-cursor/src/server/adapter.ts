@@ -193,7 +193,7 @@ export function cursorRuntimeAgentPolicy(
   return {
     autoReview:
       runtimePolicy.approvalPolicy === undefined
-        ? runtimePolicy.runtimeMode === "approval-required"
+        ? runtimePolicy.runtimeMode === "approval-required" || runtimePolicy.runtimeMode === "auto"
         : runtimePolicy.approvalPolicy !== "never",
     sandboxEnabled:
       runtimePolicy.sandboxPolicy === undefined
