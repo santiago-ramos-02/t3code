@@ -8,7 +8,7 @@ import { AsyncResult } from "effect/reactivity";
 import { useEffect, useState } from "react";
 import { Pressable, View } from "react-native";
 
-import { AppText as Text, AppTextInput } from "../../components/AppText";
+import { AppText as Text, AppTextInput } from "../../components/ui/AppText";
 import { serverEnvironment } from "../../state/server";
 import { environmentSession } from "../../state/session";
 import { useAtomCommand } from "../../state/use-atom-command";

@@ -23,7 +23,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Alert, View } from "react-native";
 
 import { ComposerInlineControl } from "../../components/ComposerToolbar";
-import { ControlPillMenu } from "../../components/ControlPill";
+import { Menu } from "../../components/ui/Menu";
 import type { RemoteClientConnectionState } from "../../lib/connection";
 import type { ThreadFeedEntry } from "../../lib/threadActivity";
 import { useEnvironmentQuery } from "../../state/query";
@@ -250,7 +250,7 @@ export function GentleComposerControls(props: {
   if (!visible) return null;
   return (
     <View className="flex-row items-center justify-end gap-1 px-2 pb-1">
-      <ControlPillMenu
+      <Menu
         actions={gentleMenuActions}
         onPressAction={({ nativeEvent }) => {
           if (gentleProfiles.handle(nativeEvent.event)) return;
@@ -291,7 +291,7 @@ export function GentleComposerControls(props: {
           )}
           maxWidth={125}
         />
-      </ControlPillMenu>
+      </Menu>
     </View>
   );
 }

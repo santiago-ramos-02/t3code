@@ -1,7 +1,7 @@
 import { Pressable } from "react-native";
 
-import { AppText as Text } from "../../components/AppText";
-import { ControlPillMenu } from "../../components/ControlPill";
+import { AppText as Text } from "../../components/ui/AppText";
+import { Menu } from "../../components/ui/Menu";
 
 /** A settings row that picks one of a few labelled values from a native menu. */
 export function ChoiceMenu<Value extends string>(props: {
@@ -13,7 +13,7 @@ export function ChoiceMenu<Value extends string>(props: {
 }) {
   const selected = props.choices.find((choice) => choice.value === props.value);
   return (
-    <ControlPillMenu
+    <Menu
       accessible
       accessibilityRole="button"
       accessibilityLabel={props.label}
@@ -39,6 +39,6 @@ export function ChoiceMenu<Value extends string>(props: {
           {selected?.label ?? (props.value || "None")}
         </Text>
       </Pressable>
-    </ControlPillMenu>
+    </Menu>
   );
 }

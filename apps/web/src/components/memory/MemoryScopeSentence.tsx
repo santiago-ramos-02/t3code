@@ -11,8 +11,11 @@ import { useEnvironments } from "../../state/environments";
 import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
 import { ProjectFavicon } from "../ProjectFavicon";
 import { ScopeMenu } from "../settings/SettingsScopeSentence";
-import { settingsScopeEnvironmentLabel } from "../settings/settingsScopeAxis";
-import { MenuRadioGroup, MenuRadioItem, MenuRadioItemIndicator, MenuSeparator } from "../ui/menu";
+import {
+  settingsScopeEnvironmentAddress,
+  settingsScopeEnvironmentLabel,
+  settingsScopeEnvironmentLabels,
+} from "../settings/settingsScopeAxis";
 import { memoryProjectChoices } from "./memoryModel";
 
 const ALL_PROJECTS = "";
@@ -61,40 +64,25 @@ export function MemoryScopeSentence(props: {
             ) : null
           }
           label={selectedProject ? selectedProject.label : "All projects"}
-        >
-          <MenuRadioGroup
-            value={props.project ?? ALL_PROJECTS}
-            onValueChange={(next) => {
-              if (typeof next === "string")
-                props.onProjectChange(next === ALL_PROJECTS ? null : next);
-            }}
-          >
-            <MenuRadioItem value={ALL_PROJECTS}>
-              <span className="flex min-w-0 items-center gap-2">
-                <LayersIcon aria-hidden className="size-3.5" />
-                <span className="min-w-0 flex-1 truncate">All projects</span>
-                <MenuRadioItemIndicator />
-              </span>
-            </MenuRadioItem>
-            <MenuSeparator />
-            {choices.map((choice) => (
-              <MenuRadioItem key={choice.name} value={choice.name}>
-                <span className="flex min-w-0 items-center gap-2">
-                  {choice.project ? (
-                    <ProjectFavicon project={choice.project} className="size-3.5" />
-                  ) : (
-                    <FolderIcon aria-hidden className="size-3.5" />
-                  )}
-                  <span className="min-w-0 flex-1 truncate">{choice.label}</span>
-                  <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-                    {choice.count}
-                  </span>
-                  <MenuRadioItemIndicator />
-                </span>
-              </MenuRadioItem>
-            ))}
-          </MenuRadioGroup>
-        </ScopeMenu>
+          value={props.project ?? ALL_PROJECTS}
+          onChange={(next) => props.onProjectChange(next === ALL_PROJECTS ? null : next)}
+          searchLabel="Search projects"
+          allOption={{
+            value: ALL_PROJECTS,
+            label: "All projects",
+            icon: <LayersIcon aria-hidden className="size-3.5 shrink-0" />,
+          }}
+          options={choices.map((choice) => ({
+            value: choice.name,
+            label: choice.label,
+            secondary: choice.count === 1 ? "1 memory" : `${choice.count} memories`,
+            icon: choice.project ? (
+              <ProjectFavicon project={choice.project} className="size-3.5 shrink-0" />
+            ) : (
+              <FolderIcon aria-hidden className="size-3.5 shrink-0" />
+            ),
+          }))}
+        />
       </span>
       <span className="flex min-w-0 items-center gap-1.5">
         <span className="shrink-0">on</span>
@@ -114,31 +102,36 @@ export function MemoryScopeSentence(props: {
               ? settingsScopeEnvironmentLabel(selectedEnvironment, environments)
               : "Unavailable environment"
           }
-        >
-          <MenuRadioGroup
-            value={props.environmentId}
-            onValueChange={(next) => {
-              const environment = environments.find((entry) => entry.environmentId === next);
-              if (environment) props.onEnvironmentChange(environment.environmentId);
-            }}
-          >
-            {environments.map((environment) => (
-              <MenuRadioItem key={environment.environmentId} value={environment.environmentId}>
-                <span className="flex min-w-0 items-center gap-2">
-                  <EnvironmentMachineIcon
-                    aria-hidden
-                    kind={resolveEnvironmentMachineKind(environment.serverConfig)}
-                    className="size-3.5"
-                  />
-                  <span className="min-w-0 flex-1 truncate">
-                    {settingsScopeEnvironmentLabel(environment, environments)}
-                  </span>
-                  <MenuRadioItemIndicator />
-                </span>
-              </MenuRadioItem>
-            ))}
-          </MenuRadioGroup>
-        </ScopeMenu>
+          value={props.environmentId}
+          onChange={(next) => {
+            const environment = environments.find((entry) => entry.environmentId === next);
+            if (environment) props.onEnvironmentChange(environment.environmentId);
+          }}
+          searchLabel="Search environments"
+          allOption={null}
+          options={environments.map((environment) => {
+            const { primary, secondary } = settingsScopeEnvironmentLabels(
+              environment,
+              environments,
+            );
+            return {
+              value: environment.environmentId,
+              label: primary,
+              secondary:
+                environments.length <= 1
+                  ? ""
+                  : secondary || settingsScopeEnvironmentAddress(environment),
+              icon: (
+                <EnvironmentMachineIcon
+                  aria-hidden
+                  kind={resolveEnvironmentMachineKind(environment.serverConfig)}
+                  className="size-3.5 shrink-0"
+                />
+              ),
+              offline: environment.connection.phase !== "connected",
+            };
+          })}
+        />
       </span>
     </p>
   );

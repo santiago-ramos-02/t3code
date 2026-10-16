@@ -11,22 +11,13 @@ import type { ProviderInstanceEntry } from "../../providerInstances";
 import { Button } from "../ui/button";
 import { ProviderInstanceIcon } from "./ProviderInstanceIcon";
 
-/**
- * Stands in for the composer on a provider-native subagent thread. The
- * provider runs that conversation, so there is nothing to send; the bar says
- * which agent and model are working, for how long, and leads back to the parent.
- */
 export function ProviderSubagentBar(props: {
-  /** The provider running the subagent; no icon while its catalog loads. */
   readonly provider: ProviderInstanceEntry | null;
   /** The named agent it runs as, such as Gentle AI's `gentle-ai-worker`. */
   readonly agentName: string | null;
-  /** Several accounts on this provider: badge the glyph, as the composer does. */
   readonly showInstanceBadge: boolean;
   readonly modelLabel: string;
-  /** Reasoning effort as the composer names it, when the subagent has one. */
   readonly effortLabel: string | null;
-  /** Null until the subagent's root turn arrives. */
   readonly status: ProviderSubagentStatus | null;
   readonly onOpenParent: (() => void) | null;
 }) {
@@ -39,7 +30,6 @@ export function ProviderSubagentBar(props: {
   ]
     .filter((part) => part !== null)
     .join(" as ");
-  // Announced once per transition; the ticking label below is not.
   const announcement = formatProviderSubagentStatus(
     status === null ? null : { ...status, startedAt: null },
     0,

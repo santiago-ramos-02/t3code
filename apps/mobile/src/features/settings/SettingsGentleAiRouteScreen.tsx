@@ -37,8 +37,8 @@ import { Fragment, useState } from "react";
 import { ActivityIndicator, Alert, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { AppText as Text } from "../../components/AppText";
-import { ScreenScrollView as ScrollView } from "../../components/ScreenScrollView";
+import { AppText as Text } from "../../components/ui/AppText";
+import { ScreenScrollView as ScrollView } from "../../components/ui/ScreenScrollView";
 import { useEnvironmentQuery } from "../../state/query";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
