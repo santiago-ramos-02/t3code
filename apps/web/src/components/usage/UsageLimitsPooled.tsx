@@ -35,10 +35,6 @@ import {
   useResetCredit,
 } from "./UsageLimits";
 
-const PROVIDER_DISPLAY_ORDER = new Map(
-  providerClients.definitions.map((definition, index) => [definition.driverKind, index]),
-);
-
 /** `someone@example.com` → `SE`: enough to tell accounts apart, too little to identify one. */
 function accountInitials(email: string): string {
   const [local = "", domain = ""] = email.split("@");
@@ -584,12 +580,7 @@ export function UsageLimitsPooled({
   readonly now: number;
   readonly cursorPrompt?: ReactNode;
 }) {
-  // Hub accounts arrive after native providers, but the sections follow Providers order.
-  const pools = collectLimitPools(collectLimitAccounts(presentations), now).toSorted(
-    (left, right) =>
-      (PROVIDER_DISPLAY_ORDER.get(left.driver) ?? Number.MAX_SAFE_INTEGER) -
-      (PROVIDER_DISPLAY_ORDER.get(right.driver) ?? Number.MAX_SAFE_INTEGER),
-  );
+  const pools = collectLimitPools(collectLimitAccounts(presentations), now);
   const notices = collectLimitNotices(presentations);
   const externalLinks = collectExternalUsageLinks(presentations);
   const cursorPromptAt =

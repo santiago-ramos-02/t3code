@@ -39,7 +39,6 @@ import * as PullRequestHttp from "./pullRequest/http.ts";
 import * as PullRequestProviderRegistry from "./pullRequest/PullRequestProviderRegistry.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
 import * as SqlitePersistence from "./persistence/Sqlite.ts";
-import * as ClaudeCacheLifetime from "./orchestration-v2/Adapters/ClaudeCacheLifetime.ts";
 import * as PullRequestFilesViewed from "./persistence/PullRequestFilesViewed.ts";
 import * as PullRequestReviewGuides from "./persistence/PullRequestReviewGuides.ts";
 import * as PullRequestReviewGuideService from "./pullRequest/PullRequestReviewGuideService.ts";
@@ -160,10 +159,6 @@ import * as NativeTelemetryClient from "./resourceTelemetry/NativeTelemetryClien
 import * as ResourceAttribution from "./resourceTelemetry/ResourceAttribution.ts";
 import * as ResourceMonitorBinary from "./resourceTelemetry/ResourceMonitorBinary.ts";
 import * as ResourceTelemetry from "./resourceTelemetry/ResourceTelemetry.ts";
-import * as GentleAi from "./gentleAi/GentleAi.ts";
-import * as CliProxy from "./cliProxy/CliProxy.ts";
-import * as Engram from "./memory/Engram.ts";
-import * as GentleAiFootprints from "./gentleAi/GentleAiFootprints.ts";
 import * as AntigravityUsage from "./provider/Drivers/AntigravityUsage.ts";
 import * as CursorAccountReader from "@t3tools/provider-cursor/server/CursorAccountReader";
 import * as CursorKeychain from "@t3tools/provider-cursor/server/CursorKeychain";
@@ -608,14 +603,7 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   // Both read a user-owned file out of the state directory and stream changes
   // to clients; neither depends on the other.
   Layer.provideMerge(
-    Layer.mergeAll(
-      Keybindings.layer,
-      EnvironmentTheme.layer,
-      UsageLimitSources.layer,
-      GentleAi.layer,
-      CliProxy.layer,
-      Engram.layer,
-    ),
+    Layer.mergeAll(Keybindings.layer, EnvironmentTheme.layer, UsageLimitSources.layer),
   ),
   Layer.provideMerge(ProviderRegistry.layer),
   // The instance registry is the new routing keystone — text generation,
@@ -640,10 +628,7 @@ const layerRuntimeCoreDependencies = layerRuntimeCoreDependenciesBase.pipe(
   // orchestration runtime, so they are provided once here.
   // `ModelManifest.layer` is the model manifest, refreshed from the repo's
   // `model-manifest.json` on `main`. Drivers read their entry through the
-  // `ModelCatalog` port it provides. `GentleAiFootprints.layer` tells the
-  // drivers what gentle-ai added to their agent, for threads with Gentle AI
-  // off. `ClaudeCacheLifetime.layer` carries the cache lifetime Claude Code
-  // reports to drivers that run Claude Code without passing it on.
+  // `ModelCatalog` port it provides.
   Layer.provideMerge(
     Layer.mergeAll(
       layerProviderEventLoggers,
@@ -651,8 +636,6 @@ const layerRuntimeCoreDependencies = layerRuntimeCoreDependenciesBase.pipe(
       ResetCreditCoordinator.layer,
       ProviderLatestVersions.layer,
       McpProviderSessions.layer,
-      GentleAiFootprints.layer,
-      ClaudeCacheLifetime.layer,
     ),
   ),
   // `OpenCodeDriver.create()` yields `OpenCodeRuntime`; previously the old

@@ -56,8 +56,6 @@ import {
   type ScheduledTask,
   type ScheduledTaskUpsertInput,
   type ServerProvider,
-  gentleAiEnabled,
-  type GentleAiStatus,
   ThreadId,
 } from "@t3tools/contracts";
 import { runRanAfter } from "@t3tools/shared/orchestrationV2ThreadError";
@@ -74,7 +72,6 @@ import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
-import * as GentleAi from "../gentleAi/GentleAi.ts";
 import * as ProviderAdapterRegistry from "../orchestration-v2/ProviderAdapterRegistry.ts";
 import {
   subagentResultForRun,
@@ -267,25 +264,6 @@ function scheduledTaskSummary(task: ScheduledTask, mayRun: boolean): Orchestrato
       ? {}
       : { webhookSignature: task.webhook.hasSecret ? "set" : "none" }),
   };
-}
-
-const GENTLE_AI_DELEGATION =
-  "Gentle AI orchestrates this thread, so its own subagents run delegated work. Turn Gentle AI off for this thread to delegate through T3 Code.";
-
-/**
- * Whether the Gentle AI orchestrator runs this thread, on any harness Gentle AI set up, where its
- * own subagents own delegated work and T3 Code starts no child tasks. Gentle AI is on unless the
- * thread turns it off.
- */
-function gentleAiOwnsDelegation(
-  thread: Pick<OrchestrationV2ThreadProjection["thread"], "modelSelection">,
-  providers: ReadonlyArray<ServerProvider>,
-  gentleAi: GentleAiStatus,
-) {
-  const provider = GentleAi.withGentleAi(providers, gentleAi).find(
-    (entry) => entry.instanceId === thread.modelSelection.instanceId,
-  );
-  return provider?.gentleAi === true && gentleAiEnabled(thread.modelSelection.options);
 }
 
 function providerConstraints(
@@ -930,7 +908,6 @@ const make = Effect.gen(function* () {
   const providerRegistry = yield* ProviderRegistry.ProviderRegistry;
   const providerAdapters = yield* ProviderAdapterRegistry.ProviderAdapterRegistryV2;
   const scheduledTasks = yield* ScheduledTaskService.ScheduledTaskService;
-  const gentleAi = yield* GentleAi.GentleAi;
   const projects = yield* ProjectService.ProjectService;
   const threadLaunch = yield* ThreadLaunchService.ThreadLaunchService;
   const gitDriver = yield* GitVcsDriver.GitVcsDriver;
@@ -1943,10 +1920,6 @@ const make = Effect.gen(function* () {
         const { parent, limits } = yield* loadCaller(scope);
         const providers = yield* loadProviders;
         const orchestrationCapableInstanceIds = yield* loadOrchestrationCapableInstanceIds();
-        // A client caller has no thread, so no Gentle AI owns its delegation.
-        const gentleAiDelegation =
-          parent !== undefined &&
-          gentleAiOwnsDelegation(parent.thread, providers, yield* gentleAi.current);
         // Models the user hid from pickers stay out of the catalog agents choose from.
         const modelPreferences = yield* serverSettings.getSettings.pipe(
           Effect.map((settings) => settings.providerModelPreferences ?? {}),
@@ -1959,13 +1932,10 @@ const make = Effect.gen(function* () {
           runtimeMode: limits.runtimeMode,
           interactionMode: limits.interactionMode,
           providers: providers.map((provider) => {
-            const constraints = [
-              ...providerConstraints(
-                provider,
-                orchestrationCapableInstanceIds.has(provider.instanceId),
-              ),
-              ...(gentleAiDelegation ? [GENTLE_AI_DELEGATION] : []),
-            ];
+            const constraints = providerConstraints(
+              provider,
+              orchestrationCapableInstanceIds.has(provider.instanceId),
+            );
             return {
               providerInstanceId: provider.instanceId,
               driverKind: provider.driver,
@@ -1994,7 +1964,7 @@ const make = Effect.gen(function* () {
             };
           }),
           features: {
-            appOwnedSubagents: !gentleAiDelegation,
+            appOwnedSubagents: true,
             asyncPolling: true,
             cancellation: true,
             batchThreadCreation: true,
@@ -2022,9 +1992,6 @@ const make = Effect.gen(function* () {
           );
         }
         const providers = yield* loadProviders;
-        if (gentleAiOwnsDelegation(parent.thread, providers, yield* gentleAi.current)) {
-          return yield* failure("delegation_owned_by_gentle_ai", GENTLE_AI_DELEGATION);
-        }
         // Computed before resolving the target so a retry of an already
         // accepted delegation can be recognized: dispatching under the same
         // command id only replays the recorded result, so candidate
@@ -2748,7 +2715,6 @@ export const layer: Layer.Layer<
   OrchestratorMcpService,
   never,
   | Crypto.Crypto
-  | GentleAi.GentleAi
   | ThreadManagementService.ThreadManagementService
   | ThreadLaunchService.ThreadLaunchService
   | GitVcsDriver.GitVcsDriver

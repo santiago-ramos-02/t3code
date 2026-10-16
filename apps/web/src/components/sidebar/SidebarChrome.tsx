@@ -1,11 +1,11 @@
-import { ArrowLeftIcon, BrainIcon, ChartNoAxesColumnIcon, SettingsIcon } from "lucide-react";
+import { ArrowLeftIcon, ChartNoAxesColumnIcon, SettingsIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { memo, useCallback } from "react";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
-import { useMemoryEnvironments, usePullRequestsSupported } from "../../state/environments";
+import { usePullRequestsSupported } from "../../state/environments";
 import { T3Wordmark } from "../T3Wordmark";
 import {
   resolveEnvironmentIdentificationPillLabel,
@@ -176,7 +176,6 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
     select: (location) => isSidebarUtilityPage(location.pathname),
   });
   const pullRequestsSupported = usePullRequestsSupported();
-  const memorySupported = useMemoryEnvironments().length > 0;
   const closeMobileSidebar = useCallback(() => {
     if (isMobile) {
       setOpenMobile(false);
@@ -200,11 +199,6 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
     }
     void navigate({ to: "/usage" });
   }, [isMobile, navigate, setOpenMobile]);
-
-  const handleMemoryClick = useCallback(() => {
-    closeMobileSidebar();
-    void navigate({ to: "/memory" });
-  }, [closeMobileSidebar, navigate]);
 
   const handleBackClick = useCallback(() => {
     closeMobileSidebar();
@@ -239,9 +233,6 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
             label="Usage"
             onClick={handleUsageClick}
           />
-          {memorySupported ? (
-            <SidebarUtilityItem icon={<BrainIcon />} label="Memory" onClick={handleMemoryClick} />
-          ) : null}
         </>
       )}
       <SidebarUpdatePill />

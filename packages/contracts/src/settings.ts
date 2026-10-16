@@ -1141,8 +1141,6 @@ export const ServerSettings = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed("paragraph" as const)),
   ),
   enableProviderUpdateChecks: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
-  // The gentle-ai binary to run. Empty finds one on PATH, then the copy gentle-pi bundles.
-  gentleAiBinaryPath: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
   // Retain the update-era key. On by default so restarts resume the work they
   // interrupted; recovery stops after three automatic continuations in a row.
   continueThreadsAfterServerUpdate: Schema.Boolean.pipe(
@@ -1561,7 +1559,6 @@ export const ServerSettingsPatch = Schema.Struct({
   // Server settings
   responseStreamingMode: Schema.optionalKey(ResponseStreamingMode),
   enableProviderUpdateChecks: Schema.optionalKey(Schema.Boolean),
-  gentleAiBinaryPath: Schema.optionalKey(TrimmedString),
   continueThreadsAfterServerUpdate: Schema.optionalKey(Schema.Boolean),
   enableAgentBrowserAccess: Schema.optionalKey(Schema.Boolean),
   projectAgentBrowserAccessOverrides: Schema.optionalKey(

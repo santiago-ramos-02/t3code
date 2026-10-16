@@ -46,7 +46,6 @@ import {
   type CodexArtifactTemplate,
 } from "@t3tools/shared/codexArtifactTemplates";
 import { resolveAssetUrl } from "@t3tools/client-runtime/state/assets";
-import { finalAssistantMessageIds } from "@t3tools/client-runtime/state/final-assistant-messages";
 import { isMarkdownFileLinkLabel } from "@t3tools/shared/markdownLinks";
 import { formatAttachmentSize } from "@t3tools/client-runtime/state/attachments";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";

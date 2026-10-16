@@ -58,7 +58,6 @@ import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import * as Option from "effect/Option";
 import {
   ArrowLeftIcon,
-  BrainIcon,
   ChartNoAxesColumnIcon,
   CheckIcon,
   ChevronRightIcon,
@@ -130,11 +129,7 @@ import { useAtomQueryRunner } from "../state/use-atom-query-runner";
 import { useScratchProject } from "../hooks/useScratchProject";
 import { useNewProject } from "../hooks/useNewProject";
 import { isScratchProject } from "@t3tools/client-runtime/state/projects";
-import {
-  useEnvironments,
-  useMemoryEnvironments,
-  usePrimaryEnvironmentId,
-} from "../state/environments";
+import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
 import { useProjects, useServerConfigs, useThreadShells, waitForProject } from "../state/entities";
 import { useThreadSearch } from "../state/queries";
 import { resolveThreadActionProjectRef, startNewThreadFromContext } from "../lib/chatThreadActions";
@@ -477,13 +472,6 @@ export function CommandPalette({ children }: { children: ReactNode }) {
         void navigate({ to: "/usage" });
         return;
       }
-      if (command === "memory.open") {
-        event.preventDefault();
-        event.stopPropagation();
-        setOpen(false);
-        void navigate({ to: "/memory" });
-        return;
-      }
       const mode = overlayModeForCommand(command);
       if (mode === null) {
         return;
@@ -655,7 +643,6 @@ function OpenCommandPaletteDialog(props: {
   const { environments } = useEnvironments();
   const desktopLocalBootstraps = useDesktopLocalBootstraps();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
-  const memorySupported = useMemoryEnvironments().length > 0;
   const availableSettingsSearchItems = useAvailableSettingsSearchItems();
   const { activeDraftThread, activeThread, defaultProjectRef, handleNewThread } =
     useHandleNewThread();
@@ -2245,20 +2232,6 @@ function OpenCommandPaletteDialog(props: {
       await navigate({ to: "/usage" });
     },
   });
-
-  if (memorySupported) {
-    actionItems.push({
-      kind: "action",
-      value: "action:memory",
-      searchTerms: ["memory", "engram", "remember", "brain", "learned", "obsidian"],
-      title: "Open memory",
-      icon: <BrainIcon className={ITEM_ICON_CLASS} />,
-      shortcutCommand: "memory.open",
-      run: async () => {
-        await navigate({ to: "/memory" });
-      },
-    });
-  }
 
   actionItems.push({
     kind: "action",

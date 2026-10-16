@@ -17,7 +17,6 @@ import {
   resolveFirstRunDecision,
   resolveHostedFirstRunDecision,
   transitionFirstRunGateState,
-  type FirstRunDecision,
   type FirstRunGateState,
 } from "../../onboarding/firstRun.logic";
 import {
@@ -47,14 +46,6 @@ import { Button } from "../ui/button";
  */
 
 const FIRST_RUN_DECISION_TIMEOUT_MS = 4_000;
-
-/** A persisted completion is authoritative even after this mount chose the wizard. */
-export function resolveFirstRunGateDecisionAfterCompletion(
-  decision: FirstRunDecision,
-  completed: boolean,
-): FirstRunDecision {
-  return decision === "wizard" && completed ? "app" : decision;
-}
 
 const primaryShellLiveAtom = Atom.make((get) => {
   const serverConfig = get(primaryServerConfigAtom);
@@ -112,10 +103,6 @@ export function FirstRunGate({
     stalled: false,
   }));
   const { decision, stalled } = gateState;
-  const activeDecision = resolveFirstRunGateDecisionAfterCompletion(
-    decision,
-    hydrated && onboardingCompletedAt !== null,
-  );
   const settingsReadFailed = hydrationStatus === "failed" || hydrationStatus === "retrying";
   // A workspace still counts as fresh when its only content is the server's
   // own cwd auto-bootstrap: web mode creates a project + thread from cwd at
@@ -165,13 +152,7 @@ export function FirstRunGate({
       });
 
   useEffect(() => {
-    if (!hydrated) return;
-    if (decision === "wizard") {
-      if (activeDecision === "app") {
-        setGateState({ decision: "app", stalled: false });
-      }
-      return;
-    }
+    if (decision === "wizard" || !hydrated) return;
 
     if (persistCompletion && onboardingCompletedAt === null) {
       void completeOnboarding().catch(() => undefined);
@@ -181,7 +162,6 @@ export function FirstRunGate({
       transitionFirstRunGateState(state, { type: "evidence", decision: nextDecision }),
     );
   }, [
-    activeDecision,
     completeOnboarding,
     decision,
     hydrated,
@@ -194,24 +174,24 @@ export function FirstRunGate({
   // The timer starts after settings hydrate so slow local hydration does not
   // show a false connection failure.
   useEffect(() => {
-    if (!enabled || activeDecision !== "pending" || !hydrated) return;
+    if (!enabled || decision !== "pending" || !hydrated) return;
     const timer = window.setTimeout(
       () => setGateState((state) => transitionFirstRunGateState(state, { type: "timeout" })),
       FIRST_RUN_DECISION_TIMEOUT_MS,
     );
     return () => window.clearTimeout(timer);
-  }, [activeDecision, enabled, hydrated]);
+  }, [decision, enabled, hydrated]);
 
   useEffect(() => {
-    if (activeDecision === "wizard" && pathname !== "/welcome") {
+    if (decision === "wizard" && pathname !== "/welcome") {
       void navigate({ to: "/welcome", replace: true });
     }
-  }, [activeDecision, navigate, pathname]);
+  }, [decision, navigate, pathname]);
 
   if (settingsReadFailed) {
     return <FirstRunRecovery reason="settings" retrying={hydrationStatus === "retrying"} />;
   }
-  if (activeDecision !== "app") {
+  if (decision !== "app") {
     return stalled ? <FirstRunRecovery reason="connection" /> : null;
   }
   return children;

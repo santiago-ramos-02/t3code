@@ -1,4 +1,3 @@
-import { gentleAiEnabled } from "@t3tools/contracts";
 import type { ComposerTextPaste } from "../../native/T3ComposerEditor.types";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
@@ -56,7 +55,6 @@ import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { themeColorWithAlpha } from "../../lib/mobileTheme";
 import { armAgentAwarenessLiveActivityForLocalWork } from "../agent-awareness/remoteRegistration";
 import { scopedThreadKey } from "../../lib/scopedEntities";
-import type { ThreadFeedEntry } from "../../lib/threadActivity";
 import {
   getComposerDraftSnapshot,
   composerDraftsAtom,
@@ -76,7 +74,6 @@ import {
   ComposerAttachmentThumbnail,
 } from "../../components/ComposerAttachmentStrip";
 import { VideoPreviewModal, type VideoPreviewSource } from "../../components/VideoPreviewModal";
-import { GentleComposerControls } from "./GentleComposerControls";
 import { GlassSurface } from "../../components/GlassSurface";
 import { ComposerEditor, type ComposerEditorHandle } from "../../components/ComposerEditor";
 import { fileRoutePathSegments } from "../files/filePath";
@@ -161,8 +158,6 @@ export interface ThreadComposerProps {
    */
   readonly threadSyncPhase?: "loading" | "syncing" | null;
   readonly selectedThread: EnvironmentThreadShell;
-  /** The thread's feed, to tell which feature documents it works on. */
-  readonly threadFeed: ReadonlyArray<ThreadFeedEntry>;
   readonly reportedModelSelection?: ModelSelection | null;
   readonly hasCompactableConversation: boolean;
   readonly serverConfig: T3ServerConfig | null;
@@ -209,7 +204,6 @@ export interface ThreadComposerProps {
   readonly onUpdateRuntimeMode: (runtimeMode: RuntimeMode) => void;
   readonly onUpdateInteractionMode: (interactionMode: ProviderInteractionMode) => void;
   readonly onExpandedChange?: (expanded: boolean) => void;
-  readonly onGentleControlsVisibilityChange?: (visible: boolean) => void;
   /** Fires on editor focus/blur; hosts use it to vet stale keyboard state. */
   readonly onEditorFocusChange?: (focused: boolean) => void;
 }
@@ -456,7 +450,6 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       ) ?? null
     );
   }, [props.serverConfig, props.selectedThread.modelSelection.instanceId]);
-  const gentleEnabled = gentleAiEnabled(currentModelSelection.options);
   const composerOwnerKey = scopedThreadKey(props.environmentId, props.selectedThread.id);
   // Content lives under the edit's own draft while a queued message is open;
   // the owner key still identifies this composer for settings and dictation.
@@ -511,7 +504,6 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     pullRequestRepository: project?.repositoryIdentity?.displayName ?? null,
     threadPullRequests: props.selectedThread.pullRequests,
     selectedProviderStatus,
-    gentleEnabled,
     hasThread: true,
     hasCompactableConversation: props.hasCompactableConversation,
     onChangeDraftMessage: props.onChangeDraftMessage,
@@ -678,15 +670,12 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
         currentModelSelection,
         lockedProviderInstanceId,
         props.selectedThread.projectId,
-        false,
-        props.projectCwd,
       ),
     [
       props.serverConfig,
       currentModelSelection,
       lockedProviderInstanceId,
       props.selectedThread.projectId,
-      props.projectCwd,
     ],
   );
   const threadProviderGroups = useMemo(() => groupByProvider(modelOptions), [modelOptions]);
@@ -850,18 +839,6 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
             <Text className="text-xs text-foreground">Model unavailable. Open model settings.</Text>
           </Pressable>
         ) : null}
-
-        <GentleComposerControls
-          environmentId={props.environmentId}
-          selectedThread={props.selectedThread}
-          threadFeed={props.threadFeed}
-          projectCwd={props.projectCwd}
-          connectionState={props.connectionState}
-          selectedProviderStatus={selectedProviderStatus}
-          onUpdateModelSelection={props.onUpdateModelSelection}
-          shown={isExpanded && !voiceInput.isBusy}
-          onVisibilityChange={props.onGentleControlsVisibilityChange}
-        />
 
         <ComposerSurface
           style={

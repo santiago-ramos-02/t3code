@@ -27,6 +27,4 @@ export interface ProviderMaintenanceCommandAction {
    * must update that home and not the default one.
    */
   readonly env?: NodeJS.ProcessEnv;
-  /** Installs a provider that is missing, rather than updating one that is installed. */
-  readonly installs?: true;
 }

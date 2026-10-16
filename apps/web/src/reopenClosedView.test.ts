@@ -68,24 +68,6 @@ describe("reopenClosedView", () => {
     expect(openPreview).not.toHaveBeenCalled();
   });
 
-  it("restores a closed memory with its saved identity and title", async () => {
-    const surface = {
-      kind: "memory",
-      id: "memory:7",
-      memoryId: 7,
-      title: "Switched to JWT",
-    } as const;
-    const reopened = await reopenClosedView(
-      { kind: "panel-tab", threadRef, surface },
-      { openPreview: vi.fn(), workspaceAvailable: false },
-    );
-    expect(reopened).toBe(true);
-    const state = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, threadRef);
-    expect(state.surfaces).toEqual([surface]);
-    expect(state.activeSurfaceId).toBe(surface.id);
-    expect(state.isOpen).toBe(true);
-  });
-
   it("does not reopen workspace tabs without an available project", async () => {
     const options = {
       openPreview: vi.fn(),

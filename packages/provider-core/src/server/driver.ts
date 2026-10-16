@@ -79,13 +79,7 @@ export type ProviderWorkspaceSnapshot = ServerProvider &
  * instance of the same driver does not reach into the first instance's
  * state.
  */
-/**
- * Fields the server adds to its provider instances, which it declares by augmenting this
- * interface (the fork's gentle-pi settings, see apps/server PiGentleSettings.ts).
- */
-export interface ProviderInstanceExtensions {}
-
-export interface ProviderInstance extends ProviderInstanceExtensions {
+export interface ProviderInstance {
   readonly instanceId: ProviderInstanceId;
   readonly driverKind: ProviderDriverKind;
   readonly continuationIdentity: ProviderContinuationIdentity;

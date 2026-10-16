@@ -15,10 +15,6 @@
       "types": "./src/server.ts",
       "import": "./src/server.ts"
     },
-    "./server/gentleHooks": {
-      "types": "./src/server/gentleHooks.ts",
-      "import": "./src/server/gentleHooks.ts"
-    },
     "./testing": {
       "types": "./src/testing.ts",
       "import": "./src/testing.ts"

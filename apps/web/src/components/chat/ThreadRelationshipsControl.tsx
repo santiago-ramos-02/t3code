@@ -504,7 +504,6 @@ export function ThreadRelationshipsPanel(props: {
               const relationshipTooltip = agent ? (
                 <SubagentTooltipContent
                   title={threadTitle}
-                  agentName={agent.role ?? undefined}
                   model={agent.model}
                   providerInstanceId={agent.providerInstanceId}
                   origin={agent.origin}

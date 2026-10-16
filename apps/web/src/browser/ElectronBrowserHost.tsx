@@ -29,37 +29,30 @@ export function ElectronBrowserHost() {
   const primaryEnvironmentId = useAtomValue(primaryEnvironmentIdAtom);
   const sessions = useMemo(
     () =>
-      Object.entries(previewByThreadKey)
-        .flatMap(([threadKey, previewState]) => {
-          const threadRef = parseScopedThreadKey(threadKey);
-          // Server tabs of other environments stream; this desktop's own server tabs render here.
-          return threadRef
-            ? Object.values(previewState.sessions)
-                .filter(
-                  (snapshot) =>
-                    snapshot.runtime !== "server" ||
-                    rendersServerTabNatively(
-                      threadRef.environmentId,
-                      primaryEnvironmentId,
-                      snapshot,
-                    ),
-                )
-                .map((snapshot) => ({
+      Object.entries(previewByThreadKey).flatMap(([threadKey, previewState]) => {
+        const threadRef = parseScopedThreadKey(threadKey);
+        // Server tabs of other environments stream; this desktop's own server tabs render here.
+        return threadRef
+          ? Object.values(previewState.sessions)
+              .filter(
+                (snapshot) =>
+                  snapshot.runtime !== "server" ||
+                  rendersServerTabNatively(threadRef.environmentId, primaryEnvironmentId, snapshot),
+              )
+              .map((snapshot) => ({
+                threadRef,
+                snapshot,
+                runtimeTabId: previewRuntimeTabId(
                   threadRef,
-                  snapshot,
-                  runtimeTabId: previewRuntimeTabId(
-                    threadRef,
-                    previewState.serverEpoch,
-                    snapshot.tabId,
-                  ),
-                  pictureInPicture:
-                    previewState.desktopByTabId[snapshot.tabId]?.pictureInPicture ?? false,
-                  zoomFactor: previewState.desktopByTabId[snapshot.tabId]?.zoomFactor ?? 1,
-                }))
-            : [];
-        })
-        // Electron destroys a webview's page when React moves its element, so the order is fixed.
-        .toSorted((left, right) => left.runtimeTabId.localeCompare(right.runtimeTabId)),
+                  previewState.serverEpoch,
+                  snapshot.tabId,
+                ),
+                pictureInPicture:
+                  previewState.desktopByTabId[snapshot.tabId]?.pictureInPicture ?? false,
+                zoomFactor: previewState.desktopByTabId[snapshot.tabId]?.zoomFactor ?? 1,
+              }))
+          : [];
+      }),
     [previewByThreadKey, primaryEnvironmentId],
   );
 

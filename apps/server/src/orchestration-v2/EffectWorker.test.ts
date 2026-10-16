@@ -108,7 +108,6 @@ function layerExecutorFor(input: {
         isLive: () => Effect.succeed(false),
         close: () => Effect.void,
         closeInstance: () => Effect.void,
-        closeIdleInstance: () => Effect.succeed("closed"),
         release: () => record("release"),
         detach: () => record("detach"),
       }),

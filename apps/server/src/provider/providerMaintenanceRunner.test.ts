@@ -1,5 +1,3 @@
-import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
-import * as NodePath from "@effect/platform-node/NodePath";
 import { describe, it, assert } from "@effect/vitest";
 import {
   ProviderDriverKind,
@@ -14,9 +12,7 @@ import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
-import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
-import * as Path from "effect/Path";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Sink from "effect/Sink";
@@ -244,8 +240,6 @@ const makeTestRunner = (
             }),
             // Fresh per runner so a version cached by one test cannot leak into another.
             ProviderLatestVersions.layer,
-            NodeFileSystem.layer,
-            NodePath.layer,
           ),
         ),
       ),
@@ -992,113 +986,6 @@ describe("providerMaintenanceRunner", () => {
       ),
     );
   });
-});
-
-describe("installing a missing provider", () => {
-  const installCapabilities = {
-    provider: OPENCODE_DRIVER,
-    packageName: "@example/opencode",
-    update: {
-      command: "npm install -g @example/opencode@latest",
-      executable: "npm",
-      args: ["install", "-g", "@example/opencode@latest"],
-      lockKey: "npm-global:install",
-      installs: true as const,
-    },
-  };
-  const missingProvider: ServerProvider = {
-    ...baseOpenCodeProvider,
-    installed: false,
-    version: null,
-  };
-  const registryInstalling = Effect.gen(function* () {
-    const made = yield* makeRegistry(missingProvider);
-    return {
-      ...made,
-      registry: {
-        ...made.registry,
-        getProviderMaintenanceCapabilitiesForInstance: () => Effect.succeed(installCapabilities),
-        // The install put the CLI in place, so the next check finds it.
-        refreshInstance: () =>
-          Ref.updateAndGet(made.providersRef, (providers) =>
-            providers.map((provider) => ({ ...provider, installed: true, version: "1.0.0" })),
-          ),
-      },
-    };
-  });
-  // A folder holding a stand-in npm, for the npm lookup that runs before installing.
-  const pathWithNpm = Effect.gen(function* () {
-    const fileSystem = yield* FileSystem.FileSystem;
-    const path = yield* Path.Path;
-    const platform = yield* HostProcess.Platform;
-    const dir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-npm-" });
-    const npm = path.join(dir, platform === "win32" ? "npm.cmd" : "npm");
-    yield* fileSystem.writeFileString(npm, platform === "win32" ? "@echo off\r\n" : "#!/bin/sh\n");
-    if (platform !== "win32") yield* fileSystem.chmod(npm, 0o755);
-    return dir;
-  });
-
-  it.effect("runs npm's global install and reports the provider installed", () => {
-    const calls: Array<ReadonlyArray<string>> = [];
-    return Effect.gen(function* () {
-      const dir = yield* pathWithNpm;
-      const { registry, updateStatesRef } = yield* registryInstalling;
-      const runner = yield* makeTestRunner(registry);
-      const result = yield* runner
-        .updateProvider(OPENCODE_DRIVER)
-        .pipe(
-          Effect.provideService(HostProcess.Environment, { PATH: dir, Path: dir, PATHEXT: ".CMD" }),
-        );
-      assert.deepStrictEqual(calls, [["install", "-g", "@example/opencode@latest"]]);
-      assert.strictEqual(result.providers[0]?.installed, true);
-      assert.deepStrictEqual(
-        (yield* Ref.get(updateStatesRef)).map((state) => state.message),
-        [
-          "Waiting for another provider update to finish.",
-          "Checking for the latest version",
-          "Running npm install -g @example/opencode@latest",
-          "Verifying the installed version",
-          "Provider installed.",
-        ],
-      );
-    }).pipe(
-      Effect.scoped,
-      Effect.provide(
-        Layer.mergeAll(
-          NodeFileSystem.layer,
-          NodePath.layer,
-          layerLatestVersionHttpClient("1.0.0"),
-          layerMockSpawner((_command, args) => {
-            // On Windows npm is npm.cmd, run through the shell with escaped arguments.
-            calls.push(args.map((arg) => arg.replace(/[\^"]/g, "")));
-            return { stdout: "added 1 package" };
-          }),
-        ),
-      ),
-    );
-  });
-
-  it.effect("says npm is needed when the environment has none", () =>
-    Effect.gen(function* () {
-      const { registry } = yield* registryInstalling;
-      const runner = yield* makeTestRunner(registry);
-      const failure = yield* Effect.flip(
-        runner
-          .updateProvider(OPENCODE_DRIVER)
-          .pipe(Effect.provideService(HostProcess.Environment, { PATH: "", Path: "" })),
-      );
-      assert.include(failure.reason, "needs npm");
-    }).pipe(
-      Effect.provide(
-        Layer.mergeAll(
-          NodeFileSystem.layer,
-          NodePath.layer,
-          layerLatestVersionHttpClient("1.0.0"),
-          layerMockSpawner(() => ({ stdout: "" })),
-        ),
-      ),
-    ),
-  );
 });
 
 it.effect("refuses incompatible latest versions and unapproved or unpinnable targets", () => {

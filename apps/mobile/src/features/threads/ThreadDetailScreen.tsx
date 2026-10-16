@@ -583,10 +583,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     ) ||
     (props.historyControls?.hasMoreHistory === true &&
       props.selectedThread.latestUserMessageAt !== null);
-  const [gentleControlsVisible, setGentleControlsVisible] = useState(false);
-  const composerChrome = composerExpanded
-    ? COMPOSER_EXPANDED_CHROME + (gentleControlsVisible ? 48 : 0)
-    : COMPOSER_COLLAPSED_CHROME;
+  const composerChrome = composerExpanded ? COMPOSER_EXPANDED_CHROME : COMPOSER_COLLAPSED_CHROME;
   const composerOverlapHeight = composerChrome + composerBottomInset;
   // While a user-input request is pending, the questionnaire owns the
   // composer slot outright: expanded it is the full card, collapsed it is a
@@ -1403,7 +1400,6 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                     >
                       <ProviderSubagentBar
                         provider={providerSubagentProvider ?? null}
-                        agentName={props.selectedThread.lineage.agentName ?? null}
                         modelLabel={
                           providerSubagentCatalogModel?.name ??
                           formatModelSlugName(props.selectedThread.modelSelection.model)
@@ -1438,7 +1434,6 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                         connectionState={props.connectionStateLabel}
                         environmentLabel={props.environmentLabel}
                         selectedThread={props.selectedThread}
-                        threadFeed={props.selectedThreadFeed}
                         hasCompactableConversation={
                           hasCompactableConversation && !props.isCompacting
                         }
@@ -1485,7 +1480,6 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                         onUpdateInteractionMode={props.onUpdateThreadInteractionMode}
                         onExpandedChange={setComposerExpanded}
                         onEditorFocusChange={handleComposerFocusChange}
-                        onGentleControlsVisibilityChange={setGentleControlsVisible}
                       />
                     </>
                   )}

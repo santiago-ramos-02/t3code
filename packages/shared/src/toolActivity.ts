@@ -1,7 +1,5 @@
 import type { ToolLifecycleItemType } from "@t3tools/contracts";
 
-import { engramToolTitle } from "./engramTools.ts";
-
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -50,7 +48,7 @@ export function dynamicToolSurface(toolName: string | null | undefined, input: u
 
 /**
  * Activity log heading a dynamic tool derives from its input: a REPL's `title`,
- * the skill a Claude `Skill` call loads, or what an Engram memory tool did.
+ * or the skill a Claude `Skill` call loads.
  */
 export function dynamicToolTitle(
   toolName: string | null | undefined,
@@ -70,7 +68,7 @@ export function dynamicToolTitle(
     );
   }
   const skill = claudeSkillInvocation(toolName, input);
-  return skill === undefined ? engramToolTitle(toolName, input) : `Skill: ${skill.name}`;
+  return skill === undefined ? undefined : `Skill: ${skill.name}`;
 }
 
 function recordHasKeys(

@@ -427,12 +427,6 @@ function SubagentTimelineLink(props: {
           <span className="min-w-0 truncate text-xs font-medium text-foreground">
             {props.title}
           </span>
-          {/* A named agent, such as Gentle AI's odd-explorer, reads beside what it was asked. */}
-          {agent?.agentName ? (
-            <span className="shrink-0 font-mono text-3xs text-muted-foreground">
-              {agent.agentName}
-            </span>
-          ) : null}
           {detail !== null && (props.event !== undefined || status !== "completed") ? (
             <span
               className={cn(
@@ -503,7 +497,6 @@ function SubagentTimelineLink(props: {
           {...props}
           elapsed={agent ? <AgentElapsed agent={projectedSubagentsToRuntime([agent])[0]!} /> : null}
           model={agent?.model ?? null}
-          agentName={agent?.agentName}
           modelSelection={agent?.modelSelection}
           status={liveStatus}
           result={agent?.result ?? props.result}
@@ -517,7 +510,6 @@ function SubagentTimelineLink(props: {
 function SubagentTimelineTooltip(
   props: Parameters<typeof SubagentTimelineLink>[0] & {
     model: string | null;
-    agentName: string | undefined;
     modelSelection: OrchestrationV2Subagent["modelSelection"];
     elapsed: ReactNode;
   },
@@ -534,7 +526,6 @@ function SubagentTimelineTooltip(
   return (
     <SubagentTooltipContent
       title={formatSubagentDisplayTitle(child?.title ?? props.title)}
-      agentName={props.agentName}
       model={props.model}
       providerInstanceId={props.providerInstanceId}
       origin={props.origin}

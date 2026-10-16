@@ -27,7 +27,6 @@ import { SettingsScreen } from "./components/SettingsScreen";
 import { SettingsSection } from "./components/SettingsSection";
 import {
   canMaintainEnvironment,
-  canInstallEnvironmentProvider,
   canUpdateEnvironmentProvider,
   findEnvironmentUpdate,
   supportsEnvironmentUpdate,
@@ -150,12 +149,11 @@ function EnvironmentDetail({ environmentId }: { readonly environmentId: Environm
     );
   }
 
-  // Installing a missing provider runs the same server pipeline as updating one.
   function requestProviderUpdate(provider: ServerProvider) {
     if (
       busy ||
       !readEnvironmentScope(environmentId, AuthProvidersManageScope) ||
-      !(canUpdateEnvironmentProvider(provider) || canInstallEnvironmentProvider(provider))
+      !canUpdateEnvironmentProvider(provider)
     )
       return;
     void run(provider.instanceId, async () => {
@@ -342,7 +340,7 @@ function EnvironmentDetail({ environmentId }: { readonly environmentId: Environm
                               }
                             >
                               {provider.updateState.message ??
-                                `${provider.installed ? "Update" : "Install"} ${provider.updateState.status}`}
+                                `Update ${provider.updateState.status}`}
                             </Text>
                           ) : null}
                           {provider.compatibilityAdvisory?.message ? (
@@ -367,14 +365,6 @@ function EnvironmentDetail({ environmentId }: { readonly environmentId: Environm
                             icon="arrow.up.circle"
                             label={`Update ${provider.displayName ?? provider.driver}`}
                             disabled={busy || !canManageProviders}
-                            loading={pending === provider.instanceId}
-                            onPress={() => requestProviderUpdate(provider)}
-                          />
-                        ) : canInstallEnvironmentProvider(provider) ? (
-                          <SettingsActionRow
-                            icon="arrow.down.circle"
-                            label={`Install ${provider.displayName ?? "Pi"}`}
-                            disabled={disabled}
                             loading={pending === provider.instanceId}
                             onPress={() => requestProviderUpdate(provider)}
                           />

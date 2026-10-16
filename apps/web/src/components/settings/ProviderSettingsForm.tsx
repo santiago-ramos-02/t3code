@@ -257,12 +257,6 @@ function readProviderConfigString(config: unknown, key: string): string {
   return typeof value === "string" ? value : "";
 }
 
-function displayedFieldValue(config: unknown, field: ProviderSettingsFieldModel): string {
-  const value = readProviderConfigString(config, field.key);
-  // The command name is a runtime fallback, not a user override.
-  return field.key === "binaryPath" && value === field.placeholder ? "" : value;
-}
-
 function readProviderConfigBoolean(config: unknown, key: string, defaultValue = false): boolean {
   if (config === null || typeof config !== "object") return defaultValue;
   const value = (config as Record<string, unknown>)[key];
@@ -411,7 +405,7 @@ function ProviderSettingsFieldRow({
           id={inputId}
           aria-describedby={descriptionId}
           className="w-full max-w-full @min-[32rem]/settings-row:w-[min(24rem,50cqw)]"
-          value={displayedFieldValue(value, field)}
+          value={readProviderConfigString(value, field.key)}
           onChange={(event) =>
             onChange(nextProviderConfigWithFieldValue(value, field, event.target.value))
           }
@@ -436,7 +430,7 @@ function ProviderSettingsFieldRow({
           className="w-full max-w-full @min-[32rem]/settings-row:w-56"
           type={field.control === "password" ? "password" : undefined}
           autoComplete={field.control === "password" ? "off" : undefined}
-          value={displayedFieldValue(value, field)}
+          value={readProviderConfigString(value, field.key)}
           placeholder={field.placeholder}
           onCommit={(next) => {
             onChange(nextProviderConfigWithFieldValue(value, field, next));
@@ -505,7 +499,7 @@ function ProviderSettingsFieldRow({
           <Textarea
             id={inputId}
             className={cn(variant === "card" && "mt-1.5")}
-            value={displayedFieldValue(value, field)}
+            value={readProviderConfigString(value, field.key)}
             onChange={(event) =>
               onChange(nextProviderConfigWithFieldValue(value, field, event.target.value))
             }

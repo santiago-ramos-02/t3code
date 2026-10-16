@@ -79,7 +79,6 @@ import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts
 import * as SecretRequests from "../secrets/SecretRequests.ts";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as McpHttpServer from "./McpHttpServer.ts";
-import * as GentleAi from "../gentleAi/GentleAi.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
 import { delegatedTaskRun, hasPendingChildRuns } from "./OrchestratorMcpService.ts";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
@@ -110,10 +109,6 @@ const createdThreadPrompt = "Complete the newly created ordinary thread.";
 const queuedFollowupPrompt = "Complete the queued follow-up and return the final result.";
 const queuedFollowupResult = "Queued delegated follow-up completed.";
 
-// These threads run without Gentle AI, so T3 Code owns their delegated work.
-const layerGentleAiNotInstalled = Layer.mock(GentleAi.GentleAi)({
-  current: Effect.succeed(GentleAi.NOT_INSTALLED),
-});
 const decodeCreateThreadsResult = Schema.decodeUnknownEffect(OrchestratorMcpCreateThreadsResult);
 const decodeDelegateTaskResult = Schema.decodeUnknownEffect(OrchestratorMcpDelegateTaskResult);
 const decodeTaskCancelResult = Schema.decodeUnknownEffect(OrchestratorMcpTaskCancelResult);
@@ -704,7 +699,6 @@ describe("orchestrator MCP toolkit", () => {
             Layer.provide(layerProviderRegistry),
             Layer.provide(ServerSettings.layerTest()),
             Layer.provide(layerScheduledTaskStub),
-            Layer.provide(layerGentleAiNotInstalled),
             Layer.provide(Layer.mock(ThreadSearch.ThreadSearch)({})),
             Layer.provide(
               Layer.mock(ProjectService.ProjectService)({
@@ -3923,7 +3917,6 @@ describe("orchestrator MCP toolkit", () => {
           Layer.provide(layerProviderRegistry),
           Layer.provide(ServerSettings.layerTest()),
           Layer.provide(layerUnusedScheduledTaskStub),
-          Layer.provide(layerGentleAiNotInstalled),
           Layer.provide(Layer.mock(ProjectService.ProjectService)({})),
           Layer.provideMerge(
             SecretRequests.layer.pipe(

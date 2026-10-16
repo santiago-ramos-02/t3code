@@ -12,7 +12,6 @@ import * as Schema from "effect/Schema";
 import { HttpBody, HttpClient, HttpRouter } from "effect/http";
 
 import * as ServerEnvironment from "../../../environment/ServerEnvironment.ts";
-import * as GentleAi from "../../../gentleAi/GentleAi.ts";
 import * as GitWorkflowService from "../../../git/GitWorkflowService.ts";
 import * as ProviderAdapterRegistry from "../../../orchestration-v2/ProviderAdapterRegistry.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
@@ -41,7 +40,6 @@ const layerStubServices = Layer.mergeAll(
   Layer.mock(ProjectionStore.ProjectionStoreV2)({}),
   Layer.mock(DeviceService.DeviceService)({}),
   Layer.mock(ThreadManagementService.ThreadManagementService)({}),
-  Layer.mock(GentleAi.GentleAi)({}),
   Layer.mock(ProviderRegistry.ProviderRegistry)({}),
   Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({}),
   Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),

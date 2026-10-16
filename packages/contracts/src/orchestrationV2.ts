@@ -109,8 +109,6 @@ export const OrchestrationV2AppThreadLineage = Schema.Struct({
   parentThreadId: Schema.NullOr(ThreadId),
   relationshipToParent: Schema.NullOr(Schema.Literals(["fork", "subagent"])),
   rootThreadId: ThreadId,
-  /** The named agent a subagent thread runs as, such as Gentle AI's `gentle-ai-worker`. */
-  agentName: Schema.optional(Schema.String),
 });
 export type OrchestrationV2AppThreadLineage = typeof OrchestrationV2AppThreadLineage.Type;
 
@@ -760,9 +758,6 @@ export const OrchestrationV2Subagent = Schema.Struct({
   nativeTaskRef: Schema.NullOr(OrchestrationV2ProviderRef),
   prompt: Schema.String,
   title: Schema.NullOr(Schema.String),
-  // The named agent a provider ran it as, such as Gentle AI's odd-explorer. Shown beside the
-  // title, never in it, so thread names stay what the subagent was asked to do.
-  agentName: Schema.optional(TrimmedNonEmptyString),
   model: Schema.NullOr(Schema.String),
   modelSelection: Schema.optional(ModelSelection),
   // Parent-wake policy for app-owned tasks: "always" offers a continuation on

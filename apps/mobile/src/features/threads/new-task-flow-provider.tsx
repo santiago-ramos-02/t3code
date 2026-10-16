@@ -48,7 +48,6 @@ import {
 import { scopedProjectKey } from "../../lib/scopedEntities";
 import { appAtomRegistry } from "../../state/atom-registry";
 import { projectEnvironment } from "../../state/projects";
-import { serverEnvironment } from "../../state/server";
 import { useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
 import {
@@ -461,30 +460,6 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
     selectedProjectTitle,
   ]);
 
-  const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders, {
-    reportFailure: false,
-  });
-  const requestedWorkspaceModels = useRef(new Set<string>());
-  useEffect(() => {
-    if (!selectedProject?.workspaceRoot) return;
-    for (const provider of selectedEnvironmentServerConfig?.providers ?? []) {
-      if (provider.driver !== "pi" || !provider.enabled || !provider.installed) continue;
-      if (
-        provider.workspaceSnapshots?.some((entry) => entry.cwd === selectedProject.workspaceRoot)
-      ) {
-        continue;
-      }
-      const key = `${selectedProject.environmentId}:${provider.instanceId}:${selectedProject.workspaceRoot}`;
-      if (requestedWorkspaceModels.current.has(key)) continue;
-      requestedWorkspaceModels.current.add(key);
-      void refreshProviders({
-        environmentId: selectedProject.environmentId,
-        input: { instanceId: provider.instanceId, cwd: selectedProject.workspaceRoot },
-      }).then((result) => {
-        if (result._tag === "Failure") requestedWorkspaceModels.current.delete(key);
-      });
-    }
-  }, [refreshProviders, selectedEnvironmentServerConfig?.providers, selectedProject]);
   // While a queued pending task is being edited its draft lives under a key
   // scoped to the queued message, so new-task drafts stay intact.
   const selectedProjectDraftKey = editingPendingTask
@@ -627,8 +602,6 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
         draftModelSelection ?? projectDefaultModelSelection ?? stickyModelSelection,
         undefined,
         selectedProject?.id ?? null,
-        false,
-        selectedProject?.workspaceRoot,
       ),
     [
       selectedEnvironmentServerConfig,
@@ -636,7 +609,6 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       projectDefaultModelSelection,
       stickyModelSelection,
       selectedProject?.id,
-      selectedProject?.workspaceRoot,
     ],
   );
 

@@ -100,7 +100,6 @@ import {
   type TerminalMetadataStreamEvent,
   type PullRequestRef,
   WS_METHODS,
-  CoreWsRpcGroup,
   WsRpcGroup,
 } from "@t3tools/contracts";
 import { resolveServerBackgroundActivitySettings } from "@t3tools/shared/backgroundActivitySettings";
@@ -226,9 +225,6 @@ import * as ProcessResourceMonitor from "./diagnostics/ProcessResourceMonitor.ts
 import * as ResourceTelemetry from "./resourceTelemetry/ResourceTelemetry.ts";
 import * as HostResources from "./resourceTelemetry/HostResources.ts";
 import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
-import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
-import * as GentleAi from "./gentleAi/GentleAi.ts";
-import * as ForkWsRpc from "./forkWsRpc.ts";
 import * as UsageService from "./usage/UsageService.ts";
 import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
@@ -255,6 +251,7 @@ import {
 } from "@t3tools/shared/usageLimits";
 import * as AgentSessionScanner from "./project/AgentSessionScanner.ts";
 import * as AgentSessionImporter from "./project/AgentSessionImporter.ts";
+import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
 
 const CONFIG_DISCOVERY_TIMEOUT = Duration.seconds(5);
 const isProviderUploadFeedbackError = Schema.is(ProviderUploadFeedbackError);
@@ -552,7 +549,6 @@ const PROVIDER_STATUS_DEBOUNCE_MS = 200;
 
 // Middleware added later wraps middleware added earlier, so instrumentation wraps authorization.
 const ServerWsRpcGroup = WsRpcGroup.middleware(RpcInstrumentation);
-const ServerCoreWsRpcGroup = CoreWsRpcGroup.middleware(RpcInstrumentation);
 // When a resuming client's cursor is more than this many events behind the
 // current head, skip the per-event catch-up replay and send a fresh shell
 // snapshot instead. Replaying each intervening event costs a shell refetch;
@@ -1208,7 +1204,7 @@ const layerWsRpc = (
   previewAutomationBroker: PreviewAutomationBroker.PreviewAutomationBroker["Service"],
   serverBrowser: ServerBrowser.ServerBrowser["Service"],
 ) =>
-  ServerCoreWsRpcGroup.toLayer(
+  ServerWsRpcGroup.toLayer(
     Effect.gen(function* () {
       const currentSessionId = currentSession.sessionId;
       const sql = yield* SqlClient.SqlClient;
@@ -1279,7 +1275,6 @@ const layerWsRpc = (
       const checkpointDiffQuery = yield* CheckpointDiffQuery.CheckpointDiffQuery;
       const keybindings = yield* Keybindings.Keybindings;
       const environmentTheme = yield* EnvironmentTheme.EnvironmentThemeService;
-      const gentleAi = yield* GentleAi.GentleAi;
       const externalLauncher = yield* ExternalLauncher.ExternalLauncher;
       const remoteOpenTargets = yield* RemoteOpenTargets.RemoteOpenTargets;
       const directEndpoints = yield* DirectEndpoints.DirectEndpoints;
@@ -1703,10 +1698,7 @@ const layerWsRpc = (
       const loadServerConfig = (options: { readonly usageLimitsCommand: boolean }) =>
         Effect.gen(function* () {
           const keybindingsConfig = yield* keybindings.loadConfigState;
-          const currentProviders = GentleAi.withGentleAi(
-            yield* providerRegistry.getProviders,
-            yield* gentleAi.current,
-          );
+          const currentProviders = yield* providerRegistry.getProviders;
           const providers = options.usageLimitsCommand
             ? withUsageLimitsCommands(currentProviders, yield* usageLimitSources.current)
             : currentProviders;
@@ -1840,7 +1832,7 @@ const layerWsRpc = (
         return result;
       });
 
-      const handlers = ServerCoreWsRpcGroup.of({
+      const handlers = ServerWsRpcGroup.of({
         [ORCHESTRATION_V2_WS_METHODS.dispatchCommand]: (command) =>
           Effect.annotateCurrentSpan({
             "orchestration_v2.command_id": command.commandId,
@@ -2238,7 +2230,6 @@ const layerWsRpc = (
             // interrupt a fork before the hub answered.
             if (input.instanceId === undefined) {
               yield* usageLimitSources.refresh;
-              yield* gentleAi.refresh;
             }
             let providers = yield* input.cwd !== undefined && input.instanceId !== undefined
               ? providerRegistry.refreshWorkspaceSnapshot({
@@ -2276,7 +2267,7 @@ const layerWsRpc = (
                 providers = yield* providerRegistry.refreshInstance(instance.instanceId);
               }
             }
-            return { providers: GentleAi.withGentleAi(providers, yield* gentleAi.current) };
+            return { providers };
           }),
         [WS_METHODS.mcpAppsCallTool]: (input) => mcpAppRequests.callTool(input),
         [WS_METHODS.mcpAppsToolInfo]: (input) => mcpAppRequests.toolInfo(input),
@@ -3024,9 +3015,6 @@ const layerWsRpc = (
                 (providers, sources) =>
                   usageLimitsCommand ? withUsageLimitsCommands(providers, sources) : providers,
               ).pipe(
-                // Gentle AI marks which providers run with it; its status changes on its own.
-                (updates) =>
-                  Stream.zipLatestWith(updates, gentleAi.streamChanges, GentleAi.withGentleAi),
                 // Both sides replay their current value, so the first pairing normally
                 // repeats the snapshot the client already holds. Compare against that
                 // snapshot rather than dropping blindly: a refresh that landed between
@@ -3228,15 +3216,12 @@ export const layer = Layer.unwrap(
           return httpEffect;
         }).pipe(
           Effect.provide(
-            Layer.merge(
-              layerWsRpc(
-                session,
-                clientOrigin,
-                clientAnalyticsProps,
-                previewAutomationBroker,
-                serverBrowser,
-              ),
-              ForkWsRpc.layer,
+            layerWsRpc(
+              session,
+              clientOrigin,
+              clientAnalyticsProps,
+              previewAutomationBroker,
+              serverBrowser,
             ).pipe(
               Layer.provideMerge(RpcSerialization.layerJson),
               // Request fibers run in the handlers' context, so this reporter sees
