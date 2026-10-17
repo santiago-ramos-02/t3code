@@ -213,7 +213,6 @@ import { isCommandPaletteOpen } from "../commandPaletteBus";
 import { settleAndAdvance } from "../settleAndAdvance";
 import { subscribeSnapShotComposerFocus } from "../lib/desktopSnapShot";
 import { useMediaQuery } from "../hooks/useMediaQuery";
-import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
 import { FileMetadataThreadProvider } from "../hooks/FileMetadataThreadProvider";
 import { usePreviewPanelInlineSize } from "../hooks/usePreviewPanelInlineSize";
 import {
@@ -384,6 +383,7 @@ import {
   useChildThreadInputs,
   useThreadRefs,
   useThreadVisibleTurnItems,
+  useThreadCheckpointSummaries,
   waitForThreadShell,
 } from "../state/entities";
 import { environmentShell } from "../state/shell";
@@ -3008,7 +3008,7 @@ export default function ChatView(props: ChatViewProps) {
     panelAnimationsActive,
     panelAnimationDurationMs,
   );
-  const { turnDiffSummaries } = useTurnDiffSummaries(serverProjection);
+  const turnDiffSummaries = useThreadCheckpointSummaries(routeThreadDetailRef);
 
   /**
    * File tools are explicit; completed commands are included because a shell
