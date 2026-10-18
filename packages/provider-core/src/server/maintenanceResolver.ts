@@ -182,14 +182,18 @@ export function makeTargetedProviderUpdateAction(
 export function makeManualOnlyProviderMaintenanceCapabilities(input: {
   readonly provider: ProviderDriverKind;
   readonly packageName: string | null;
+  readonly installPath?: string;
 }): ProviderMaintenanceCapabilities {
-  return makeProviderMaintenanceCapabilities({
-    provider: input.provider,
-    packageName: input.packageName,
-    updateExecutable: null,
-    updateArgs: [],
-    updateLockKey: null,
-  });
+  return {
+    ...makeProviderMaintenanceCapabilities({
+      provider: input.provider,
+      packageName: input.packageName,
+      updateExecutable: null,
+      updateArgs: [],
+      updateLockKey: null,
+    }),
+    ...(input.installPath ? { installPath: input.installPath } : {}),
+  };
 }
 
 export function normalizeCommandPath(commandPath: string): string {
@@ -212,6 +216,18 @@ function isYarnGlobalCommandPath(commandPath: string): boolean {
 function isMiseCommandPath(commandPath: string): boolean {
   const normalized = normalizeCommandPath(commandPath);
   return normalized.includes("/mise/installs/") || normalized.includes("/mise/shims/");
+}
+
+/**
+ * WinGet's Claude Code install under its user root (`<drive>:\Users\<name>\AppData\Local\Microsoft\WinGet`)
+ * or machine root (`<drive>:\Program Files\WinGet`): the `Links\claude.exe` link or the binary in the
+ * `Packages\Anthropic.ClaudeCode_…` directory.
+ */
+const winGetClaudeCommandPath =
+  /^[a-z]:\/(?:users\/[^/]+\/appdata\/local\/microsoft|program files(?: \(x86\))?)\/winget\/(?:links|packages\/anthropic\.claudecode_[^/]+)\/claude\.exe$/;
+
+function isWinGetClaudeCommandPath(commandPath: string): boolean {
+  return winGetClaudeCommandPath.test(normalizeCommandPath(commandPath));
 }
 
 function isPnpmGlobalCommandPath(commandPath: string): boolean {
@@ -293,7 +309,8 @@ export function parseHomebrewLatestVersion(
     ownership.kind === "formula"
       ? decoded.value.formulae?.[0]?.versions?.stable
       : decoded.value.casks?.[0]?.version?.split(",", 1)[0];
-  return nonEmptyString(raw);
+  const version = nonEmptyString(raw);
+  return version === "latest" ? null : version;
 }
 
 const runHomebrew = Effect.fn("runHomebrew")(function* (
@@ -335,10 +352,6 @@ export const resolvePackageManagedProviderMaintenance = Effect.fn(
   definition: PackageManagedProviderMaintenanceDefinition,
   context: ProviderMaintenanceResolutionContext | null,
 ) {
-  const manual = makeManualOnlyProviderMaintenanceCapabilities({
-    provider: definition.provider,
-    packageName: definition.npmPackageName,
-  });
   // Not found: a global npm install puts it on the PATH npm's global bin is on.
   if (!context) {
     return makeProviderMaintenanceCapabilities({
@@ -350,8 +363,22 @@ export const resolvePackageManagedProviderMaintenance = Effect.fn(
       installs: true,
     });
   }
+  const manual = makeManualOnlyProviderMaintenanceCapabilities({
+    provider: definition.provider,
+    packageName: definition.npmPackageName,
+    installPath: context.realCommandPath,
+  });
   const commandPaths = [context.resolvedCommandPath, context.realCommandPath];
   const packageName = definition.npmPackageName;
+  // WinGet owns these files: `claude update` only reports "managed by winget"
+  // and exits 0, and T3 Code does not run `winget upgrade` itself.
+  if (
+    definition.provider === "claudeAgent" &&
+    context.platform === "win32" &&
+    commandPaths.some(isWinGetClaudeCommandPath)
+  ) {
+    return manual;
+  }
 
   const nativeUpdate = definition.nativeUpdate;
   const native = nativeUpdate
@@ -636,10 +663,20 @@ export const makeCachedProviderMaintenanceResolution = Effect.fn(
     options?.fresh ? Cache.invalidate(cache, undefined).pipe(Effect.andThen(cached)) : cached;
 });
 
+/**
+ * An install T3 Code cannot update gets no Update button or command, so its
+ * message names the version and the executable instead.
+ */
+function manualUpdateMessage(latestVersion: string, installPath: string | undefined): string {
+  return installPath
+    ? `Version ${latestVersion} is out. T3 Code runs ${installPath}; update it with the app or tool that installed it.`
+    : `Version ${latestVersion} is out. Update it with the app or tool that installed it.`;
+}
+
 function deriveVersionAdvisory(input: {
   readonly currentVersion: string | null;
   readonly latestVersion: string | null;
-  readonly compareVersions?: (current: string, latest: string) => number;
+  readonly capabilities: ProviderMaintenanceCapabilities;
 }): Pick<ServerProviderVersionAdvisory, "status" | "message"> {
   if (!input.currentVersion) {
     return { status: "unknown", message: null };
@@ -648,11 +685,17 @@ function deriveVersionAdvisory(input: {
     return { status: "unknown", message: null };
   }
   if (
-    (input.compareVersions ?? compareSemverVersions)(input.currentVersion, input.latestVersion) < 0
+    (input.capabilities.compareVersions ?? compareSemverVersions)(
+      input.currentVersion,
+      input.latestVersion,
+    ) < 0
   ) {
     return {
       status: "behind_latest",
-      message: PROVIDER_UPDATE_ACTION_TOAST_MESSAGE,
+      message:
+        input.capabilities.update === null
+          ? manualUpdateMessage(input.latestVersion, input.capabilities.installPath)
+          : PROVIDER_UPDATE_ACTION_TOAST_MESSAGE,
     };
   }
   return { status: "current", message: null };
@@ -671,7 +714,7 @@ export function createProviderVersionAdvisory(input: {
   const advisory = deriveVersionAdvisory({
     currentVersion: input.currentVersion,
     latestVersion,
-    ...(capabilities.compareVersions ? { compareVersions: capabilities.compareVersions } : {}),
+    capabilities,
   });
 
   return {

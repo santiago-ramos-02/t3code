@@ -447,7 +447,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
 
   const composerMenu = useComposerCommandMenu({
     draftMessage: props.draftMessage,
-    ownerKey: composerOwnerKey,
+    ownerKey: composerDraftKey,
     environmentId: props.environmentId,
     threadShells: useThreadShells(),
     currentThreadId: props.selectedThread.id,

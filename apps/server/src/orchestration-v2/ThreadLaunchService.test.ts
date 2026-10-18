@@ -384,6 +384,7 @@ it.effect("retains automation and sender attribution while a message waits in th
         command: "command:automation:queue",
         thread: "thread:automation:queue",
         message: "First message",
+        workspace: { type: "worktree", baseRef: "main" },
       }),
     );
     const scheduledTaskId = ScheduledTaskId.make("scheduled-task:queued");
@@ -501,6 +502,7 @@ it.effect("provisions independent launches concurrently instead of behind a glob
               command: "command:launch:concurrent-a",
               thread: "thread:launch:concurrent-a",
               message: "First",
+              workspace: { type: "worktree", baseRef: "main" },
             }),
           ),
           launches.launch(
@@ -508,6 +510,7 @@ it.effect("provisions independent launches concurrently instead of behind a glob
               command: "command:launch:concurrent-b",
               thread: "thread:launch:concurrent-b",
               message: "Second",
+              workspace: { type: "worktree", baseRef: "main" },
             }),
           ),
         ],
@@ -1121,6 +1124,37 @@ it.effect("runs a Scratch thread launched at the root in its own folder", () =>
       });
       assert.lengthOf(claimed, 1);
       assert.isNull(other.projection.thread.worktreePath);
+    }).pipe(Effect.provide(harness.layer));
+  }),
+);
+
+it.effect("starts a thread in the main checkout without running the setup action", () =>
+  Effect.gen(function* () {
+    const harness = makeHarness();
+    yield* Effect.gen(function* () {
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      const input = launchInput({
+        command: "command:launch:main-checkout",
+        thread: "thread:launch:main-checkout",
+        message: "Work in the main checkout",
+      });
+      const launched = yield* launches.launch(input);
+      assert.isNull(launched.projection.thread.worktreePath);
+      const events = yield* threads.streamStoredEventsFrom({ threadId: launched.threadId }).pipe(
+        Stream.takeUntil(
+          (stored) =>
+            stored.commandId === CommandId.make(`${input.commandId}:release`) &&
+            stored.event.type === "run.updated",
+        ),
+        Stream.runCollect,
+      );
+      assert.isFalse(
+        events.some(
+          (stored) => stored.commandId === CommandId.make(`${input.commandId}:progress:setup`),
+        ),
+      );
+      assert.equal(harness.runSetup.mock.calls.length, 0);
     }).pipe(Effect.provide(harness.layer));
   }),
 );
@@ -1873,6 +1907,7 @@ it.effect("replays a server-allocated launch", () =>
         command: "command:launch:allocated-retry",
         thread: "unused",
         message: "Only once",
+        workspace: { type: "worktree", baseRef: "main" },
       });
       const first = yield* launches.launch(rest);
       yield* Deferred.await(setupEntered);
@@ -2107,6 +2142,7 @@ it.effect("bounds concurrent first launches to one thread per command", () =>
         command: "command:launch:concurrent-allocated",
         thread: "unused",
         message: "Race me",
+        workspace: { type: "worktree", baseRef: "main" },
       });
       const results = yield* Effect.all(
         [launches.launch(rest).pipe(Effect.exit), launches.launch(rest).pipe(Effect.exit)],
@@ -2161,6 +2197,7 @@ it.effect("deduplicates retried launch side effects in-process", () =>
         command: "command:launch:retry",
         thread: "thread:launch:retry",
         message: "Only once",
+        workspace: { type: "worktree", baseRef: "main" },
       });
       const [first, retry] = yield* Effect.all([launches.launch(input), launches.launch(input)], {
         concurrency: "unbounded",
@@ -2197,6 +2234,7 @@ it.effect("does not let a failing same-command caller strand a concurrent durabl
                 command,
                 thread: "thread:launch:failed-owner-race",
                 message: "This invalid reuse fails",
+                workspace: { type: "worktree", baseRef: "main" },
               }),
               reuseExistingThread: true,
             })
@@ -2206,6 +2244,7 @@ it.effect("does not let a failing same-command caller strand a concurrent durabl
               command,
               thread: "thread:launch:successful-peer",
               message: "This peer persists",
+              workspace: { type: "worktree", baseRef: "main" },
             }),
           ),
         ],
@@ -2241,6 +2280,7 @@ it.effect("schedules an accepted preparing message exactly once across concurren
         command: "command:launch:accepted-before-fork",
         thread: "thread:launch:accepted-before-fork",
         message: "Resume preparation",
+        workspace: { type: "worktree", baseRef: "main" },
       });
       const messageId = MessageId.make("message:launch:accepted-before-fork");
 
@@ -2838,21 +2878,29 @@ it.effect.each(
       { failSetup: false, failResolve: false },
       { failSetup: true, failResolve: false },
       { failSetup: false, failResolve: true },
+      // Only a parent with its own checkout can hold a commit the project lacks.
+      ...(driver === "codex" ? [] : [{ failSetup: false, failResolve: false, foreignBase: true }]),
       { failSetup: false, failResolve: false, cancelSetup: true },
       { failSetup: false, failResolve: false, cancelSetup: true, cancelAsync: true },
-    ].map((failures) => ({ driver, cancelSetup: false, cancelAsync: false, ...failures })),
+    ].map((failures) => ({
+      driver,
+      cancelSetup: false,
+      cancelAsync: false,
+      foreignBase: false,
+      ...failures,
+    })),
   ),
 )(
-  "prepares $driver delegated worktrees before execution, setup failure=$failSetup, commit failure=$failResolve, cancellation=$cancelSetup, async=$cancelAsync",
-  ({ driver, failSetup, failResolve, cancelSetup, cancelAsync }) =>
+  "prepares $driver delegated worktrees before execution, setup failure=$failSetup, commit failure=$failResolve, base outside project=$foreignBase, cancellation=$cancelSetup, async=$cancelAsync",
+  ({ driver, failSetup, failResolve, foreignBase, cancelSetup, cancelAsync }) =>
     Effect.gen(function* () {
       const setupEntered = yield* Deferred.make<void>();
       const allowSetup = yield* Deferred.make<void>();
       const terminalClosed = yield* Deferred.make<void>();
       const childInstanceId = ProviderInstanceId.make(`child-${driver}`);
       const parentWorktree = driver === "codex" ? null : "/parent-worktree";
-      const resolveCommit = vi.fn(() =>
-        failResolve
+      const resolveCommit = vi.fn((input: { readonly cwd: string; readonly revision: string }) =>
+        failResolve || (foreignBase && input.cwd === "/repo")
           ? Effect.fail(
               new GitCommandError({
                 operation: "resolveCommit",
@@ -2986,6 +3034,15 @@ it.effect.each(
           assert.equal(harness.createWorktree.mock.calls.length, 0);
           return;
         }
+        if (foreignBase) {
+          const error = yield* service.delegateTask(scope, input).pipe(Effect.flip);
+          assert.equal(error.code, "invalid_request");
+          assert.include(error.message, 'Isolation "worktree" creates the child checkout');
+          assert.notInclude(error.message, "private Git failure details");
+          assert.isEmpty((yield* threads.getThreadProjection(parentThreadId)).subagents);
+          assert.equal(harness.createWorktree.mock.calls.length, 0);
+          return;
+        }
         const delegated = yield* service.delegateTask(scope, input);
         yield* Deferred.await(setupEntered);
         const child = yield* threads.getThreadProjection(delegated.childThreadId);
@@ -2996,11 +3053,12 @@ it.effect.each(
         assert.equal(child.thread.modelSelection.model, "child-model");
         assert.deepEqual(resolveCommit.mock.calls, [
           [{ cwd: parentWorktree ?? "/repo", revision: "HEAD" }],
+          ...(parentWorktree === null ? [] : [[{ cwd: "/repo", revision: "parent-local-commit" }]]),
         ]);
         assert.equal(harness.createWorktree.mock.calls[0]?.[0].refName, "parent-local-commit");
         assert.equal((yield* service.delegateTask(scope, input)).taskId, delegated.taskId);
         assert.equal(harness.createWorktree.mock.calls.length, 1);
-        assert.equal(resolveCommit.mock.calls.length, 1);
+        assert.equal(resolveCommit.mock.calls.length, parentWorktree === null ? 1 : 2);
         if (!cancelAsync) assert.isEmpty(child.checkpointScopes);
         const parent = yield* threads.getThreadProjection(parentThreadId);
         assert.equal(parent.thread.worktreePath, parentWorktree);
