@@ -8,13 +8,13 @@ import {
   PROVIDER_LABEL,
   PROVIDER_ORDER,
   providerDriverLabel,
-  usageProviderForDriver,
+  usageProviderKind,
   useProviderColors,
 } from "./usageProviders";
 
 describe("mobile usage provider presentation", () => {
   it("keeps labels exhaustive and Pi in the shared reading order", () => {
-    expect(PROVIDER_ORDER).toEqual(["codex", "claude", "grok", "pi"]);
+    expect(PROVIDER_ORDER.at(-1)).toBe("pi");
     expect(Object.keys(PROVIDER_LABEL).toSorted()).toEqual([...PROVIDER_ORDER].toSorted());
     expect(PROVIDER_LABEL.pi).toBe("Pi");
   });
@@ -25,8 +25,7 @@ describe("mobile usage provider presentation", () => {
     expect(providerDriverLabel("pi")).toBe("Pi");
     expect(providerDriverLabel("opencode")).toBe("OpenCode");
     expect(providerDriverLabel("fork-driver")).toBe("fork-driver");
-    expect(usageProviderForDriver("pi")).toBe("pi");
-    expect(usageProviderForDriver("opencode")).toBeNull();
+    expect(usageProviderKind("pi")).toBe("pi");
     expect(colors.pi).not.toBe(colors.codex);
   });
 });

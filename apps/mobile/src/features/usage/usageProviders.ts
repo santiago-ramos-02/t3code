@@ -11,6 +11,12 @@ export const PROVIDER_ORDER: readonly UsageProviderKind[] = [
   "pi",
 ];
 
+/** The usage series a provider driver reports under, or null for drivers without one. */
+export function usageProviderKind(driver: string): UsageProviderKind | null {
+  if (driver === "claudeAgent") return "claude";
+  return PROVIDER_ORDER.find((kind) => kind === driver) ?? null;
+}
+
 export const PROVIDER_LABEL: Record<UsageProviderKind, string> = {
   claude: "Claude Code",
   codex: "Codex",
@@ -32,22 +38,8 @@ const PROVIDER_DRIVER_LABEL: Readonly<Record<string, string>> = {
   pi: "Pi",
 };
 
-const USAGE_PROVIDER_BY_DRIVER: Readonly<Partial<Record<string, UsageProviderKind>>> = {
-  claudeAgent: "claude",
-  codex: "codex",
-  grok: "grok",
-  cursor: "cursor",
-  opencode: "opencode",
-  antigravity: "antigravity",
-  pi: "pi",
-};
-
 export function providerDriverLabel(driver: string): string {
   return PROVIDER_DRIVER_LABEL[driver] ?? driver;
-}
-
-export function usageProviderForDriver(driver: string): UsageProviderKind | null {
-  return USAGE_PROVIDER_BY_DRIVER[driver] ?? null;
 }
 export function useProviderColors(): Record<UsageProviderKind, string> {
   const { themeAppearance: scheme } = useAppearancePreferences();

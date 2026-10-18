@@ -27,7 +27,7 @@ import { environmentPresentations } from "../../state/presentation";
 import { serverEnvironment } from "../../state/server";
 import { readEnvironmentScope, useEnvironmentScope } from "../../state/session";
 import { useAtomCommand } from "../../state/use-atom-command";
-import { usageProviderForDriver, useProviderColors } from "./usageProviders";
+import { usageProviderKind, useProviderColors } from "./usageProviders";
 
 const PACE_LABEL = { ahead: "ahead of pace", on: "on pace", under: "under pace" } as const;
 
@@ -35,7 +35,7 @@ type Driver = ServerProvider["driver"];
 
 function useBarColor(driver: Driver): string | null {
   const colors = useProviderColors();
-  const kind = usageProviderForDriver(driver);
+  const kind = usageProviderKind(driver);
   return kind ? colors[kind] : null;
 }
 

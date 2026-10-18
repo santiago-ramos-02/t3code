@@ -24,7 +24,8 @@ import { ProviderIcon } from "../../components/ProviderIcon";
 import { SettingsScreen } from "../settings/components/SettingsScreen";
 import { environmentPresentations } from "../../state/presentation";
 import { ResetCredits } from "./UsageLimitsSection";
-import { providerDriverLabel, usageProviderForDriver, useProviderColors } from "./usageProviders";
+import { providerDriverLabel, usageProviderKind, useProviderColors } from "./usageProviders";
+
 const PACE_LABEL = { ahead: "Ahead of pace", on: "On pace", under: "Under pace" } as const;
 
 function accountName(account: LimitAccount) {
@@ -277,7 +278,7 @@ export function UsageLimitsSection({
                   <PoolWindowCard
                     key={`${window.kind}:${window.id}`}
                     pool={window}
-                    color={colors[usageProviderForDriver(pool.driver) ?? "codex"]}
+                    color={colors[usageProviderKind(pool.driver) ?? "codex"]}
                     now={now}
                     environmentIds={
                       selectedEnvironmentIds === null ? null : [...selectedEnvironmentIds]
