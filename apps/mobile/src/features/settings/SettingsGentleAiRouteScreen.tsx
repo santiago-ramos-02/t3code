@@ -39,6 +39,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppText as Text } from "../../components/ui/AppText";
 import { ScreenScrollView as ScrollView } from "../../components/ui/ScreenScrollView";
+import { environmentPresentations } from "../../state/presentation";
 import { useEnvironmentQuery } from "../../state/query";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -447,7 +448,8 @@ function GentleAiLegacySettings(props: {
       }
     });
   };
-  const providers = props.target.serverConfig.providers
+  const providersByEnvironment = useAtomValue(environmentPresentations.providersByEnvironmentAtom);
+  const providers = (providersByEnvironment.get(environmentId) ?? [])
     .filter((provider) => provider.gentleAi === true)
     .map(
       (provider) =>
