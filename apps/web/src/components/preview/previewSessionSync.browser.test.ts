@@ -76,8 +76,8 @@ import { AppAtomRegistryProvider, appAtomRegistry } from "~/rpc/atomRegistry";
 import { previewEnvironment } from "~/state/preview";
 import { usePreviewSession } from "./usePreviewSession";
 
-let container: HTMLDivElement | null = null;
 let root: Root | null = null;
+let container: HTMLDivElement | null = null;
 let sequence = 0;
 let ref: ScopedThreadRef;
 
@@ -108,11 +108,10 @@ const result = (
 });
 
 async function mount() {
+  container = document.body.appendChild(document.createElement("div"));
+  root = createRoot(container);
   await act(async () => {
-    container = document.createElement("div");
-    document.body.append(container);
-    root = createRoot(container);
-    root.render(createElement(AppAtomRegistryProvider, null, createElement(SessionSync)));
+    root!.render(createElement(AppAtomRegistryProvider, null, createElement(SessionSync)));
   });
 }
 
@@ -127,8 +126,8 @@ beforeEach(() => {
 
 afterEach(async () => {
   await act(async () => root?.unmount());
-  container?.remove();
   root = null;
+  container?.remove();
   container = null;
   resetPreviewStateForTests();
   vi.unstubAllGlobals();

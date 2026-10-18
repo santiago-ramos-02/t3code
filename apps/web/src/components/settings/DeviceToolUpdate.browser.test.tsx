@@ -9,7 +9,6 @@ import * as Cause from "effect/Cause";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
-import { page } from "vite-plus/test/browser";
 
 const { list } = vi.hoisted(() => ({ list: vi.fn() }));
 
@@ -87,20 +86,17 @@ const deviceState = {
   revision: 1,
 } satisfies DeviceServiceState;
 
-let container: HTMLDivElement;
-let root: Root;
+let root: Root | undefined;
+let container: HTMLDivElement | undefined;
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   list.mockReset();
-  container = document.createElement("div");
-  document.body.append(container);
-  root = createRoot(container);
 });
 
 afterEach(async () => {
-  await act(() => root.unmount());
-  container.remove();
+  await act(() => root?.unmount());
+  container?.remove();
   vi.unstubAllGlobals();
 });
 
@@ -127,8 +123,10 @@ it.each([
   "reports $name as the server describes it, not as a network problem",
   async ({ error, message }) => {
     list.mockResolvedValue({ _tag: "Failure", cause: Cause.fail(error) });
+    container = document.body.appendChild(document.createElement("div"));
+    root = createRoot(container);
     await act(() => {
-      root.render(
+      root!.render(
         <DeviceIntegrationControls
           environmentId={environmentId}
           enabled
@@ -137,9 +135,13 @@ it.each([
       );
     });
 
-    await page.getByRole("button", { name: "Update to v0.12.0" }).click();
+    const update = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Update to v0.12.0",
+    );
+    expect(update).toBeDefined();
+    await act(async () => update!.click());
 
     expect(list).toHaveBeenCalledWith({ environmentId, input: { updateTool: "hub" } });
-    await expect.element(page.getByRole("alert")).toHaveTextContent(message);
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(message);
   },
 );
