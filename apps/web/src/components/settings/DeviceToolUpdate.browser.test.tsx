@@ -7,8 +7,9 @@ import {
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import { act, type ReactNode } from "react";
-import { create, type ReactTestRenderer } from "react-test-renderer";
+import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
+import { page } from "vite-plus/test/browser";
 
 const { list } = vi.hoisted(() => ({ list: vi.fn() }));
 
@@ -86,15 +87,20 @@ const deviceState = {
   revision: 1,
 } satisfies DeviceServiceState;
 
-let renderer: ReactTestRenderer | undefined;
+let container: HTMLDivElement;
+let root: Root;
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   list.mockReset();
+  container = document.createElement("div");
+  document.body.append(container);
+  root = createRoot(container);
 });
 
 afterEach(async () => {
-  await act(() => renderer?.unmount());
+  await act(() => root.unmount());
+  container.remove();
   vi.unstubAllGlobals();
 });
 
@@ -122,7 +128,7 @@ it.each([
   async ({ error, message }) => {
     list.mockResolvedValue({ _tag: "Failure", cause: Cause.fail(error) });
     await act(() => {
-      renderer = create(
+      root.render(
         <DeviceIntegrationControls
           environmentId={environmentId}
           enabled
@@ -131,12 +137,9 @@ it.each([
       );
     });
 
-    const update = renderer!.root.find(
-      (node) => node.type === "button" && node.props.children === "Update to v0.12.0",
-    );
-    await act(async () => update.props.onClick());
+    await page.getByRole("button", { name: "Update to v0.12.0" }).click();
 
     expect(list).toHaveBeenCalledWith({ environmentId, input: { updateTool: "hub" } });
-    expect(renderer!.root.find((node) => node.props.role === "alert").props.children).toBe(message);
+    await expect.element(page.getByRole("alert")).toHaveTextContent(message);
   },
 );

@@ -8,7 +8,7 @@ import {
 import * as Cause from "effect/Cause";
 import { AsyncResult, Atom } from "effect/reactivity";
 import { act, createElement } from "react";
-import { create, type ReactTestRenderer } from "react-test-renderer";
+import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 // Only the transport is substituted. The hook, atom registry and preview
@@ -76,7 +76,8 @@ import { AppAtomRegistryProvider, appAtomRegistry } from "~/rpc/atomRegistry";
 import { previewEnvironment } from "~/state/preview";
 import { usePreviewSession } from "./usePreviewSession";
 
-let renderer: ReactTestRenderer | null = null;
+let container: HTMLDivElement | null = null;
+let root: Root | null = null;
 let sequence = 0;
 let ref: ScopedThreadRef;
 
@@ -108,7 +109,10 @@ const result = (
 
 async function mount() {
   await act(async () => {
-    renderer = create(createElement(AppAtomRegistryProvider, null, createElement(SessionSync)));
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    root.render(createElement(AppAtomRegistryProvider, null, createElement(SessionSync)));
   });
 }
 
@@ -122,8 +126,10 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-  await act(async () => renderer?.unmount());
-  renderer = null;
+  await act(async () => root?.unmount());
+  container?.remove();
+  root = null;
+  container = null;
   resetPreviewStateForTests();
   vi.unstubAllGlobals();
 });
