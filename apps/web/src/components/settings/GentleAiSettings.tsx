@@ -1,4 +1,5 @@
 import { useNavigate } from "@tanstack/react-router";
+import type { EnvironmentServerConfig } from "@t3tools/client-runtime/connection";
 import {
   GENTLE_AI_INSTALL_DESCRIPTION,
   GENTLE_AI_SYNC_NEEDED,
@@ -12,10 +13,11 @@ import {
   PROVIDER_DISPLAY_NAMES,
   type EnvironmentId,
   type GentleAiActionInput,
-  type ServerConfig,
+  type ServerProvider,
 } from "@t3tools/contracts";
 import { useState, type ReactNode } from "react";
 
+import { useEnvironmentProviders } from "../../state/environments";
 import { useEnvironmentQuery } from "../../state/query";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -45,6 +47,8 @@ function errorText(failure: unknown): string {
   return failure instanceof Error ? failure.message : "Gentle AI could not complete that.";
 }
 
+const NO_PROVIDERS: ReadonlyArray<ServerProvider> = [];
+
 /**
  * Gentle AI on one environment: the gentle-ai binary and what it set up, its ecosystem
  * commands, and what each agent adapter adds (today gentle-pi for Pi). Gentle AI is not a
@@ -58,7 +62,7 @@ export function GentleAiSettingsPanel({
   flow,
 }: {
   readonly environmentId: EnvironmentId;
-  readonly serverConfig: ServerConfig;
+  readonly serverConfig: EnvironmentServerConfig;
   /** The project chosen at the top of Settings, as its folder on this environment. */
   readonly project: { readonly title: string; readonly cwd: string } | null;
   readonly readOnly: boolean;
@@ -115,7 +119,8 @@ export function GentleAiSettingsPanel({
     });
   };
 
-  const gentleProviders = serverConfig.providers.filter((provider) => provider.gentleAi === true);
+  const providers = useEnvironmentProviders().get(environmentId) ?? NO_PROVIDERS;
+  const gentleProviders = providers.filter((provider) => provider.gentleAi === true);
   const piInstances = gentleProviders.filter((provider) => provider.driver === "pi");
   const canEdit = !readOnly && pending === null;
   const actionButton = (action: GentleAiAction, label: string, reportTitle?: string) => (
