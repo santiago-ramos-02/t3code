@@ -29,32 +29,30 @@ import { previewRuntimeTabId } from "./previewRuntimeTabId";
 export function ElectronBrowserHost() {
   const previewByThreadKey = useActivePreviewSessions();
   const primaryEnvironmentId = useAtomValue(primaryEnvironmentIdAtom);
-  const sessions = Object.entries(previewByThreadKey)
-    .flatMap(([threadKey, previewState]) => {
-      const threadRef = parseScopedThreadKey(threadKey);
-      return threadRef
-        ? Object.values(previewState.sessions)
-            .filter(
-              (snapshot) =>
-                snapshot.runtime !== "server" ||
-                rendersServerTabNatively(threadRef.environmentId, primaryEnvironmentId, snapshot),
-            )
-            .map((snapshot) => ({
-              threadRef,
-              snapshot,
-              runtimeTabId: previewRuntimeTabId(
-                threadRef,
-                previewState.serverEpoch,
-                snapshot.tabId,
-              ),
-              pictureInPicture:
-                previewState.desktopByTabId[snapshot.tabId]?.pictureInPicture ?? false,
-              zoomFactor: previewState.desktopByTabId[snapshot.tabId]?.zoomFactor ?? 1,
-            }))
-        : [];
-    })
-    // Electron destroys a webview's page when React moves its element, so the order is fixed.
-    .toSorted((left, right) => left.runtimeTabId.localeCompare(right.runtimeTabId));
+  const activeSessions = Object.entries(previewByThreadKey).flatMap(([threadKey, previewState]) => {
+    const threadRef = parseScopedThreadKey(threadKey);
+    return threadRef
+      ? Object.values(previewState.sessions)
+          .filter(
+            (snapshot) =>
+              snapshot.runtime !== "server" ||
+              rendersServerTabNatively(threadRef.environmentId, primaryEnvironmentId, snapshot),
+          )
+          .map((snapshot) => ({
+            threadRef,
+            snapshot,
+            runtimeTabId: previewRuntimeTabId(threadRef, previewState.serverEpoch, snapshot.tabId),
+            pictureInPicture:
+              previewState.desktopByTabId[snapshot.tabId]?.pictureInPicture ?? false,
+            zoomFactor: previewState.desktopByTabId[snapshot.tabId]?.zoomFactor ?? 1,
+          }))
+      : [];
+  });
+  // Electron destroys a moved webview's guest, so the render order must not follow the server's
+  // updatedAt order. Any fixed order works; this one is not a display order.
+  const sessions = activeSessions.toSorted((left, right) =>
+    left.runtimeTabId < right.runtimeTabId ? -1 : left.runtimeTabId > right.runtimeTabId ? 1 : 0,
+  );
 
   useEffect(() => {
     const preview = window.desktopBridge?.preview;
