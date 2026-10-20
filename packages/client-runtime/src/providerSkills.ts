@@ -135,12 +135,10 @@ export function resolveProviderModelsForCwd(
   return resolveProviderWorkspaceSnapshot(provider, cwd)?.models ?? provider.models;
 }
 
-export function resolveProviderForCwd(
+function withProjectModels(
   provider: ServerProvider,
-  cwd: string | null | undefined,
+  models: ServerProvider["models"],
 ): ServerProvider {
-  const models = resolveProviderWorkspaceSnapshot(provider, cwd)?.models;
-  if (!models) return provider;
   if (provider.driver !== "pi" || !provider.installed || provider.status === "error") {
     return { ...provider, models };
   }
@@ -156,5 +154,31 @@ export function resolveProviderForCwd(
       upstreamCount > 0
         ? `${upstreamCount} model provider${upstreamCount === 1 ? "" : "s"} in this project.`
         : "Pi found no available models in this project. Connect a model provider in Pi, then refresh status.",
+  };
+}
+
+export function resolveProviderForCwd(
+  provider: ServerProvider,
+  cwd: string | null | undefined,
+): ServerProvider {
+  const snapshot = resolveProviderWorkspaceSnapshot(provider, cwd);
+  const scoped = snapshot?.models ? withProjectModels(provider, snapshot.models) : provider;
+  const descriptors = snapshot?.optionDescriptors;
+  if (descriptors === undefined) return scoped;
+  const overriddenIds = new Set(descriptors.map((descriptor) => descriptor.id));
+  return {
+    ...scoped,
+    models: scoped.models.map((model) => ({
+      ...model,
+      capabilities: {
+        ...model.capabilities,
+        optionDescriptors: [
+          ...(model.capabilities?.optionDescriptors ?? []).filter(
+            (descriptor) => !overriddenIds.has(descriptor.id),
+          ),
+          ...descriptors,
+        ],
+      },
+    })),
   };
 }

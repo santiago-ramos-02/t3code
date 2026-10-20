@@ -37,7 +37,7 @@ export interface ProviderDriverMetadata {
 }
 
 export type ProviderWorkspaceSnapshot = ServerProvider &
-  Pick<ServerProviderWorkspaceSnapshot, "slashCommandsPending">;
+  Pick<ServerProviderWorkspaceSnapshot, "slashCommandsPending" | "optionDescriptors">;
 /**
  * Fields the server adds to its provider instances, which it declares by augmenting this
  * interface (the fork's gentle-pi settings, see apps/server PiGentleSettings.ts).
