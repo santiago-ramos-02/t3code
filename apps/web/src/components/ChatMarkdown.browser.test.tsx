@@ -2,13 +2,17 @@ import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { searchableMessageSegments } from "@t3tools/shared/threadFindText";
 import { countThreadSearchOccurrences } from "@t3tools/shared/threadSearch";
 import { AsyncResult } from "effect/reactivity";
-import { act, type ReactElement } from "react";
+import { act, useEffect, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 
 import "../index.css";
+import { useTheme } from "../hooks/useTheme";
+import { applyThemeColorPreview, getStandardThemeColors } from "../themePalette";
 
+import { readLocalApi } from "../localApi";
+import { toastManager } from "./ui/toast";
 import { filesystemEnvironment } from "../state/filesystem";
 import { useRightPanelStore } from "../rightPanelStore";
 import { getSyntaxHighlighterPromise } from "../lib/syntaxHighlighting";
@@ -130,6 +134,61 @@ function fileOptions(container: HTMLElement) {
     .map((button) => button.getAttribute("aria-label"))
     .filter((label) => label?.startsWith("File options for "));
 }
+
+describe("ChatMarkdown theme drafts", () => {
+  afterEach(() => {
+    act(() => {
+      localStorage.clear();
+      window.dispatchEvent(new StorageEvent("storage", { key: null }));
+    });
+  });
+
+  it.each(["dark", "light"] as const)(
+    "previews opposite syntax colors and restores saved %s colors on cancel",
+    async (savedAppearance) => {
+      let selection: ReturnType<typeof useTheme>;
+      function Preview() {
+        const theme = useTheme();
+        useEffect(() => {
+          selection = theme;
+        }, [theme]);
+        return <ChatMarkdown cwd={undefined} text={"```typescript\nconst answer = 42;\n```"} />;
+      }
+      await getSyntaxHighlighterPromise("typescript");
+      const { container } = await render(<Preview />);
+      await act(async () => {
+        selection.setTheme(savedAppearance);
+        selection.setAppearanceMode(savedAppearance);
+      });
+      const keywordColor = () =>
+        container.querySelector<HTMLElement>(".chat-markdown-shiki .line span")?.style.color;
+      await vi.waitFor(() => expect(keywordColor()).toBeTruthy());
+      const savedColor = keywordColor();
+      const savedStorage = Object.fromEntries(Object.entries(localStorage));
+      const draftAppearance = savedAppearance === "dark" ? "light" : "dark";
+
+      await act(async () =>
+        applyThemeColorPreview(getStandardThemeColors(draftAppearance), draftAppearance),
+      );
+      await vi.waitFor(() => {
+        expect(keywordColor()).toBeTruthy();
+        expect(keywordColor()).not.toBe(savedColor);
+      });
+      expect(document.documentElement.classList.contains("dark")).toBe(draftAppearance === "dark");
+      expect(selection!).toMatchObject({
+        theme: savedAppearance,
+        resolvedTheme: savedAppearance,
+        appearanceMode: savedAppearance,
+      });
+      expect(Object.fromEntries(Object.entries(localStorage))).toEqual(savedStorage);
+
+      await act(async () => selection.refreshTheme());
+      await vi.waitFor(() => expect(keywordColor()).toBe(savedColor));
+      expect(document.documentElement.classList.contains("dark")).toBe(savedAppearance === "dark");
+      expect(Object.fromEntries(Object.entries(localStorage))).toEqual(savedStorage);
+    },
+  );
+});
 
 describe("ChatMarkdown table layout", () => {
   it.each([
@@ -1213,6 +1272,60 @@ describe("ChatMarkdown thread find", () => {
       ).toBe(count);
     },
   );
+});
+
+it.each([
+  {
+    name: "Windows drive paths on a Mac client",
+    platform: "MacIntel",
+    cwd: "C:/repo",
+    href: "C:/repo/reports/Device Users.csv:12:3",
+    full: String.raw`C:\repo\reports\Device Users.csv:12:3`,
+    relative: String.raw`reports\Device Users.csv:12:3`,
+  },
+  {
+    name: "UNC paths on a Mac client",
+    platform: "MacIntel",
+    cwd: String.raw`\\server\share\repo`,
+    href: "file://server/share/repo/reports/report.csv",
+    full: String.raw`\\server\share\repo\reports\report.csv`,
+    relative: String.raw`reports\report.csv`,
+  },
+  {
+    name: "POSIX paths on a Windows client",
+    platform: "Win32",
+    cwd: "/home/repo",
+    href: "/home/repo/reports/report.csv",
+    full: "/home/repo/reports/report.csv",
+    relative: "reports/report.csv",
+  },
+])("copies $name and shows the copied text", async ({ platform, cwd, href, full, relative }) => {
+  vi.spyOn(navigator, "platform", "get").mockReturnValue(platform);
+  vi.stubGlobal("ClipboardItem", undefined);
+  const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
+  const toast = vi.spyOn(toastManager, "add");
+  const api = readLocalApi();
+  if (!api) throw new Error("Local API unavailable");
+  const choose = vi.spyOn(api.contextMenu, "show");
+  const container = await renderText(`[File](<${href}>)`, {
+    cwd,
+    environmentId: EnvironmentId.make("env-file-copy"),
+  });
+  const link = container.querySelector(".chat-markdown-file-link");
+  if (!link) throw new Error("File link unavailable");
+  for (const [action, expected] of [
+    ["copy-full", full],
+    ["copy-relative", relative],
+  ] as const) {
+    choose.mockResolvedValue(action);
+    await act(async () => {
+      link.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
+    });
+    expect(writeText).toHaveBeenLastCalledWith(expected);
+    expect(toast).toHaveBeenLastCalledWith(
+      expect.objectContaining({ type: "success", description: expected }),
+    );
+  }
 });
 
 describe("ChatMarkdown math", () => {
