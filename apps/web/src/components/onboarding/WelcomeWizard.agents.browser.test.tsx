@@ -1,10 +1,10 @@
 import { ProviderDriverKind, ProviderInstanceId, type ServerProvider } from "@t3tools/contracts";
-import { act } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 
 import "~/index.css";
+
+import { render } from "../../../test/render";
 
 import { completeOnboardingBeforeAction, OnboardingAgentCard } from "./WelcomeWizard";
 
@@ -35,22 +35,6 @@ const piProvider: ServerProvider = {
   slashCommands: [],
   skills: [],
 };
-
-let root: Root;
-let container: HTMLDivElement;
-
-beforeEach(() => {
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  container = document.createElement("div");
-  document.body.append(container);
-  root = createRoot(container);
-});
-
-afterEach(async () => {
-  await act(async () => root.unmount());
-  container.remove();
-  vi.unstubAllGlobals();
-});
 
 describe("first-run completion sequencing", () => {
   it("persists onboarding completion before opening provider settings", async () => {
@@ -92,18 +76,16 @@ describe("first-run completion sequencing", () => {
 
 describe("Pi onboarding card", () => {
   it("shows detected Pi readiness, version, and model count", async () => {
-    await act(async () =>
-      root.render(
-        <OnboardingAgentCard
-          driver="pi"
-          setup="settings"
-          provider={piProvider}
-          terminalOpen={false}
-          terminalAvailable
-          onOpenTerminal={vi.fn()}
-          onOpenSettings={vi.fn()}
-        />,
-      ),
+    await using _screen = await render(
+      <OnboardingAgentCard
+        driver="pi"
+        setup="settings"
+        provider={piProvider}
+        terminalOpen={false}
+        terminalAvailable
+        onOpenTerminal={vi.fn()}
+        onOpenSettings={vi.fn()}
+      />,
     );
 
     await expect.element(page.getByText("Pi", { exact: true })).toBeVisible();
@@ -117,25 +99,23 @@ describe("Pi onboarding card", () => {
   it("routes unavailable Pi setup to provider settings without a terminal action", async () => {
     const onOpenSettings = vi.fn();
     const onOpenTerminal = vi.fn();
-    await act(async () =>
-      root.render(
-        <OnboardingAgentCard
-          driver="pi"
-          setup="settings"
-          provider={{
-            ...piProvider,
-            installed: false,
-            version: null,
-            status: "error",
-            models: [],
-            message: "Pi 0.86.1 or newer was not found on this environment.",
-          }}
-          terminalOpen={false}
-          terminalAvailable
-          onOpenTerminal={onOpenTerminal}
-          onOpenSettings={onOpenSettings}
-        />,
-      ),
+    await using _screen = await render(
+      <OnboardingAgentCard
+        driver="pi"
+        setup="settings"
+        provider={{
+          ...piProvider,
+          installed: false,
+          version: null,
+          status: "error",
+          models: [],
+          message: "Pi 0.86.1 or newer was not found on this environment.",
+        }}
+        terminalOpen={false}
+        terminalAvailable
+        onOpenTerminal={onOpenTerminal}
+        onOpenSettings={onOpenSettings}
+      />,
     );
 
     await userEvent.click(page.getByRole("button", { name: "Set up in Settings" }));
