@@ -11,6 +11,9 @@ export const PROVIDER_STATUS_STYLES = {
   error: {
     dot: "bg-destructive",
   },
+  neutral: {
+    dot: "bg-muted-foreground",
+  },
   ready: {
     dot: "bg-success",
   },
@@ -140,7 +143,7 @@ export function resolveProviderCardDisplay(input: {
   const summary = getProviderSummary(provider);
   if (provider.status === "warning" || provider.status === "error") {
     return {
-      statusKey: provider.status,
+      statusKey: getProviderStatusKey(provider),
       headline: summary.headline,
       detail: truncateProviderDetail(summary.detail),
     };
@@ -160,7 +163,31 @@ export function resolveProviderCardDisplay(input: {
         "The provider is ready but no models were discovered.",
     };
   }
-  return { statusKey: provider.status, headline: summary.headline, detail: summary.detail };
+  return {
+    statusKey: getProviderStatusKey(provider),
+    headline: summary.headline,
+    detail: summary.detail,
+  };
+}
+
+// Antigravity's local health check verifies installation, not Google sign-in.
+// API-key and Agent Platform warnings still need attention.
+function isAntigravitySignInUnchecked(provider: ServerProvider): boolean {
+  return (
+    provider.driver === "antigravity" &&
+    provider.installed &&
+    provider.status === "warning" &&
+    provider.auth.status === "unknown" &&
+    (provider.auth.type === undefined ||
+      provider.auth.type === "oauth-personal" ||
+      provider.auth.type === "oauth-business")
+  );
+}
+
+export function getProviderStatusKey(provider: ServerProvider | undefined): ProviderStatusKey {
+  if (provider && !provider.enabled) return "disabled";
+  if (provider && isAntigravitySignInUnchecked(provider)) return "neutral";
+  return provider?.status ?? "warning";
 }
 
 export function getProviderSummary(provider: ServerProvider | undefined) {
@@ -194,6 +221,12 @@ export function getProviderSummary(provider: ServerProvider | undefined) {
     const authLabel = provider.auth.label ?? provider.auth.type;
     return {
       headline: authLabel ? `Not authenticated · ${authLabel}` : "Not authenticated",
+      detail: provider.message ?? null,
+    };
+  }
+  if (isAntigravitySignInUnchecked(provider)) {
+    return {
+      headline: "Installed · Sign-in not checked",
       detail: provider.message ?? null,
     };
   }
