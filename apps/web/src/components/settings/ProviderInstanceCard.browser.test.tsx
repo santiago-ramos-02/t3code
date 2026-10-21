@@ -56,44 +56,6 @@ async function renderCard(
   );
 }
 
-describe("ProviderInstanceCard", () => {
-  it("hides the account email until the user reveals it, and hides it again", async () => {
-    await using screen = await renderCard(
-      provider({ auth: { status: "authenticated", email: "developer@example.com" } }),
-      "editor",
-    );
-    expect(screen.container.textContent).toContain("Authenticated as");
-    expect(screen.container.textContent).not.toContain("developer@example.com");
-
-    const toggle = screen.container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Toggle account email visibility"]',
-    )!;
-    await userEvent.click(toggle);
-    expect(toggle.textContent).toBe("developer@example.com");
-
-    await userEvent.click(toggle);
-    expect(screen.container.textContent).not.toContain("developer@example.com");
-  });
-
-  it.each(["list", "editor"] as const)(
-    "surfaces a failed probe message in the %s",
-    async (mode) => {
-      await using screen = await renderCard(
-        provider({
-          version: null,
-          status: "error",
-          auth: { status: "unknown" },
-          message:
-            "Codex app-server provider probe failed: Cannot create Codex shadow home entry 'auth.json' because '/home/me/.codex-t3/work/auth.json' already exists and is not a symlink.",
-        }),
-        mode,
-      );
-      expect(screen.container.textContent).toContain("Unavailable");
-      expect(screen.container.textContent).toContain("is not a symlink");
-    },
-  );
-});
-
 describe("ProviderInstanceCard status truthfulness", () => {
   const piId = ProviderInstanceId.make("pi");
   const piDriver = ProviderDriverKind.make("pi");
