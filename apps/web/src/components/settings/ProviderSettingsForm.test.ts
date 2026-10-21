@@ -21,16 +21,6 @@ describe("ProviderSettingsForm helpers", () => {
     ]);
   });
 
-  it("presents Pi as a local binary provider", () => {
-    const pi = providerClients.get(ProviderDriverKind.make("pi"));
-
-    expect(pi).toMatchObject({ label: "Pi" });
-    expect(deriveProviderSettingsFields(pi!).map((field) => field.key)).toEqual([
-      "binaryPath",
-      "launchArgs",
-    ]);
-  });
-
   it("sources labels and descriptions from schema annotations", () => {
     const opencode = providerClients.get(ProviderDriverKind.make("opencode"));
     expect(opencode).toBeDefined();

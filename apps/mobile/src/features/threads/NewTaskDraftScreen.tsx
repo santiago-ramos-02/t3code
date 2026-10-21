@@ -1,17 +1,11 @@
-import { GENTLE_AI_OPTION_ID, gentleAiEnabled } from "@t3tools/contracts";
 import { AndroidScreenHeader } from "../../components/ui/AndroidScreenHeader";
 import { SheetHeader } from "../../components/ui/SheetHeader";
 import { Button } from "../../components/ui/Button";
 import * as Dialog from "../../components/ui/Dialog";
 import { useAtomValue } from "@effect/atom-react";
-import type { MenuAction } from "@react-native-menu/menu";
 import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/reactivity";
-import {
-  isAtomCommandInterrupted,
-  settlePromise,
-  squashAtomCommandFailure,
-} from "@t3tools/client-runtime/state/runtime";
+import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { clampFileAttachmentUploadBytes } from "@t3tools/client-runtime/state/attachments";
 import {
   nextPastedTextFileName,
@@ -43,7 +37,6 @@ import {
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
   resolveEnvironmentMachineKind,
-  type PiGentleComposerState,
 } from "@t3tools/contracts";
 import { deriveThreadTitleSeed } from "@t3tools/client-runtime/operations";
 
@@ -63,7 +56,6 @@ import {
   ComposerToolbarRow,
 } from "../../components/ComposerToolbar";
 import { ScreenContent } from "../../components/ui/ScreenContent";
-import { Menu } from "../../components/ui/Menu";
 import { ComposerAttachmentButton } from "./ComposerAttachmentButton";
 import { ComposerAttachmentStrip } from "../../components/ComposerAttachmentStrip";
 import { composerStripAttachments } from "../../lib/composerImages";
@@ -81,8 +73,6 @@ import { AppText as Text } from "../../components/ui/AppText";
 import { hasProviderUsageLimits, isUsageLimitsCommand } from "@t3tools/shared/usageLimits";
 import { threadContextsOutsideEnvironment } from "@t3tools/shared/composerContextReferences";
 import { COMPOSER_LAYOUT_TRANSITION, ComposerSurface } from "./ThreadComposer";
-import { GentleRoseIcon } from "./GentleRoseIcon";
-import { useGentleProfileMenu } from "./useGentleProfileMenu";
 import { ComposerCommandPopover } from "./ComposerCommandPopover";
 import { useComposerCommandMenu } from "./use-composer-command-menu";
 import {
@@ -479,81 +469,6 @@ export function NewTaskDraftScreen(props: {
     (flow.workspaceMode === "worktree"
       ? selectedProject?.workspaceRoot
       : (flow.selectedWorktreePath ?? selectedProject?.workspaceRoot)) || null;
-  const gentleDraftSelection = flow.selectedModel;
-  const gentleDraftKey = `${selectedProject?.environmentId ?? ""}:${gentleDraftSelection?.instanceId ?? ""}:${composerWorkspaceCwd ?? ""}`;
-  const readGentleDraft = useAtomCommand(serverEnvironment.readPiGentleComposer, {
-    reportFailure: false,
-    reportDefect: false,
-  });
-  const [gentleDraftState, setGentleDraftState] = useState<{
-    key: string;
-    value: PiGentleComposerState | null;
-  } | null>(null);
-  const [gentleDraftRefresh, setGentleDraftRefresh] = useState(0);
-  useEffect(() => {
-    if (
-      flow.selectedProviderStatus?.driver !== "pi" ||
-      !environmentConnected ||
-      !selectedProject ||
-      !gentleDraftSelection ||
-      !composerWorkspaceCwd
-    )
-      return;
-    let current = true;
-    void readGentleDraft({
-      environmentId: selectedProject.environmentId,
-      input: { instanceId: gentleDraftSelection.instanceId, cwd: composerWorkspaceCwd },
-    }).then((result) => {
-      if (!current || isAtomCommandInterrupted(result)) return;
-      setGentleDraftState({
-        key: gentleDraftKey,
-        value: result._tag === "Success" ? result.value : null,
-      });
-    });
-    return () => {
-      current = false;
-    };
-  }, [
-    composerWorkspaceCwd,
-    environmentConnected,
-    flow.selectedProviderStatus?.driver,
-    gentleDraftKey,
-    gentleDraftRefresh,
-    gentleDraftSelection?.instanceId,
-    readGentleDraft,
-    selectedProject,
-  ]);
-  const gentleDraftEnabled = gentleAiEnabled(gentleDraftSelection?.options);
-  // Any provider Gentle AI is set up for; in Pi, only once the server confirms gentle-pi loads.
-  const gentleDraftVisible =
-    flow.selectedProviderStatus?.gentleAi === true &&
-    (flow.selectedProviderStatus.driver !== "pi" ||
-      (gentleDraftState?.key === gentleDraftKey && gentleDraftState.value?.available === true));
-  const gentleDraftProfiles = useGentleProfileMenu({
-    environmentId: selectedProject?.environmentId ?? null,
-    cwd: composerWorkspaceCwd,
-    state: gentleDraftState?.key === gentleDraftKey ? gentleDraftState.value : null,
-    enabled: gentleDraftEnabled,
-    selection: gentleDraftSelection,
-    models: flow.selectedProviderStatus?.models ?? [],
-    onModelSelectionChange: (selection) => {
-      const option = flow.modelOptions.find(
-        (candidate) =>
-          candidate.selection.instanceId === selection.instanceId &&
-          candidate.selection.model === selection.model,
-      );
-      if (option) flow.setSelectedModelKey(option.key, selection.options ?? []);
-    },
-    onApplied: () => setGentleDraftRefresh((value) => value + 1),
-  });
-  const gentleDraftActions: MenuAction[] = [
-    {
-      id: "enable",
-      title: "Enable",
-      state: gentleDraftEnabled ? "on" : "off",
-    },
-    ...(gentleDraftProfiles.action === null ? [] : [gentleDraftProfiles.action]),
-  ];
   const stripAttachments = composerStripAttachments(flow.attachments);
   const composerMenu = useComposerCommandMenu({
     draftMessage: flow.prompt,
@@ -566,7 +481,6 @@ export function NewTaskDraftScreen(props: {
     pullRequestRepository: selectedProject?.repositoryIdentity?.displayName ?? null,
     projectCwd: composerWorkspaceCwd,
     selectedProviderStatus: flow.selectedProviderStatus,
-    gentleEnabled: gentleDraftEnabled,
     hasThread: false,
     hasCompactableConversation: false,
     offersUsageLimits: offersUsageLimits,
@@ -1722,30 +1636,6 @@ export function NewTaskDraftScreen(props: {
           disabled={isComposerInteractionLocked}
           onPress={settingsSheetPresentation.open}
         />
-      ) : null}
-
-      {gentleDraftVisible && gentleDraftSelection ? (
-        <View className="flex-row items-center justify-end px-2 pb-1">
-          <Menu
-            actions={gentleDraftActions}
-            onPressAction={({ nativeEvent }) => {
-              if (gentleDraftProfiles.handle(nativeEvent.event)) return;
-              if (nativeEvent.event !== "enable") return;
-              flow.setSelectedModelOptions([
-                ...(gentleDraftSelection.options?.filter(
-                  (option) => option.id !== GENTLE_AI_OPTION_ID,
-                ) ?? []),
-                { id: GENTLE_AI_OPTION_ID, value: !gentleDraftEnabled },
-              ]);
-            }}
-          >
-            <ComposerInlineControl
-              label={gentleDraftEnabled ? "Gentle AI" : "Gentle AI off"}
-              renderIcon={(size) => <GentleRoseIcon color={foregroundColor} size={size} />}
-              maxWidth={125}
-            />
-          </Menu>
-        </View>
       ) : null}
 
       <ComposerSurface

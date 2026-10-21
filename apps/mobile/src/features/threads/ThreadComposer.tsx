@@ -1,4 +1,3 @@
-import { gentleAiEnabled } from "@t3tools/contracts";
 import { Button } from "../../components/ui/Button";
 import * as Dialog from "../../components/ui/Dialog";
 import type { ComposerTextPaste } from "../../native/T3ComposerEditor.types";
@@ -52,7 +51,6 @@ import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { themeColorWithAlpha } from "../../lib/mobileTheme";
 import { armAgentAwarenessLiveActivityForLocalWork } from "../agent-awareness/remoteRegistration";
 import { scopedThreadKey } from "../../lib/scopedEntities";
-import type { ThreadFeedEntry } from "../../lib/threadActivity";
 import {
   getComposerDraftSnapshot,
   composerDraftsAtom,
@@ -73,7 +71,6 @@ import {
   ComposerAttachmentThumbnail,
 } from "../../components/ComposerAttachmentStrip";
 import { VideoPreviewModal, type VideoPreviewSource } from "../../components/VideoPreviewModal";
-import { GentleComposerControls } from "./GentleComposerControls";
 import { GlassSurface } from "../../components/ui/GlassSurface";
 import { ComposerEditor, type ComposerEditorHandle } from "../../components/ComposerEditor";
 import { fileRoutePathSegments } from "../files/filePath";
@@ -157,8 +154,6 @@ export interface ThreadComposerProps {
   readonly environmentLabel: string | null;
   readonly threadSyncPhase?: "loading" | "syncing" | null;
   readonly selectedThread: EnvironmentThreadShell;
-  /** The thread's feed, to tell which feature documents it works on. */
-  readonly threadFeed: ReadonlyArray<ThreadFeedEntry>;
   readonly reportedModelSelection?: ModelSelection | null;
   readonly hasCompactableConversation: boolean;
   readonly serverConfig: T3ServerConfig | null;
@@ -195,7 +190,6 @@ export interface ThreadComposerProps {
   readonly onUpdateInteractionMode: (interactionMode: ProviderInteractionMode) => void;
   /** True while the draft is stacked above the controls rather than in the one-row capsule. */
   readonly onExpandedChange?: (expanded: boolean) => void;
-  readonly onGentleControlsVisibilityChange?: (visible: boolean) => void;
   readonly onEditorFocusChange?: (focused: boolean) => void;
 }
 
@@ -435,7 +429,6 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
       ) ?? null
     );
   })();
-  const gentleEnabled = gentleAiEnabled(currentModelSelection.options);
   const openDraftDocument = (attachment: ComposerDocumentAttachment) => {
     Keyboard.dismiss();
     navigation.navigate("ThreadAttachment", {
@@ -483,7 +476,6 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
     pullRequestRepository: project?.repositoryIdentity?.displayName ?? null,
     threadPullRequests: props.selectedThread.pullRequests,
     selectedProviderStatus,
-    gentleEnabled,
     hasThread: true,
     hasCompactableConversation: props.hasCompactableConversation,
     onChangeDraftMessage: props.onChangeDraftMessage,
@@ -643,8 +635,6 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
     currentModelSelection,
     lockedProviderInstanceId,
     props.selectedThread.projectId,
-    false,
-    props.projectCwd,
   );
   const threadProviderGroups = groupByProvider(modelOptions);
   const currentModelOption =
@@ -859,18 +849,6 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
             onPress={openSettings}
           />
         ) : null}
-
-        <GentleComposerControls
-          environmentId={props.environmentId}
-          selectedThread={props.selectedThread}
-          threadFeed={props.threadFeed}
-          projectCwd={props.projectCwd}
-          connectionState={props.connectionState}
-          selectedProviderStatus={selectedProviderStatus}
-          onUpdateModelSelection={props.onUpdateModelSelection}
-          shown={isExpanded && !voiceInput.isBusy}
-          onVisibilityChange={props.onGentleControlsVisibilityChange}
-        />
 
         <ComposerSurface
           style={

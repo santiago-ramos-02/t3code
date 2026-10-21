@@ -6,15 +6,12 @@ import { isOrchestrationV2WorkActive } from "@t3tools/contracts";
 import { ArrowUpLeftIcon } from "lucide-react";
 import { useLayoutEffect, useRef } from "react";
 
-import { cn } from "~/lib/utils";
 import type { ProviderInstanceEntry } from "../../providerInstances";
 import { Button } from "../ui/button";
 import { ProviderInstanceIcon } from "./ProviderInstanceIcon";
 
 export function ProviderSubagentBar(props: {
   readonly provider: ProviderInstanceEntry | null;
-  /** The named agent it runs as, such as Gentle AI's `gentle-ai-worker`. */
-  readonly agentName: string | null;
   readonly showInstanceBadge: boolean;
   readonly modelLabel: string;
   readonly effortLabel: string | null;
@@ -24,12 +21,8 @@ export function ProviderSubagentBar(props: {
   const statusRef = useRef<HTMLSpanElement>(null);
   const { status } = props;
   const live = status !== null && isOrchestrationV2WorkActive(status.status);
-  const modelDescription = [
-    props.effortLabel === null ? props.modelLabel : `${props.modelLabel}, ${props.effortLabel}`,
-    props.agentName,
-  ]
-    .filter((part) => part !== null)
-    .join(" as ");
+  const modelDescription =
+    props.effortLabel === null ? props.modelLabel : `${props.modelLabel}, ${props.effortLabel}`;
   const announcement = formatProviderSubagentStatus(
     status === null ? null : { ...status, startedAt: null },
     0,
@@ -51,12 +44,7 @@ export function ProviderSubagentBar(props: {
 
   return (
     <div className="flex min-h-12 items-center gap-3 rounded-3xl py-2 ps-5 pe-2 text-sm">
-      <span
-        className={cn(
-          "flex min-w-0 items-center gap-2",
-          props.agentName !== null && "max-sm:shrink-0",
-        )}
-      >
+      <span className="flex min-w-0 items-center gap-2">
         {props.provider ? (
           <ProviderInstanceIcon
             driverKind={props.provider.driverKind}
@@ -70,29 +58,9 @@ export function ProviderSubagentBar(props: {
             badgeClassName="right-[-0.125rem] bottom-[-0.125rem] h-3 min-w-3 px-0.5 text-5xs"
           />
         ) : null}
-        <span
-          className={cn(
-            "min-w-0 truncate",
-            props.agentName === null
-              ? "font-medium text-foreground"
-              : "text-muted-foreground max-sm:hidden",
-          )}
-        >
-          {props.modelLabel}
-        </span>
+        <span className="min-w-0 truncate font-medium text-foreground">{props.modelLabel}</span>
         {props.effortLabel === null ? null : (
-          <span
-            className={cn(
-              "shrink-0 text-muted-foreground",
-              props.agentName !== null && "max-sm:hidden",
-            )}
-          >
-            {props.effortLabel}
-          </span>
-        )}
-        {/* The agent's name never truncates; on a narrow screen its model gives way instead. */}
-        {props.agentName === null ? null : (
-          <span className="shrink-0 font-medium text-foreground">{props.agentName}</span>
+          <span className="shrink-0 text-muted-foreground">{props.effortLabel}</span>
         )}
       </span>
       <span

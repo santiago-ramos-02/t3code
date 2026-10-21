@@ -1,4 +1,3 @@
-import { isWorkspaceImagePreviewPath } from "@t3tools/shared/filePreview";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { AgentScope } from "@t3tools/shared/AgentScope";
 import { getModelSelectionStringOptionValue } from "@t3tools/shared/model";
@@ -23,7 +22,6 @@ import {
   type ProviderApprovalDecision,
   type ProviderInstanceId,
   type OrchestrationV2ProviderTurnTokenUsage,
-  type TurnTokenUsage,
 } from "@t3tools/contracts";
 import { PiSettings } from "../settings.ts";
 import * as Cause from "effect/Cause";
@@ -49,12 +47,6 @@ import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ProviderContinuationRequests from "@t3tools/provider-core/server/ProviderContinuationRequests";
-import {
-  noPiGentle,
-  PiGentleHooks,
-  type PiGentle,
-  type PiGentleHooksShape,
-} from "./gentleHooks.ts";
 import {
   ProviderAdapterDriverCreateError,
   type ProviderAdapterDriver,
@@ -205,8 +197,6 @@ export interface PiAdapterV2Options {
       request: ProviderContinuationRequests.ProviderContinuationRequest,
     ) => Effect.Effect<void>;
   };
-  /** Gentle AI's additions (see gentleHooks.ts); none leaves the adapter as upstream's. */
-  readonly gentleHooks?: PiGentleHooksShape;
 }
 
 function contentText(content: unknown): string {
@@ -377,10 +367,6 @@ interface ActivePiTurn {
   readonly promptMayBeCommandOnly: boolean;
   latestCompactionAfterTokens: number | null;
   lastLiveUsedTokens: number | null;
-  /** How long the cache the turn's latest writing model call left lives, when its usage says. */
-  cacheTtlSeconds: number | undefined;
-  /** The turn's model calls added up, from each assistant message Pi ends; null before one. */
-  callUsage: PiCallUsage | null;
   settleProbeGeneration: number;
   /** An extension may start compaction immediately after Pi emits agent_settled. */
   settleWhenIdle: boolean;
@@ -391,48 +377,6 @@ interface ActivePiTurn {
   failure: ReturnType<typeof makeProviderFailure> | null;
   rejectedPromptFailure: ReturnType<typeof makeProviderFailure> | null;
   stopTreeRefs?: PiTurnTreeRefs | null;
-}
-
-/** Token counts as Pi reports them per model call: `input` leaves out cache reads and writes. */
-interface PiCallUsage {
-  readonly input: number;
-  readonly output: number;
-  readonly cacheRead: number;
-  readonly cacheWrite: number;
-}
-
-function nonNegativeInteger(input: unknown, key: string): number | undefined {
-  const value = recordNumber(input, key);
-  return value === undefined ? undefined : Math.max(0, Math.trunc(value));
-}
-
-/** Adds a model call's usage to the turn's, or keeps it when the call reported none. */
-function addPiCallUsage(total: PiCallUsage | null, usage: unknown): PiCallUsage | null {
-  const input = nonNegativeInteger(usage, "input");
-  const output = nonNegativeInteger(usage, "output");
-  if (input === undefined || output === undefined) return total;
-  const cacheRead = nonNegativeInteger(usage, "cacheRead") ?? 0;
-  const cacheWrite = nonNegativeInteger(usage, "cacheWrite") ?? 0;
-  return {
-    input: (total?.input ?? 0) + input,
-    output: (total?.output ?? 0) + output,
-    cacheRead: (total?.cacheRead ?? 0) + cacheRead,
-    cacheWrite: (total?.cacheWrite ?? 0) + cacheWrite,
-  };
-}
-
-/** The turn's usage in the shape every provider reports, where input counts the cache too. */
-function piTurnTokenUsage(usage: PiCallUsage): TurnTokenUsage {
-  return {
-    usageStatus: "complete",
-    usageScope: "main_agent",
-    // gentle-pi subagents run in their own Pi processes, so the main agent's calls are all here.
-    hasSubagents: false,
-    inputTokens: usage.input + usage.cacheRead + usage.cacheWrite,
-    cachedInputTokens: usage.cacheRead,
-    cacheCreationTokens: usage.cacheWrite,
-    outputTokens: usage.output,
-  };
 }
 
 interface PiTurnTreeRefs {
@@ -530,21 +474,18 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         extensionPath,
         runtimeMode: input.runtimePolicy.runtimeMode,
       });
-      const baseLaunch = { args: launch.args, environment: launch.env, cwd };
-      const prepareSession = options.gentleHooks?.prepareSession;
-      const sessionLaunch = prepareSession ? yield* prepareSession(input, baseLaunch) : baseLaunch;
       const scopedLaunch = yield* agentScope.wrap({
         command: options.settings.binaryPath || "pi",
-        args: sessionLaunch.args,
+        args: launch.args,
         name: "pi",
         threadId: input.threadId,
-        env: sessionLaunch.environment,
+        env: launch.env,
       });
       const connection: PiRpcConnection = yield* makePiRpcConnection({
         command: scopedLaunch.command,
         args: scopedLaunch.args,
         cwd,
-        env: sessionLaunch.environment,
+        env: launch.env,
       }).pipe(
         Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
         Effect.mapError(
@@ -684,6 +625,11 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
       const request = (record: PiRpcRecord, timeoutMs = PI_REQUEST_TIMEOUT_MS) =>
         connection.request(record, timeoutMs);
 
+      const nonNegativeInteger = (input: unknown, key: string): number | undefined => {
+        const value = recordNumber(input, key);
+        return value === undefined ? undefined : Math.max(0, Math.trunc(value));
+      };
+
       const rememberModelContextWindow = (model: unknown): number | null => {
         const provider = recordString(model, "provider");
         const id = recordString(model, "id");
@@ -717,7 +663,6 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         stats: unknown,
         fallbackUsedTokens: number | null,
         updatedAt: DateTime.Utc,
-        cacheTtlSeconds: number | undefined,
       ): OrchestrationV2ProviderTurnTokenUsage | undefined => {
         const contextUsage = recordField(stats, "contextUsage");
         const maxTokens = nonNegativeInteger(contextUsage, "contextWindow");
@@ -736,20 +681,13 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
           ...(inputTokens === undefined ? {} : { inputTokens }),
           ...(cachedInputTokens === undefined ? {} : { cachedInputTokens }),
           ...(outputTokens === undefined ? {} : { outputTokens }),
-          ...(cacheTtlSeconds === undefined ? {} : { promptCacheTtlMs: cacheTtlSeconds * 1000 }),
           updatedAt: DateTime.formatIso(updatedAt),
         };
       };
 
-      const readTokenUsage = (
-        fallbackUsedTokens: number | null,
-        updatedAt: DateTime.Utc,
-        cacheTtlSeconds: number | undefined,
-      ) =>
+      const readTokenUsage = (fallbackUsedTokens: number | null, updatedAt: DateTime.Utc) =>
         request({ type: "get_session_stats" }, 2_000).pipe(
-          Effect.map((stats) =>
-            tokenUsageFromStats(stats, fallbackUsedTokens, updatedAt, cacheTtlSeconds),
-          ),
+          Effect.map((stats) => tokenUsageFromStats(stats, fallbackUsedTokens, updatedAt)),
           Effect.orElseSucceed(() => undefined),
         );
 
@@ -786,9 +724,6 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
                 ...(inputTokens === undefined ? {} : { inputTokens }),
                 ...(cachedInputTokens === undefined ? {} : { cachedInputTokens }),
                 ...(outputTokens === undefined ? {} : { outputTokens }),
-                ...(turn.cacheTtlSeconds === undefined
-                  ? {}
-                  : { promptCacheTtlMs: turn.cacheTtlSeconds * 1000 }),
                 updatedAt: DateTime.formatIso(updatedAt),
               },
             },
@@ -1124,16 +1059,6 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
             return;
           }
         }
-        // read returns an image as a base64 block the stored text output drops,
-        // so clients preview the file it viewed instead.
-        const readPath = toolName === "read" ? recordString(args, "path") : undefined;
-        const viewedImagePath =
-          readPath !== undefined &&
-          readPath.length <= 4096 &&
-          !/[\r\n]/.test(readPath) &&
-          isWorkspaceImagePreviewPath(readPath)
-            ? readPath
-            : undefined;
         const output = piToolOutput(resultRecord, toolName);
         yield* emit({
           type: "turn_item.updated",
@@ -1144,7 +1069,6 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
             type: "dynamic_tool",
             ...mcpToolPresentation({ toolName }),
             toolName,
-            ...(viewedImagePath === undefined ? {} : { viewedImagePath }),
             input: args ?? {},
             ...(output === undefined ? {} : { output }),
           },
@@ -1152,7 +1076,6 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         if (toolName === "subagent") {
           yield* emitSubagentTasks(turn, toolCallId, resultRecord, completed);
         }
-        yield* gentle.onToolResult(turn, toolName, recordField(resultRecord, "details"), completed);
       });
 
       const emitSubagentTasks = Effect.fnUntraced(function* (
@@ -1245,18 +1168,6 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         }
       });
 
-      // gentle-pi's subagents, todo list and wake-ups (fork-owned, see PiGentle).
-      const gentle: PiGentle<ActivePiTurn> =
-        options.gentleHooks?.makeGentle?.<ActivePiTurn>({
-          driver: PI_PROVIDER,
-          instanceId: options.instanceId,
-          idAllocator,
-          emit,
-          threadState: () => threadState,
-          updateProviderThread,
-          itemOrdinal,
-        }) ?? noPiGentle;
-
       const cancelPrompt = Effect.fn("PiAdapter.cancelPrompt")(function* (
         pending: PendingPiPrompt,
         resolvedAt: DateTime.Utc,
@@ -1311,7 +1222,6 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         const method = recordString(event, "method");
         const nativeRequestId = recordString(event, "id");
         if (method === undefined) return;
-        if (yield* gentle.onExtensionUiRequest(event)) return;
         if (method === "notify") {
           const state = threadState;
           const turn = state?.activeTurn ?? null;
@@ -1567,7 +1477,6 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         const turn = state.activeTurn;
         if (turn === null) return;
         state.activeTurn = null;
-        gentle.onTurnFinalized(turn);
         const interrupted = turn.interrupted || turn.nativeAborted;
         const completedAt = yield* DateTime.now;
         yield* completeOpenStreamItems(turn);
@@ -1589,11 +1498,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         const treeRefs =
           turn.stopTreeRefs !== undefined ? turn.stopTreeRefs : yield* captureTurnTreeRefs();
         const tokenUsage = readUsage
-          ? yield* readTokenUsage(
-              turn.latestCompactionAfterTokens,
-              completedAt,
-              turn.cacheTtlSeconds,
-            )
+          ? yield* readTokenUsage(turn.latestCompactionAfterTokens, completedAt)
           : undefined;
         const failure = interrupted ? null : (turn.rejectedPromptFailure ?? turn.failure);
         yield* emit({
@@ -1608,9 +1513,6 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
             status: interrupted ? "interrupted" : failure !== null ? "failed" : "completed",
             completedAt,
             ...(tokenUsage === undefined ? {} : { tokenUsage }),
-            ...(turn.callUsage === null
-              ? {}
-              : { turnTokenUsage: piTurnTokenUsage(turn.callUsage) }),
           },
         });
         yield* updateProviderThread(
@@ -1770,7 +1672,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
                   threadId: state.providerThread.appThreadId,
                   providerThreadId: state.providerThread.id,
                   driver: PI_PROVIDER,
-                  ...(gentle.describeWake() ?? { detail: null }),
+                  detail: null,
                   delivery: "adapter_buffered",
                   dispatchIfCurrent: (dispatch) =>
                     sessionEventPermit.withPermits(1)(
@@ -1842,22 +1744,6 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
             if (turn === null) return;
             const message = event["message"];
             if (recordString(message, "role") !== "assistant") return;
-            const usage = recordField(message, "usage");
-            turn.callUsage = addPiCallUsage(turn.callUsage, usage);
-            const callCacheTtlSeconds = options.gentleHooks?.callCacheTtlSeconds;
-            if (callCacheTtlSeconds !== undefined) {
-              turn.cacheTtlSeconds =
-                (yield* callCacheTtlSeconds(
-                  {
-                    cacheWrite: nonNegativeInteger(usage, "cacheWrite"),
-                    cacheWrite1h: nonNegativeInteger(usage, "cacheWrite1h"),
-                  },
-                  {
-                    provider: recordString(message, "provider"),
-                    model: recordString(message, "model"),
-                  },
-                )) ?? turn.cacheTtlSeconds;
-            }
             yield* completeOpenStreamItems(turn);
             if (recordString(message, "stopReason") === "error" && turn.failure === null) {
               turn.failure = makeProviderFailure({
@@ -2291,7 +2177,6 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
           // Even a failed lifecycle operation can change Pi's native session.
           // Never leave the old app binding or model defaults usable afterward.
           threadState = null;
-          gentle.reset();
           appliedModel = null;
           appliedThinking = null;
           appliedSessionName = null;
@@ -2477,16 +2362,11 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
           return sessionEntity;
         },
         events: Stream.fromQueue(events),
-        hasPendingBackgroundWork: Effect.gen(function* () {
-          return pendingWake !== null || (yield* gentle.hasPendingBackgroundWork);
-        }),
+        hasPendingBackgroundWork: Effect.sync(() => pendingWake !== null),
         hasPendingBackgroundWorkForThread: (providerThread) =>
-          Effect.gen(function* () {
-            return (
-              (pendingWake !== null && pendingWake.state.providerThread.id === providerThread.id) ||
-              (yield* gentle.hasPendingBackgroundWorkForThread(providerThread))
-            );
-          }),
+          Effect.sync(
+            () => pendingWake !== null && pendingWake.state.providerThread.id === providerThread.id,
+          ),
         getModelContextWindow: (selection) => {
           if (selection.instanceId !== options.instanceId) return undefined;
           const slug =
@@ -2617,8 +2497,6 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
                 compactCommand !== null || (payload?.message.trimStart().startsWith("/") ?? false),
               latestCompactionAfterTokens: null,
               lastLiveUsedTokens: null,
-              cacheTtlSeconds: undefined,
-              callUsage: null,
               settleProbeGeneration: 0,
               settleWhenIdle: false,
               sawCompaction: false,
@@ -2649,7 +2527,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
                 return yield* protocolError("Pi native wake belongs to a different app thread");
               }
               pendingWake = null;
-              state.providerThread = gentle.withRoster(turnInput.providerThread);
+              state.providerThread = turnInput.providerThread;
               state.activeTurn = activeTurn;
               activeTurn.adoptedWake = wake !== null && !continuation;
               if (compactCommand !== null) {
@@ -3485,13 +3363,11 @@ export const PiAdapterV2Driver: ProviderAdapterDriver<PiSettings, PiAdapterV2Dri
     function* (input: ProviderAdapterDriverCreateInput<PiSettings>) {
       const hostEnvironment = yield* HostProcess.Environment;
       const continuationRequests = yield* ProviderContinuationRequests.ProviderContinuationRequests;
-      const gentleHooks = yield* PiGentleHooks;
       return yield* makePiAdapterV2({
         instanceId: input.instanceId,
         settings: { ...input.config, enabled: input.enabled },
         environment: yield* mergeProviderInstanceEnvironment(input.environment, hostEnvironment),
         continuationRequests,
-        gentleHooks,
       });
     },
     (effect, input) =>

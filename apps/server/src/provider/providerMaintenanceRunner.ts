@@ -7,19 +7,13 @@ import {
   type ServerProviderUpdatedPayload,
   type ServerProviderUpdateState,
 } from "@t3tools/contracts";
-import {
-  CommandResolutionCache,
-  resolveCommandPath,
-  resolveSpawnCommand,
-} from "@t3tools/shared/shell";
+import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Data from "effect/Data";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
-import * as FileSystem from "effect/FileSystem";
-import * as Path from "effect/Path";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
@@ -248,17 +242,14 @@ function commandOutput(result: ProviderMaintenanceCommandResult): string | null 
   return truncateText(output, UPDATE_OUTPUT_MAX_BYTES);
 }
 
-function failureMessage(
-  result: ProviderMaintenanceCommandResult,
-  verb: "Install" | "Update",
-): string {
+function failureMessage(result: ProviderMaintenanceCommandResult): string {
   if (result.timedOut) {
-    return `${verb} timed out.`;
+    return "Update timed out.";
   }
   if (result.exitCode !== null && result.exitCode !== 0) {
-    return `${verb} command exited with code ${result.exitCode}.`;
+    return `Update command exited with code ${result.exitCode}.`;
   }
-  return `${verb} command failed.`;
+  return "Update command failed.";
 }
 
 function isOutdatedProvider(provider: ServerProvider | undefined): boolean {
@@ -291,8 +282,6 @@ export const make = Effect.fn("ProviderMaintenanceRunner.make")(function* () {
   const manifestService = yield* ModelManifest.ModelManifest;
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const httpClient = yield* HttpClient.HttpClient;
-  const fileSystem = yield* FileSystem.FileSystem;
-  const path = yield* Path.Path;
   const latestVersions = yield* ProviderLatestVersions.ProviderLatestVersions;
   const runMaintenanceCommand = (
     update: ProviderMaintenanceCommandAction,
@@ -381,22 +370,6 @@ export const make = Effect.fn("ProviderMaintenanceRunner.make")(function* () {
       return yield* new ServerProviderUpdateError({
         provider,
         reason: "This provider does not support one-click updates.",
-      });
-    }
-    // A missing provider is installed with the same pipeline; only the wording differs.
-    const verb = update.installs ? "Install" : "Update";
-    if (
-      update.installs &&
-      (yield* resolveCommandPath("npm").pipe(
-        Effect.provideService(FileSystem.FileSystem, fileSystem),
-        Effect.provideService(Path.Path, path),
-        Effect.orElseSucceed(() => null),
-      )) === null
-    ) {
-      return yield* new ServerProviderUpdateError({
-        provider,
-        reason:
-          "Installing it needs npm on this environment. Install Node.js, which includes npm, then try again.",
       });
     }
 
@@ -506,14 +479,12 @@ export const make = Effect.fn("ProviderMaintenanceRunner.make")(function* () {
                   status: "failed",
                   startedAt,
                   finishedAt,
-                  message: failureMessage(result, verb),
+                  message: failureMessage(result),
                   output: commandOutput(result),
                 }),
               );
             }
 
-            // A provider that was missing a moment ago is cached as not found; look again.
-            if (update.installs) (yield* CommandResolutionCache).clear();
             yield* setRunningMessage("Verifying the installed version");
             const verified = yield* providerRegistry.getProviderMaintenanceCapabilitiesForInstance(
               instanceId,
@@ -555,14 +526,10 @@ export const make = Effect.fn("ProviderMaintenanceRunner.make")(function* () {
                 startedAt,
                 finishedAt,
                 message: couldNotVerify
-                  ? update.installs
-                    ? "Install command completed, but T3 Code could not find the provider. Its folder may not be on this environment's PATH."
-                    : "Update command completed, but T3 Code could not verify the provider version."
+                  ? "Update command completed, but T3 Code could not verify the provider version."
                   : stillOutdated
                     ? "Update command completed, but T3 Code still detects an outdated provider version."
-                    : update.installs
-                      ? "Provider installed."
-                      : "Provider updated.",
+                    : "Provider updated.",
                 output: commandOutput(result),
               }),
             );

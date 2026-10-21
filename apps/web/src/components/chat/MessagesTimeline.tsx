@@ -71,7 +71,6 @@ import { toolActivityFaviconUrl } from "@t3tools/shared/favicon";
 import { formatDuration } from "@t3tools/shared/orchestrationTiming";
 import { getProjectFaviconCacheKey } from "@t3tools/shared/projectFavicon";
 import { claudeSkillInvocation, isJavaScriptReplTool } from "@t3tools/shared/toolActivity";
-import { MemoryToolLink } from "../memory/MemoryToolLink";
 import { observeVisibleAnimation } from "../../lib/visibleAnimation";
 import {
   createContext,
@@ -515,11 +514,6 @@ interface MessagesTimelineProps {
    * the user drifts near the bottom.
    */
   liveFollowEnabled: boolean;
-  /**
-   * Reads ChatView's live-follow latch. A navigation gesture releases it
-   * synchronously, before `liveFollowEnabled` re-renders.
-   */
-  isLiveFollowLatched: () => boolean;
   onContentOverflowChange?: (overflows: boolean) => void;
   onToolOutputCollapsedAtEnd?: () => void;
   onManualNavigation: () => void;
@@ -616,7 +610,6 @@ const ConversationTimeline = memo(function ConversationTimeline({
   onIsAtEndChange,
   onContentOverflowChange,
   liveFollowEnabled,
-  isLiveFollowLatched,
   onToolOutputCollapsedAtEnd,
   onManualNavigation,
   cancelPositionRestoreRef,
@@ -1213,9 +1206,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
               workGroupState: workGroupViewState,
             },
           },
-          // A gesture that released follow before this render caught up
-          // leaves a real reading position, not the follow scroll's trail.
-          liveFollowEnabled && isLiveFollowLatched() && !anchoredEndSpace,
+          liveFollowEnabled && !anchoredEndSpace,
         );
       }
     }
@@ -5626,15 +5617,6 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
             >
               Open chat
             </button>
-          ) : null}
-          {payload?.type === "dynamic_tool" && threadRef ? (
-            <MemoryToolLink
-              threadRef={threadRef}
-              toolName={payload.toolName}
-              input={payload.input}
-              output={payload.output}
-              onKeyDown={stopRowToggle}
-            />
           ) : null}
           {notifiedSubagentThreadId ? (
             <InlineButton

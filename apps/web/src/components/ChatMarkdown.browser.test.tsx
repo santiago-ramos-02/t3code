@@ -1099,17 +1099,6 @@ describe("ChatMarkdown Windows file links", () => {
     }
   });
 
-  it("keeps the backslash before a dot folder in a Windows link", async () => {
-    setup();
-    for (const parseRawHtml of [true, false]) {
-      await using screen = await renderWindows(
-        String.raw`[Config](C:\Users\shawn\project\.t3\settings.json)`,
-        parseRawHtml,
-      );
-      expect(fileHrefs(screen.container)).toEqual(["C:/Users/shawn/project/.t3/settings.json"]);
-    }
-  });
-
   it("distinguishes same-named backslash paths but not the same file twice", async () => {
     setup();
     for (const parseRawHtml of [true, false]) {

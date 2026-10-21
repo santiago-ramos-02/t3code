@@ -55,7 +55,6 @@ import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 
 import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
-import { OpenCodeGentleHooks, type OpenCodeGentleHooksShape } from "./gentleHooks.ts";
 import { mcpToolPresentation } from "@t3tools/provider-core/server/mcpToolPresentation";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEventLoggers";
@@ -427,8 +426,6 @@ export interface OpenCodeAdapterV2Options {
   readonly settings: OpenCodeSettings;
   readonly environment: NodeJS.ProcessEnv;
   readonly nativeEventLogger?: ProviderEventLoggers.EventNdjsonLogger;
-  /** Adjusts the server launch for one session. */
-  readonly prepareSession?: OpenCodeGentleHooksShape["prepareSession"];
 }
 
 export interface OpenCodeProtocolLogEvent {
@@ -946,18 +943,11 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
       function* (input: ProviderAdapter.ProviderAdapterV2OpenSessionInput) {
         const scope = yield* Effect.scope;
         const cwd = input.runtimePolicy.cwd ?? host.paths.cwd;
-        const baseLaunch = {
-          environment: options.environment,
-          serverUrl: options.settings.serverUrl,
-        };
-        const launch = options.prepareSession
-          ? yield* options.prepareSession(input, baseLaunch)
-          : baseLaunch;
         const connection = yield* runtime.connectToOpenCodeServer({
           binaryPath: options.settings.binaryPath,
           directory: cwd,
-          serverUrl: launch.serverUrl,
-          environment: launch.environment,
+          serverUrl: options.settings.serverUrl,
+          environment: options.environment,
         });
         const client = runtime.createOpenCodeSdkClient({
           baseUrl: connection.url,
@@ -3732,7 +3722,6 @@ export const OpenCodeAdapterV2Driver: ProviderAdapterDriver<
     function* (input: ProviderAdapterDriverCreateInput<OpenCodeSettings>) {
       const hostEnvironment = yield* HostProcess.Environment;
       const providerEventLoggers = yield* ProviderEventLoggers.ProviderEventLoggers;
-      const { prepareSession } = yield* OpenCodeGentleHooks;
       return yield* makeOpenCodeAdapterV2({
         instanceId: input.instanceId,
         settings: { ...input.config, enabled: input.enabled },
@@ -3740,7 +3729,6 @@ export const OpenCodeAdapterV2Driver: ProviderAdapterDriver<
         ...(providerEventLoggers.native === undefined
           ? {}
           : { nativeEventLogger: providerEventLoggers.native }),
-        ...(prepareSession === undefined ? {} : { prepareSession }),
       });
     },
     (effect, input) =>

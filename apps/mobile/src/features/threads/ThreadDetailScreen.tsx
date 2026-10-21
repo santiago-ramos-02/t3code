@@ -611,10 +611,7 @@ export const ThreadDetailScreen = function ThreadDetailScreen(props: ThreadDetai
     ) ||
     (props.historyControls?.hasMoreHistory === true &&
       props.selectedThread.latestUserMessageAt !== null);
-  const [gentleControlsVisible, setGentleControlsVisible] = useState(false);
-  const composerChrome = composerExpanded
-    ? COMPOSER_EXPANDED_CHROME + (gentleControlsVisible ? 48 : 0)
-    : COMPOSER_COLLAPSED_CHROME;
+  const composerChrome = composerExpanded ? COMPOSER_EXPANDED_CHROME : COMPOSER_COLLAPSED_CHROME;
   const composerOverlapHeight = composerChrome + composerBottomInset;
   const [collapsedUserInputRequestId, setCollapsedUserInputRequestId] =
     useState<RuntimeRequestId | null>(null);
@@ -1372,7 +1369,6 @@ export const ThreadDetailScreen = function ThreadDetailScreen(props: ThreadDetai
                     >
                       <ProviderSubagentBar
                         provider={providerSubagentProvider ?? null}
-                        agentName={props.selectedThread.lineage.agentName ?? null}
                         modelLabel={
                           providerSubagentCatalogModel?.name ??
                           formatModelSlugName(props.selectedThread.modelSelection.model)
@@ -1411,7 +1407,6 @@ export const ThreadDetailScreen = function ThreadDetailScreen(props: ThreadDetai
                         connectionState={props.connectionStateLabel}
                         environmentLabel={props.environmentLabel}
                         selectedThread={props.selectedThread}
-                        threadFeed={props.selectedThreadFeed}
                         hasCompactableConversation={
                           hasCompactableConversation && !props.isCompacting
                         }
@@ -1460,7 +1455,6 @@ export const ThreadDetailScreen = function ThreadDetailScreen(props: ThreadDetai
                         onUpdateInteractionMode={props.onUpdateThreadInteractionMode}
                         onExpandedChange={setComposerExpanded}
                         onEditorFocusChange={handleComposerFocusChange}
-                        onGentleControlsVisibilityChange={setGentleControlsVisible}
                       />
                     </>
                   )}

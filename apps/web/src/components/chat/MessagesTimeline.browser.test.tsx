@@ -79,7 +79,6 @@ function baseProps(): Omit<TimelineProps, "timelineEntries"> {
     contentInsetEndAdjustment: 0,
     emptyPlaceholderInset: 0,
     liveFollowEnabled: true,
-    isLiveFollowLatched: () => true,
     onIsAtEndChange: () => {},
     onManualNavigation: () => {},
   };
@@ -1552,51 +1551,6 @@ describe("MessagesTimeline scroll position", () => {
     await vi.waitFor(() =>
       expect(Math.abs(reopenedViewport.scrollTop - offset)).toBeLessThanOrEqual(1),
     );
-  });
-
-  it("remembers a live-following thread at the end while the follow scroll trails output", async () => {
-    let latched = true;
-    const props = { ...baseProps(), isLiveFollowLatched: () => latched };
-    const entries = [...tallEntries, message("Newest send", {}, "newest-send")];
-    const timeline = (liveFollowEnabled: boolean, anchorMessageId: MessageId | null = null) => (
-      <MessagesTimeline
-        {...props}
-        timelineEntries={entries}
-        liveFollowEnabled={liveFollowEnabled}
-        anchorMessageId={anchorMessageId}
-      />
-    );
-    await using screen = await renderElement(timeline(true));
-    const viewport = await waitForList(props);
-    const remembered = () => readTimelinePosition(props.routeThreadKey);
-    // The wheel scrolls the real list away from the end, as streamed output
-    // does while the follow scroll trails behind it.
-    const scrollUp = async () => {
-      await userEvent.wheel(viewport, { delta: { y: -200 } });
-      await vi.waitFor(() => expect(remembered()?.scrollOffset).toBe(viewport.scrollTop));
-    };
-
-    await scrollUp();
-    expect(remembered()?.atEnd).toBe(true);
-
-    // A gesture releases the latch before the next render turns follow off.
-    latched = false;
-    await scrollUp();
-    expect(remembered()?.atEnd).toBe(false);
-    latched = true;
-    await scrollUp();
-    expect(remembered()?.atEnd).toBe(true);
-
-    // Once the user scrolls away, the same offset is a reading position.
-    await screen.rerender(timeline(false));
-    await vi.waitFor(() =>
-      expect(remembered()).toMatchObject({ atEnd: false, scrollOffset: viewport.scrollTop }),
-    );
-
-    // A first send anchored near the top is not following the end either.
-    await screen.rerender(timeline(true, MessageId.make("newest-send")));
-    await scrollUp();
-    expect(remembered()?.atEnd).toBe(false);
   });
 
   it("restores the composer after closing tool output only at the end", async () => {

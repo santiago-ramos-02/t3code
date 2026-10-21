@@ -212,19 +212,6 @@ function SettingsIndexSections() {
           target="SettingsEnvironmentMaintenance"
           disabled={noServerTargets}
         />
-        {/* Gentle AI's screen installs it where it is missing, so it is always listed. */}
-        <SettingsRow
-          icon="slider.horizontal.3"
-          label="Gentle AI"
-          target="SettingsGentleAi"
-          disabled={noServerTargets}
-        />
-        <SettingsRow
-          icon="arrow.triangle.branch"
-          label="CLIProxyAPI"
-          target="SettingsCliProxy"
-          disabled={noServerTargets}
-        />
       </SettingsSection>
 
       <SettingsSection title="App">

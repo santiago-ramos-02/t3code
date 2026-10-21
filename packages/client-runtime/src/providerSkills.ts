@@ -114,61 +114,16 @@ export function hasCurrentProviderWorkspaceSnapshot(
   );
 }
 
-export function resolveProviderSkillsForCwd(
-  provider: ServerProvider,
-  cwd: string | null | undefined,
-): ServerProvider["skills"] {
-  return resolveProviderWorkspaceSnapshot(provider, cwd)?.skills ?? provider.skills;
-}
-
-export function resolveProviderSlashCommandsForCwd(
-  provider: ServerProvider,
-  cwd: string | null | undefined,
-): ServerProvider["slashCommands"] {
-  return resolveProviderWorkspaceSnapshot(provider, cwd)?.slashCommands ?? provider.slashCommands;
-}
-
-export function resolveProviderModelsForCwd(
-  provider: ServerProvider,
-  cwd: string | null | undefined,
-): ServerProvider["models"] {
-  return resolveProviderWorkspaceSnapshot(provider, cwd)?.models ?? provider.models;
-}
-
-function withProjectModels(
-  provider: ServerProvider,
-  models: ServerProvider["models"],
-): ServerProvider {
-  if (provider.driver !== "pi" || !provider.installed || provider.status === "error") {
-    return { ...provider, models };
-  }
-  const upstreamCount = new Set(
-    models.flatMap((model) => (!model.isCustom && model.subProvider ? [model.subProvider] : [])),
-  ).size;
-  return {
-    ...provider,
-    models,
-    status: upstreamCount > 0 ? "ready" : "warning",
-    auth: { status: "unknown" },
-    message:
-      upstreamCount > 0
-        ? `${upstreamCount} model provider${upstreamCount === 1 ? "" : "s"} in this project.`
-        : "Pi found no available models in this project. Connect a model provider in Pi, then refresh status.",
-  };
-}
-
 export function resolveProviderForCwd(
   provider: ServerProvider,
   cwd: string | null | undefined,
 ): ServerProvider {
-  const snapshot = resolveProviderWorkspaceSnapshot(provider, cwd);
-  const scoped = snapshot?.models ? withProjectModels(provider, snapshot.models) : provider;
-  const descriptors = snapshot?.optionDescriptors;
-  if (descriptors === undefined) return scoped;
+  const descriptors = resolveProviderWorkspaceSnapshot(provider, cwd)?.optionDescriptors;
+  if (descriptors === undefined) return provider;
   const overriddenIds = new Set(descriptors.map((descriptor) => descriptor.id));
   return {
-    ...scoped,
-    models: scoped.models.map((model) => ({
+    ...provider,
+    models: provider.models.map((model) => ({
       ...model,
       capabilities: {
         ...model.capabilities,
@@ -181,4 +136,18 @@ export function resolveProviderForCwd(
       },
     })),
   };
+}
+
+export function resolveProviderSkillsForCwd(
+  provider: ServerProvider,
+  cwd: string | null | undefined,
+): ServerProvider["skills"] {
+  return resolveProviderWorkspaceSnapshot(provider, cwd)?.skills ?? provider.skills;
+}
+
+export function resolveProviderSlashCommandsForCwd(
+  provider: ServerProvider,
+  cwd: string | null | undefined,
+): ServerProvider["slashCommands"] {
+  return resolveProviderWorkspaceSnapshot(provider, cwd)?.slashCommands ?? provider.slashCommands;
 }
