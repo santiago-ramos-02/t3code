@@ -3,6 +3,7 @@ import {
   BoatMachine,
   BoatSettings,
   DEFAULT_BOAT_SETTINGS,
+  boatMachineLabel,
   type BoatConfigureInput,
   type BoatMachineActionInput,
   type BoatSpawnInput,
@@ -40,6 +41,11 @@ const T3_SERVE = `sh -lc 'exec ${T3_COMMAND} serve --host 0.0.0.0 --port ${BOAT_
 const T3_UP = `curl -sf -o /dev/null http://127.0.0.1:${BOAT_T3_PORT}/`;
 const T3_WAIT = `for i in $(seq 1 120); do ${T3_UP} && exit 0; sleep 1; done; exit 1`;
 const T3_PAIRING = `sh -lc '${T3_COMMAND} auth pairing create --json'`;
+
+// T3 Code reads its name from /etc/machine-info at startup. Best effort: without it the machine
+// keeps Boat's hostname as its name.
+const setMachineLabel = (label: string) =>
+  `printf 'PRETTY_HOSTNAME="%s"\\n' '${label}' | (sudo -n tee /etc/machine-info || tee /etc/machine-info) >/dev/null 2>&1; true`;
 
 const PersistedState = Schema.Struct({
   settings: BoatSettings,
@@ -133,12 +139,16 @@ export const make = Effect.gen(function* () {
 
   const waitUntilReady = (boat: BoatApi, sandboxId: string) =>
     boat.getSandbox(sandboxId).pipe(
-      Effect.flatMap((sandbox) =>
-        BOAT_READY_STATES.has(sandbox.state)
-          ? Effect.void
-          : BOAT_FAILED_STATES.has(sandbox.state)
-            ? Effect.fail(fail(`The Boat machine stopped while starting (${sandbox.state}).`))
-            : Effect.fail(fail("The Boat machine is still starting.")),
+      Effect.flatMap(
+        Option.match({
+          onNone: () => Effect.fail(fail("The Boat machine disappeared while starting.")),
+          onSome: (sandbox) =>
+            BOAT_READY_STATES.has(sandbox.state)
+              ? Effect.void
+              : BOAT_FAILED_STATES.has(sandbox.state)
+                ? Effect.fail(fail(`The Boat machine stopped while starting (${sandbox.state}).`))
+                : Effect.fail(fail("The Boat machine is still starting.")),
+        }),
       ),
       Effect.retry({
         while: (error) => error.detail === "The Boat machine is still starting.",
@@ -147,11 +157,18 @@ export const make = Effect.gen(function* () {
       }),
     );
 
-  const startT3 = Effect.fn("BoatMachines.startT3")(function* (boat: BoatApi, sandboxId: string) {
+  const startT3 = Effect.fn("BoatMachines.startT3")(function* (
+    boat: BoatApi,
+    machine: BoatMachine,
+  ) {
+    const { sandboxId } = machine;
     const probe = yield* boat.runCommand(sandboxId, {
       command: `${T3_UP} && echo up || echo down`,
     });
-    if (probe.stdout.trim() !== "up") yield* boat.startDetached(sandboxId, T3_SERVE);
+    if (probe.stdout.trim() !== "up") {
+      yield* boat.runCommand(sandboxId, { command: setMachineLabel(boatMachineLabel(machine)) });
+      yield* boat.startDetached(sandboxId, T3_SERVE);
+    }
     const waited = yield* boat.runCommand(sandboxId, { command: T3_WAIT, timeoutSeconds: 150 });
     if (waited.exitCode !== 0) {
       return yield* fail("T3 Code did not start on the Boat machine within two minutes.");
@@ -166,6 +183,21 @@ export const make = Effect.gen(function* () {
     return { httpBaseUrl, pairingCredential: credential.value.credential };
   });
 
+  // A machine no client can reach would bill until Boat's TTL stops it, so it is deleted. When
+  // Boat refuses, the user sees why and can delete it from Settings.
+  const discard = (boat: BoatApi, machine: BoatMachine, reason: string) =>
+    boat.deleteSandbox(machine.sandboxId).pipe(
+      Effect.andThen(dropMachine(machine.sandboxId)),
+      Effect.catch((error) =>
+        putMachine({
+          ...machine,
+          state: "failed",
+          problem: `${reason} T3 Code could not delete it (${error.detail}); Boat stops it within two hours.`,
+        }),
+      ),
+      Effect.ignore,
+    );
+
   const spawn = Effect.fn("BoatMachines.spawn")(function* (input: BoatSpawnInput) {
     const boat = yield* api;
     const { settings } = yield* SubscriptionRef.get(state);
@@ -175,31 +207,49 @@ export const make = Effect.gen(function* () {
       from: settings.template,
       ttlSeconds: BOAT_MACHINE_TTL_SECONDS,
     });
-    const createdAt = DateTime.formatIso(yield* DateTime.now);
     const starting: BoatMachine = {
       sandboxId: sandbox.id,
       size,
       state: "starting",
       httpBaseUrl: null,
-      createdAt,
+      createdAt: DateTime.formatIso(yield* DateTime.now),
       problem: null,
     };
-    yield* putMachine(starting);
-    const started = yield* waitUntilReady(boat, sandbox.id).pipe(
-      Effect.andThen(startT3(boat, sandbox.id)),
-      // A machine that never reached T3 Code would bill until Boat stops it; delete it now.
-      Effect.tapError(() =>
-        boat.deleteSandbox(sandbox.id).pipe(Effect.andThen(dropMachine(sandbox.id)), Effect.ignore),
-      ),
+    // onError also covers interruption, such as the client disconnecting mid-start, since only
+    // this call's caller ever receives the pairing credential.
+    return yield* Effect.gen(function* () {
+      yield* putMachine(starting);
+      yield* waitUntilReady(boat, sandbox.id);
+      const started = yield* startT3(boat, starting);
+      const machine: BoatMachine = {
+        ...starting,
+        state: "running",
+        httpBaseUrl: started.httpBaseUrl,
+      };
+      yield* putMachine(machine);
+      return { machine, ...started };
+    }).pipe(
+      Effect.onError(() => discard(boat, starting, "The Boat machine did not finish starting.")),
     );
-    const machine: BoatMachine = {
-      ...starting,
-      state: "running",
-      httpBaseUrl: started.httpBaseUrl,
-    };
-    yield* putMachine(machine);
-    return { machine, ...started };
   });
+
+  // A start this server was running when it stopped can never hand out its pairing credential.
+  const unfinished = initial.machines.filter((machine) => machine.state === "starting");
+  if (unfinished.length > 0) {
+    const reason = "T3 Code restarted while this machine was starting.";
+    yield* api.pipe(
+      Effect.flatMap((boat) =>
+        Effect.forEach(unfinished, (machine) => discard(boat, machine, reason)),
+      ),
+      Effect.catch(() =>
+        Effect.forEach(unfinished, (machine) =>
+          putMachine({ ...machine, state: "failed", problem: reason }),
+        ),
+      ),
+      Effect.ignore,
+      Effect.forkScoped,
+    );
+  }
 
   const configure = Effect.fn("BoatMachines.configure")(function* (input: BoatConfigureInput) {
     if (input.apiKey !== undefined) {
@@ -226,13 +276,30 @@ export const make = Effect.gen(function* () {
       (m) => m.sandboxId === input.sandboxId,
     );
     if (machine === undefined) return yield* fail("That Boat machine is not one of this server's.");
+    // A machine deleted outside T3 Code, such as from Boat's dashboard, is forgotten here too.
+    const unlessGone = <A>(effect: Effect.Effect<A, BoatError>) =>
+      effect.pipe(
+        Effect.catch((error) =>
+          boat
+            .getSandbox(machine.sandboxId)
+            .pipe(
+              Effect.flatMap((sandbox) =>
+                Option.isSome(sandbox)
+                  ? Effect.fail(error)
+                  : dropMachine(machine.sandboxId).pipe(
+                      Effect.andThen(Effect.fail(fail("That Boat machine no longer exists."))),
+                    ),
+              ),
+            ),
+        ),
+      );
     switch (input.action) {
       case "stop":
-        yield* boat.stopSandbox(machine.sandboxId);
-        return yield* putMachine({ ...machine, state: "stopped" });
+        yield* unlessGone(boat.stopSandbox(machine.sandboxId));
+        return yield* putMachine({ ...machine, state: "stopped", problem: null });
       case "resume":
-        yield* boat.resumeSandbox(machine.sandboxId, BOAT_MACHINE_TTL_SECONDS);
-        return yield* putMachine({ ...machine, state: "running" });
+        yield* unlessGone(boat.resumeSandbox(machine.sandboxId, BOAT_MACHINE_TTL_SECONDS));
+        return yield* putMachine({ ...machine, state: "running", problem: null });
       case "delete":
         yield* boat.deleteSandbox(machine.sandboxId);
         return yield* dropMachine(machine.sandboxId);

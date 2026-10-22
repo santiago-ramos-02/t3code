@@ -52,8 +52,8 @@ const decodeHostedPort = Schema.decodeUnknownEffect(HostedPort);
 
 /** A Boat REST client for one API key. */
 export const makeBoatApi = (httpClient: HttpClient.HttpClient, apiKey: string) => {
-  // Boat's JSON answer, or its error message as a BoatError.
-  const send = Effect.fn("BoatApi.send")(function* (
+  // Boat's status and JSON body; only a failed request is an error here.
+  const exchange = Effect.fn("BoatApi.exchange")(function* (
     operation: string,
     request: HttpClientRequest.HttpClientRequest,
   ) {
@@ -72,12 +72,37 @@ export const makeBoatApi = (httpClient: HttpClient.HttpClient, apiKey: string) =
       );
     // A delete or stop may answer with no body.
     const body: unknown = yield* response.json.pipe(Effect.orElseSucceed(() => undefined));
-    if (response.status >= 200 && response.status < 300) return body;
-    const detail = Option.getOrUndefined(decodeErrorBody(body))?.message;
-    return yield* new BoatError({
-      detail: `Boat could not ${operation} (HTTP ${response.status})${detail ? `: ${detail}` : "."}`,
-    });
+    return { status: response.status, body };
   });
+
+  const refusal = (operation: string, status: number, body: unknown) => {
+    const detail = Option.getOrUndefined(decodeErrorBody(body))?.message;
+    return new BoatError({
+      detail: `Boat could not ${operation} (HTTP ${status})${detail ? `: ${detail}` : "."}`,
+    });
+  };
+
+  // Boat's JSON answer, or its error message as a BoatError.
+  const send = (operation: string, request: HttpClientRequest.HttpClientRequest) =>
+    exchange(operation, request).pipe(
+      Effect.flatMap(({ status, body }) =>
+        status >= 200 && status < 300
+          ? Effect.succeed(body)
+          : Effect.fail(refusal(operation, status, body)),
+      ),
+    );
+
+  // Like send, but a sandbox Boat no longer has is None rather than an error.
+  const sendForSandbox = (operation: string, request: HttpClientRequest.HttpClientRequest) =>
+    exchange(operation, request).pipe(
+      Effect.flatMap(({ status, body }) =>
+        status === 404
+          ? Effect.succeedNone
+          : status >= 200 && status < 300
+            ? Effect.succeedSome(body)
+            : Effect.fail(refusal(operation, status, body)),
+      ),
+    );
 
   const sandboxPath = (sandboxId: string) => `/sandboxes/${encodeURIComponent(sandboxId)}`;
 
@@ -101,9 +126,15 @@ export const makeBoatApi = (httpClient: HttpClient.HttpClient, apiKey: string) =
         Effect.map((response) => response.sandbox),
       ),
 
+    /** None once Boat no longer has the sandbox. */
     getSandbox: (sandboxId: string) =>
-      send("read a machine", HttpClientRequest.get(sandboxPath(sandboxId))).pipe(
-        Effect.flatMap(decoder("read a machine", decodeSandbox)),
+      sendForSandbox("read a machine", HttpClientRequest.get(sandboxPath(sandboxId))).pipe(
+        Effect.flatMap(
+          Option.match({
+            onNone: () => Effect.succeedNone,
+            onSome: (body) => decoder("read a machine", decodeSandbox)(body).pipe(Effect.asSome),
+          }),
+        ),
       ),
 
     stopSandbox: (sandboxId: string) =>
@@ -122,9 +153,10 @@ export const makeBoatApi = (httpClient: HttpClient.HttpClient, apiKey: string) =
         ),
       ).pipe(Effect.asVoid),
 
-    // Boat refuses a delete unless the confirmation header names the sandbox.
+    // Boat refuses a delete unless the confirmation header names the sandbox. One already gone
+    // counts as deleted.
     deleteSandbox: (sandboxId: string) =>
-      send(
+      sendForSandbox(
         "delete a machine",
         HttpClientRequest.delete(sandboxPath(sandboxId)).pipe(
           HttpClientRequest.setHeader("X-Ascii-Confirm-Delete", sandboxId),

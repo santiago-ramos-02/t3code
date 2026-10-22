@@ -48,6 +48,10 @@ export const BoatMachine = Schema.Struct({
 });
 export type BoatMachine = typeof BoatMachine.Type;
 
+/** The name a machine's T3 Code server reports, so clients tell machines apart. */
+export const boatMachineLabel = (machine: Pick<BoatMachine, "sandboxId" | "size">) =>
+  `Boat · ${machine.size} · ${machine.sandboxId.replace(/[^a-z0-9]/gi, "").slice(-4)}`;
+
 export const BoatStatus = Schema.Struct({
   // Whether the environment holds a Boat API key.
   configured: Schema.Boolean,

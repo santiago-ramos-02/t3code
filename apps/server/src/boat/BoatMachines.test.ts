@@ -1,8 +1,13 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
+import { DEFAULT_BOAT_SETTINGS } from "@t3tools/contracts";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
+import * as FileSystem from "effect/FileSystem";
 import { HttpClient, HttpClientResponse, type HttpClientRequest } from "effect/http";
 import * as Layer from "effect/Layer";
+import * as Stream from "effect/Stream";
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as ServerConfig from "../config.ts";
@@ -27,6 +32,10 @@ const requestBody = (request: HttpClientRequest.HttpClientRequest) =>
 const makeFakeBoat = (options: {
   readonly pairing?: string;
   readonly createFailure?: { readonly status: number; readonly message: string };
+  // Holds the pairing command open after completing this, as a slow first start does.
+  readonly pairingReached?: Deferred.Deferred<void>;
+  // Boat no longer has the sandbox, as after a delete from its dashboard.
+  readonly gone?: boolean;
 }) => {
   const calls: BoatCall[] = [];
   const json = (request: HttpClientRequest.HttpClientRequest, body: unknown, status = 200) =>
@@ -41,6 +50,9 @@ const makeFakeBoat = (options: {
         ? json(request, { message: options.createFailure.message }, options.createFailure.status)
         : json(request, { sandbox: { id: SANDBOX_ID, state: "provisioning" } });
     }
+    if (options.gone && path.startsWith(`/sandboxes/${SANDBOX_ID}`)) {
+      return json(request, { message: "Sandbox not found." }, 404);
+    }
     if (request.method === "GET" && path === `/sandboxes/${SANDBOX_ID}`) {
       return json(request, { id: SANDBOX_ID, state: "idle" });
     }
@@ -52,6 +64,11 @@ const makeFakeBoat = (options: {
       if (command.includes("echo up || echo down")) return result(0, "down\n");
       if (command.includes("seq 1 120")) return result(0, "");
       if (command.includes("auth pairing create")) {
+        if (options.pairingReached) {
+          return Deferred.succeed(options.pairingReached, undefined).pipe(
+            Effect.andThen(Effect.never),
+          );
+        }
         return options.pairing === undefined ? result(1, "") : result(0, options.pairing);
       }
       return result(127, "");
@@ -124,7 +141,12 @@ describe("BoatMachines", () => {
         from: "mappstock-template",
       });
       assert.strictEqual(create?.headers.authorization, "Bearer boat_test_key");
-      // T3 was not running yet, so it was started in the background.
+      // T3 was not running yet, so it was named and started in the background.
+      const commands = boat.calls.map((call) => String(call.body?.command ?? ""));
+      const named = commands.findIndex((command) => command.includes("Boat · large · 0001"));
+      const startedAt = boat.calls.findIndex((call) => call.body?.detached === true);
+      assert.isAbove(named, -1);
+      assert.isAbove(startedAt, named);
       assert.strictEqual(boat.calls.filter((call) => call.body?.detached === true).length, 1);
       const [hosted] = callsTo(boat.calls, "POST", "/host");
       assert.deepStrictEqual(hosted?.body, { port: BoatMachines.BOAT_T3_PORT, public: true });
@@ -167,6 +189,70 @@ describe("BoatMachines", () => {
       );
       assert.strictEqual(callsTo(boat.calls, "DELETE", `/sandboxes/${SANDBOX_ID}`).length, 1);
       assert.deepStrictEqual((yield* service.current).machines, []);
+    }).pipe(Effect.provide(layerEnvironment)),
+  );
+
+  it.effect("deletes the machine when the client goes away while it starts", () =>
+    Effect.gen(function* () {
+      const pairingReached = yield* Deferred.make<void>();
+      const boat = makeFakeBoat({ pairingReached });
+      const service = yield* makeService(boat.client);
+      yield* service.configure({ apiKey: "boat_test_key" });
+
+      const spawning = yield* service.spawn({}).pipe(Effect.forkChild);
+      yield* Deferred.await(pairingReached);
+      yield* Fiber.interrupt(spawning);
+
+      assert.strictEqual(callsTo(boat.calls, "DELETE", `/sandboxes/${SANDBOX_ID}`).length, 1);
+      assert.deepStrictEqual((yield* service.current).machines, []);
+    }).pipe(Effect.provide(layerEnvironment)),
+  );
+
+  it.effect("deletes a machine left starting when the server stopped", () =>
+    Effect.gen(function* () {
+      const boat = makeFakeBoat({ pairing: PAIRING_OUTPUT });
+      yield* (yield* makeService(boat.client)).configure({ apiKey: "boat_test_key" });
+      // What a server that exited mid-start leaves behind.
+      const fileSystem = yield* FileSystem.FileSystem;
+      const { stateDir } = yield* ServerConfig.ServerConfig;
+      yield* fileSystem.writeFileString(
+        `${stateDir}/boat.json`,
+        JSON.stringify({
+          settings: DEFAULT_BOAT_SETTINGS,
+          machines: [
+            {
+              sandboxId: SANDBOX_ID,
+              size: "default",
+              state: "starting",
+              httpBaseUrl: null,
+              createdAt: "2026-10-22T00:00:00.000Z",
+              problem: null,
+            },
+          ],
+        }),
+      );
+
+      const restarted = yield* makeService(boat.client);
+      yield* restarted.streamChanges.pipe(
+        Stream.filter((status) => status.machines.length === 0),
+        Stream.runHead,
+      );
+      assert.strictEqual(callsTo(boat.calls, "DELETE", `/sandboxes/${SANDBOX_ID}`).length, 1);
+    }).pipe(Effect.provide(layerEnvironment)),
+  );
+
+  it.effect("forgets a machine deleted outside T3 Code", () =>
+    Effect.gen(function* () {
+      const service = yield* makeService(makeFakeBoat({ pairing: PAIRING_OUTPUT }).client);
+      yield* service.configure({ apiKey: "boat_test_key" });
+      yield* service.spawn({});
+
+      const gone = yield* makeService(makeFakeBoat({ gone: true }).client);
+      const error = yield* gone
+        .machineAction({ sandboxId: SANDBOX_ID, action: "resume" })
+        .pipe(Effect.flip);
+      assert.strictEqual(error.detail, "That Boat machine no longer exists.");
+      assert.deepStrictEqual((yield* gone.current).machines, []);
     }).pipe(Effect.provide(layerEnvironment)),
   );
 
