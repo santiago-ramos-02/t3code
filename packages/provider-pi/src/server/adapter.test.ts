@@ -27,6 +27,7 @@ import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
+import * as TestClock from "effect/testing/TestClock";
 import * as ChildProcess from "effect/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
@@ -4078,6 +4079,42 @@ describe("PiAdapterV2", () => {
           terminal.retry.maxAttempts === 3 &&
           terminal.retryStartedAt === firstRetry.turnItem.startedAt,
       );
+    }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
+  it.effect("ends a Claude quota rejection as a usage limit that resumes at Claude's reset", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(Date.parse("2026-10-21T21:00:00Z"));
+      const fake = yield* makeFakePi;
+      const { runtime, takeEvent } = yield* openRuntime(fake);
+      const providerThread = yield* runtime.ensureThread({
+        threadId: THREAD_ID,
+        modelSelection: modelSelection("default"),
+        runtimePolicy,
+      });
+      yield* startTurn(runtime, providerThread);
+      yield* fake.takeRequest("prompt");
+      yield* fake.emit({ type: "agent_start" });
+      // pi-claude-bridge's wording for a rejected five-hour window, as Pi records it.
+      yield* fake.emit({
+        type: "message_end",
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "You've hit your session limit · resets 7:50pm" }],
+          api: "claude-bridge",
+          stopReason: "error",
+          errorMessage:
+            "Claude quota exceeded — rate limit (five_hour) — resets 7:50:00 PM: You've hit your session limit · resets 7:50pm (America/Bogota)",
+        },
+      });
+      yield* fake.emit({ type: "agent_settled" });
+
+      const terminal = yield* takeEvent((event) => event.type === "turn.terminal");
+      assert.isTrue(terminal.type === "turn.terminal" && terminal.status === "failed");
+      assert.deepInclude(terminal.type === "turn.terminal" ? terminal.failure : {}, {
+        class: "usage_limit",
+        resetAt: "2026-10-22T00:50:00.000Z",
+      });
     }).pipe(Effect.scoped, Effect.provide(layerTest)),
   );
 

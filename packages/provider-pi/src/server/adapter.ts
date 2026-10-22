@@ -80,6 +80,7 @@ import {
   resolvePiLaunchArgs,
 } from "./mcpInjection.ts";
 import { PI_FILE_CHANGE_TOOLS } from "./mcpExtensionSource.ts";
+import { piUsageLimit } from "./usageLimit.ts";
 
 export const PI_PROVIDER = ProviderDriverKind.make("pi");
 const PI_DRIVER_KIND = PI_PROVIDER;
@@ -345,6 +346,17 @@ interface PiProviderRetryState {
   readonly failure: OrchestrationV2ProviderFailure;
   readonly startedAt: DateTime.Utc;
   readonly itemOrdinal: number;
+}
+
+/** A model failure Pi reported, as a usage limit the thread can resume after when it is one. */
+function modelFailure(message: string, failedAt: DateTime.DateTime, retryable?: boolean) {
+  const limit = piUsageLimit(message, failedAt);
+  return makeProviderFailure({
+    message,
+    class: limit === undefined ? "provider_error" : "usage_limit",
+    ...(retryable === undefined ? {} : { retryable }),
+    ...(limit?.resetAt === undefined ? {} : { resetAt: limit.resetAt }),
+  });
 }
 
 function compactionTitle(status: PiCompactionStatus): string {
@@ -1860,10 +1872,10 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
             }
             yield* completeOpenStreamItems(turn);
             if (recordString(message, "stopReason") === "error" && turn.failure === null) {
-              turn.failure = makeProviderFailure({
-                message: recordString(message, "errorMessage") ?? "Pi reported a model error.",
-                class: "provider_error",
-              });
+              turn.failure = modelFailure(
+                recordString(message, "errorMessage") ?? "Pi reported a model error.",
+                yield* DateTime.now,
+              );
             }
             return;
           }
@@ -1993,11 +2005,11 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
               turn.failure = null;
               return;
             }
-            const failure = makeProviderFailure({
-              message: recordString(event, "finalError") ?? "Pi auto-retry failed.",
-              class: "provider_error",
-              retryable: false,
-            });
+            const failure = modelFailure(
+              recordString(event, "finalError") ?? "Pi auto-retry failed.",
+              emittedAt,
+              false,
+            );
             const attempt = Math.max(1, Math.trunc(recordNumber(event, "attempt") ?? 1));
             const current = turn.activeProviderRetry;
             const providerRetry = {

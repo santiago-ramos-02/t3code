@@ -83,3 +83,6 @@ threads.
 - If a project skill is missing from the `$` menu, approve the project in Pi and refresh the provider.
 - The context meter appears once Pi reports usage for the thread. Some model providers only
   report usage when a response completes, so the meter can wait for the first reply.
+- When a model stops on a usage or rate limit, the thread shows as limited. If the message names
+  when the limit resets, as Claude's session and weekly limits do, the thread can resume at the
+  reset like any other provider. See [Inspect agent work](thread-sidebar.md#inspect-agent-work).
