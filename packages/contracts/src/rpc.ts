@@ -66,6 +66,14 @@ import {
   CliProxyStatus,
 } from "./cliProxy.ts";
 import {
+  BoatConfigureInput,
+  BoatError,
+  BoatMachineActionInput,
+  BoatSpawnInput,
+  BoatSpawnResult,
+  BoatStatus,
+} from "./boat.ts";
+import {
   MemoryError,
   MemoryHealth,
   MemoryJudgeInput,
@@ -473,6 +481,10 @@ export const WS_METHODS = {
   cliProxySubscribeStatus: "cliProxy.subscribeStatus",
   cliProxyAction: "cliProxy.action",
   cliProxyManagement: "cliProxy.management",
+  boatSubscribeStatus: "boat.subscribeStatus",
+  boatConfigure: "boat.configure",
+  boatSpawn: "boat.spawn",
+  boatMachineAction: "boat.machineAction",
   memoryOverview: "memory.overview",
   memorySearch: "memory.search",
   memoryObservation: "memory.observation",
@@ -751,6 +763,34 @@ const WsCliProxyManagementRpc = Rpc.make(WS_METHODS.cliProxyManagement, {
   payload: CliProxyManagementInput,
   success: CliProxyManagementResult,
   error: Schema.Union([CliProxyError, EnvironmentAuthorizationError]),
+});
+
+// Boat machines the environment starts: its Boat setup now, then every change.
+const WsBoatSubscribeStatusRpc = Rpc.make(WS_METHODS.boatSubscribeStatus, {
+  payload: Schema.Struct({}),
+  success: BoatStatus,
+  error: EnvironmentAuthorizationError,
+  stream: true,
+});
+
+const BoatRpcError = Schema.Union([BoatError, EnvironmentAuthorizationError]);
+
+const WsBoatConfigureRpc = Rpc.make(WS_METHODS.boatConfigure, {
+  payload: BoatConfigureInput,
+  success: BoatStatus,
+  error: BoatRpcError,
+});
+
+const WsBoatSpawnRpc = Rpc.make(WS_METHODS.boatSpawn, {
+  payload: BoatSpawnInput,
+  success: BoatSpawnResult,
+  error: BoatRpcError,
+});
+
+const WsBoatMachineActionRpc = Rpc.make(WS_METHODS.boatMachineAction, {
+  payload: BoatMachineActionInput,
+  success: BoatStatus,
+  error: BoatRpcError,
 });
 
 // Memory: what the environment's agents learned, read from Engram by the server.
@@ -2278,6 +2318,10 @@ export const ForkWsRpcGroup = RpcGroup.make(
   WsGentleAiStartJobRpc,
   WsGentleAiSubscribeJobRpc,
   WsGentleAiSubscribeStatusRpc,
+  WsBoatSubscribeStatusRpc,
+  WsBoatConfigureRpc,
+  WsBoatSpawnRpc,
+  WsBoatMachineActionRpc,
 ).middleware(RpcScopeAuthorization);
 
 export const WsRpcGroup = CoreWsRpcGroup.merge(ForkWsRpcGroup);

@@ -168,6 +168,7 @@ import * as ResourceMonitorBinary from "./resourceTelemetry/ResourceMonitorBinar
 import * as ProcessGroupMetrics from "./resourceTelemetry/ProcessGroupMetrics.ts";
 import * as ResourceTelemetry from "./resourceTelemetry/ResourceTelemetry.ts";
 import * as GentleAi from "./gentleAi/GentleAi.ts";
+import * as BoatMachines from "./boat/BoatMachines.ts";
 import * as CliProxy from "./cliProxy/CliProxy.ts";
 import * as Engram from "./memory/Engram.ts";
 import * as GentleAiFootprints from "./gentleAi/GentleAiFootprints.ts";
@@ -624,6 +625,7 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
       UsageLimitSources.layer,
       GentleAi.layer,
       CliProxy.layer,
+      BoatMachines.layer,
       Engram.layer,
     ),
   ),
