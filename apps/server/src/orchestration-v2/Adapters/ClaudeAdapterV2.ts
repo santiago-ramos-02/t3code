@@ -194,6 +194,7 @@ import {
 } from "@t3tools/provider-core/server/notification";
 import * as ProviderContinuationRequests from "@t3tools/provider-core/server/ProviderContinuationRequests";
 import * as ClaudeCacheLifetime from "./ClaudeCacheLifetime.ts";
+import type { GentleReviewersHook } from "./GentleReviewers.ts";
 import {
   makeSubagentChildThread,
   makeSubagentConversationArtifacts,
@@ -3918,6 +3919,8 @@ export interface ClaudeAdapterV2Options {
   };
   /** Where the cache lifetime Claude reports goes; defaults to nowhere. */
   readonly cacheLifetime?: ClaudeCacheLifetime.ClaudeCacheLifetimeShape;
+  /** Shows gentle-ai reviewers that a session's shell commands run as subagents. */
+  readonly gentleReviewers?: GentleReviewersHook;
 }
 
 export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
@@ -4343,6 +4346,22 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
 
         const emitProviderEvent = (event: ProviderAdapter.ProviderAdapterV2Event) =>
           Queue.offer(events, event).pipe(Effect.asVoid);
+        const gentleReviewerEnvironment =
+          adapterOptions.gentleReviewers === undefined
+            ? {}
+            : yield* adapterOptions.gentleReviewers(input, {
+                driver: CLAUDE_PROVIDER,
+                instanceId: adapterOptions.instanceId,
+                idAllocator: adapterOptions.idAllocator,
+                emit: emitProviderEvent,
+                currentTurn: Ref.get(activeTurn).pipe(
+                  Effect.map((context) =>
+                    context === null
+                      ? null
+                      : { input: context.input, providerTurnId: context.providerTurnId },
+                  ),
+                ),
+              });
 
         // Reports one root request's usage as the current context. Usage
         // without input is a placeholder, never a measurement.
@@ -9318,7 +9337,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             attachmentsDir,
             settings: adapterOptions.settings,
             environment: claudeQueryEnvironment(
-              launch.environment,
+              { ...launch.environment, ...gentleReviewerEnvironment },
               turnInput.appThread,
               turnInput.appThread.lineage.relationshipToParent === "subagent"
                 ? yield* resolveSubagentPromptCacheTtl(turnInput.runtimePolicy.cwd)
@@ -10511,7 +10530,7 @@ export const createClaudeAdapterV2 = Effect.fn("ClaudeAdapterV2Driver.create")(
     input: ProviderAdapterDriverCreateInput<ClaudeSettings>,
     hooks: Pick<
       ClaudeAdapterV2Options,
-      "scopedLimitNames" | "onUsageLimits" | "prepareSession"
+      "scopedLimitNames" | "onUsageLimits" | "prepareSession" | "gentleReviewers"
     > = {},
   ) {
     const { instanceId, environment, enabled, config } = input;

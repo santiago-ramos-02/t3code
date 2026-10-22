@@ -152,6 +152,7 @@ import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import type { PrepareProviderSession } from "../../gentleAi/GentleAiSessions.ts";
 import { openAiCacheTtlSeconds } from "./promptCacheLifetime.ts";
+import type { GentleReviewersHook } from "./GentleReviewers.ts";
 
 const CODEX_PROVIDER = ProviderDriverKind.make("codex");
 export const CODEX_DRIVER_KIND = CODEX_PROVIDER;
@@ -1620,7 +1621,10 @@ export type CodexAdapterV2DriverEnv =
 
 export const createCodexAdapterV2 = Effect.fn("CodexAdapterV2.createCodexAdapterV2")(function* (
   { instanceId, environment, enabled, config }: ProviderAdapterDriverCreateInput<CodexSettings>,
-  hooks: Pick<CodexAdapterV2Options, "onUsageLimits" | "resolveRuntime" | "prepareSession"> = {},
+  hooks: Pick<
+    CodexAdapterV2Options,
+    "onUsageLimits" | "resolveRuntime" | "prepareSession" | "gentleReviewers"
+  > = {},
 ) {
   const clientFactory = yield* CodexAppServerClientFactory;
   const continuationRequests = yield* ProviderContinuationRequests.ProviderContinuationRequests;
@@ -1721,6 +1725,8 @@ export interface CodexAdapterV2Options {
   readonly fileSystem: FileSystem.FileSystem;
   readonly idAllocator: IdAllocator.IdAllocatorV2["Service"];
   readonly serverConfig: ServerConfig["Service"];
+  /** Shows gentle-ai reviewers that a session's shell commands run as subagents. */
+  readonly gentleReviewers?: GentleReviewersHook;
   /**
    * Optional: adapters that omit it keep projection-only handling for late item
    * completions.
@@ -1769,13 +1775,35 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
         const sessionRuntime = adapterOptions.prepareSession
           ? yield* adapterOptions.prepareSession(input, baseRuntime)
           : baseRuntime;
+        const activeTurns = yield* Ref.make(new Map<string, ActiveCodexTurnContext>());
+        // Reviewer lines only arrive once Codex runs a command, after `emitProviderEvent` exists.
+        const gentleReviewerEnvironment =
+          adapterOptions.gentleReviewers === undefined
+            ? {}
+            : yield* adapterOptions.gentleReviewers(input, {
+                driver: CODEX_PROVIDER,
+                instanceId: adapterOptions.instanceId,
+                idAllocator: adapterOptions.idAllocator,
+                emit: (event) => emitProviderEvent(event),
+                // The session's own turn runs gentle-ai; its native subagents have their own threads.
+                currentTurn: Ref.get(activeTurns).pipe(
+                  Effect.map((turns) => {
+                    const context = Array.from(turns.values()).find(
+                      (turn) => turn.input.threadId === input.threadId,
+                    );
+                    return context === undefined
+                      ? null
+                      : { input: context.input, providerTurnId: context.providerTurnId };
+                  }),
+                ),
+              });
         const client = yield* clientFactory.open({
           instanceId: adapterOptions.instanceId,
           threadId: input.threadId,
           providerSessionId: input.providerSessionId,
           runtimePolicy: input.runtimePolicy,
           settings: sessionRuntime.settings,
-          environment: sessionRuntime.environment,
+          environment: { ...sessionRuntime.environment, ...gentleReviewerEnvironment },
         });
         const additionalContextByThread = yield* Ref.make(
           new Map<
@@ -1861,7 +1889,6 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
         const limitedTurnItems = yield* Ref.make(
           new Map<ProviderThreadId, Extract<OrchestrationV2TurnItem, { type: "error" }>>(),
         );
-        const activeTurns = yield* Ref.make(new Map<string, ActiveCodexTurnContext>());
         const turnTokenUsageByThread = new Map<string, CodexTurnTokenUsageState>();
         const usageStateForThread = (nativeThreadId: string) => {
           let state = turnTokenUsageByThread.get(nativeThreadId);

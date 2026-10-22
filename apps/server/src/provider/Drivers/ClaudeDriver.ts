@@ -1,5 +1,6 @@
 import { ClaudeSettings, ProviderDriverKind } from "@t3tools/contracts";
 import { makeClaudeGentleSession } from "../../gentleAi/GentleAiSessions.ts";
+import { makeGentleReviewers } from "../../orchestration-v2/Adapters/GentleReviewers.ts";
 import * as Cache from "effect/Cache";
 import * as Duration from "effect/Duration";
 import * as Crypto from "effect/Crypto";
@@ -184,6 +185,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv, Path.
         scopedLimitNames,
         onUsageLimits: (update) => snapshot.applyUsageLimits(update),
         prepareSession: yield* makeClaudeGentleSession(DRIVER_KIND, config),
+        gentleReviewers: yield* makeGentleReviewers,
       },
     ).pipe(
       Effect.mapError(

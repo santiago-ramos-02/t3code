@@ -11,6 +11,7 @@ import { chatGptModels } from "../CodexChatGptModels.ts";
 import { makeCodexManagedRuntime } from "../CodexManagedRuntime.ts";
 import { ProviderDriverError } from "../Errors.ts";
 import { createCodexAdapterV2 } from "../../orchestration-v2/Adapters/CodexAdapterV2.ts";
+import { makeGentleReviewers } from "../../orchestration-v2/Adapters/GentleReviewers.ts";
 import {
   checkCodexProviderStatus,
   makePendingCodexProvider,
@@ -230,6 +231,7 @@ export const makeManagedCodexProvider = Effect.fn("makeManagedCodexProvider")(fu
   const orchestrationAdapter = yield* createCodexAdapterV2(input, {
     onUsageLimits: (update) => snapshot.applyUsageLimits(update),
     resolveRuntime: runtime.resolve,
+    gentleReviewers: yield* makeGentleReviewers,
   }).pipe(
     Effect.mapError(
       (cause) =>
