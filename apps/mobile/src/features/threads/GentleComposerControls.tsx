@@ -56,7 +56,6 @@ export function GentleComposerControls(props: {
   readonly onUpdateModelSelection: (selection: ModelSelection) => void;
   /** Whether the composer has room for it: expanded, and not dictating. */
   readonly shown: boolean;
-  readonly onVisibilityChange?: ((visible: boolean) => void) | undefined;
 }) {
   const navigation = useNavigation();
   const { themeVariables: materialTheme } = useAppearancePreferences();
@@ -169,14 +168,7 @@ export function GentleComposerControls(props: {
       },
     });
     setComposerDraftText(draftKey, prompt);
-    navigation.navigate("NewTaskSheet", {
-      screen: "NewTaskDraft",
-      params: {
-        environmentId: String(props.environmentId),
-        projectId: String(props.selectedThread.projectId),
-        draftId: draftKey,
-      },
-    });
+    navigation.navigate("Thread", { draft: { draftId: draftKey } });
   };
   const gentleProfiles = useGentleProfileMenu({
     environmentId: props.environmentId,
@@ -241,13 +233,7 @@ export function GentleComposerControls(props: {
       : []),
     { id: "refresh", title: "Refresh", image: "arrow.clockwise" },
   ];
-  const visible = props.shown && showGentleControls;
-  const { onVisibilityChange } = props;
-  useEffect(() => {
-    onVisibilityChange?.(visible);
-    return () => onVisibilityChange?.(false);
-  }, [visible, onVisibilityChange]);
-  if (!visible) return null;
+  if (!(props.shown && showGentleControls)) return null;
   return (
     <View className="flex-row items-center justify-end gap-1 px-2 pb-1">
       <Menu
