@@ -1,5 +1,6 @@
 import type {
   NodeId,
+  OrchestrationV2AppThread,
   OrchestrationV2ExecutionNode,
   OrchestrationV2PlanArtifact,
   OrchestrationV2PlanStep,
@@ -127,6 +128,8 @@ interface GentleWorkflowState<Turn extends PiGentleTurn> {
     string,
     { task: GentleTask; readonly phase: OddPhase | null; readonly entry: GentleTaskState<Turn> }
   >;
+  /** The workflow's own thread, which holds its members' records and threads. */
+  thread: OrchestrationV2AppThread | null;
   status: OrchestrationV2Subagent["status"] | null;
   completedAt: DateTime.Utc | null;
   /** What was last emitted for the coordinator, to skip unchanged redraws. */
@@ -277,6 +280,7 @@ export function makePiGentle<Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>
       }),
       startedAt: now,
       members: new Map(),
+      thread: null,
       status: null,
       completedAt: null,
       emitted: "",
@@ -333,27 +337,24 @@ export function makePiGentle<Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>
     const { completedAt } = workflow;
 
     if (isNew) {
-      yield* emit({
-        type: "app_thread.created",
-        driver,
-        appThread: makeSubagentChildThread({
-          parentThread: parent.appThread,
-          childThreadId,
-          parentNodeId: id,
-          activeProviderThreadId: null,
-          providerInstanceId: deps.instanceId,
-          modelSelection: parent.modelSelection,
-          title: subagentThreadTitle({
-            parentTitle: parent.appThread.title,
-            prompt: request,
-            title: WORKFLOW_NAME,
-            ordinal: workflows.size,
-          }),
-          now,
-          createdBy: "agent",
-          creationSource: "provider",
+      workflow.thread = makeSubagentChildThread({
+        parentThread: parent.appThread,
+        childThreadId,
+        parentNodeId: id,
+        activeProviderThreadId: null,
+        providerInstanceId: deps.instanceId,
+        modelSelection: parent.modelSelection,
+        title: subagentThreadTitle({
+          parentTitle: parent.appThread.title,
+          prompt: request,
+          title: WORKFLOW_NAME,
+          ordinal: workflows.size,
         }),
+        now,
+        createdBy: "agent",
+        creationSource: "provider",
       });
+      yield* emit({ type: "app_thread.created", driver, appThread: workflow.thread });
       // The request opens the workflow's thread, where Claude's workflows show their script.
       const openingItemId = `${nativeId}:request`;
       const opening = makeSubagentConversationArtifacts({
@@ -511,6 +512,8 @@ export function makePiGentle<Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>
           AGENT_PHASES.get(task.agent ?? "") ?? reportedPhases.get(turn.providerTurn.id) ?? null,
         entry,
       });
+      // The workflow's thread comes first: the member's record and thread belong to it.
+      yield* emitWorkflow(workflow, now);
     } else if (
       entry.status === task.status &&
       entry.version === task.version &&
@@ -518,7 +521,9 @@ export function makePiGentle<Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>
     ) {
       return;
     }
-    const { turn } = entry;
+    const { turn, workflow } = entry;
+    const workflowThread = workflow.thread;
+    if (workflowThread === null) return;
     const lifecycleChanged = entry.status !== task.status;
     entry.title = task.title;
     entry.status = task.status;
@@ -533,7 +538,7 @@ export function makePiGentle<Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>
         type: "app_thread.created",
         driver,
         appThread: makeSubagentChildThread({
-          parentThread: parent.appThread,
+          parentThread: workflowThread,
           childThreadId,
           parentNodeId: subagentId,
           activeProviderThreadId: null,
@@ -591,13 +596,13 @@ export function makePiGentle<Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>
       yield* emitNode({
         ...nodeFields,
         id: subagentId,
-        threadId: turn.turnInput.threadId,
-        runId: turn.turnInput.runId,
-        parentNodeId: turn.turnInput.rootNodeId,
-        rootNodeId: turn.turnInput.rootNodeId,
+        threadId: workflow.childThreadId,
+        runId: null,
+        parentNodeId: workflow.childRootNodeId,
+        rootNodeId: workflow.childRootNodeId,
         kind: "subagent",
-        providerThreadId: turn.turnInput.providerThread.id,
-        providerTurnId: turn.providerTurn.id,
+        providerThreadId: null,
+        providerTurnId: null,
         nativeItemRef: ref(nativeTaskId),
       });
       yield* emitNode({
@@ -620,14 +625,14 @@ export function makePiGentle<Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>
       driver,
       subagent: {
         id: subagentId,
-        threadId: turn.turnInput.threadId,
-        runId: turn.turnInput.runId,
-        parentNodeId: turn.turnInput.rootNodeId,
+        threadId: workflow.childThreadId,
+        runId: null,
+        parentNodeId: workflow.childRootNodeId,
         origin: "provider_native",
         createdBy: "agent",
         driver,
         providerInstanceId: deps.instanceId,
-        providerThreadId: turn.turnInput.providerThread.id,
+        providerThreadId: null,
         childThreadId,
         nativeTaskRef: ref(nativeTaskId),
         prompt: task.prompt,
@@ -642,8 +647,7 @@ export function makePiGentle<Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>
         updatedAt: now,
       },
     });
-    // The parent's timeline shows the turn's workflow rather than each member.
-    const member = entry.workflow.members.get(task.id);
+    const member = workflow.members.get(task.id);
     if (member !== undefined) member.task = task;
 
     for (const { number, item } of task.items) {

@@ -14,7 +14,9 @@ import {
   type ChatAttachment,
   type ModelSelection,
   type OrchestrationV2AppThread,
+  type OrchestrationV2ConversationMessage,
   type OrchestrationV2ProviderThread,
+  type OrchestrationV2Subagent,
   OrchestrationV2UserInputQuestion,
   type OrchestrationV2ProviderTurn,
 } from "@t3tools/contracts";
@@ -768,10 +770,18 @@ describe("PiAdapterV2", () => {
       yield* fake.emit({ type: "agent_start" });
 
       yield* fake.emit(gentleWidget("running", [{ kind: "text", text: "scanning" }]));
+      // The turn's workflow thread comes first, and the subagent's thread hangs off it.
+      const workflow = yield* takeEvent((event) => event.type === "app_thread.created");
+      assert.isTrue(
+        workflow.type === "app_thread.created" &&
+          workflow.appThread.lineage.parentThreadId === THREAD_ID,
+      );
+      const workflowThreadId =
+        workflow.type === "app_thread.created" ? workflow.appThread.id : null;
       const created = yield* takeEvent((event) => event.type === "app_thread.created");
       assert.isTrue(
         created.type === "app_thread.created" &&
-          created.appThread.lineage.parentThreadId === THREAD_ID &&
+          created.appThread.lineage.parentThreadId === workflowThreadId &&
           created.appThread.lineage.relationshipToParent === "subagent" &&
           // The child thread names the agent it runs as, for its own view.
           created.appThread.lineage.agentName === "explorer" &&
@@ -946,43 +956,49 @@ describe("PiAdapterV2", () => {
           { id: "task-2", agent: "planner", label: "Draft the plan", status: "running" },
         ]),
       );
-      const memberThreads = new Map<string, ThreadId>();
-      while (memberThreads.size < 2) {
-        const member = yield* takeEvent(
-          (event) => event.type === "subagent.updated" && event.subagent.workflow === undefined,
+      const memberRecords = new Map<string, OrchestrationV2Subagent>();
+      const threadParents = new Map<ThreadId, ThreadId | null>();
+      let opening: OrchestrationV2ConversationMessage | null = null;
+      let latestCoordinator: OrchestrationV2Subagent | null = null;
+      while (memberRecords.size < 2 || latestCoordinator?.workflow?.agents.length !== 2) {
+        const event = yield* takeEvent(
+          (candidate) =>
+            candidate.type === "subagent.updated" ||
+            candidate.type === "app_thread.created" ||
+            (candidate.type === "message.updated" && candidate.message.workflowScript === true),
         );
-        if (member.type === "subagent.updated" && member.subagent.childThreadId !== null) {
-          memberThreads.set(member.subagent.title ?? "", member.subagent.childThreadId);
+        if (event.type === "app_thread.created") {
+          threadParents.set(event.appThread.id, event.appThread.lineage.parentThreadId);
+        } else if (event.type === "message.updated") {
+          opening = event.message;
+        } else if (event.type === "subagent.updated" && event.subagent.workflow !== undefined) {
+          latestCoordinator = event.subagent;
+        } else if (event.type === "subagent.updated") {
+          memberRecords.set(event.subagent.title ?? "", event.subagent);
         }
       }
-      // The workflow's own thread opens with the request the orchestrator is carrying out.
-      const opening = yield* takeEvent(
-        (event) =>
-          event.type === "message.updated" &&
-          event.message.threadId !== THREAD_ID &&
-          ![...memberThreads.values()].includes(event.message.threadId),
-      );
-      assert.isTrue(
-        opening.type === "message.updated" &&
-          opening.message.role === "user" &&
-          opening.message.workflowScript === true &&
-          opening.message.text === "Add dark mode",
-      );
-
-      const running = yield* takeEvent(
-        (event) =>
-          event.type === "subagent.updated" &&
-          event.subagent.workflow !== undefined &&
-          event.subagent.workflow.agents.length === 2,
-      );
-      assert.isTrue(running.type === "subagent.updated");
-      if (running.type !== "subagent.updated") return;
-      const coordinator = running.subagent;
+      const coordinator: OrchestrationV2Subagent | null = latestCoordinator;
+      if (coordinator === null) return assert.fail("no workflow coordinator");
       assert.equal(coordinator.status, "running");
+      assert.equal(coordinator.threadId, THREAD_ID);
+      // The workflow's own thread opens with the request the orchestrator is carrying out.
       assert.isTrue(
-        opening.type === "message.updated" &&
-          opening.message.threadId === coordinator.childThreadId,
+        opening !== null &&
+          opening.role === "user" &&
+          opening.text === "Add dark mode" &&
+          opening.threadId === coordinator.childThreadId,
       );
+      // Members belong to the workflow, as Claude's do: their records and threads hang off the
+      // workflow's thread, so the parent lists the workflow once instead of every member again.
+      const memberThreads = new Map<string, ThreadId>();
+      for (const [title, member] of memberRecords) {
+        assert.equal(member.threadId, coordinator.childThreadId);
+        assert.isNull(member.runId);
+        assert.isNotNull(member.childThreadId);
+        if (member.childThreadId === null) return;
+        assert.equal(threadParents.get(member.childThreadId), coordinator.childThreadId);
+        memberThreads.set(title, member.childThreadId);
+      }
       assert.equal(coordinator.parentNodeId, NodeId.make(`node:run:${THREAD_ID}:1:root`));
       assert.deepStrictEqual(coordinator.workflow?.phases, [
         { index: 1, title: "Exploring" },
