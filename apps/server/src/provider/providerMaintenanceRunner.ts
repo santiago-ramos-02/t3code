@@ -248,6 +248,20 @@ function commandOutput(result: ProviderMaintenanceCommandResult): string | null 
   return truncateText(output, UPDATE_OUTPUT_MAX_BYTES);
 }
 
+// Updaters print their reason last, usually on stderr.
+function lastOutputLine(result: ProviderMaintenanceCommandResult): string | null {
+  for (const output of [result.stderr, result.stdout]) {
+    const line = output
+      .split(/\r\n|\r|\n/)
+      .map(toProgressLine)
+      .findLast(Boolean);
+    if (line) {
+      return line;
+    }
+  }
+  return null;
+}
+
 function failureMessage(
   result: ProviderMaintenanceCommandResult,
   verb: "Install" | "Update",
@@ -255,10 +269,12 @@ function failureMessage(
   if (result.timedOut) {
     return `${verb} timed out.`;
   }
-  if (result.exitCode !== null && result.exitCode !== 0) {
-    return `${verb} command exited with code ${result.exitCode}.`;
-  }
-  return `${verb} command failed.`;
+  const summary =
+    result.exitCode !== null && result.exitCode !== 0
+      ? `${verb} command exited with code ${result.exitCode}`
+      : `${verb} command failed`;
+  const reason = lastOutputLine(result);
+  return reason ? `${summary}: ${reason}` : `${summary}.`;
 }
 
 function isOutdatedProvider(provider: ServerProvider | undefined): boolean {
@@ -501,6 +517,13 @@ export const make = Effect.fn("ProviderMaintenanceRunner.make")(function* () {
             const result = yield* runMaintenanceCommand(command, setRunningMessage);
             const finishedAt = yield* nowIso;
             if (result.timedOut || result.exitCode !== 0) {
+              yield* Effect.logWarning("Provider update command failed", {
+                provider,
+                command: describeCommand(command),
+                exitCode: result.exitCode,
+                timedOut: result.timedOut,
+                output: commandOutput(result),
+              });
               return yield* finish(
                 makeUpdateState({
                   status: "failed",
