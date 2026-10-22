@@ -317,6 +317,8 @@ type ProjectedSubagent = Parameters<typeof projectedSubagentsToRuntime>[0][numbe
 export interface WorkflowOpening {
   readonly messageId: string;
   readonly script: string;
+  /** Claude's workflows open with the script they run; gentle-pi's with the request they carry out. */
+  readonly scriptKind: "script" | "request";
   readonly name: string | null;
   readonly description: string | null;
   readonly driver: OrchestrationV2Subagent["driver"] | null;
@@ -351,6 +353,7 @@ export function resolveWorkflowOpening(input: {
   return {
     messageId: first.id,
     script: first.text,
+    scriptKind: WORKFLOW_SCRIPT_START.test(first.text) ? "script" : "request",
     name: coordinator?.workflow?.name ?? null,
     description: coordinator?.title ?? null,
     driver: coordinator?.driver ?? null,

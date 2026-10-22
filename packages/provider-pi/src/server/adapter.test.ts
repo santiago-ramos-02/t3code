@@ -893,6 +893,162 @@ describe("PiAdapterV2", () => {
     ),
   );
 
+  /** One `gentle-agents` widget redraw listing several subagents, each without thread items. */
+  const gentleTasksWidget = (
+    id: string,
+    tasks: ReadonlyArray<{ id: string; agent: string; label: string; status: string }>,
+  ) => ({
+    type: "extension_ui_request",
+    id,
+    method: "setWidget",
+    widgetKey: "gentle-agents",
+    widgetLines: [
+      JSON.stringify({
+        schema: "gentle-agents.activity/v1",
+        tasks: tasks.map((task) => ({
+          summary: {
+            mode: "task",
+            prompt: `Do: ${task.label}`,
+            lastStep: "Working",
+            error: null,
+            ...task,
+          },
+          thread: { version: 0, total: 0, items: [] },
+        })),
+      }),
+    ],
+  });
+
+  it.effect("groups a turn's gentle-pi subagents into one ODD workflow by phase", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakePi;
+      const { runtime, takeEvent } = yield* openRuntime(fake);
+      const providerThread = yield* runtime.ensureThread({
+        threadId: THREAD_ID,
+        modelSelection: modelSelection("default"),
+        runtimePolicy,
+      });
+      yield* startTurn(runtime, providerThread, "default", [], "Add dark mode");
+      yield* fake.takeRequest("prompt");
+      yield* fake.emit({ type: "agent_start" });
+
+      // The orchestrator's own phase report places agents whose role names no phase.
+      yield* fake.emit({
+        type: "tool_execution_end",
+        toolCallId: "call_phase",
+        toolName: "gentle_odd_phase",
+        isError: false,
+        result: { content: [{ type: "text", text: "ok" }], details: { phase: "planning" } },
+      });
+      yield* fake.emit(
+        gentleTasksWidget("widget-1", [
+          { id: "task-1", agent: "gentle-ai-explore", label: "Map themes", status: "running" },
+          { id: "task-2", agent: "planner", label: "Draft the plan", status: "running" },
+        ]),
+      );
+      const memberThreads = new Map<string, ThreadId>();
+      while (memberThreads.size < 2) {
+        const member = yield* takeEvent(
+          (event) => event.type === "subagent.updated" && event.subagent.workflow === undefined,
+        );
+        if (member.type === "subagent.updated" && member.subagent.childThreadId !== null) {
+          memberThreads.set(member.subagent.title ?? "", member.subagent.childThreadId);
+        }
+      }
+      // The workflow's own thread opens with the request the orchestrator is carrying out.
+      const opening = yield* takeEvent(
+        (event) =>
+          event.type === "message.updated" &&
+          event.message.threadId !== THREAD_ID &&
+          ![...memberThreads.values()].includes(event.message.threadId),
+      );
+      assert.isTrue(
+        opening.type === "message.updated" &&
+          opening.message.role === "user" &&
+          opening.message.workflowScript === true &&
+          opening.message.text === "Add dark mode",
+      );
+
+      const running = yield* takeEvent(
+        (event) =>
+          event.type === "subagent.updated" &&
+          event.subagent.workflow !== undefined &&
+          event.subagent.workflow.agents.length === 2,
+      );
+      assert.isTrue(running.type === "subagent.updated");
+      if (running.type !== "subagent.updated") return;
+      const coordinator = running.subagent;
+      assert.equal(coordinator.status, "running");
+      assert.isTrue(
+        opening.type === "message.updated" &&
+          opening.message.threadId === coordinator.childThreadId,
+      );
+      assert.equal(coordinator.parentNodeId, NodeId.make(`node:run:${THREAD_ID}:1:root`));
+      assert.deepStrictEqual(coordinator.workflow?.phases, [
+        { index: 1, title: "Exploring" },
+        { index: 4, title: "Planning" },
+      ]);
+      assert.deepStrictEqual(
+        coordinator.workflow?.agents.map((agent) => ({
+          label: agent.label,
+          state: agent.state,
+          phaseIndex: agent.phaseIndex,
+          phaseTitle: agent.phaseTitle,
+          childThreadId: agent.childThreadId,
+        })),
+        [
+          {
+            label: "Map themes",
+            state: "running",
+            phaseIndex: 1,
+            phaseTitle: "Exploring",
+            childThreadId: memberThreads.get("Map themes"),
+          },
+          {
+            label: "Draft the plan",
+            state: "running",
+            phaseIndex: 4,
+            phaseTitle: "Planning",
+            childThreadId: memberThreads.get("Draft the plan"),
+          },
+        ],
+      );
+      yield* fake.emit(
+        gentleTasksWidget("widget-2", [
+          { id: "task-1", agent: "gentle-ai-explore", label: "Map themes", status: "completed" },
+          { id: "task-2", agent: "planner", label: "Draft the plan", status: "failed" },
+        ]),
+      );
+      // The parent timeline shows the workflow, not each member again.
+      const parentSubagentItems: Array<string> = [];
+      while (true) {
+        const event = yield* takeEvent(
+          (candidate) =>
+            (candidate.type === "turn_item.updated" &&
+              candidate.turnItem.threadId === THREAD_ID &&
+              candidate.turnItem.type === "subagent") ||
+            (candidate.type === "subagent.updated" && candidate.subagent.id === coordinator.id),
+        );
+        if (event.type === "turn_item.updated" && event.turnItem.type === "subagent") {
+          parentSubagentItems.push(event.turnItem.subagentId);
+        }
+        if (event.type === "subagent.updated" && event.subagent.status !== "running") {
+          assert.equal(event.subagent.status, "failed");
+          assert.deepStrictEqual(
+            event.subagent.workflow?.agents.map((agent) => agent.state),
+            ["completed", "failed"],
+          );
+          break;
+        }
+      }
+      assert.isTrue(parentSubagentItems.every((id) => id === coordinator.id));
+    }).pipe(
+      Effect.scoped,
+      Effect.provideService(PiGentleHooks, gentleHooks()),
+      Effect.provide(layerTest),
+    ),
+  );
+
   it.effect("hands gentle-pi's background wake-up to a continuation run", () =>
     Effect.gen(function* () {
       const fake = yield* makeFakePi;

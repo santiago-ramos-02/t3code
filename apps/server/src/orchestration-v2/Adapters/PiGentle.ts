@@ -6,6 +6,7 @@ import type {
   OrchestrationV2ProviderRef,
   OrchestrationV2ProviderThread,
   OrchestrationV2Subagent,
+  OrchestrationV2WorkflowAgent,
   PlanId,
   ThreadId,
 } from "@t3tools/contracts";
@@ -35,6 +36,53 @@ const CHILD_FIRST_ITEM_ORDINAL = 101;
 const CHILD_RESULT_ORDINAL = 1_000_000;
 const WAKE_TEXT = "A background subagent finished.";
 
+// gentle-pi's ODD phases in protocol order (gentle-shell lib/odd-phase.ts).
+const ODD_PHASES = [
+  "authorizing",
+  "exploring",
+  "researching",
+  "deciding",
+  "planning",
+  "implementing",
+  "checking",
+  "closing",
+] as const;
+type OddPhase = (typeof ODD_PHASES)[number];
+
+// The phase each Gentle AI agent works in, as gentle-shell infers it from a delegation
+// (lib/odd-phase-inference.ts). Other agents take the orchestrator's last phase report.
+const AGENT_PHASES = new Map<string, OddPhase>([
+  ["gentle-ai-explore", "exploring"],
+  ["gentle-ai-worker", "implementing"],
+  ["gentle-ai-verify", "checking"],
+]);
+
+const WORKFLOW_NAME = "ODD workflow";
+
+const isOddPhase = (value: unknown): value is OddPhase =>
+  ODD_PHASES.some((phase) => phase === value);
+
+const phaseTitle = (phase: OddPhase) => `${phase.charAt(0).toUpperCase()}${phase.slice(1)}`;
+
+const workflowAgentState = (
+  status: OrchestrationV2Subagent["status"],
+): OrchestrationV2WorkflowAgent["state"] => {
+  switch (status) {
+    case "completed":
+      return "completed";
+    case "failed":
+    case "interrupted":
+    case "cancelled":
+      return "failed";
+    case "idle":
+    case "pending":
+      return "queued";
+    case "running":
+    case "waiting":
+      return "running";
+  }
+};
+
 const decodeToolArgs = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Unknown));
 /** One thread item as text, to tell whether it changed since it was last emitted. */
 const fingerprint = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
@@ -46,8 +94,9 @@ function toolInput(args: string | undefined): unknown {
 }
 
 interface GentleTaskState<Turn extends PiGentleTurn> {
-  /** The turn that first saw the subagent, which keeps its card. */
+  /** The turn that first saw the subagent, whose workflow lists it. */
   readonly turn: Turn;
+  readonly workflow: GentleWorkflowState<Turn>;
   readonly startedAt: DateTime.Utc;
   readonly childThreadId: ThreadId;
   readonly childRootNodeId: NodeId;
@@ -59,6 +108,29 @@ interface GentleTaskState<Turn extends PiGentleTurn> {
   /** What was last emitted for each thread item, by item number. */
   readonly items: Map<number, string>;
   resultShown: boolean;
+}
+
+/**
+ * One turn's subagents as an ODD workflow: a coordinator subagent whose thread opens with the
+ * turn's request and whose `workflow` lists the members by phase, the shape Claude's workflows
+ * take. The members keep their own subagent records and threads.
+ */
+interface GentleWorkflowState<Turn extends PiGentleTurn> {
+  readonly turn: Turn;
+  readonly nativeId: string;
+  readonly id: NodeId;
+  readonly childThreadId: ThreadId;
+  readonly childRootNodeId: NodeId;
+  readonly startedAt: DateTime.Utc;
+  /** In the order they started, with the latest snapshot of each. */
+  readonly members: Map<
+    string,
+    { task: GentleTask; readonly phase: OddPhase | null; readonly entry: GentleTaskState<Turn> }
+  >;
+  status: OrchestrationV2Subagent["status"] | null;
+  completedAt: DateTime.Utc | null;
+  /** What was last emitted for the coordinator, to skip unchanged redraws. */
+  emitted: string;
 }
 
 /**
@@ -80,6 +152,10 @@ export function makePiGentle<Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>
   });
 
   const tasks = new Map<string, GentleTaskState<Turn>>();
+  /** Each turn's workflow, by provider turn id. */
+  const workflows = new Map<string, GentleWorkflowState<Turn>>();
+  /** The orchestrator's latest `gentle_odd_phase` report in each turn, by provider turn id. */
+  const reportedPhases = new Map<string, OddPhase>();
   /** Unfinished subagents in the latest snapshot with their titles, and the background ones. */
   let live = new Map<string, string>();
   let liveBackground = new Set<string>();
@@ -183,6 +259,217 @@ export function makePiGentle<Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>
     });
   });
 
+  const workflowFor = (turn: Turn, now: DateTime.Utc): GentleWorkflowState<Turn> => {
+    const existing = workflows.get(turn.providerTurn.id);
+    if (existing !== undefined) return existing;
+    const nativeId = `gentle-workflow:${turn.providerTurn.id}`;
+    const workflow: GentleWorkflowState<Turn> = {
+      turn,
+      nativeId,
+      id: idAllocator.derive.nodeFromProviderItem({ driver, nativeItemId: nativeId }),
+      childThreadId: idAllocator.derive.threadFromProviderThread({
+        driver,
+        nativeThreadId: `${turn.turnInput.providerThread.id}:${nativeId}`,
+      }),
+      childRootNodeId: idAllocator.derive.nodeFromProviderItem({
+        driver,
+        nativeItemId: `${nativeId}:thread-root`,
+      }),
+      startedAt: now,
+      members: new Map(),
+      status: null,
+      completedAt: null,
+      emitted: "",
+    };
+    workflows.set(turn.providerTurn.id, workflow);
+    return workflow;
+  };
+
+  const emitWorkflow = Effect.fnUntraced(function* (
+    workflow: GentleWorkflowState<Turn>,
+    now: DateTime.Utc,
+  ) {
+    const members = [...workflow.members.values()];
+    const statuses = members.map(({ task }) => task.status);
+    const status: OrchestrationV2Subagent["status"] = members.some(({ task }) => !task.terminal)
+      ? "running"
+      : statuses.includes("failed")
+        ? "failed"
+        : statuses.some((value) => value === "interrupted" || value === "cancelled")
+          ? "interrupted"
+          : "completed";
+    const phaseOf = (phase: OddPhase) => ({
+      phaseIndex: ODD_PHASES.indexOf(phase),
+      phaseTitle: phaseTitle(phase),
+    });
+    const phases = ODD_PHASES.flatMap((phase, index) =>
+      members.some((member) => member.phase === phase) ? [{ index, title: phaseTitle(phase) }] : [],
+    );
+    const agents = members.map(({ task, phase, entry }, index) => ({
+      index,
+      label: task.title.trim() || "Pi subagent",
+      childThreadId: entry.childThreadId,
+      state: workflowAgentState(task.status),
+      ...(phase === null ? {} : phaseOf(phase)),
+      ...(task.model === null ? {} : { model: task.model }),
+      startedAt: DateTime.toEpochMillis(entry.startedAt),
+      ...(entry.completedAt === null
+        ? {}
+        : { completedAt: DateTime.toEpochMillis(entry.completedAt) }),
+      prompt: task.prompt,
+      ...(task.result === null ? {} : { result: task.result }),
+    }));
+    const encoded = fingerprint({ status, phases, agents });
+    if (encoded === workflow.emitted) return;
+    workflow.emitted = encoded;
+
+    const { turn, nativeId, id, childThreadId, childRootNodeId, startedAt } = workflow;
+    const parent = turn.turnInput;
+    const request = parent.message.text.trim() || WORKFLOW_NAME;
+    const isNew = workflow.status === null;
+    const lifecycleChanged = workflow.status !== status;
+    workflow.status = status;
+    workflow.completedAt = status === "running" ? null : (workflow.completedAt ?? now);
+    const { completedAt } = workflow;
+
+    if (isNew) {
+      yield* emit({
+        type: "app_thread.created",
+        driver,
+        appThread: makeSubagentChildThread({
+          parentThread: parent.appThread,
+          childThreadId,
+          parentNodeId: id,
+          activeProviderThreadId: null,
+          providerInstanceId: deps.instanceId,
+          modelSelection: parent.modelSelection,
+          title: subagentThreadTitle({
+            parentTitle: parent.appThread.title,
+            prompt: request,
+            title: WORKFLOW_NAME,
+            ordinal: workflows.size,
+          }),
+          now,
+          createdBy: "agent",
+          creationSource: "provider",
+        }),
+      });
+      // The request opens the workflow's thread, where Claude's workflows show their script.
+      const openingItemId = `${nativeId}:request`;
+      const opening = makeSubagentConversationArtifacts({
+        senderThreadId: parent.threadId,
+        messageId: idAllocator.derive.messageFromProviderItem({
+          driver,
+          nativeItemId: openingItemId,
+        }),
+        turnItemId: idAllocator.derive.turnItemFromProviderItem({
+          driver,
+          nativeItemId: openingItemId,
+        }),
+        threadId: childThreadId,
+        rootNodeId: childRootNodeId,
+        providerThreadId: null,
+        providerTurnId: null,
+        nativeItemRef: ref(openingItemId),
+        role: "user",
+        text: request,
+        workflowScript: true,
+        ordinal: CHILD_PROMPT_ORDINAL,
+        now,
+      });
+      yield* emit({ type: "message.updated", driver, message: opening.message });
+      yield* emit({ type: "turn_item.updated", driver, turnItem: opening.turnItem });
+    }
+
+    if (lifecycleChanged) {
+      const nodeFields = {
+        status,
+        countsForRun: false,
+        runtimeRequestId: null,
+        checkpointScopeId: null,
+        startedAt,
+        completedAt,
+      };
+      yield* emitNode({
+        ...nodeFields,
+        id,
+        threadId: parent.threadId,
+        runId: parent.runId,
+        parentNodeId: parent.rootNodeId,
+        rootNodeId: parent.rootNodeId,
+        kind: "subagent",
+        providerThreadId: parent.providerThread.id,
+        providerTurnId: turn.providerTurn.id,
+        nativeItemRef: ref(nativeId),
+      });
+      yield* emitNode({
+        ...nodeFields,
+        id: childRootNodeId,
+        threadId: childThreadId,
+        runId: null,
+        parentNodeId: null,
+        rootNodeId: childRootNodeId,
+        kind: "root_turn",
+        providerThreadId: null,
+        providerTurnId: null,
+        nativeItemRef: ref(nativeId),
+      });
+    }
+
+    const progress =
+      status === "running"
+        ? {
+            progress: `${members.filter(({ task }) => task.terminal).length}/${members.length} agents done`,
+          }
+        : {};
+    yield* emit({
+      type: "subagent.updated",
+      driver,
+      subagent: {
+        id,
+        threadId: parent.threadId,
+        runId: parent.runId,
+        parentNodeId: parent.rootNodeId,
+        origin: "provider_native",
+        createdBy: "agent",
+        driver,
+        providerInstanceId: deps.instanceId,
+        providerThreadId: parent.providerThread.id,
+        childThreadId,
+        nativeTaskRef: ref(nativeId),
+        prompt: request,
+        title: WORKFLOW_NAME,
+        model: null,
+        status,
+        ...progress,
+        result: null,
+        workflow: { name: WORKFLOW_NAME, phases, agents },
+        startedAt,
+        completedAt,
+        updatedAt: now,
+      },
+    });
+    yield* emit({
+      type: "turn_item.updated",
+      driver,
+      turnItem: {
+        ...itemFields(turn, nativeId, startedAt, now),
+        status,
+        title: WORKFLOW_NAME,
+        completedAt,
+        type: "subagent",
+        subagentId: id,
+        origin: "provider_native",
+        driver,
+        providerInstanceId: deps.instanceId,
+        childThreadId,
+        prompt: request,
+        ...progress,
+        result: null,
+      },
+    });
+  });
+
   const emitTask = Effect.fnUntraced(function* (task: GentleTask, now: DateTime.Utc) {
     const state = deps.threadState();
     if (state === null) return;
@@ -196,7 +483,9 @@ export function makePiGentle<Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>
     if (entry === undefined) {
       const turn = state.activeTurn ?? lastTurn;
       if (turn === null) return;
+      const workflow = workflowFor(turn, now);
       entry = {
+        workflow,
         turn,
         startedAt: now,
         childThreadId: idAllocator.derive.threadFromProviderThread({
@@ -216,6 +505,12 @@ export function makePiGentle<Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>
         resultShown: false,
       };
       tasks.set(task.id, entry);
+      workflow.members.set(task.id, {
+        task,
+        phase:
+          AGENT_PHASES.get(task.agent ?? "") ?? reportedPhases.get(turn.providerTurn.id) ?? null,
+        entry,
+      });
     } else if (
       entry.status === task.status &&
       entry.version === task.version &&
@@ -347,25 +642,9 @@ export function makePiGentle<Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>
         updatedAt: now,
       },
     });
-    yield* emit({
-      type: "turn_item.updated",
-      driver,
-      turnItem: {
-        ...itemFields(turn, nativeTaskId, startedAt, now),
-        status: task.status,
-        title: task.title,
-        completedAt,
-        type: "subagent",
-        subagentId,
-        origin: "provider_native",
-        driver,
-        providerInstanceId: deps.instanceId,
-        childThreadId,
-        prompt: task.prompt,
-        ...progress,
-        result: task.result,
-      },
-    });
+    // The parent's timeline shows the turn's workflow rather than each member.
+    const member = entry.workflow.members.get(task.id);
+    if (member !== undefined) member.task = task;
 
     for (const { number, item } of task.items) {
       const encoded = fingerprint(item);
@@ -436,6 +715,15 @@ export function makePiGentle<Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>
         finishedBackground = task.id;
       }
       yield* emitTask(task, now);
+    }
+    const touched = new Set(
+      snapshot.flatMap((task) => {
+        const workflow = tasks.get(task.id)?.workflow;
+        return workflow === undefined ? [] : [workflow];
+      }),
+    );
+    for (const workflow of touched) {
+      yield* emitWorkflow(workflow, now);
     }
     const current = state.providerThread.pendingBackgroundTasks ?? [];
     const roster = withRoster(state.providerThread).pendingBackgroundTasks ?? [];
@@ -528,6 +816,16 @@ export function makePiGentle<Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>
     }),
 
     onToolResult: (turn: Turn, toolName: string, details: unknown, completed: boolean) => {
+      if (completed && toolName === "gentle_odd_phase") {
+        // "clear" answers with no phase, which leaves the turn without one.
+        const phase =
+          typeof details === "object" && details !== null && "phase" in details
+            ? details.phase
+            : undefined;
+        if (isOddPhase(phase)) reportedPhases.set(turn.providerTurn.id, phase);
+        else reportedPhases.delete(turn.providerTurn.id);
+        return Effect.void;
+      }
       const steps = completed ? gentleTodoSteps(toolName, details) : undefined;
       return steps === undefined ? Effect.void : emitTodo(turn, steps);
     },
@@ -540,6 +838,8 @@ export function makePiGentle<Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>
     /** Pi's native session changed, so nothing seen so far belongs to it. */
     reset: () => {
       tasks.clear();
+      workflows.clear();
+      reportedPhases.clear();
       live = new Map();
       liveBackground = new Set();
       lastTurn = null;

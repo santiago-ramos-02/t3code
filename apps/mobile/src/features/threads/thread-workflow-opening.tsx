@@ -12,6 +12,7 @@ import { useState } from "react";
 import { Pressable, View } from "react-native";
 
 import { AppText as Text } from "../../components/ui/AppText";
+import { cn } from "../../lib/cn";
 import { environmentThreadDetails } from "../../state/threads";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { useMarkdownCodeHighlight } from "./markdownCodeHighlightState";
@@ -140,14 +141,17 @@ export function ThreadWorkflowOpening(props: {
             ))
           : null}
         {canListMembers ? unphased.map(renderMember) : null}
-        <WorkflowScript script={opening.script} />
+        <WorkflowScript script={opening.script} kind={opening.scriptKind} />
       </View>
     </WorkLogBlock>
   );
 }
 
-/** The script as highlighted code; a long one shows its head until opened. */
-function WorkflowScript(props: { readonly script: string }) {
+/** The script as highlighted code, or the request as text; a long one shows its head until opened. */
+function WorkflowScript(props: {
+  readonly script: string;
+  readonly kind: WorkflowOpeningValue["scriptKind"];
+}) {
   const [expanded, setExpanded] = useState(false);
   const { themeAppearance } = useAppearancePreferences();
   const script = props.script.trimEnd();
@@ -155,7 +159,7 @@ function WorkflowScript(props: { readonly script: string }) {
     code: script,
     language: "javascript",
     theme: themeAppearance,
-    enabled: true,
+    enabled: props.kind === "script",
   });
   const lineCount = script.split("\n").length;
   const canFold = lineCount > FOLDED_SCRIPT_LINES;
@@ -181,7 +185,13 @@ function WorkflowScript(props: { readonly script: string }) {
   return (
     <View className="gap-1">
       <View className="rounded-lg bg-subtle px-3 py-2.5">
-        <Text selectable className="font-mono text-2xs leading-normal text-foreground">
+        <Text
+          selectable
+          className={cn(
+            "leading-normal text-foreground",
+            props.kind === "script" ? "font-mono text-2xs" : "text-xs",
+          )}
+        >
           {highlighted ?? script.split("\n").slice(0, shownLines).join("\n")}
         </Text>
       </View>
@@ -193,7 +203,7 @@ function WorkflowScript(props: { readonly script: string }) {
           className="self-start py-1 active:opacity-70"
         >
           <Text className="font-t3-medium text-xs text-foreground-muted">
-            {expanded ? "Show less" : "Show full script"}
+            {expanded ? "Show less" : `Show full ${props.kind}`}
           </Text>
         </Pressable>
       ) : null}

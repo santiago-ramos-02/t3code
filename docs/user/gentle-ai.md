@@ -112,6 +112,10 @@ In a thread with Gentle AI on, Gentle AI's own subagents run the work the agent 
 T3 Code's delegated tasks (`delegate_task`) decline there. To delegate through T3 Code instead,
 for example to another provider, turn Gentle AI off for the thread.
 
+In Pi threads, the subagents one turn starts appear together as an **ODD workflow**, grouped by
+the phase each one works in, such as exploring, implementing, or checking. Open the workflow to
+see its agents and open any agent's own thread.
+
 ## Turn Gentle AI off for a thread
 
 In a new thread, open the Gentle AI chip in the composer and clear **Gentle AI**; the

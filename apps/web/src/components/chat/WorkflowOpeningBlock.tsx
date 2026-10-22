@@ -35,7 +35,10 @@ function scriptMarkdown(script: string) {
   return `${fence}javascript\n${script.trimEnd()}\n${fence}`;
 }
 
-/** Opens a workflow coordinator's thread in place of its script: the plan, its agents, then the script. */
+/**
+ * Opens a workflow coordinator's thread in place of its first message: the plan, its agents, then
+ * the script it runs or the request it carries out.
+ */
 export function WorkflowOpeningBlock(props: {
   readonly opening: WorkflowOpening;
   readonly environmentId: EnvironmentId;
@@ -98,7 +101,7 @@ export function WorkflowOpeningBlock(props: {
       {opening.group && opening.group.unphasedMembers.length > 0 ? (
         <ul className="m-0 list-none p-0">{opening.group.unphasedMembers.map(memberRow)}</ul>
       ) : null}
-      <WorkflowScript script={opening.script} />
+      <WorkflowScript script={opening.script} kind={opening.scriptKind} />
     </section>
   );
 }
@@ -203,7 +206,10 @@ function WorkflowMemberRow(props: {
 }
 
 /** The script as highlighted code, folded like a long message until opened or found. */
-function WorkflowScript(props: { readonly script: string }) {
+function WorkflowScript(props: {
+  readonly script: string;
+  readonly kind: WorkflowOpening["scriptKind"];
+}) {
   const [expanded, setExpanded] = useState(false);
   const revealRef = findRevealRef(() => setExpanded(true));
   const canFold = shouldCollapseUserMessage(props.script);
@@ -221,7 +227,10 @@ function WorkflowScript(props: { readonly script: string }) {
             : undefined
         }
       >
-        <ChatMarkdown text={scriptMarkdown(props.script)} cwd={undefined} />
+        <ChatMarkdown
+          text={props.kind === "script" ? scriptMarkdown(props.script) : props.script}
+          cwd={undefined}
+        />
       </div>
       {canFold ? (
         <div className="-ms-1">
@@ -233,7 +242,7 @@ function WorkflowScript(props: { readonly script: string }) {
             data-scroll-anchor-ignore
             onClick={() => setExpanded((value) => !value)}
           >
-            {expanded ? "Show less" : "Show full script"}
+            {expanded ? "Show less" : `Show full ${props.kind}`}
           </Button>
         </div>
       ) : null}
