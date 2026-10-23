@@ -9,6 +9,7 @@ import { useAtomValue } from "@effect/atom-react";
 import { useEffect, useEffectEvent, useState } from "react";
 import {
   AuthRelayWriteScope,
+  type BoatMachine,
   type EnvironmentId,
   connectReachabilityHelpUrl,
   formatConnectReachable,
@@ -25,6 +26,7 @@ import * as Option from "effect/Option";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { cn } from "../../lib/utils";
 import { SettingsRow } from "./settingsLayout";
+import { BoatMachineMenuItems, boatMachineStateText, useBoatMachineActions } from "./BoatSettings";
 import { searchableSetting } from "./settingsSearch";
 import { EnvironmentIconMenu } from "./EnvironmentIconPicker";
 import { EnvironmentRoutesList } from "./EnvironmentRoutesList";
@@ -72,6 +74,12 @@ type SavedBackendListRowProps = {
   onSetEnabled: (environmentId: EnvironmentId, enabled: boolean) => void;
   onRemove: (environment: EnvironmentPresentation) => void;
   onAddRoute: (environment: EnvironmentPresentation) => void;
+  // Set for a Boat machine, which is listed under Boat and can be stopped or deleted.
+  boat?: {
+    readonly hostEnvironmentId: EnvironmentId;
+    readonly machine: BoatMachine;
+    readonly savedEnvironments: ReadonlyArray<EnvironmentPresentation>;
+  };
 };
 
 function savedBackendStatus(environment: EnvironmentPresentation): {
@@ -111,6 +119,7 @@ export function SavedBackendListRow({
   onSetEnabled,
   onRemove,
   onAddRoute,
+  boat,
 }: SavedBackendListRowProps) {
   const [routesOpen, setRoutesOpen] = useState(false);
   const [permissionsOpen, setPermissionsOpen] = useState(false);
@@ -208,6 +217,7 @@ export function SavedBackendListRow({
   );
   const routeCount = connectionRoutes(environment.entry).length;
   const subtitleText = [
+    boat ? boatMachineStateText(boat.machine) : null,
     environmentTransportLabel(environment, connectedTarget),
     // The headline below names the failure in full.
     diagnosis ? null : resumingServerUpdate ? "Restarting" : status.text,
@@ -239,6 +249,7 @@ export function SavedBackendListRow({
       kind={machineKind}
       label={environment.label}
       dimmed={!enabled}
+      {...(boat ? { className: "ps-8 sm:ps-10" } : {})}
       subtitle={
         <span className="flex min-w-0 items-center gap-1">
           <Tooltip>
@@ -423,12 +434,28 @@ export function SavedBackendListRow({
             <MenuItem onClick={() => copyTraceId(errorTraceId)}>Copy trace ID</MenuItem>
           ) : null}
           <MenuSeparator />
+          {boat ? <BoatMachineRowMenuItems {...boat} /> : null}
           <MenuItem variant="destructive" onClick={() => onRemove(environment)}>
             {isRemoving ? "Removing…" : "Remove from this device…"}
           </MenuItem>
         </MenuPopup>
       </Menu>
     </EnvironmentRow>
+  );
+}
+
+function BoatMachineRowMenuItems({
+  hostEnvironmentId,
+  machine,
+  savedEnvironments,
+}: NonNullable<SavedBackendListRowProps["boat"]>) {
+  const { act, busySandboxId } = useBoatMachineActions(hostEnvironmentId, savedEnvironments);
+  return (
+    <BoatMachineMenuItems
+      machine={machine}
+      busy={busySandboxId === machine.sandboxId}
+      onAction={(action) => void act(machine, action)}
+    />
   );
 }
 
