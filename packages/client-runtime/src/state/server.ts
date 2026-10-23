@@ -1269,6 +1269,23 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:cli-proxy:management",
       tag: WS_METHODS.cliProxyManagement,
     }),
+    // Boat machines the environment starts: status now and on every change, and its actions.
+    boatStatus: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
+      label: "environment-data:boat:status",
+      tag: WS_METHODS.boatSubscribeStatus,
+    }),
+    configureBoat: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:boat:configure",
+      tag: WS_METHODS.boatConfigure,
+    }),
+    spawnBoatMachine: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:boat:spawn",
+      tag: WS_METHODS.boatSpawn,
+    }),
+    runBoatMachineAction: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:boat:machine-action",
+      tag: WS_METHODS.boatMachineAction,
+    }),
     startGentleAiJob: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:gentle-ai:start-job",
       tag: WS_METHODS.gentleAiStartJob,

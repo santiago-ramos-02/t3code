@@ -25,10 +25,16 @@ import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
+import * as HostProcess from "@t3tools/shared/HostProcess";
+
 import * as ServerConfig from "../config.ts";
+import * as ProcessRunner from "../processRunner.ts";
 import { BOAT_FAILED_STATES, BOAT_READY_STATES, makeBoatApi, type BoatApi } from "./BoatApi.ts";
+import { makeBoatCli } from "./BoatCli.ts";
 
 const API_KEY_SECRET = "boat-api-key";
+// The ID of a key the Boat CLI made for T3 Code, revoked when that key is replaced or removed.
+const CLI_KEY_ID_SECRET = "boat-api-key-cli-id";
 // The port each machine's T3 Code server listens on, published through Boat's HTTPS route.
 export const BOAT_T3_PORT = 3773;
 // Boat stops a machine this long after it starts or resumes, so one this server forgets about
@@ -81,6 +87,12 @@ export const make = Effect.gen(function* () {
   const serverConfig = yield* ServerConfig.ServerConfig;
   const secrets = yield* ServerSecretStore.ServerSecretStore;
   const httpClient = yield* HttpClient.HttpClient;
+  const cli = makeBoatCli({
+    runner: yield* ProcessRunner.ProcessRunner,
+    path,
+    environment: yield* HostProcess.Environment,
+    platform: yield* HostProcess.Platform,
+  });
 
   const statePath = path.join(serverConfig.stateDir, "boat.json");
   const initial = yield* fileSystem.readFileString(statePath).pipe(
@@ -96,6 +108,7 @@ export const make = Effect.gen(function* () {
   );
   const state = yield* SubscriptionRef.make<BoatStatus>({
     configured: Option.isSome(yield* readApiKey),
+    cli: null,
     ...initial,
   });
   // One writer at a time, so a slow spawn cannot overwrite a newer machine list.
@@ -130,6 +143,46 @@ export const make = Effect.gen(function* () {
       ...status,
       machines: status.machines.filter((m) => m.sandboxId !== sandboxId),
     }));
+
+  const detectCli = cli.login().pipe(
+    Effect.map(Option.map(({ signedIn, account }) => ({ signedIn, account }))),
+    Effect.map(Option.getOrNull),
+    Effect.flatMap((login) =>
+      writes.withPermits(1)(SubscriptionRef.update(state, (status) => ({ ...status, cli: login }))),
+    ),
+  );
+  // Checked when someone opens a status stream, since the CLI can be installed or signed into at
+  // any time; at most every few seconds, as each check starts a process.
+  const refreshCli = yield* Effect.cachedWithTTL(detectCli, "10 seconds");
+  const serviceScope = yield* Effect.scope;
+
+  const readSecretText = (name: string) =>
+    secrets.get(name).pipe(
+      Effect.map(Option.map((bytes) => new TextDecoder().decode(bytes))),
+      Effect.orElseSucceed(() => Option.none<string>()),
+    );
+
+  // Best effort: a key Boat keeps after this is still revocable from Boat's dashboard.
+  const revokeCliKey = Effect.gen(function* () {
+    const id = yield* readSecretText(CLI_KEY_ID_SECRET);
+    if (Option.isNone(id)) return;
+    const login = yield* cli.login();
+    if (Option.isSome(login)) {
+      yield* cli.revokeKey(login.value.command, id.value).pipe(Effect.ignore);
+    }
+    yield* secrets.remove(CLI_KEY_ID_SECRET).pipe(Effect.ignore);
+  });
+
+  const saveKey = Effect.fn("BoatMachines.saveKey")(
+    function* (key: string, cliKeyId: string | null) {
+      yield* revokeCliKey;
+      yield* secrets.set(API_KEY_SECRET, new TextEncoder().encode(key));
+      if (cliKeyId !== null) {
+        yield* secrets.set(CLI_KEY_ID_SECRET, new TextEncoder().encode(cliKeyId));
+      }
+    },
+    Effect.mapError(() => fail("T3 Code could not save the Boat API key.")),
+  );
 
   const api = Effect.gen(function* () {
     const key = yield* readApiKey;
@@ -252,13 +305,26 @@ export const make = Effect.gen(function* () {
   }
 
   const configure = Effect.fn("BoatMachines.configure")(function* (input: BoatConfigureInput) {
-    if (input.apiKey !== undefined) {
+    if (input.useCliLogin === true) {
+      const login = yield* cli.login();
+      if (Option.isNone(login)) {
+        return yield* fail("The Boat CLI is not installed on this machine.");
+      }
+      if (!login.value.signedIn) {
+        return yield* fail("Sign in to the Boat CLI first: run `boat login`.");
+      }
+      const created = yield* cli.createKey(login.value.command, "T3 Code");
+      yield* saveKey(created.secret, created.id ?? null);
+    } else if (input.apiKey !== undefined) {
       const key = input.apiKey?.trim() ?? "";
-      yield* (
-        key.length === 0
-          ? secrets.remove(API_KEY_SECRET)
-          : secrets.set(API_KEY_SECRET, new TextEncoder().encode(key))
-      ).pipe(Effect.mapError(() => fail("T3 Code could not save the Boat API key.")));
+      if (key.length === 0) {
+        yield* revokeCliKey;
+        yield* secrets
+          .remove(API_KEY_SECRET)
+          .pipe(Effect.mapError(() => fail("T3 Code could not remove the Boat API key.")));
+      } else {
+        yield* saveKey(key, null);
+      }
     }
     const configured = Option.isSome(yield* readApiKey);
     return yield* update((status) => ({
@@ -308,7 +374,9 @@ export const make = Effect.gen(function* () {
 
   return BoatMachines.of({
     current: SubscriptionRef.get(state),
-    streamChanges: SubscriptionRef.changes(state),
+    streamChanges: Stream.unwrap(
+      refreshCli.pipe(Effect.forkIn(serviceScope), Effect.as(SubscriptionRef.changes(state))),
+    ),
     configure,
     spawn,
     machineAction,

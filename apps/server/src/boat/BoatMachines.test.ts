@@ -7,10 +7,13 @@ import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import { HttpClient, HttpClientResponse, type HttpClientRequest } from "effect/http";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
+import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import * as Stream from "effect/Stream";
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as ServerConfig from "../config.ts";
+import * as ProcessRunner from "../processRunner.ts";
 import * as BoatMachines from "./BoatMachines.ts";
 
 const SANDBOX_ID = "bx_test0001";
@@ -94,8 +97,54 @@ const layerEnvironment = Layer.mergeAll(ServerSecretStore.layer).pipe(
   Layer.provideMerge(NodeServices.layer),
 );
 
-const makeService = (client: HttpClient.HttpClient) =>
-  BoatMachines.make.pipe(Effect.provideService(HttpClient.HttpClient, client));
+/** A fake Boat CLI; without `login` it is not installed. */
+const makeFakeCli = (login?: { readonly signedIn: boolean }) => {
+  const calls: Array<ReadonlyArray<string>> = [];
+  const output = (code: number, stdout: string) => ({
+    stdout,
+    stderr: code === 0 ? "" : "boat: not signed in",
+    code: ChildProcessSpawner.ExitCode(code),
+    timedOut: false,
+    stdoutTruncated: false,
+    stderrTruncated: false,
+    stdoutInvalidUtf8: false,
+    stderrInvalidUtf8: false,
+  });
+  const runner = ProcessRunner.ProcessRunner.of({
+    run: (input) => {
+      calls.push(input.args);
+      if (!login) return Effect.succeed(output(127, ""));
+      const [command, action] = input.args;
+      if (command === "status") {
+        return Effect.succeed(
+          output(
+            0,
+            JSON.stringify({ account: { signedIn: login.signedIn, identifier: "me@x.dev" } }),
+          ),
+        );
+      }
+      if (command === "api-key" && action === "create") {
+        return Effect.succeed(
+          login.signedIn
+            ? output(0, JSON.stringify({ secret: "boat_cli_key", id: "key_cli" }))
+            : output(1, ""),
+        );
+      }
+      if (command === "api-key" && action === "revoke") return Effect.succeed(output(0, "{}"));
+      return Effect.succeed(output(2, ""));
+    },
+  });
+  return { calls, runner };
+};
+
+const makeService = (
+  client: HttpClient.HttpClient,
+  cli: ProcessRunner.ProcessRunner["Service"] = makeFakeCli().runner,
+) =>
+  BoatMachines.make.pipe(
+    Effect.provideService(HttpClient.HttpClient, client),
+    Effect.provideService(ProcessRunner.ProcessRunner, cli),
+  );
 
 const callsTo = (calls: ReadonlyArray<BoatCall>, method: string, suffix: string) =>
   calls.filter((call) => call.method === method && call.path.endsWith(suffix));
@@ -271,6 +320,58 @@ describe("BoatMachines", () => {
         "Boat could not create a machine (HTTP 402): Your balance is empty.",
       );
       assert.deepStrictEqual((yield* service.current).machines, []);
+    }).pipe(Effect.provide(layerEnvironment)),
+  );
+
+  it.effect("signs in with the Boat CLI and revokes its key when removed", () =>
+    Effect.gen(function* () {
+      const boat = makeFakeBoat({ pairing: PAIRING_OUTPUT });
+      const cli = makeFakeCli({ signedIn: true });
+      const service = yield* makeService(boat.client, cli.runner);
+
+      const detected = yield* service.streamChanges.pipe(
+        Stream.filter((status) => status.cli !== null),
+        Stream.runHead,
+      );
+      assert.deepStrictEqual(Option.getOrNull(detected)?.cli, {
+        signedIn: true,
+        account: "me@x.dev",
+      });
+
+      const connected = yield* service.configure({ useCliLogin: true });
+      assert.strictEqual(connected.configured, true);
+      const create = cli.calls.find((args) => args[0] === "api-key" && args[1] === "create");
+      assert.deepStrictEqual(create, [
+        "api-key",
+        "create",
+        "T3 Code",
+        "--preset",
+        "ci",
+        "--ttl",
+        "never",
+        "--json",
+      ]);
+      yield* service.spawn({});
+      const [created] = callsTo(boat.calls, "POST", "/sandboxes");
+      assert.strictEqual(created?.headers.authorization, "Bearer boat_cli_key");
+
+      const removed = yield* service.configure({ apiKey: null });
+      assert.strictEqual(removed.configured, false);
+      assert.deepStrictEqual(
+        cli.calls.find((args) => args[1] === "revoke"),
+        ["api-key", "revoke", "key_cli", "--json"],
+      );
+    }).pipe(Effect.provide(layerEnvironment)),
+  );
+
+  it.effect("asks to sign in to the Boat CLI before using it", () =>
+    Effect.gen(function* () {
+      const cli = makeFakeCli({ signedIn: false });
+      const service = yield* makeService(makeFakeBoat({}).client, cli.runner);
+      const error = yield* service.configure({ useCliLogin: true }).pipe(Effect.flip);
+      assert.strictEqual(error.detail, "Sign in to the Boat CLI first: run `boat login`.");
+      assert.isFalse(cli.calls.some((args) => args[1] === "create"));
+      assert.strictEqual((yield* service.current).configured, false);
     }).pipe(Effect.provide(layerEnvironment)),
   );
 

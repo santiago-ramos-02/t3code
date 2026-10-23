@@ -10,6 +10,16 @@ import * as Schema from "effect/Schema";
 export const BoatSize = Schema.Literals(["small", "default", "large", "xlarge"]);
 export type BoatSize = typeof BoatSize.Type;
 
+// Boat's published sizes and per-hour prices.
+export const BOAT_SIZE_DETAILS: Readonly<
+  Record<BoatSize, { readonly specs: string; readonly hourlyPrice: string; readonly note?: string }>
+> = {
+  small: { specs: "2 vCPU · 4 GB", hourlyPrice: "$0.018/h" },
+  default: { specs: "4 vCPU · 8 GB", hourlyPrice: "$0.036/h" },
+  large: { specs: "8 vCPU · 16 GB", hourlyPrice: "$0.072/h" },
+  xlarge: { specs: "16 vCPU · 32 GB", hourlyPrice: "$0.20/h", note: "Needs Boat's $100 plan" },
+};
+
 export const BoatSettings = Schema.Struct({
   // The named snapshot new machines start from, with providers and logins already set up. With
   // none, machines start from Boat's base image and run the published T3 Code server.
@@ -52,9 +62,18 @@ export type BoatMachine = typeof BoatMachine.Type;
 export const boatMachineLabel = (machine: Pick<BoatMachine, "sandboxId" | "size">) =>
   `Boat · ${machine.size} · ${machine.sandboxId.replace(/[^a-z0-9]/gi, "").slice(-4)}`;
 
+// The Boat CLI on the environment's machine, which can sign T3 Code in without a pasted key.
+export const BoatCliLogin = Schema.Struct({
+  signedIn: Schema.Boolean,
+  account: Schema.NullOr(Schema.String),
+});
+export type BoatCliLogin = typeof BoatCliLogin.Type;
+
 export const BoatStatus = Schema.Struct({
   // Whether the environment holds a Boat API key.
   configured: Schema.Boolean,
+  // Null when the CLI is not installed there.
+  cli: Schema.NullOr(BoatCliLogin),
   settings: BoatSettings,
   machines: Schema.Array(BoatMachine),
 });
@@ -63,6 +82,8 @@ export type BoatStatus = typeof BoatStatus.Type;
 export const BoatConfigureInput = Schema.Struct({
   // A new key replaces the saved one; null removes it.
   apiKey: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  // Has the signed-in Boat CLI create a key for T3 Code, replacing the saved one.
+  useCliLogin: Schema.optionalKey(Schema.Boolean),
   settings: Schema.optionalKey(BoatSettings),
 });
 export type BoatConfigureInput = typeof BoatConfigureInput.Type;
