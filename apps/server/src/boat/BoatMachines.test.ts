@@ -41,6 +41,8 @@ const makeFakeBoat = (options: {
   readonly gone?: boolean;
 }) => {
   const calls: BoatCall[] = [];
+  // Whether T3 Code answers once started; a test flips it to break a later start.
+  const control = { serverStarts: true };
   const json = (request: HttpClientRequest.HttpClientRequest, body: unknown, status = 200) =>
     Effect.succeed(HttpClientResponse.fromWeb(request, Response.json(body, { status })));
   const client = HttpClient.make((request) => {
@@ -57,7 +59,7 @@ const makeFakeBoat = (options: {
       return json(request, { message: "Sandbox not found." }, 404);
     }
     if (request.method === "GET" && path === `/sandboxes/${SANDBOX_ID}`) {
-      return json(request, { id: SANDBOX_ID, state: "idle" });
+      return json(request, { type: "sandbox.info", sandbox: { id: SANDBOX_ID, state: "idle" } });
     }
     if (path === `/sandboxes/${SANDBOX_ID}/commands`) {
       const command = String(body?.command ?? "");
@@ -65,7 +67,7 @@ const makeFakeBoat = (options: {
       const result = (exitCode: number, stdout: string) =>
         json(request, { exitCode, stdout, stderr: "" });
       if (command.includes("echo up || echo down")) return result(0, "down\n");
-      if (command.includes("seq 1 120")) return result(0, "");
+      if (command.includes("seq 1 120")) return result(control.serverStarts ? 0 : 1, "");
       if (command.includes("auth pairing create")) {
         if (options.pairingReached) {
           return Deferred.succeed(options.pairingReached, undefined).pipe(
@@ -85,7 +87,7 @@ const makeFakeBoat = (options: {
     }
     return json(request, { message: `unexpected ${request.method} ${path}` }, 404);
   });
-  return { calls, client };
+  return { calls, client, control };
 };
 
 const PAIRING_OUTPUT =
@@ -126,7 +128,13 @@ const makeFakeCli = (login?: { readonly signedIn: boolean; readonly revokeFails?
       if (command === "api-key" && action === "create") {
         return Effect.succeed(
           login.signedIn
-            ? output(0, JSON.stringify({ secret: "boat_cli_key", id: "key_cli" }))
+            ? output(
+                0,
+                JSON.stringify({
+                  secret: "boat_cli_key",
+                  apiKey: { id: "key_cli", name: "T3 Code" },
+                }),
+              )
             : output(1, ""),
         );
       }
@@ -325,6 +333,44 @@ describe("BoatMachines", () => {
     }).pipe(Effect.provide(layerEnvironment)),
   );
 
+  it.effect("starts T3 Code again when a stopped machine resumes", () =>
+    Effect.gen(function* () {
+      const boat = makeFakeBoat({ pairing: PAIRING_OUTPUT });
+      const service = yield* makeService(boat.client);
+      yield* service.configure({ apiKey: "boat_test_key" });
+      yield* service.spawn({});
+      yield* service.machineAction({ sandboxId: SANDBOX_ID, action: "stop" });
+
+      const resumed = yield* service.machineAction({ sandboxId: SANDBOX_ID, action: "resume" });
+      assert.strictEqual(resumed.machines[0]?.state, "running");
+      const serves = callsTo(boat.calls, "POST", "/commands").filter(
+        (call) => call.body?.detached === true,
+      );
+      assert.strictEqual(serves.length, 2);
+    }).pipe(Effect.provide(layerEnvironment)),
+  );
+
+  it.effect("stops a resumed machine again when T3 Code does not start on it", () =>
+    Effect.gen(function* () {
+      const boat = makeFakeBoat({ pairing: PAIRING_OUTPUT });
+      const service = yield* makeService(boat.client);
+      yield* service.configure({ apiKey: "boat_test_key" });
+      yield* service.spawn({});
+      yield* service.machineAction({ sandboxId: SANDBOX_ID, action: "stop" });
+      boat.control.serverStarts = false;
+
+      const error = yield* service
+        .machineAction({ sandboxId: SANDBOX_ID, action: "resume" })
+        .pipe(Effect.flip);
+      assert.strictEqual(
+        error.detail,
+        "T3 Code did not start on the Boat machine within two minutes.",
+      );
+      assert.strictEqual(callsTo(boat.calls, "POST", "/stop").length, 2);
+      assert.strictEqual((yield* service.current).machines[0]?.state, "stopped");
+    }).pipe(Effect.provide(layerEnvironment)),
+  );
+
   it.effect("signs in with the Boat CLI and revokes its key when removed", () =>
     Effect.gen(function* () {
       const boat = makeFakeBoat({ pairing: PAIRING_OUTPUT });
@@ -356,6 +402,7 @@ describe("BoatMachines", () => {
       yield* service.spawn({});
       const [created] = callsTo(boat.calls, "POST", "/sandboxes");
       assert.strictEqual(created?.headers.authorization, "Bearer boat_cli_key");
+      yield* service.machineAction({ sandboxId: SANDBOX_ID, action: "delete" });
 
       const removed = yield* service.configure({ apiKey: null });
       assert.strictEqual(removed.configured, false);
@@ -414,6 +461,17 @@ describe("BoatMachines", () => {
       assert.strictEqual(error.detail, "Sign in to the Boat CLI first: run `boat login`.");
       assert.isFalse(cli.calls.some((args) => args[1] === "create"));
       assert.strictEqual((yield* service.current).configured, false);
+    }).pipe(Effect.provide(layerEnvironment)),
+  );
+
+  it.effect("keeps the API key while machines still need it", () =>
+    Effect.gen(function* () {
+      const service = yield* makeService(makeFakeBoat({ pairing: PAIRING_OUTPUT }).client);
+      yield* service.configure({ apiKey: "boat_test_key" });
+      yield* service.spawn({});
+      const error = yield* service.configure({ apiKey: null }).pipe(Effect.flip);
+      assert.strictEqual(error.detail, "Delete your Boat machines before removing the key.");
+      assert.strictEqual((yield* service.current).configured, true);
     }).pipe(Effect.provide(layerEnvironment)),
   );
 

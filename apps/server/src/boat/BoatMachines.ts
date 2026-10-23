@@ -29,7 +29,13 @@ import * as HostProcess from "@t3tools/shared/HostProcess";
 
 import * as ServerConfig from "../config.ts";
 import * as ProcessRunner from "../processRunner.ts";
-import { BOAT_FAILED_STATES, BOAT_READY_STATES, makeBoatApi, type BoatApi } from "./BoatApi.ts";
+import {
+  BOAT_READY_STATES,
+  BOAT_START_FAILED_STATES,
+  BOAT_TERMINAL_STATES,
+  makeBoatApi,
+  type BoatApi,
+} from "./BoatApi.ts";
 import { makeBoatCli } from "./BoatCli.ts";
 
 const API_KEY_SECRET = "boat-api-key";
@@ -211,7 +217,7 @@ export const make = Effect.gen(function* () {
     return makeBoatApi(httpClient, key.value);
   });
 
-  const waitUntilReady = (boat: BoatApi, sandboxId: string) =>
+  const waitUntilReady = (boat: BoatApi, sandboxId: string, failedStates: ReadonlySet<string>) =>
     boat.getSandbox(sandboxId).pipe(
       Effect.flatMap(
         Option.match({
@@ -219,7 +225,7 @@ export const make = Effect.gen(function* () {
           onSome: (sandbox) =>
             BOAT_READY_STATES.has(sandbox.state)
               ? Effect.void
-              : BOAT_FAILED_STATES.has(sandbox.state)
+              : failedStates.has(sandbox.state)
                 ? Effect.fail(fail(`The Boat machine stopped while starting (${sandbox.state}).`))
                 : Effect.fail(fail("The Boat machine is still starting.")),
         }),
@@ -231,7 +237,8 @@ export const make = Effect.gen(function* () {
       }),
     );
 
-  const startT3 = Effect.fn("BoatMachines.startT3")(function* (
+  // A stopped machine keeps its disk but not its processes, so a resume starts T3 Code again.
+  const serveT3 = Effect.fn("BoatMachines.serveT3")(function* (
     boat: BoatApi,
     machine: BoatMachine,
   ) {
@@ -247,6 +254,14 @@ export const make = Effect.gen(function* () {
     if (waited.exitCode !== 0) {
       return yield* fail("T3 Code did not start on the Boat machine within two minutes.");
     }
+  });
+
+  const startT3 = Effect.fn("BoatMachines.startT3")(function* (
+    boat: BoatApi,
+    machine: BoatMachine,
+  ) {
+    const { sandboxId } = machine;
+    yield* serveT3(boat, machine);
     const pairing = yield* boat.runCommand(sandboxId, { command: T3_PAIRING, timeoutSeconds: 120 });
     const json = pairing.stdout.slice(pairing.stdout.indexOf("{"));
     const credential = decodePairingCredential(json);
@@ -293,7 +308,7 @@ export const make = Effect.gen(function* () {
     // this call's caller ever receives the pairing credential.
     return yield* Effect.gen(function* () {
       yield* putMachine(starting);
-      yield* waitUntilReady(boat, sandbox.id);
+      yield* waitUntilReady(boat, sandbox.id, BOAT_START_FAILED_STATES);
       const started = yield* startT3(boat, starting);
       const machine: BoatMachine = {
         ...starting,
@@ -336,16 +351,17 @@ export const make = Effect.gen(function* () {
       }
       const { command } = login.value;
       const created = yield* cli.createKey(command, "T3 Code");
-      const cliKeyId = created.id ?? null;
-      return yield* storeKey({ secret: created.secret, cliKeyId }).pipe(
+      return yield* storeKey({ secret: created.secret, cliKeyId: created.id }).pipe(
         // A key T3 Code failed to save would otherwise stay valid with nobody holding it.
-        Effect.tapError(() =>
-          cliKeyId === null ? Effect.void : cli.revokeKey(command, cliKeyId).pipe(Effect.ignore),
-        ),
+        Effect.tapError(() => cli.revokeKey(command, created.id).pipe(Effect.ignore)),
       );
     }
     if (input.apiKey === undefined) return Option.none<string>();
     const key = input.apiKey?.trim() ?? "";
+    // Without a key T3 Code can no longer stop or delete its machines, and they leave the list.
+    if (key.length === 0 && (yield* SubscriptionRef.get(state)).machines.length > 0) {
+      return yield* fail("Delete your Boat machines before removing the key.");
+    }
     return yield* storeKey(key.length === 0 ? null : { secret: key, cliKeyId: null });
   });
 
@@ -400,6 +416,13 @@ export const make = Effect.gen(function* () {
         return yield* putMachine({ ...machine, state: "stopped", problem: null });
       case "resume":
         yield* unlessGone(boat.resumeSandbox(machine.sandboxId, BOAT_MACHINE_TTL_SECONDS));
+        yield* Effect.gen(function* () {
+          yield* waitUntilReady(boat, machine.sandboxId, BOAT_TERMINAL_STATES);
+          yield* serveT3(boat, machine);
+        }).pipe(
+          // A machine no client can reach would bill for nothing; it stays stopped to retry.
+          Effect.onError(() => boat.stopSandbox(machine.sandboxId).pipe(Effect.ignore)),
+        );
         return yield* putMachine({ ...machine, state: "running", problem: null });
       case "delete":
         yield* boat.deleteSandbox(machine.sandboxId);
