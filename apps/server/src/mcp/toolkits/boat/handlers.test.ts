@@ -5,6 +5,7 @@ import {
   ProviderInstanceId,
   ThreadId,
   type BoatMachine,
+  type BoatSpawnInput,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -26,6 +27,11 @@ const machine: BoatMachine = {
   httpBaseUrl: "https://sbx-01abcd-3773.boat.dev",
   createdAt: "2026-10-22T00:00:00.000Z",
   problem: null,
+  projectId: null,
+  stoppedAt: null,
+  report: null,
+  snapshot: null,
+  notice: null,
 };
 
 const run = (boat: Partial<BoatMachines.BoatMachines["Service"]>) =>
@@ -63,14 +69,19 @@ const run = (boat: Partial<BoatMachines.BoatMachines["Service"]>) =>
 
 it.effect("returns a one-time pairing link for a new Boat machine", () =>
   Effect.gen(function* () {
+    const spawned: Array<BoatSpawnInput> = [];
     const result = yield* run({
-      spawn: () =>
-        Effect.succeed({
-          machine,
-          httpBaseUrl: "https://sbx-01abcd-3773.boat.dev",
-          pairingCredential: "PAIR-CODE",
-        }),
+      spawn: (input) =>
+        Effect.sync(() => spawned.push(input)).pipe(
+          Effect.as({
+            machine,
+            httpBaseUrl: "https://sbx-01abcd-3773.boat.dev",
+            pairingCredential: "PAIR-CODE",
+          }),
+        ),
     });
+    // The calling thread's project decides which worktree cleanup rules apply.
+    expect(spawned).toEqual([{ size: "default", projectId: liveThreadShell(threadId).projectId }]);
     expect(result.at(-1)?.result).toEqual({
       machine: { ...machine, label: "Boat · default · abcd" },
       pairingUrl: "https://sbx-01abcd-3773.boat.dev/pair#token=PAIR-CODE",

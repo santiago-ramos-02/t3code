@@ -625,7 +625,10 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
       UsageLimitSources.layer,
       GentleAi.layer,
       CliProxy.layer,
-      BoatMachines.layer.pipe(Layer.provide(ProcessRunner.layer)),
+      BoatMachines.layer.pipe(
+        Layer.provide(ProcessRunner.layer),
+        Layer.provide(layerServerSettings),
+      ),
       Engram.layer,
     ),
   ),

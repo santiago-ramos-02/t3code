@@ -1,15 +1,18 @@
 import {
   BoatError,
   BoatMachine,
+  BoatMachineReport,
   BoatSettings,
+  BoatStatus,
   DEFAULT_BOAT_SETTINGS,
   boatMachineLabel,
   type BoatConfigureInput,
   type BoatMachineActionInput,
   type BoatSpawnInput,
   type BoatSpawnResult,
-  type BoatStatus,
+  type ServerSettings,
 } from "@t3tools/contracts";
+import { resolveWorktreeCleanup } from "@t3tools/shared/projectSettings";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -29,6 +32,7 @@ import * as HostProcess from "@t3tools/shared/HostProcess";
 
 import * as ServerConfig from "../config.ts";
 import * as ProcessRunner from "../processRunner.ts";
+import * as Settings from "../serverSettings.ts";
 import {
   BOAT_READY_STATES,
   BOAT_START_FAILED_STATES,
@@ -37,15 +41,32 @@ import {
   type BoatApi,
 } from "./BoatApi.ts";
 import { makeBoatCli } from "./BoatCli.ts";
+import {
+  BOAT_FREE_STOPPED_DAYS,
+  BOAT_SETUP_GRACE_MS,
+  BOAT_SNAPSHOT_AFTER_MS,
+  BOAT_SNAPSHOT_WARNING_MS,
+  boatCleanupRule,
+  boatKeepReason,
+  boatSnapshotName,
+  parseReport,
+  planBoatSnapshots,
+  reportCommand,
+} from "./machineReport.ts";
 
 const API_KEY_SECRET = "boat-api-key";
 // The ID of a key the Boat CLI made for T3 Code, revoked when that key is replaced or removed.
 const CLI_KEY_ID_SECRET = "boat-api-key-cli-id";
 // The port each machine's T3 Code server listens on, published through Boat's HTTPS route.
 export const BOAT_T3_PORT = 3773;
-// Boat stops a machine this long after it starts or resumes, so one this server forgets about
-// stops on its own; the idle rule stops machines much sooner.
+// Boat stops a machine this long after T3 Code last renewed it, so one this server stops watching,
+// such as while it is off, stops on its own; the idle rule stops machines much sooner. Boat's free
+// trial refuses anything longer.
 export const BOAT_MACHINE_TTL_SECONDS = 2 * 60 * 60;
+const MINUTE_MS = 60 * 1000;
+const DAY_MS = 24 * 60 * MINUTE_MS;
+// Clients forget their pairings with the machines listed here.
+const DELETED_RECORDS = 20;
 
 // A template installs the fork's `t3`; Boat's base image only has npm, so it runs the published one.
 const T3_COMMAND = `$(command -v t3 >/dev/null 2>&1 && echo t3 || echo "npx -y t3@latest")`;
@@ -62,6 +83,7 @@ const setMachineLabel = (label: string) =>
 const PersistedState = Schema.Struct({
   settings: BoatSettings,
   machines: Schema.Array(BoatMachine),
+  deleted: BoatStatus.fields.deleted,
 });
 type PersistedState = typeof PersistedState.Type;
 const decodePersistedState = Schema.decodeUnknownOption(Schema.fromJsonString(PersistedState));
@@ -73,6 +95,7 @@ const decodePairingCredential = Schema.decodeUnknownOption(
 );
 
 const fail = (detail: string) => new BoatError({ detail });
+const sameReport = Schema.toEquivalence(BoatMachineReport);
 
 export class BoatMachines extends Context.Service<
   BoatMachines,
@@ -84,6 +107,11 @@ export class BoatMachines extends Context.Service<
     /** Starts a machine running T3 Code and returns a one-time pairing credential for it. */
     readonly spawn: (input: BoatSpawnInput) => Effect.Effect<BoatSpawnResult, BoatError>;
     readonly machineAction: (input: BoatMachineActionInput) => Effect.Effect<BoatStatus, BoatError>;
+    /**
+     * Applies the idle stop, the worktree cleanup rules, and the snapshots that keep stopped disks
+     * past Boat's free days. The layer runs it every minute.
+     */
+    readonly checkMachines: Effect.Effect<void>;
   }
 >()("t3/boat/BoatMachines") {}
 
@@ -91,6 +119,7 @@ export const make = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const serverConfig = yield* ServerConfig.ServerConfig;
+  const settingsService = yield* Settings.ServerSettingsService;
   const secrets = yield* ServerSecretStore.ServerSecretStore;
   const httpClient = yield* HttpClient.HttpClient;
   const cli = makeBoatCli({
@@ -104,9 +133,17 @@ export const make = Effect.gen(function* () {
   const initial = yield* fileSystem.readFileString(statePath).pipe(
     Effect.map(decodePersistedState),
     Effect.map(
-      Option.getOrElse((): PersistedState => ({ settings: DEFAULT_BOAT_SETTINGS, machines: [] })),
+      Option.getOrElse((): PersistedState => ({
+        settings: DEFAULT_BOAT_SETTINGS,
+        machines: [],
+        deleted: [],
+      })),
     ),
-    Effect.orElseSucceed((): PersistedState => ({ settings: DEFAULT_BOAT_SETTINGS, machines: [] })),
+    Effect.orElseSucceed((): PersistedState => ({
+      settings: DEFAULT_BOAT_SETTINGS,
+      machines: [],
+      deleted: [],
+    })),
   );
   const readApiKey = secrets.get(API_KEY_SECRET).pipe(
     Effect.map(Option.map((bytes) => new TextDecoder().decode(bytes))),
@@ -124,7 +161,11 @@ export const make = Effect.gen(function* () {
     fileSystem
       .writeFileString(
         statePath,
-        encodePersistedState({ settings: status.settings, machines: status.machines }),
+        encodePersistedState({
+          settings: status.settings,
+          machines: status.machines,
+          deleted: status.deleted,
+        }),
       )
       .pipe(Effect.mapError(() => fail("T3 Code could not save its Boat machines.")));
 
@@ -149,6 +190,34 @@ export const make = Effect.gen(function* () {
       ...status,
       machines: status.machines.filter((m) => m.sandboxId !== sandboxId),
     }));
+
+  // Changes a machine only while it is still listed, so a late change cannot bring back a deleted one.
+  const changeMachine = (sandboxId: string, f: (machine: BoatMachine) => BoatMachine) =>
+    update((status) => ({
+      ...status,
+      machines: status.machines.map((m) => (m.sandboxId === sandboxId ? f(m) : m)),
+    }));
+
+  // Drops a machine clients may be paired with and records why, so they forget it too.
+  const forget = (machine: BoatMachine, reason: string) =>
+    DateTime.now.pipe(
+      Effect.flatMap((now) =>
+        update((status) => ({
+          ...status,
+          machines: status.machines.filter((m) => m.sandboxId !== machine.sandboxId),
+          deleted: [
+            {
+              sandboxId: machine.sandboxId,
+              label: boatMachineLabel(machine),
+              httpBaseUrl: machine.httpBaseUrl,
+              reason,
+              deletedAt: DateTime.formatIso(now),
+            },
+            ...status.deleted.filter((entry) => entry.sandboxId !== machine.sandboxId),
+          ].slice(0, DELETED_RECORDS),
+        })),
+      ),
+    );
 
   const detectCli = cli.login().pipe(
     Effect.map(Option.map(({ signedIn, account }) => ({ signedIn, account }))),
@@ -303,6 +372,11 @@ export const make = Effect.gen(function* () {
       httpBaseUrl: null,
       createdAt: DateTime.formatIso(yield* DateTime.now),
       problem: null,
+      projectId: input.projectId ?? null,
+      stoppedAt: null,
+      report: null,
+      snapshot: null,
+      notice: null,
     };
     // onError also covers interruption, such as the client disconnecting mid-start, since only
     // this call's caller ever receives the pairing credential.
@@ -385,50 +459,350 @@ export const make = Effect.gen(function* () {
     return status;
   });
 
-  const machineAction = Effect.fn("BoatMachines.machineAction")(function* (
-    input: BoatMachineActionInput,
-  ) {
-    const boat = yield* api;
-    const machine = (yield* SubscriptionRef.get(state)).machines.find(
-      (m) => m.sandboxId === input.sandboxId,
-    );
-    if (machine === undefined) return yield* fail("That Boat machine is not one of this server's.");
-    // A machine deleted outside T3 Code, such as from Boat's dashboard, is forgotten here too.
-    const unlessGone = <A>(effect: Effect.Effect<A, BoatError>) =>
-      effect.pipe(
-        Effect.catch((error) =>
-          boat
-            .getSandbox(machine.sandboxId)
-            .pipe(
-              Effect.flatMap((sandbox) =>
-                Option.isSome(sandbox)
-                  ? Effect.fail(error)
-                  : dropMachine(machine.sandboxId).pipe(
-                      Effect.andThen(Effect.fail(fail("That Boat machine no longer exists."))),
-                    ),
-              ),
-            ),
-        ),
+  // When each running machine last had a turn, or was started or resumed by this server.
+  const lastBusy = new Map<string, number>();
+  // One lifecycle change at a time, so a check cannot delete a machine the user is resuming.
+  const lifecycle = yield* Semaphore.make(1);
+
+  const readReport = (boat: BoatApi, sandboxId: string, withCheckouts: boolean) =>
+    boat
+      .runCommand(sandboxId, {
+        command: reportCommand(withCheckouts),
+        timeoutSeconds: withCheckouts ? 120 : 30,
+      })
+      .pipe(
+        Effect.map(parseReport),
+        Effect.orElseSucceed(() => Option.none<BoatMachineReport>()),
       );
-    switch (input.action) {
-      case "stop":
-        yield* unlessGone(boat.stopSandbox(machine.sandboxId));
-        return yield* putMachine({ ...machine, state: "stopped", problem: null });
-      case "resume":
-        yield* unlessGone(boat.resumeSandbox(machine.sandboxId, BOAT_MACHINE_TTL_SECONDS));
-        yield* Effect.gen(function* () {
-          yield* waitUntilReady(boat, machine.sandboxId, BOAT_TERMINAL_STATES);
-          yield* serveT3(boat, machine);
-        }).pipe(
-          // A machine no client can reach would bill for nothing; it stays stopped to retry.
-          Effect.onError(() => boat.stopSandbox(machine.sandboxId).pipe(Effect.ignore)),
-        );
-        return yield* putMachine({ ...machine, state: "running", problem: null });
-      case "delete":
-        yield* boat.deleteSandbox(machine.sandboxId);
-        return yield* dropMachine(machine.sandboxId);
+
+  const withoutCheckouts = (report: BoatMachineReport | null) =>
+    report === null ? null : { ...report, checkouts: null };
+
+  // Reads the checkouts first: a stopped disk does not change, so cleanup can trust them later.
+  const stopMachine = Effect.fn("BoatMachines.stopMachine")(function* (
+    boat: BoatApi,
+    machine: BoatMachine,
+  ) {
+    const report = yield* readReport(boat, machine.sandboxId, true);
+    yield* boat.stopSandbox(machine.sandboxId);
+    const stoppedAt = DateTime.formatIso(yield* DateTime.now);
+    lastBusy.delete(machine.sandboxId);
+    return yield* changeMachine(machine.sandboxId, (current) => ({
+      ...current,
+      state: "stopped",
+      problem: null,
+      notice: null,
+      stoppedAt,
+      report: Option.getOrElse(report, () => withoutCheckouts(current.report)),
+    }));
+  });
+
+  // Boat deleted the stopped disk after its free days, and the named snapshot T3 Code saved holds
+  // it. The new machine takes over the old one's subdomain, so its address and pairings still work.
+  const restore = Effect.fn("BoatMachines.restore")(function* (
+    boat: BoatApi,
+    machine: BoatMachine,
+    snapshot: string,
+  ) {
+    const subdomain = Option.getOrUndefined(yield* boat.getSandbox(machine.sandboxId))?.subdomain;
+    const sandbox = yield* boat.createSandbox({
+      type: machine.size,
+      from: snapshot,
+      ttlSeconds: BOAT_MACHINE_TTL_SECONDS,
+    });
+    const restored: BoatMachine = {
+      ...machine,
+      sandboxId: sandbox.id,
+      state: "running",
+      problem: null,
+      notice: null,
+      stoppedAt: null,
+      snapshot: null,
+    };
+    yield* Effect.gen(function* () {
+      yield* boat.deleteSandbox(machine.sandboxId);
+      if (subdomain) {
+        // Boat frees the old machine's subdomain in the background.
+        yield* boat
+          .renameSandbox(sandbox.id, subdomain)
+          .pipe(Effect.retry({ schedule: Schedule.spaced("3 seconds"), times: 10 }));
+      }
+      yield* waitUntilReady(boat, sandbox.id, BOAT_START_FAILED_STATES);
+      yield* serveT3(boat, restored);
+      const httpBaseUrl = yield* boat.hostPublicPort(sandbox.id, BOAT_T3_PORT);
+      if (httpBaseUrl !== machine.httpBaseUrl) {
+        return yield* fail("Boat gave the restored machine a different address.");
+      }
+    }).pipe(
+      Effect.tapError((error) =>
+        boat.deleteSandbox(sandbox.id).pipe(
+          Effect.ignore,
+          Effect.andThen(
+            changeMachine(machine.sandboxId, (current) => ({
+              ...current,
+              problem: `T3 Code could not bring it back from its snapshot (${error.detail}) Its history is kept in Boat's named snapshot ${snapshot}.`,
+            })),
+          ),
+        ),
+      ),
+    );
+    yield* boat.deleteNamedSnapshot(snapshot).pipe(Effect.ignore);
+    lastBusy.set(sandbox.id, DateTime.toEpochMillis(yield* DateTime.now));
+    return yield* update((status) => ({
+      ...status,
+      machines: status.machines.map((m) => (m.sandboxId === machine.sandboxId ? restored : m)),
+    }));
+  });
+
+  const resumeMachine = Effect.fn("BoatMachines.resumeMachine")(function* (
+    boat: BoatApi,
+    machine: BoatMachine,
+  ) {
+    const resumed = yield* boat.resumeSandbox(machine.sandboxId, BOAT_MACHINE_TTL_SECONDS);
+    if (resumed === "expired") {
+      if (machine.snapshot !== null) return yield* restore(boat, machine, machine.snapshot);
+      yield* forget(machine, "Boat no longer has its disk.");
+      return yield* fail("Boat no longer has this machine's disk, so T3 Code removed it.");
+    }
+    yield* Effect.gen(function* () {
+      yield* waitUntilReady(boat, machine.sandboxId, BOAT_TERMINAL_STATES);
+      yield* serveT3(boat, machine);
+    }).pipe(
+      // A machine no client can reach would bill for nothing; it stays stopped to retry.
+      Effect.onError(() => boat.stopSandbox(machine.sandboxId).pipe(Effect.ignore)),
+    );
+    // The running disk replaces the saved one, freeing its slot.
+    const snapshotKept =
+      machine.snapshot !== null &&
+      (yield* boat.deleteNamedSnapshot(machine.snapshot).pipe(
+        Effect.as(false),
+        Effect.orElseSucceed(() => true),
+      ));
+    lastBusy.set(machine.sandboxId, DateTime.toEpochMillis(yield* DateTime.now));
+    return yield* changeMachine(machine.sandboxId, (current) => ({
+      ...current,
+      state: "running",
+      problem: null,
+      notice: null,
+      stoppedAt: null,
+      snapshot: snapshotKept ? current.snapshot : null,
+    }));
+  });
+
+  const deleteMachine = Effect.fn("BoatMachines.deleteMachine")(function* (
+    boat: BoatApi,
+    machine: BoatMachine,
+    reason: string,
+  ) {
+    yield* boat.deleteSandbox(machine.sandboxId);
+    if (machine.snapshot !== null) {
+      yield* boat.deleteNamedSnapshot(machine.snapshot).pipe(Effect.ignore);
+    }
+    lastBusy.delete(machine.sandboxId);
+    return yield* forget(machine, reason);
+  });
+
+  const machineAction = Effect.fn("BoatMachines.machineAction")(
+    function* (input: BoatMachineActionInput) {
+      const boat = yield* api;
+      const machine = (yield* SubscriptionRef.get(state)).machines.find(
+        (m) => m.sandboxId === input.sandboxId,
+      );
+      if (machine === undefined) {
+        return yield* fail("That Boat machine is not one of this server's.");
+      }
+      switch (input.action) {
+        case "stop":
+          // A machine deleted outside T3 Code, such as from Boat's dashboard, is forgotten here too.
+          return yield* stopMachine(boat, machine).pipe(
+            Effect.catch((error) =>
+              boat
+                .getSandbox(machine.sandboxId)
+                .pipe(
+                  Effect.flatMap((sandbox) =>
+                    Option.isSome(sandbox)
+                      ? Effect.fail(error)
+                      : forget(machine, "It no longer exists on Boat.").pipe(
+                          Effect.andThen(Effect.fail(fail("That Boat machine no longer exists."))),
+                        ),
+                  ),
+                ),
+            ),
+          );
+        case "resume":
+          return yield* resumeMachine(boat, machine);
+        case "delete":
+          return yield* deleteMachine(boat, machine, "It was deleted.");
+      }
+    },
+    (effect) => lifecycle.withPermits(1)(effect),
+  );
+
+  // Applies the worktree cleanup rules of the project the machine was started for. A running
+  // machine's checkouts change, so they are read again right before it is deleted.
+  const applyCleanup = Effect.fn("BoatMachines.applyCleanup")(function* (
+    boat: BoatApi,
+    machine: BoatMachine,
+    report: BoatMachineReport,
+    settings: ServerSettings,
+    now: number,
+  ) {
+    const rules = resolveWorktreeCleanup(settings, machine.projectId);
+    if (boatCleanupRule(report, rules, now) === null) return false;
+    const checked =
+      machine.state === "running"
+        ? Option.getOrElse(yield* readReport(boat, machine.sandboxId, true), () => ({
+            ...report,
+            checkouts: null,
+          }))
+        : report;
+    const rule = boatCleanupRule(checked, rules, now);
+    if (rule === null) return false;
+    const keep = boatKeepReason(checked.checkouts, rules);
+    if (keep === null) {
+      yield* deleteMachine(boat, machine, `Worktree cleanup deleted it because ${rule}.`);
+      return true;
+    }
+    const notice = `Kept by worktree cleanup: ${rule}, but ${keep}.`;
+    if (machine.notice !== notice) {
+      yield* changeMachine(machine.sandboxId, (current) => ({ ...current, notice }));
+    }
+    return false;
+  });
+
+  const checkRunning = Effect.fn("BoatMachines.checkRunning")(function* (
+    boat: BoatApi,
+    machine: BoatMachine,
+    status: BoatStatus,
+    settings: ServerSettings,
+    now: number,
+  ) {
+    const { sandboxId } = machine;
+    const read = yield* readReport(boat, sandboxId, false);
+    if (Option.isNone(read)) {
+      // Boat stops a machine itself once T3 Code stops renewing it, such as while this server was
+      // off.
+      const sandbox = yield* boat.getSandbox(sandboxId);
+      if (Option.isNone(sandbox)) {
+        lastBusy.delete(sandboxId);
+        yield* forget(machine, "It no longer exists on Boat.");
+        return;
+      }
+      if (sandbox.value.state === "archiving" || sandbox.value.state === "archived") {
+        lastBusy.delete(sandboxId);
+        yield* changeMachine(sandboxId, (current) => ({
+          ...current,
+          state: "stopped",
+          stoppedAt: DateTime.formatIso(DateTime.makeUnsafe(now)),
+          report: withoutCheckouts(current.report),
+        }));
+        return;
+      }
+      // Without a report T3 Code cannot tell whether a turn runs, so it neither stops nor renews
+      // the machine, and Boat stops it when its life runs out.
+      return yield* Effect.logWarning("Could not read a Boat machine's activity", { sandboxId });
+    }
+    const report = read.value;
+    const settingUp =
+      report.threads === 0 &&
+      report.deletedThreads === 0 &&
+      now - Date.parse(machine.createdAt) < BOAT_SETUP_GRACE_MS;
+    if (report.activeTurns > 0 || settingUp || !lastBusy.has(sandboxId)) {
+      lastBusy.set(sandboxId, now);
+    }
+    if (yield* applyCleanup(boat, machine, report, settings, now)) return;
+    const busyAt = lastBusy.get(sandboxId) ?? now;
+    if (now - busyAt >= status.settings.idleStopMinutes * MINUTE_MS) {
+      yield* stopMachine(boat, machine);
+      return;
+    }
+    yield* boat.extendSandbox(sandboxId, BOAT_MACHINE_TTL_SECONDS);
+    if (machine.report === null || !sameReport(machine.report, report)) {
+      yield* changeMachine(sandboxId, (current) => ({ ...current, report }));
     }
   });
+
+  let lastSnapshotCheck = Number.NEGATIVE_INFINITY;
+  const checkSnapshots = Effect.fn("BoatMachines.checkSnapshots")(function* (
+    boat: BoatApi,
+    now: number,
+  ) {
+    const { machines } = yield* SubscriptionRef.get(state);
+    const stoppedFor = (machine: BoatMachine) =>
+      machine.stoppedAt === null ? 0 : now - Date.parse(machine.stoppedAt);
+    const nearing = machines.some(
+      (machine) =>
+        machine.state === "stopped" &&
+        machine.snapshot === null &&
+        stoppedFor(machine) >= BOAT_SNAPSHOT_AFTER_MS - BOAT_SNAPSHOT_WARNING_MS,
+    );
+    // Days pass between these decisions, so an hourly look is plenty.
+    if (!nearing || now - lastSnapshotCheck < 60 * MINUTE_MS) return;
+    lastSnapshotCheck = now;
+    const named = yield* boat.listNamedSnapshots();
+    const plan = planBoatSnapshots({ machines, snapshots: named.snapshots, free: named.free, now });
+    for (const machine of plan.free) {
+      if (machine.snapshot === null) continue;
+      yield* boat.deleteNamedSnapshot(machine.snapshot);
+      if (machine.state === "stopped" && stoppedFor(machine) >= BOAT_FREE_STOPPED_DAYS * DAY_MS) {
+        yield* forget(machine, "Its saved history was freed to keep a newer machine's free.");
+      } else {
+        yield* changeMachine(machine.sandboxId, (current) => ({ ...current, snapshot: null }));
+      }
+    }
+    for (const machine of plan.save) {
+      const name = boatSnapshotName(machine.sandboxId);
+      yield* boat.saveNamedSnapshot(machine.sandboxId, name);
+      yield* changeMachine(machine.sandboxId, (current) => ({
+        ...current,
+        snapshot: name,
+        notice: null,
+      }));
+    }
+    for (const machine of plan.full) {
+      const deletesOn = DateTime.formatIso(
+        DateTime.makeUnsafe(now - stoppedFor(machine) + BOAT_FREE_STOPPED_DAYS * DAY_MS),
+      );
+      const notice = `Boat deletes its disk on ${deletesOn.slice(0, 10)}: all ${named.free} free named snapshots are in use.`;
+      yield* changeMachine(machine.sandboxId, (current) => ({ ...current, notice }));
+    }
+    for (const machine of plan.warn) {
+      yield* changeMachine(machine.sandboxId, (current) => ({
+        ...current,
+        notice:
+          "T3 Code frees its saved history within 3 days to keep a newer machine's free. Resume it to keep it.",
+      }));
+    }
+  });
+
+  const logFailure =
+    (operation: string) =>
+    <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+      effect.pipe(
+        Effect.asVoid,
+        Effect.catchCause((cause) => Effect.logWarning(`Boat ${operation} failed`, cause)),
+      );
+
+  const checkMachines = Effect.gen(function* () {
+    const status = yield* SubscriptionRef.get(state);
+    if (!status.configured || status.machines.length === 0) return;
+    const boat = yield* api;
+    const settings = yield* settingsService.getSettings;
+    const now = DateTime.toEpochMillis(yield* DateTime.now);
+    yield* Effect.forEach(
+      status.machines,
+      (machine) =>
+        logFailure("machine check")(
+          machine.state === "running"
+            ? checkRunning(boat, machine, status, settings, now)
+            : machine.state === "stopped" && machine.report !== null
+              ? applyCleanup(boat, machine, machine.report, settings, now)
+              : Effect.void,
+        ),
+      { concurrency: 4, discard: true },
+    );
+    yield* logFailure("snapshot check")(checkSnapshots(boat, now));
+  }).pipe(logFailure("machine checks"), lifecycle.withPermits(1));
 
   return BoatMachines.of({
     current: SubscriptionRef.get(state),
@@ -438,7 +812,18 @@ export const make = Effect.gen(function* () {
     configure,
     spawn,
     machineAction,
+    checkMachines,
   });
 });
 
-export const layer = Layer.effect(BoatMachines, make);
+export const layer = Layer.effect(
+  BoatMachines,
+  make.pipe(
+    Effect.tap((boat) =>
+      Effect.sleep("1 minute").pipe(
+        Effect.andThen(Effect.repeat(boat.checkMachines, Schedule.spaced("1 minute"))),
+        Effect.forkScoped,
+      ),
+    ),
+  ),
+);

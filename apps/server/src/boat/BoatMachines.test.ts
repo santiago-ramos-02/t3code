@@ -10,14 +10,18 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import * as Stream from "effect/Stream";
+import * as TestClock from "effect/testing/TestClock";
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as ServerConfig from "../config.ts";
 import * as ProcessRunner from "../processRunner.ts";
+import * as Settings from "../serverSettings.ts";
 import * as BoatMachines from "./BoatMachines.ts";
 
 const SANDBOX_ID = "bx_test0001";
 const MACHINE_URL = "https://box-node-test-3773.on.boat.dev";
+// The machine Boat creates from a named snapshot after the stopped disk expired.
+const RESTORED_ID = "bx_test0002";
 
 interface BoatCall {
   readonly method: string;
@@ -41,8 +45,28 @@ const makeFakeBoat = (options: {
   readonly gone?: boolean;
 }) => {
   const calls: BoatCall[] = [];
-  // Whether T3 Code answers once started; a test flips it to break a later start.
-  const control = { serverStarts: true };
+  // What a test changes about Boat and the machine's T3 Code server as it goes.
+  const control = {
+    serverStarts: true,
+    report: {
+      activeTurns: 0,
+      threads: 1,
+      deletedThreads: 0,
+      lastActivityAt: null as string | null,
+      settledAt: null as string | null,
+      merged: false,
+    },
+    checkouts: {
+      integrated: false,
+      unpushed: false,
+      trackedChanges: false,
+      untrackedFiles: false,
+      ignoredFiles: false,
+    },
+    // Boat deleted the stopped disk after its free days.
+    expired: false,
+    snapshots: [] as Array<{ name: string; createdAt: string }>,
+  };
   const json = (request: HttpClientRequest.HttpClientRequest, body: unknown, status = 200) =>
     Effect.succeed(HttpClientResponse.fromWeb(request, Response.json(body, { status })));
   const client = HttpClient.make((request) => {
@@ -51,21 +75,52 @@ const makeFakeBoat = (options: {
     calls.push({ method: request.method, path: url.pathname, body, headers: request.headers });
     const path = url.pathname.replace(/^\/api\/v1/, "");
     if (request.method === "POST" && path === "/sandboxes") {
-      return options.createFailure
-        ? json(request, { message: options.createFailure.message }, options.createFailure.status)
-        : json(request, { sandbox: { id: SANDBOX_ID, state: "provisioning" } });
+      if (options.createFailure) {
+        return json(
+          request,
+          { message: options.createFailure.message },
+          options.createFailure.status,
+        );
+      }
+      const id = String(body?.from ?? "").startsWith("t3-boat-") ? RESTORED_ID : SANDBOX_ID;
+      return json(request, { sandbox: { id, state: "provisioning" } });
     }
-    if (options.gone && path.startsWith(`/sandboxes/${SANDBOX_ID}`)) {
+    if (path === "/named-snapshots") {
+      if (request.method === "GET") {
+        return json(request, { snapshots: control.snapshots, allowance: { free: 10 } });
+      }
+      control.snapshots.push({ name: String(body?.name), createdAt: "2026-10-23T00:00:00.000Z" });
+      return json(request, { status: "saving" }, 202);
+    }
+    const named = /^\/named-snapshots\/(.+)$/.exec(path);
+    if (named && request.method === "DELETE") {
+      control.snapshots = control.snapshots.filter((snapshot) => snapshot.name !== named[1]);
+      return json(request, { ok: true });
+    }
+    const sandbox = /^\/sandboxes\/([^/]+)(\/.*)?$/.exec(path);
+    if (sandbox === null) {
+      return json(request, { message: `unexpected ${request.method} ${path}` }, 404);
+    }
+    const [, id, action = ""] = sandbox;
+    if (options.gone && id === SANDBOX_ID) {
       return json(request, { message: "Sandbox not found." }, 404);
     }
-    if (request.method === "GET" && path === `/sandboxes/${SANDBOX_ID}`) {
-      return json(request, { type: "sandbox.info", sandbox: { id: SANDBOX_ID, state: "idle" } });
+    if (request.method === "GET" && action === "") {
+      return json(request, {
+        type: "sandbox.info",
+        sandbox: { id, state: "idle", subdomain: "box-node-test" },
+      });
     }
-    if (path === `/sandboxes/${SANDBOX_ID}/commands`) {
+    if (request.method === "PATCH" && action === "") return json(request, { ok: true });
+    if (action === "/commands") {
       const command = String(body?.command ?? "");
       if (body?.detached === true) return json(request, { type: "command.started" });
       const result = (exitCode: number, stdout: string) =>
         json(request, { exitCode, stdout, stderr: "" });
+      if (command.includes("base64 -d")) {
+        const checkouts = command.includes("REPORT=checkouts") ? control.checkouts : null;
+        return result(0, `login noise\n${JSON.stringify({ ...control.report, checkouts })}\n`);
+      }
       if (command.includes("echo up || echo down")) return result(0, "down\n");
       if (command.includes("seq 1 120")) return result(control.serverStarts ? 0 : 1, "");
       if (command.includes("auth pairing create")) {
@@ -78,13 +133,16 @@ const makeFakeBoat = (options: {
       }
       return result(127, "");
     }
-    if (path === `/sandboxes/${SANDBOX_ID}/host`) return json(request, { url: MACHINE_URL });
-    if (path === `/sandboxes/${SANDBOX_ID}/stop` || path === `/sandboxes/${SANDBOX_ID}/resume`) {
-      return json(request, { ok: true });
+    if (action === "/host") return json(request, { url: MACHINE_URL });
+    if (action === "/resume" && control.expired) {
+      return json(
+        request,
+        { code: "snapshot_data_expired", message: "The stopped disk was deleted." },
+        409,
+      );
     }
-    if (request.method === "DELETE" && path === `/sandboxes/${SANDBOX_ID}`) {
-      return json(request, { ok: true });
-    }
+    if (action === "/stop" || action === "/resume") return json(request, { ok: true });
+    if (request.method === "DELETE" && action === "") return json(request, { ok: true });
     return json(request, { message: `unexpected ${request.method} ${path}` }, 404);
   });
   return { calls, client, control };
@@ -94,7 +152,7 @@ const PAIRING_OUTPUT =
   'npm warn exec installing t3\n{"id":"p1","credential":"PAIR-CODE","scopes":[]}';
 
 // A fresh environment per test; services built within one test share its state directory.
-const layerEnvironment = Layer.mergeAll(ServerSecretStore.layer).pipe(
+const layerEnvironment = Layer.mergeAll(ServerSecretStore.layer, Settings.layerTest()).pipe(
   Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "t3-boat-test-" })),
   Layer.provideMerge(NodeServices.layer),
 );
@@ -310,8 +368,13 @@ describe("BoatMachines", () => {
       const error = yield* gone
         .machineAction({ sandboxId: SANDBOX_ID, action: "resume" })
         .pipe(Effect.flip);
-      assert.strictEqual(error.detail, "That Boat machine no longer exists.");
-      assert.deepStrictEqual((yield* gone.current).machines, []);
+      assert.strictEqual(
+        error.detail,
+        "Boat no longer has this machine's disk, so T3 Code removed it.",
+      );
+      const status = yield* gone.current;
+      assert.deepStrictEqual(status.machines, []);
+      assert.strictEqual(status.deleted[0]?.reason, "Boat no longer has its disk.");
     }).pipe(Effect.provide(layerEnvironment)),
   );
 
@@ -481,6 +544,154 @@ describe("BoatMachines", () => {
       yield* service.configure({ apiKey: "boat_test_key" });
       const removed = yield* service.configure({ apiKey: null });
       assert.strictEqual(removed.configured, false);
+    }).pipe(Effect.provide(layerEnvironment)),
+  );
+  it.effect("stops a machine after its idle minutes with no running turn", () =>
+    Effect.gen(function* () {
+      const boat = makeFakeBoat({ pairing: PAIRING_OUTPUT });
+      const service = yield* makeService(boat.client);
+      yield* service.configure({ apiKey: "boat_test_key" });
+      yield* service.spawn({});
+
+      // A running turn keeps it on, however long it takes, and renews Boat's own deadline.
+      boat.control.report.activeTurns = 1;
+      yield* service.checkMachines;
+      yield* TestClock.adjust("30 minutes");
+      yield* service.checkMachines;
+      assert.strictEqual((yield* service.current).machines[0]?.state, "running");
+      assert.deepStrictEqual(
+        callsTo(boat.calls, "PATCH", `/sandboxes/${SANDBOX_ID}`).map((call) => call.body),
+        [
+          { ttlSeconds: BoatMachines.BOAT_MACHINE_TTL_SECONDS },
+          { ttlSeconds: BoatMachines.BOAT_MACHINE_TTL_SECONDS },
+        ],
+      );
+
+      boat.control.report.activeTurns = 0;
+      yield* TestClock.adjust("4 minutes");
+      yield* service.checkMachines;
+      assert.strictEqual(callsTo(boat.calls, "POST", "/stop").length, 0);
+      yield* TestClock.adjust("2 minutes");
+      yield* service.checkMachines;
+
+      const [machine] = (yield* service.current).machines;
+      assert.strictEqual(machine?.state, "stopped");
+      assert.strictEqual(callsTo(boat.calls, "POST", "/stop").length, 1);
+      // The checkouts were read before the disk froze, for cleanup to trust later.
+      assert.deepStrictEqual(machine?.report?.checkouts, boat.control.checkouts);
+      assert.isNotNull(machine?.stoppedAt);
+    }).pipe(Effect.provide(layerEnvironment)),
+  );
+
+  it.effect("deletes a machine whose threads were deleted when cleanup says so", () =>
+    Effect.gen(function* () {
+      const boat = makeFakeBoat({ pairing: PAIRING_OUTPUT });
+      const service = yield* makeService(boat.client);
+      yield* service.configure({ apiKey: "boat_test_key" });
+      yield* service.spawn({});
+      boat.control.report = { ...boat.control.report, threads: 0, deletedThreads: 1 };
+
+      // Unpushed commits keep it whatever the rules say, since its disk goes with it.
+      boat.control.checkouts.unpushed = true;
+      yield* service.checkMachines;
+      assert.strictEqual(
+        (yield* service.current).machines[0]?.notice,
+        "Kept by worktree cleanup: its threads were deleted, but it has commits that were not pushed.",
+      );
+
+      boat.control.checkouts.unpushed = false;
+      yield* service.checkMachines;
+      const status = yield* service.current;
+      assert.deepStrictEqual(status.machines, []);
+      assert.deepStrictEqual(
+        status.deleted.map(({ sandboxId, httpBaseUrl, reason }) => ({
+          sandboxId,
+          httpBaseUrl,
+          reason,
+        })),
+        [
+          {
+            sandboxId: SANDBOX_ID,
+            httpBaseUrl: MACHINE_URL,
+            reason: "Worktree cleanup deleted it because its threads were deleted.",
+          },
+        ],
+      );
+      assert.strictEqual(callsTo(boat.calls, "DELETE", `/sandboxes/${SANDBOX_ID}`).length, 1);
+    }).pipe(
+      Effect.provide(
+        Layer.merge(
+          layerEnvironment,
+          Settings.layerTest({ storageCleanup: { worktreeOnDelete: true } }),
+        ),
+      ),
+    ),
+  );
+
+  it.effect("keeps a machine whose threads were deleted while cleanup is off", () =>
+    Effect.gen(function* () {
+      const boat = makeFakeBoat({ pairing: PAIRING_OUTPUT });
+      const service = yield* makeService(boat.client);
+      yield* service.configure({ apiKey: "boat_test_key" });
+      yield* service.spawn({});
+      boat.control.report = { ...boat.control.report, threads: 0, deletedThreads: 1 };
+      yield* service.checkMachines;
+      assert.strictEqual((yield* service.current).machines[0]?.state, "running");
+      assert.strictEqual(callsTo(boat.calls, "DELETE", `/sandboxes/${SANDBOX_ID}`).length, 0);
+    }).pipe(Effect.provide(layerEnvironment)),
+  );
+
+  it.effect("saves a stopped machine's disk as a named snapshot before Boat deletes it", () =>
+    Effect.gen(function* () {
+      const boat = makeFakeBoat({ pairing: PAIRING_OUTPUT });
+      const service = yield* makeService(boat.client);
+      yield* service.configure({ apiKey: "boat_test_key" });
+      yield* service.spawn({});
+      yield* service.machineAction({ sandboxId: SANDBOX_ID, action: "stop" });
+
+      yield* TestClock.adjust("12 days");
+      yield* service.checkMachines;
+      assert.strictEqual(callsTo(boat.calls, "POST", "/named-snapshots").length, 0);
+      yield* TestClock.adjust("1 day");
+      yield* service.checkMachines;
+
+      assert.deepStrictEqual(callsTo(boat.calls, "POST", "/named-snapshots")[0]?.body, {
+        sandboxId: SANDBOX_ID,
+        name: "t3-boat-bx-test0001",
+      });
+      assert.strictEqual((yield* service.current).machines[0]?.snapshot, "t3-boat-bx-test0001");
+    }).pipe(Effect.provide(layerEnvironment)),
+  );
+
+  it.effect("brings back a machine from its snapshot at the same address", () =>
+    Effect.gen(function* () {
+      const boat = makeFakeBoat({ pairing: PAIRING_OUTPUT });
+      const service = yield* makeService(boat.client);
+      yield* service.configure({ apiKey: "boat_test_key" });
+      yield* service.spawn({});
+      yield* service.machineAction({ sandboxId: SANDBOX_ID, action: "stop" });
+      yield* TestClock.adjust("13 days");
+      yield* service.checkMachines;
+      yield* TestClock.adjust("2 days");
+      boat.control.expired = true;
+
+      const resumed = yield* service.machineAction({ sandboxId: SANDBOX_ID, action: "resume" });
+
+      const [machine] = resumed.machines;
+      assert.deepStrictEqual(
+        { id: machine?.sandboxId, state: machine?.state, url: machine?.httpBaseUrl },
+        { id: RESTORED_ID, state: "running", url: MACHINE_URL },
+      );
+      assert.strictEqual(machine?.snapshot, null);
+      assert.strictEqual(
+        callsTo(boat.calls, "POST", "/sandboxes").at(-1)?.body?.from,
+        "t3-boat-bx-test0001",
+      );
+      assert.deepStrictEqual(callsTo(boat.calls, "PATCH", `/sandboxes/${RESTORED_ID}`)[0]?.body, {
+        subdomain: "box-node-test",
+      });
+      assert.strictEqual(callsTo(boat.calls, "DELETE", `/sandboxes/${SANDBOX_ID}`).length, 1);
+      assert.deepStrictEqual(boat.control.snapshots, []);
     }).pipe(Effect.provide(layerEnvironment)),
   );
 });

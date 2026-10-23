@@ -7,7 +7,9 @@ import {
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as BoatMachines from "../../../boat/BoatMachines.ts";
+import * as ThreadManagement from "../../../orchestration-v2/ThreadManagementService.ts";
 import { buildPairingUrl } from "../../../startupAccess.ts";
+import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import { BoatToolkit } from "./tools.ts";
 
@@ -30,7 +32,17 @@ export const layer = McpToolAccess.toLayer(BoatToolkit, {
   t3_boat_machine_start: McpToolAccess.writesEnvironment((input) =>
     Effect.gen(function* () {
       const boat = yield* BoatMachines.BoatMachines;
-      const started = yield* boat.spawn(input).pipe(Effect.mapError(boatFailure));
+      // The calling thread's project, whose worktree cleanup rules then apply to the machine.
+      const { thread } = yield* McpInvocationContext.McpInvocationContext;
+      const shell =
+        thread === undefined
+          ? null
+          : yield* ThreadManagement.ThreadManagementService.use((threads) =>
+              threads.getThreadShell(thread.threadId),
+            ).pipe(Effect.orElseSucceed(() => null));
+      const started = yield* boat
+        .spawn(shell ? { ...input, projectId: shell.projectId } : input)
+        .pipe(Effect.mapError(boatFailure));
       return {
         machine: labeled(started.machine),
         pairingUrl: buildPairingUrl(started.httpBaseUrl, started.pairingCredential),

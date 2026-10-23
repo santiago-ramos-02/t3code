@@ -11,6 +11,8 @@ export const BOAT_API_URL = "https://boat.dev/api/v1";
 const Sandbox = Schema.Struct({
   id: Schema.String,
   state: Schema.String,
+  // The stable label in its public URLs, `https://<subdomain>-<port>.on.boat.dev`.
+  subdomain: Schema.optional(Schema.NullOr(Schema.String)),
 });
 export type BoatSandbox = typeof Sandbox.Type;
 
@@ -25,6 +27,13 @@ const CommandResult = Schema.Struct({
 export type BoatCommandResult = typeof CommandResult.Type;
 
 const HostedPort = Schema.Struct({ url: Schema.String });
+
+const NamedSnapshots = Schema.Struct({
+  snapshots: Schema.Array(Schema.Struct({ name: Schema.String, createdAt: Schema.String })),
+  allowance: Schema.optional(Schema.Struct({ free: Schema.optional(Schema.Number) })),
+});
+// Boat's free named snapshots per wallet, when it does not say.
+const FREE_NAMED_SNAPSHOTS = 10;
 
 const ErrorBody = Schema.Struct({
   message: Schema.optional(Schema.String),
@@ -55,6 +64,7 @@ const decoder =
 const decodeSandboxResponse = Schema.decodeUnknownEffect(SandboxResponse);
 const decodeCommandResult = Schema.decodeUnknownEffect(CommandResult);
 const decodeHostedPort = Schema.decodeUnknownEffect(HostedPort);
+const decodeNamedSnapshots = Schema.decodeUnknownEffect(NamedSnapshots);
 
 /** A Boat REST client for one API key. */
 export const makeBoatApi = (httpClient: HttpClient.HttpClient, apiKey: string) => {
@@ -113,6 +123,7 @@ export const makeBoatApi = (httpClient: HttpClient.HttpClient, apiKey: string) =
   const sandboxPath = (sandboxId: string) => `/sandboxes/${encodeURIComponent(sandboxId)}`;
 
   return {
+    /** `from` names a template or a named snapshot. */
     createSandbox: (input: {
       readonly type: BoatSize;
       readonly from: string | null;
@@ -155,12 +166,67 @@ export const makeBoatApi = (httpClient: HttpClient.HttpClient, apiKey: string) =
         ),
       ).pipe(Effect.asVoid),
 
+    /** "expired" once Boat no longer has the stopped disk: deleted, or kept past its 14 free days. */
     resumeSandbox: (sandboxId: string, ttlSeconds: number) =>
-      send(
+      exchange(
         "resume a machine",
         HttpClientRequest.post(`${sandboxPath(sandboxId)}/resume`).pipe(
           HttpClientRequest.bodyJsonUnsafe({ ttlSeconds }),
         ),
+      ).pipe(
+        Effect.flatMap(({ status, body }) =>
+          status >= 200 && status < 300
+            ? Effect.succeed("resumed" as const)
+            : status === 404 ||
+                (status === 409 &&
+                  Option.getOrUndefined(decodeErrorBody(body))?.code === "snapshot_data_expired")
+              ? Effect.succeed("expired" as const)
+              : Effect.fail(refusal("resume a machine", status, body)),
+        ),
+      ),
+
+    /** Boat stops the machine this long from now, unless asked again. */
+    extendSandbox: (sandboxId: string, ttlSeconds: number) =>
+      send(
+        "keep a machine running",
+        HttpClientRequest.patch(sandboxPath(sandboxId)).pipe(
+          HttpClientRequest.bodyJsonUnsafe({ ttlSeconds }),
+        ),
+      ).pipe(Effect.asVoid),
+
+    /** Points the machine's public URLs at a new subdomain, which must be free. */
+    renameSandbox: (sandboxId: string, subdomain: string) =>
+      send(
+        "move a machine's address",
+        HttpClientRequest.patch(sandboxPath(sandboxId)).pipe(
+          HttpClientRequest.bodyJsonUnsafe({ subdomain }),
+        ),
+      ).pipe(Effect.asVoid),
+
+    listNamedSnapshots: () =>
+      send("list named snapshots", HttpClientRequest.get("/named-snapshots")).pipe(
+        Effect.flatMap(decoder("list named snapshots", decodeNamedSnapshots)),
+        Effect.map((response) => ({
+          snapshots: response.snapshots,
+          free: response.allowance?.free ?? FREE_NAMED_SNAPSHOTS,
+        })),
+      ),
+
+    // Boat saves in the background; a stopped machine's disk is frozen already, so the save
+    // only has to start.
+    saveNamedSnapshot: (sandboxId: string, name: string) =>
+      send(
+        "save a named snapshot",
+        HttpClientRequest.post("/named-snapshots").pipe(
+          HttpClientRequest.bodyJsonUnsafe({ sandboxId, name }),
+        ),
+      ).pipe(Effect.asVoid),
+
+    // One already gone counts as removed.
+    deleteNamedSnapshot: (name: string) =>
+      sendForSandbox(
+        "remove a named snapshot",
+        HttpClientRequest.delete(`/named-snapshots/${encodeURIComponent(name)}`),
       ).pipe(Effect.asVoid),
 
     // Boat refuses a delete unless the confirmation header names the sandbox. One already gone

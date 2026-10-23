@@ -1,4 +1,7 @@
+import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
+
+import { ProjectId } from "./baseSchemas.ts";
 
 /**
  * Boat (boat.dev) machines: the environment holds a Boat API key and starts one short-lived
@@ -46,6 +49,36 @@ export const BoatMachineState = Schema.Literals([
 ]);
 export type BoatMachineState = typeof BoatMachineState.Type;
 
+// Absent from machines saved before the field existed.
+const nullByDefault = <S extends Schema.Top>(schema: S) =>
+  Schema.NullOr(schema).pipe(Schema.withDecodingDefaultKey(Effect.succeed(null)));
+
+// The machine's checkouts, read before T3 Code stops it; a stopped disk does not change.
+export const BoatMachineCheckouts = Schema.Struct({
+  // Every checkout's HEAD is already on its remote's default branch.
+  integrated: Schema.Boolean,
+  unpushed: Schema.Boolean,
+  trackedChanges: Schema.Boolean,
+  untrackedFiles: Schema.Boolean,
+  ignoredFiles: Schema.Boolean,
+});
+export type BoatMachineCheckouts = typeof BoatMachineCheckouts.Type;
+
+// What the machine's own T3 Code server last reported, which the worktree cleanup rules read.
+export const BoatMachineReport = Schema.Struct({
+  activeTurns: Schema.Number,
+  threads: Schema.Number,
+  deletedThreads: Schema.Number,
+  lastActivityAt: Schema.NullOr(Schema.String),
+  // When its last thread settled, or null while any thread is unsettled.
+  settledAt: Schema.NullOr(Schema.String),
+  // Every thread has a merged pull request.
+  merged: Schema.Boolean,
+  // Null when the checkouts may have changed since they were read.
+  checkouts: Schema.NullOr(BoatMachineCheckouts),
+});
+export type BoatMachineReport = typeof BoatMachineReport.Type;
+
 export const BoatMachine = Schema.Struct({
   sandboxId: Schema.String,
   size: BoatSize,
@@ -55,6 +88,14 @@ export const BoatMachine = Schema.Struct({
   createdAt: Schema.String,
   // Why the machine failed to start or change state, for the user.
   problem: Schema.NullOr(Schema.String),
+  // The project it was started for, whose worktree cleanup rules apply to it.
+  projectId: nullByDefault(ProjectId),
+  stoppedAt: nullByDefault(Schema.String),
+  report: nullByDefault(BoatMachineReport),
+  // The named snapshot keeping its disk once Boat's 14 free days for a stopped disk run out.
+  snapshot: nullByDefault(Schema.String),
+  // Something the user should know that is not a failure, such as why cleanup kept it.
+  notice: nullByDefault(Schema.String),
 });
 export type BoatMachine = typeof BoatMachine.Type;
 
@@ -69,6 +110,16 @@ export const BoatCliLogin = Schema.Struct({
 });
 export type BoatCliLogin = typeof BoatCliLogin.Type;
 
+// A machine T3 Code deleted, so clients forget their pairing with it.
+export const BoatDeletedMachine = Schema.Struct({
+  sandboxId: Schema.String,
+  label: Schema.String,
+  httpBaseUrl: Schema.NullOr(Schema.String),
+  reason: Schema.String,
+  deletedAt: Schema.String,
+});
+export type BoatDeletedMachine = typeof BoatDeletedMachine.Type;
+
 export const BoatStatus = Schema.Struct({
   // Whether the environment holds a Boat API key.
   configured: Schema.Boolean,
@@ -76,6 +127,8 @@ export const BoatStatus = Schema.Struct({
   cli: Schema.NullOr(BoatCliLogin),
   settings: BoatSettings,
   machines: Schema.Array(BoatMachine),
+  // The most recent deletions, newest first.
+  deleted: Schema.Array(BoatDeletedMachine).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
 });
 export type BoatStatus = typeof BoatStatus.Type;
 
@@ -90,6 +143,7 @@ export type BoatConfigureInput = typeof BoatConfigureInput.Type;
 
 export const BoatSpawnInput = Schema.Struct({
   size: Schema.optionalKey(BoatSize),
+  projectId: Schema.optionalKey(ProjectId),
 });
 export type BoatSpawnInput = typeof BoatSpawnInput.Type;
 
