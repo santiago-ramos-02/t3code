@@ -1,5 +1,6 @@
 import { assert, describe, it } from "@effect/vitest";
 import type { BoatMachine, WorktreeCleanupRules } from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
 
 import { BOAT_SNAPSHOT_AFTER_MS, boatKeepReason, planBoatSnapshots } from "./machineReport.ts";
 
@@ -29,7 +30,7 @@ const stopped = (
   createdAt: "2026-10-01T00:00:00.000Z",
   problem: null,
   projectId: null,
-  stoppedAt: new Date(NOW - stoppedDaysAgo * DAY_MS).toISOString(),
+  stoppedAt: DateTime.formatIso(DateTime.makeUnsafe(NOW - stoppedDaysAgo * DAY_MS)),
   report: null,
   snapshot,
   notice: null,

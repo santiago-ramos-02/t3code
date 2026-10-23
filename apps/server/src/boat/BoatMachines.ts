@@ -545,6 +545,7 @@ export const make = Effect.gen(function* () {
           ),
         ),
       ),
+      Effect.onInterrupt(() => boat.deleteSandbox(sandbox.id).pipe(Effect.ignore)),
     );
     yield* boat.deleteNamedSnapshot(snapshot).pipe(Effect.ignore);
     lastBusy.set(sandbox.id, DateTime.toEpochMillis(yield* DateTime.now));

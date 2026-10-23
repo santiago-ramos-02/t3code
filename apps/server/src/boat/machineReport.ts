@@ -46,6 +46,22 @@ for (const thread of threads) {
 let checkouts = null;
 if (process.env.REPORT === "checkouts") {
   for (const row of db.prepare("SELECT workspace_root AS root FROM projection_projects").all()) roots.add(row.root);
+  // Deleting a machine loses its whole disk, so repos an agent cloned anywhere count too.
+  const SKIP = new Set([".git", "node_modules", ".cache", ".npm", ".bun", ".nvm", ".cargo", ".rustup"]);
+  const walk = (dir, depth) => {
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    if (entries.some((entry) => entry.name === ".git")) roots.add(dir);
+    if (depth === 0) return;
+    for (const entry of entries) {
+      if (entry.isDirectory() && !SKIP.has(entry.name)) walk(path.join(dir, entry.name), depth - 1);
+    }
+  };
+  for (const root of [os.homedir(), ...roots]) walk(root, 6);
   let inspected = 0;
   checkouts = { integrated: true, unpushed: false, trackedChanges: false, untrackedFiles: false, ignoredFiles: false };
   const git = (cwd, args) => spawnSync("git", args, { cwd, encoding: "utf8", maxBuffer: 1 << 24 });
@@ -59,6 +75,7 @@ if (process.env.REPORT === "checkouts") {
       else checkouts.trackedChanges = true;
     }
     const ignored = git(cwd, ["ls-files", "--others", "--ignored", "--exclude-standard", "--directory"]);
+    if (ignored.status !== 0) throw new Error("git ls-files failed in " + cwd);
     if (ignored.stdout.split("\n").some((entry) => entry && !/(^|\/)node_modules\/$/.test(entry))) {
       checkouts.ignoredFiles = true;
     }
