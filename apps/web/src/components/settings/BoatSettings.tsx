@@ -373,13 +373,17 @@ export function BoatEnvironmentRows({
       <EnvironmentRow
         kind="cloud"
         label="Boat"
-        subtitle={[
+        subtitle={
           machines.length === 0
             ? "No machines"
-            : `${machines.length} ${machines.length === 1 ? "machine" : "machines"}, ${running} running`,
-          `new ones ${settings.defaultSize}`,
-          `stop after ${settings.idleStopMinutes} idle min`,
-        ].join(" · ")}
+            : `${machines.length} ${machines.length === 1 ? "machine" : "machines"}, ${running} running`
+        }
+        below={
+          <p className="text-xs text-muted-foreground">
+            New machines are {settings.defaultSize} size and stop after {settings.idleStopMinutes}{" "}
+            idle {settings.idleStopMinutes === 1 ? "minute" : "minutes"}.
+          </p>
+        }
       >
         <Button type="button" size="xs" variant="outline" onClick={() => setEditing(true)}>
           Edit

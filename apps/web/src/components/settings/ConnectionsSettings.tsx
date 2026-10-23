@@ -1551,6 +1551,7 @@ export function ConnectionsSettings() {
         <CloudRemoteEnvironmentRows
           primaryEnvironmentId={primaryEnvironmentId}
           savedEnvironments={savedEnvironments}
+          hasOtherRows={boatHost !== null}
         />
       </SettingsSection>
       {hasCloudPublicConfig() ? (

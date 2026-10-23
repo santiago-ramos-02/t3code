@@ -217,7 +217,6 @@ export function SavedBackendListRow({
   );
   const routeCount = connectionRoutes(environment.entry).length;
   const subtitleText = [
-    boat ? boatMachineStateText(boat.machine) : null,
     environmentTransportLabel(environment, connectedTarget),
     // The headline below names the failure in full.
     diagnosis ? null : resumingServerUpdate ? "Restarting" : status.text,
@@ -246,7 +245,7 @@ export function SavedBackendListRow({
 
   return (
     <EnvironmentRow
-      kind={machineKind}
+      kind={boat ? "cloud" : machineKind}
       label={environment.label}
       dimmed={!enabled}
       {...(boat ? { className: "ps-8 sm:ps-10" } : {})}
@@ -317,6 +316,17 @@ export function SavedBackendListRow({
       }
       below={
         <>
+          {/* Its own line, so a narrow row keeps the machine's state and price. */}
+          {boat ? (
+            <p
+              className={cn(
+                "text-xs",
+                boat.machine.state === "failed" ? "text-destructive" : "text-muted-foreground",
+              )}
+            >
+              {boatMachineStateText(boat.machine)}
+            </p>
+          ) : null}
           {diagnosis ? (
             <ConnectionDiagnosisSummary
               diagnosis={diagnosis}
@@ -722,17 +732,20 @@ function EmptyRemoteEnvironments({ cloudEnabled = true }: { readonly cloudEnable
 export function CloudRemoteEnvironmentRows({
   primaryEnvironmentId,
   savedEnvironments,
+  hasOtherRows = false,
 }: {
   readonly primaryEnvironmentId: EnvironmentId | null;
   readonly savedEnvironments: ReadonlyArray<EnvironmentPresentation>;
+  // Rows the list shows outside saved environments, such as Boat, so it is not empty.
+  readonly hasOtherRows?: boolean;
 }) {
   return hasCloudPublicConfig() ? (
     <CloudEnvironmentConnectRows
       primaryEnvironmentId={primaryEnvironmentId}
       savedEnvironments={savedEnvironments}
-      empty={<EmptyRemoteEnvironments />}
+      empty={hasOtherRows ? null : <EmptyRemoteEnvironments />}
     />
-  ) : savedEnvironments.length === 0 ? (
+  ) : savedEnvironments.length === 0 && !hasOtherRows ? (
     <EmptyRemoteEnvironments cloudEnabled={false} />
   ) : null;
 }
