@@ -72,7 +72,7 @@ export type BoatCliLogin = typeof BoatCliLogin.Type;
 export const BoatStatus = Schema.Struct({
   // Whether the environment holds a Boat API key.
   configured: Schema.Boolean,
-  // Null when the CLI is not installed there.
+  // Null when the CLI is not installed there, or not yet checked.
   cli: Schema.NullOr(BoatCliLogin),
   settings: BoatSettings,
   machines: Schema.Array(BoatMachine),

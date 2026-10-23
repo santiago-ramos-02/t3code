@@ -162,27 +162,48 @@ export const make = Effect.gen(function* () {
       Effect.orElseSucceed(() => Option.none<string>()),
     );
 
-  // Best effort: a key Boat keeps after this is still revocable from Boat's dashboard.
-  const revokeCliKey = Effect.gen(function* () {
-    const id = yield* readSecretText(CLI_KEY_ID_SECRET);
-    if (Option.isNone(id)) return;
-    const login = yield* cli.login();
-    if (Option.isSome(login)) {
-      yield* cli.revokeKey(login.value.command, id.value).pipe(Effect.ignore);
-    }
-    yield* secrets.remove(CLI_KEY_ID_SECRET).pipe(Effect.ignore);
-  });
-
-  const saveKey = Effect.fn("BoatMachines.saveKey")(
-    function* (key: string, cliKeyId: string | null) {
-      yield* revokeCliKey;
-      yield* secrets.set(API_KEY_SECRET, new TextEncoder().encode(key));
-      if (cliKeyId !== null) {
-        yield* secrets.set(CLI_KEY_ID_SECRET, new TextEncoder().encode(cliKeyId));
+  // Saves the new key (null removes it) and returns the ID of the CLI-created key it replaced.
+  // The old key stays valid until the new one is saved, so a failed save never leaves T3 Code
+  // holding a revoked key.
+  const storeKey = Effect.fn("BoatMachines.storeKey")(
+    function* (next: { readonly secret: string; readonly cliKeyId: string | null } | null) {
+      const previousId = yield* readSecretText(CLI_KEY_ID_SECRET);
+      const encode = (text: string) => new TextEncoder().encode(text);
+      if (next === null) {
+        yield* secrets.remove(API_KEY_SECRET);
+      } else {
+        yield* secrets.set(API_KEY_SECRET, encode(next.secret));
       }
+      yield* next?.cliKeyId
+        ? secrets.set(CLI_KEY_ID_SECRET, encode(next.cliKeyId))
+        : secrets.remove(CLI_KEY_ID_SECRET);
+      return Option.filter(previousId, (id) => id !== next?.cliKeyId);
     },
-    Effect.mapError(() => fail("T3 Code could not save the Boat API key.")),
+    (effect, next) =>
+      Effect.mapError(effect, () =>
+        fail(
+          next === null
+            ? "T3 Code could not remove the Boat API key."
+            : "T3 Code could not save the Boat API key.",
+        ),
+      ),
   );
+
+  // T3 Code no longer knows a replaced key after this, so a failure names it for the user.
+  const revokeReplacedKey = Effect.fn("BoatMachines.revokeReplacedKey")(function* (id: string) {
+    const login = yield* cli.login();
+    const revoked = Option.isSome(login)
+      ? yield* cli.revokeKey(login.value.command, id).pipe(
+          Effect.as(true),
+          Effect.orElseSucceed(() => false),
+        )
+      : false;
+    if (!revoked) {
+      return yield* fail(
+        `T3 Code could not revoke its previous Boat key. Revoke it with \`boat api-key revoke ${id}\` or in Boat's dashboard.`,
+      );
+    }
+  });
 
   const api = Effect.gen(function* () {
     const key = yield* readApiKey;
@@ -304,7 +325,7 @@ export const make = Effect.gen(function* () {
     );
   }
 
-  const configure = Effect.fn("BoatMachines.configure")(function* (input: BoatConfigureInput) {
+  const changeKey = Effect.fn("BoatMachines.changeKey")(function* (input: BoatConfigureInput) {
     if (input.useCliLogin === true) {
       const login = yield* cli.login();
       if (Option.isNone(login)) {
@@ -313,25 +334,39 @@ export const make = Effect.gen(function* () {
       if (!login.value.signedIn) {
         return yield* fail("Sign in to the Boat CLI first: run `boat login`.");
       }
-      const created = yield* cli.createKey(login.value.command, "T3 Code");
-      yield* saveKey(created.secret, created.id ?? null);
-    } else if (input.apiKey !== undefined) {
-      const key = input.apiKey?.trim() ?? "";
-      if (key.length === 0) {
-        yield* revokeCliKey;
-        yield* secrets
-          .remove(API_KEY_SECRET)
-          .pipe(Effect.mapError(() => fail("T3 Code could not remove the Boat API key.")));
-      } else {
-        yield* saveKey(key, null);
-      }
+      const { command } = login.value;
+      const created = yield* cli.createKey(command, "T3 Code");
+      const cliKeyId = created.id ?? null;
+      return yield* storeKey({ secret: created.secret, cliKeyId }).pipe(
+        // A key T3 Code failed to save would otherwise stay valid with nobody holding it.
+        Effect.tapError(() =>
+          cliKeyId === null ? Effect.void : cli.revokeKey(command, cliKeyId).pipe(Effect.ignore),
+        ),
+      );
     }
-    const configured = Option.isSome(yield* readApiKey);
-    return yield* update((status) => ({
-      ...status,
-      configured,
-      settings: input.settings ?? status.settings,
-    }));
+    if (input.apiKey === undefined) return Option.none<string>();
+    const key = input.apiKey?.trim() ?? "";
+    return yield* storeKey(key.length === 0 ? null : { secret: key, cliKeyId: null });
+  });
+
+  const configure = Effect.fn("BoatMachines.configure")(function* (input: BoatConfigureInput) {
+    const refresh = (settings: BoatSettings | undefined) =>
+      readApiKey.pipe(
+        Effect.flatMap((key) =>
+          update((status) => ({
+            ...status,
+            configured: Option.isSome(key),
+            settings: settings ?? status.settings,
+          })),
+        ),
+      );
+    // Status follows the secret store even when a step fails part way.
+    const replaced = yield* changeKey(input).pipe(
+      Effect.onError(() => Effect.ignore(refresh(undefined))),
+    );
+    const status = yield* refresh(input.settings);
+    if (Option.isSome(replaced)) yield* revokeReplacedKey(replaced.value);
+    return status;
   });
 
   const machineAction = Effect.fn("BoatMachines.machineAction")(function* (

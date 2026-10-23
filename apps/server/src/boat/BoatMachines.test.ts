@@ -98,7 +98,7 @@ const layerEnvironment = Layer.mergeAll(ServerSecretStore.layer).pipe(
 );
 
 /** A fake Boat CLI; without `login` it is not installed. */
-const makeFakeCli = (login?: { readonly signedIn: boolean }) => {
+const makeFakeCli = (login?: { readonly signedIn: boolean; readonly revokeFails?: boolean }) => {
   const calls: Array<ReadonlyArray<string>> = [];
   const output = (code: number, stdout: string) => ({
     stdout,
@@ -130,7 +130,9 @@ const makeFakeCli = (login?: { readonly signedIn: boolean }) => {
             : output(1, ""),
         );
       }
-      if (command === "api-key" && action === "revoke") return Effect.succeed(output(0, "{}"));
+      if (command === "api-key" && action === "revoke") {
+        return Effect.succeed(login.revokeFails ? output(1, "") : output(0, "{}"));
+      }
       return Effect.succeed(output(2, ""));
     },
   });
@@ -361,6 +363,46 @@ describe("BoatMachines", () => {
         cli.calls.find((args) => args[1] === "revoke"),
         ["api-key", "revoke", "key_cli", "--json"],
       );
+    }).pipe(Effect.provide(layerEnvironment)),
+  );
+
+  it.effect("keeps a pasted key and names the old CLI key when it cannot be revoked", () =>
+    Effect.gen(function* () {
+      const boat = makeFakeBoat({ pairing: PAIRING_OUTPUT });
+      const cli = makeFakeCli({ signedIn: true, revokeFails: true });
+      const service = yield* makeService(boat.client, cli.runner);
+      yield* service.configure({ useCliLogin: true });
+
+      const error = yield* service.configure({ apiKey: "boat_pasted_key" }).pipe(Effect.flip);
+      assert.strictEqual(
+        error.detail,
+        "T3 Code could not revoke its previous Boat key. Revoke it with `boat api-key revoke key_cli` or in Boat's dashboard.",
+      );
+      assert.strictEqual((yield* service.current).configured, true);
+      yield* service.spawn({});
+      const [created] = callsTo(boat.calls, "POST", "/sandboxes");
+      assert.strictEqual(created?.headers.authorization, "Bearer boat_pasted_key");
+    }).pipe(Effect.provide(layerEnvironment)),
+  );
+
+  it.effect("revokes a CLI key it could not save", () =>
+    Effect.gen(function* () {
+      const cli = makeFakeCli({ signedIn: true });
+      const secrets = yield* ServerSecretStore.ServerSecretStore;
+      const service = yield* makeService(makeFakeBoat({}).client, cli.runner).pipe(
+        Effect.provideService(ServerSecretStore.ServerSecretStore, {
+          ...secrets,
+          set: (name) =>
+            Effect.fail(new ServerSecretStore.SecretStoreConcurrentReadError({ resource: name })),
+        }),
+      );
+      const error = yield* service.configure({ useCliLogin: true }).pipe(Effect.flip);
+      assert.strictEqual(error.detail, "T3 Code could not save the Boat API key.");
+      assert.deepStrictEqual(
+        cli.calls.find((args) => args[1] === "revoke"),
+        ["api-key", "revoke", "key_cli", "--json"],
+      );
+      assert.strictEqual((yield* service.current).configured, false);
     }).pipe(Effect.provide(layerEnvironment)),
   );
 
