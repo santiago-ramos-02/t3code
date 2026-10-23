@@ -28,11 +28,13 @@ interface BranchToolbarEnvironmentSelectorProps {
   availableEnvironments: readonly EnvironmentOption[];
   onEnvironmentChange?: (environmentId: EnvironmentId) => void;
   onAddToMachine?: (() => void) | undefined;
+  onNewBoatMachine?: (() => void) | undefined;
 }
 
 // Action values cannot collide with server-minted environment IDs.
 const AUTO_VALUE = "action:auto";
 const ADD_MACHINE_VALUE = "action:add-machine";
+const NEW_BOAT_MACHINE_VALUE = "action:new-boat-machine";
 const environmentValue = (id: EnvironmentId) => `env:${id}`;
 
 export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvironmentSelector({
@@ -43,6 +45,7 @@ export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvir
   availableEnvironments,
   onEnvironmentChange,
   onAddToMachine,
+  onNewBoatMachine,
 }: BranchToolbarEnvironmentSelectorProps) {
   const composerFloatingLayerProps = useComposerMenuProps();
   const shortcutLabel = shortcutLabelForCommand(
@@ -61,6 +64,7 @@ export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvir
       label: env.label,
     })),
     ...(onAddToMachine ? [{ value: ADD_MACHINE_VALUE, label: "Add to another machine" }] : []),
+    ...(onNewBoatMachine ? [{ value: NEW_BOAT_MACHINE_VALUE, label: "New Boat machine" }] : []),
   ];
 
   // The static label carries the xs control's height (h-7 sm:h-6) as well as
@@ -68,7 +72,12 @@ export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvir
   // the glass seam joining it to the composer assumes a fixed strip height, so
   // a shorter label would drag the seam out of line whenever this label is the
   // only thing in the strip.
-  if (envLocked || (onEnvironmentChange === undefined && onAddToMachine === undefined)) {
+  if (
+    envLocked ||
+    (onEnvironmentChange === undefined &&
+      onAddToMachine === undefined &&
+      onNewBoatMachine === undefined)
+  ) {
     const lockedRow = (
       <span
         className="inline-flex h-7 min-w-0 max-w-full items-center gap-1 border border-transparent px-1.75 font-normal text-muted-foreground/70 text-xs sm:h-6"
@@ -96,6 +105,8 @@ export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvir
       onValueChange={(value) => {
         if (value === ADD_MACHINE_VALUE) {
           onAddToMachine?.();
+        } else if (value === NEW_BOAT_MACHINE_VALUE) {
+          onNewBoatMachine?.();
         } else if (value === AUTO_VALUE) {
           onAutoEnvironment?.();
         } else if (value?.startsWith("env:")) {
@@ -166,6 +177,14 @@ export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvir
               <span className={ADD_TO_MACHINE_LABEL_CLASS}>
                 <PlusIcon aria-hidden="true" className="size-3" />
                 Add to another machine
+              </span>
+            </SelectItem>
+          ) : null}
+          {onNewBoatMachine ? (
+            <SelectItem value={NEW_BOAT_MACHINE_VALUE}>
+              <span className={ADD_TO_MACHINE_LABEL_CLASS}>
+                <PlusIcon aria-hidden="true" className="size-3" />
+                New Boat machine
               </span>
             </SelectItem>
           ) : null}

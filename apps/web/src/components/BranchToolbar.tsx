@@ -45,8 +45,9 @@ import {
   type BranchToolbarBranchSelectorHandle,
 } from "./BranchToolbarBranchSelector";
 import { BranchToolbarEnvironmentSelector } from "./BranchToolbarEnvironmentSelector";
-import { openAddProjectToMachine } from "./AddProjectToMachineDialog";
+import { BOAT_TARGET, openAddProjectToMachine } from "./AddProjectToMachineDialog";
 import { type AddProjectTarget, useAddProjectTargets } from "../hooks/useAddProjectTargets";
+import { useBoatHostFor } from "../hooks/useBoat";
 import { BranchToolbarEnvModeSelector } from "./BranchToolbarEnvModeSelector";
 import { PreviousWorktreeItemContent } from "./PreviousWorktreeItemContent";
 import { ThreadDetailsControl } from "./chat/ThreadDetailsControl";
@@ -170,6 +171,7 @@ interface RunContextSelectorProps {
   onUsePreviousWorktree: () => void;
   addTargets: readonly AddProjectTarget[];
   onAddToMachine: (environmentId: EnvironmentId) => void;
+  onNewBoatMachine: (() => void) | undefined;
 }
 
 const RunContextSelector = memo(function RunContextSelector({
@@ -193,7 +195,9 @@ const RunContextSelector = memo(function RunContextSelector({
   onUsePreviousWorktree,
   addTargets,
   onAddToMachine,
+  onNewBoatMachine,
 }: RunContextSelectorProps) {
+  const canAddToMachine = addTargets.length > 0 || onNewBoatMachine !== undefined;
   const composerFloatingLayerProps = useComposerMenuProps();
   const activeEnvironment =
     availableEnvironments?.find((env) => env.environmentId === environmentId) ?? null;
@@ -329,7 +333,7 @@ const RunContextSelector = memo(function RunContextSelector({
         {...(!isPanel ? composerFloatingLayerProps : {})}
       >
         {availableEnvironments &&
-        ((showEnvironmentPicker && onEnvironmentChange) || addTargets.length > 0) ? (
+        ((showEnvironmentPicker && onEnvironmentChange) || canAddToMachine) ? (
           <>
             <MenuGroup>
               <MenuGroupLabel>Run on</MenuGroupLabel>
@@ -374,7 +378,7 @@ const RunContextSelector = memo(function RunContextSelector({
                   </MenuRadioItem>
                 ))}
               </MenuRadioGroup>
-              {addTargets.length > 0 ? (
+              {canAddToMachine ? (
                 <MenuSub>
                   <MenuSubTrigger>
                     <span className={ADD_TO_MACHINE_LABEL_CLASS}>
@@ -394,6 +398,14 @@ const RunContextSelector = memo(function RunContextSelector({
                         </span>
                       </MenuItem>
                     ))}
+                    {onNewBoatMachine ? (
+                      <MenuItem onClick={onNewBoatMachine}>
+                        <span className="flex min-w-0 items-center gap-1.5">
+                          <EnvironmentMachineIcon kind="cloud" className="size-3" />
+                          <span className="min-w-0 truncate">New Boat machine</span>
+                        </span>
+                      </MenuItem>
+                    ) : null}
                   </MenuSubPopup>
                 </MenuSub>
               ) : null}
@@ -687,8 +699,19 @@ export const BranchToolbar = memo(function BranchToolbar({
   const addTargets = useAddProjectTargets(activeProject, availableEnvironments);
   const onAddToMachine = (targetEnvironmentId: EnvironmentId | null) =>
     openAddProjectToMachine({ projectRef: activeProjectRef, targetEnvironmentId });
+  const onNewBoatMachine =
+    useBoatHostFor(activeProject) !== null
+      ? () =>
+          openAddProjectToMachine({
+            projectRef: activeProjectRef,
+            targetEnvironmentId: BOAT_TARGET,
+          })
+      : undefined;
   // A project on one machine still gets the picker when it can be added to another.
-  const hasMultipleEnvironments = (availableEnvironments?.length ?? 0) > 1 || addTargets.length > 0;
+  const hasMultipleEnvironments =
+    (availableEnvironments?.length ?? 0) > 1 ||
+    addTargets.length > 0 ||
+    onNewBoatMachine !== undefined;
   const showEnvironmentPicker = hasMultipleEnvironments && onEnvironmentChange !== undefined;
   const activeEnvironmentOption =
     availableEnvironments?.find((env) => env.environmentId === environmentId) ?? null;
@@ -728,6 +751,7 @@ export const BranchToolbar = memo(function BranchToolbar({
             onUsePreviousWorktree={onUsePreviousWorktree}
             addTargets={addTargets}
             onAddToMachine={onAddToMachine}
+            onNewBoatMachine={onNewBoatMachine}
           />
         ) : null}
         {panelSection !== "workspace" ? (
@@ -784,6 +808,7 @@ export const BranchToolbar = memo(function BranchToolbar({
             onUsePreviousWorktree={onUsePreviousWorktree}
             addTargets={addTargets}
             onAddToMachine={onAddToMachine}
+            onNewBoatMachine={onNewBoatMachine}
           />
         </div>
       ) : null}
@@ -805,6 +830,7 @@ export const BranchToolbar = memo(function BranchToolbar({
                 availableEnvironments={availableEnvironments}
                 {...(showEnvironmentPicker ? { onEnvironmentChange } : {})}
                 {...(addTargets.length > 0 ? { onAddToMachine: () => onAddToMachine(null) } : {})}
+                {...(onNewBoatMachine ? { onNewBoatMachine } : {})}
               />
               {showGitControls ? (
                 <Separator

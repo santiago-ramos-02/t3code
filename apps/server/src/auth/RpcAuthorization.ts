@@ -88,6 +88,11 @@ export const RPC_REQUIRED_SCOPES = {
   // The proxy holds account credentials and runs a program on the environment, like a terminal.
   [WS_METHODS.cliProxyAction]: AuthTerminalOperateScope,
   [WS_METHODS.cliProxyManagement]: AuthTerminalOperateScope,
+  [WS_METHODS.boatSubscribeStatus]: AuthOrchestrationReadScope,
+  // The Boat key spends money and its machines run agents with the environment's logins.
+  [WS_METHODS.boatConfigure]: AuthSettingsWriteScope,
+  [WS_METHODS.boatSpawn]: AuthOrchestrationOperateScope,
+  [WS_METHODS.boatMachineAction]: AuthOrchestrationOperateScope,
   [WS_METHODS.memoryOverview]: AuthOrchestrationReadScope,
   [WS_METHODS.memorySearch]: AuthOrchestrationReadScope,
   [WS_METHODS.memoryObservation]: AuthOrchestrationReadScope,

@@ -32,6 +32,7 @@ import {
   rememberCheckoutIsRepo,
 } from "./ChatView.logic";
 import { useLogicalProjectEnvironments } from "../hooks/useLogicalProjectEnvironments";
+import { useBoatMachineWake } from "../hooks/useBoat";
 import { useStableCallback } from "../hooks/useStableCallback";
 import { useProjectScriptEditing } from "./chat/useProjectScriptEditing";
 import { RightPanelSurfaceContent } from "./chat/RightPanelSurfaceContent";
@@ -1150,6 +1151,7 @@ export default function ChatView(props: ChatViewProps) {
   const activeEnvironmentUnavailable =
     activeEnvironment !== null && activeEnvironment.connection.phase !== "connected";
   const activeEnvironmentUnavailableLabel = activeEnvironment?.label ?? null;
+  const boatWake = useBoatMachineWake(activeEnvironment, activeThreadKey);
   const activeEnvironmentUnavailableState = (() => {
     if (!activeEnvironmentUnavailable || !activeEnvironmentUnavailableLabel || !activeEnvironment) {
       return null;
@@ -1258,6 +1260,7 @@ export default function ChatView(props: ChatViewProps) {
     : EMPTY_AUTO_UPDATE_ENVIRONMENTS;
   const systemComposerBannerItems = useSystemComposerBanners({
     activeEnvironment,
+    boatWake,
     activeEnvironmentUnavailable,
     activeEnvironmentUnavailableState,
     activeThreadEnvironmentId: activeThread?.environmentId ?? null,
@@ -2944,6 +2947,7 @@ export default function ChatView(props: ChatViewProps) {
     isRevertingCheckpoint,
     threadDetailLoading,
     activeEnvironmentUnavailable,
+    wakeStoppedEnvironment: boatWake?.wake ?? null,
     isSendBusy,
     sendQueuesBehindSetup,
     isDraftHeroState,

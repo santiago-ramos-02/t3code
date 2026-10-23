@@ -20,6 +20,7 @@ export * from "./providerSetup.ts";
 export * from "./gentleAi.ts";
 export * from "./gentleAiApi.ts";
 export * from "./cliProxy.ts";
+export * from "./boat.ts";
 export * from "./memory.ts";
 export * from "./piGentle.ts";
 export * from "./providerRuntime.ts";

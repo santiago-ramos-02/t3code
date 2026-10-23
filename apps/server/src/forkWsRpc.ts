@@ -1,6 +1,7 @@
 import { ForkWsRpcGroup, WS_METHODS } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 
+import * as BoatMachines from "./boat/BoatMachines.ts";
 import * as CliProxy from "./cliProxy/CliProxy.ts";
 import * as GentleAi from "./gentleAi/GentleAi.ts";
 import * as Engram from "./memory/Engram.ts";
@@ -16,6 +17,7 @@ export const layer = ServerForkWsRpcGroup.toLayer(
   Effect.gen(function* () {
     const gentleAi = yield* GentleAi.GentleAi;
     const cliProxy = yield* CliProxy.CliProxy;
+    const boat = yield* BoatMachines.BoatMachines;
     const engram = yield* Engram.Engram;
     const providerInstances = yield* ProviderInstanceRegistry.ProviderInstanceRegistry;
     const providerSessionManager = yield* ProviderSessionManager.ProviderSessionManagerV2;
@@ -31,6 +33,10 @@ export const layer = ServerForkWsRpcGroup.toLayer(
       [WS_METHODS.cliProxySubscribeStatus]: () => cliProxy.streamChanges,
       [WS_METHODS.cliProxyAction]: (input) => cliProxy.action(input.action),
       [WS_METHODS.cliProxyManagement]: (input) => cliProxy.management(input),
+      [WS_METHODS.boatSubscribeStatus]: () => boat.streamChanges,
+      [WS_METHODS.boatConfigure]: (input) => boat.configure(input),
+      [WS_METHODS.boatSpawn]: (input) => boat.spawn(input),
+      [WS_METHODS.boatMachineAction]: (input) => boat.machineAction(input),
       [WS_METHODS.memoryOverview]: () => engram.overview,
       [WS_METHODS.memorySearch]: (input) => engram.search(input),
       [WS_METHODS.memoryObservation]: (input) => engram.observation(input.id),

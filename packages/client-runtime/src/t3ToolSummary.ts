@@ -333,6 +333,26 @@ export function summarizeT3ToolCalls(
     case "environment-update":
       label = phrase("Updated", "update", `environment preferences ${times}`);
       break;
+    case "boat-list":
+      label = phrase("Listed", "list", `Boat machines ${times}`);
+      break;
+    case "boat-start":
+      label = phrase("Started", "start", quantity(selected.length, "Boat machine"));
+      break;
+    case "boat-action": {
+      const machines = quantity(countEntities(entityIds("sandboxId")), "Boat machine");
+      const actions = new Set(selected.map((call) => call.input?.action));
+      const action = actions.size === 1 ? [...actions][0] : undefined;
+      label =
+        action === "stop"
+          ? phrase("Stopped", "stop", machines)
+          : action === "resume"
+            ? phrase("Resumed", "resume", machines)
+            : action === "delete"
+              ? phrase("Deleted", "delete", machines)
+              : phrase("Changed", "change", machines);
+      break;
+    }
     case "attachment-prepare":
       label = phrase(
         "Prepared",
