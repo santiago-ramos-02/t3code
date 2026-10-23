@@ -16,10 +16,11 @@ const CliStatus = Schema.Struct({
 });
 const decodeCliStatus = Schema.decodeUnknownOption(Schema.fromJsonString(CliStatus));
 
-// Boat documents `.secret`; the ID lets T3 Code revoke the key it made.
+// As printed by Boat CLI 1.0.63. The ID lets T3 Code revoke the key it made, so a key without
+// one is refused rather than kept untracked.
 const CreatedKey = Schema.Struct({
   secret: Schema.String,
-  id: Schema.optional(Schema.String),
+  apiKey: Schema.Struct({ id: Schema.String }),
 });
 const decodeCreatedKey = Schema.decodeUnknownOption(Schema.fromJsonString(CreatedKey));
 
@@ -101,7 +102,7 @@ export const makeBoatCli = (input: {
     if (output.code !== 0 || Option.isNone(created)) {
       return yield* failure("create a key", output.stderr);
     }
-    return created.value;
+    return { secret: created.value.secret, id: created.value.apiKey.id };
   });
 
   const revokeKey = Effect.fn("BoatCli.revokeKey")(function* (command: string, id: string) {

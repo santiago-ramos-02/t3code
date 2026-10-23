@@ -6,7 +6,8 @@ import * as Schema from "effect/Schema";
 
 export const BOAT_API_URL = "https://boat.dev/api/v1";
 
-// Only the fields T3 Code reads; Boat's responses carry many more.
+// Only the fields T3 Code reads; Boat's responses carry many more. Create and read both wrap the
+// sandbox in `sandbox` (docs.boat.dev/openapi/boat-v1.yaml).
 const Sandbox = Schema.Struct({
   id: Schema.String,
   state: Schema.String,
@@ -33,8 +34,14 @@ const decodeErrorBody = Schema.decodeUnknownOption(ErrorBody);
 
 /** Sandbox states in which commands run. */
 export const BOAT_READY_STATES: ReadonlySet<string> = new Set(["ready", "idle", "running"]);
-/** Sandbox states that end a start: it will not become ready on its own. */
-export const BOAT_FAILED_STATES: ReadonlySet<string> = new Set(["error", "failed", "archived"]);
+/** Sandbox states it never leaves on its own. */
+export const BOAT_TERMINAL_STATES: ReadonlySet<string> = new Set(["error", "cancelled"]);
+/** Sandbox states that end a first start; a resume passes through `archived` instead. */
+export const BOAT_START_FAILED_STATES: ReadonlySet<string> = new Set([
+  ...BOAT_TERMINAL_STATES,
+  "archiving",
+  "archived",
+]);
 
 const decoder =
   <A>(operation: string, decode: (body: unknown) => Effect.Effect<A, Schema.SchemaError>) =>
@@ -46,7 +53,6 @@ const decoder =
     );
 
 const decodeSandboxResponse = Schema.decodeUnknownEffect(SandboxResponse);
-const decodeSandbox = Schema.decodeUnknownEffect(Sandbox);
 const decodeCommandResult = Schema.decodeUnknownEffect(CommandResult);
 const decodeHostedPort = Schema.decodeUnknownEffect(HostedPort);
 
@@ -132,7 +138,11 @@ export const makeBoatApi = (httpClient: HttpClient.HttpClient, apiKey: string) =
         Effect.flatMap(
           Option.match({
             onNone: () => Effect.succeedNone,
-            onSome: (body) => decoder("read a machine", decodeSandbox)(body).pipe(Effect.asSome),
+            onSome: (body) =>
+              decoder(
+                "read a machine",
+                decodeSandboxResponse,
+              )(body).pipe(Effect.map((response) => Option.some(response.sandbox))),
           }),
         ),
       ),
