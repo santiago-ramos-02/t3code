@@ -15,7 +15,7 @@ import {
   type EnvironmentId,
 } from "@t3tools/contracts";
 import { EllipsisIcon } from "lucide-react";
-import { type ReactNode, useId, useState } from "react";
+import { type FormEvent, type ReactNode, useId, useState } from "react";
 
 import { requestConfirmDialog } from "~/confirmDialog";
 import { environmentCatalog } from "~/connection/catalog";
@@ -28,6 +28,7 @@ import { Button } from "../ui/button";
 import {
   Dialog,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogPanel,
   DialogPopup,
@@ -148,10 +149,13 @@ export function BoatSetupForm({
   hostEnvironmentId,
   status,
   onSaved,
+  onCancel,
 }: {
   readonly hostEnvironmentId: EnvironmentId;
   readonly status: BoatStatus | null;
   readonly onSaved: () => void;
+  // Set when the form is a dialog's whole body, which then also holds the dialog's footer.
+  readonly onCancel?: () => void;
 }) {
   const id = useId();
   const canWrite = useEnvironmentScope(hostEnvironmentId, AuthSettingsWriteScope);
@@ -215,122 +219,161 @@ export function BoatSetupForm({
   };
 
   const disabled = saving || !canWrite;
-  return (
-    <form
-      className="space-y-3"
-      onSubmit={(event) => {
-        event.preventDefault();
-        void save("key");
-      }}
-    >
-      {cli?.signedIn ? (
-        <div className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2">
-          <p className="min-w-0 text-xs text-foreground">
-            The Boat CLI here is signed in{cli.account ? ` as ${cli.account}` : ""}.
-            {configured ? "" : " T3 Code can use it instead of a pasted key."}
+  const fields = (
+    <>
+      <section className="space-y-3">
+        <h3 className="text-sm font-medium text-foreground">Connection</h3>
+        {cli?.signedIn ? (
+          <div className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2">
+            <p className="min-w-0 text-xs text-foreground">
+              The Boat CLI here is signed in{cli.account ? ` as ${cli.account}` : ""}.
+              {configured ? "" : " T3 Code can use it instead of a pasted key."}
+            </p>
+            <Button
+              type="button"
+              size="xs"
+              variant="outline"
+              disabled={disabled}
+              onClick={() => void save("cli")}
+            >
+              {configured ? "Use its login" : "Connect"}
+            </Button>
+          </div>
+        ) : cli ? (
+          <p className="text-xs text-muted-foreground">
+            The Boat CLI here is signed out. Run <code>boat login</code>, then open this again to
+            connect without a key.
           </p>
-          <Button
-            type="button"
-            size="xs"
-            variant="outline"
-            disabled={disabled}
-            onClick={() => void save("cli")}
-          >
-            {configured ? "Use its login" : "Connect"}
-          </Button>
-        </div>
-      ) : cli ? (
-        <p className="text-xs text-muted-foreground">
-          The Boat CLI here is signed out. Run <code>boat login</code>, then open this again to
-          connect without a key.
-        </p>
-      ) : null}
-      <label className="block">
-        <span className="mb-1.5 block text-xs font-medium text-foreground">API key</span>
-        <Input
-          type="password"
-          value={apiKey}
-          onChange={(event) => setApiKey(event.target.value)}
-          placeholder={
-            configured
-              ? "Saved. Paste a new key to replace it."
-              : cli?.signedIn
-                ? "Or paste one from boat.dev"
-                : "From boat.dev"
-          }
-          disabled={disabled}
-          autoComplete="off"
-          spellCheck={false}
-        />
-      </label>
-      <label className="block">
-        <span className="mb-1.5 block text-xs font-medium text-foreground">Template</span>
-        <Input
-          value={template}
-          onChange={(event) => setTemplate(event.target.value)}
-          placeholder="Boat's base image"
-          disabled={disabled}
-          spellCheck={false}
-        />
-        <span className="mt-1 block text-2xs text-muted-foreground">
-          A named Boat snapshot with your providers signed in. Without one, machines start bare and
-          run the published T3 Code server.
-        </span>
-      </label>
-      <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_10rem]">
-        <div>
-          <label
-            htmlFor={`${id}-size`}
-            className="mb-1.5 block text-xs font-medium text-foreground"
-          >
-            Default size
-          </label>
-          <Select
-            value={defaultSize}
-            onValueChange={(value) => {
-              if (value) setDefaultSize(value);
-            }}
-            disabled={disabled}
-            items={BoatSize.literals.map((value) => ({ value, label: value }))}
-          >
-            <SelectTrigger id={`${id}-size`}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectPopup>
-              {BoatSize.literals.map((value) => (
-                <SelectItem key={value} value={value}>
-                  <span className="flex flex-col">
-                    <span>{value}</span>
-                    <span className="text-muted-foreground text-xs">{boatSizeSummary(value)}</span>
-                  </span>
-                </SelectItem>
-              ))}
-            </SelectPopup>
-          </Select>
-        </div>
+        ) : null}
         <label className="block">
-          <span className="mb-1.5 block text-xs font-medium text-foreground">
-            Stop after idle minutes
-          </span>
+          <span className="mb-1.5 block text-xs font-medium text-foreground">API key</span>
           <Input
-            value={idleMinutes}
-            onChange={(event) => setIdleMinutes(event.target.value)}
-            inputMode="numeric"
+            type="password"
+            value={apiKey}
+            onChange={(event) => setApiKey(event.target.value)}
+            placeholder={
+              configured
+                ? "Saved. Paste a new key to replace it."
+                : cli?.signedIn
+                  ? "Or paste one from boat.dev"
+                  : "From boat.dev"
+            }
             disabled={disabled}
+            autoComplete="off"
+            spellCheck={false}
           />
         </label>
-      </div>
+      </section>
+      <section className="space-y-3 border-t border-border pt-4">
+        <h3 className="text-sm font-medium text-foreground">New machines</h3>
+        <label className="block">
+          <span className="mb-1.5 block text-xs font-medium text-foreground">Template</span>
+          <Input
+            value={template}
+            onChange={(event) => setTemplate(event.target.value)}
+            placeholder="Boat's base image"
+            disabled={disabled}
+            spellCheck={false}
+          />
+          <span className="mt-1 block text-2xs text-muted-foreground">
+            A named Boat snapshot with your providers signed in. Without one, machines start bare
+            and run the published T3 Code server.
+          </span>
+        </label>
+        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_10rem]">
+          <div>
+            <label
+              htmlFor={`${id}-size`}
+              className="mb-1.5 block text-xs font-medium text-foreground"
+            >
+              Default size
+            </label>
+            <Select
+              value={defaultSize}
+              onValueChange={(value) => {
+                if (value) setDefaultSize(value);
+              }}
+              disabled={disabled}
+              items={BoatSize.literals.map((value) => ({ value, label: value }))}
+            >
+              <SelectTrigger id={`${id}-size`}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectPopup>
+                {BoatSize.literals.map((value) => (
+                  <SelectItem key={value} value={value}>
+                    <span className="flex flex-col">
+                      <span>{value}</span>
+                      <span className="text-muted-foreground text-xs">
+                        {boatSizeSummary(value)}
+                      </span>
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
+          </div>
+          <label className="block">
+            <span className="mb-1.5 block text-xs font-medium text-foreground">
+              Stop after idle minutes
+            </span>
+            <Input
+              value={idleMinutes}
+              onChange={(event) => setIdleMinutes(event.target.value)}
+              inputMode="numeric"
+              disabled={disabled}
+            />
+          </label>
+        </div>
+      </section>
       {error ? <p className="text-xs text-destructive">{error}</p> : null}
       {!canWrite ? (
         <p className="text-xs text-muted-foreground">
           This connection lacks permission to change settings on this environment.
         </p>
       ) : null}
+    </>
+  );
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    void save("key");
+  };
+
+  // In a dialog of its own, the actions sit in the dialog's footer like other dialogs'.
+  if (onCancel) {
+    return (
+      <form className="flex min-h-0 flex-col" onSubmit={submit}>
+        <DialogPanel>{fields}</DialogPanel>
+        <DialogFooter>
+          {configured ? (
+            <Button
+              type="button"
+              variant="destructive-outline"
+              className="sm:me-auto"
+              disabled={disabled}
+              onClick={() => void save("remove")}
+            >
+              Remove key
+            </Button>
+          ) : null}
+          <Button type="button" variant="outline" onClick={onCancel} disabled={saving}>
+            Cancel
+          </Button>
+          <Button type="submit" disabled={disabled}>
+            {saving ? "Saving…" : "Save"}
+          </Button>
+        </DialogFooter>
+      </form>
+    );
+  }
+  return (
+    <form className="space-y-4" onSubmit={submit}>
+      {fields}
       <div className="flex gap-2">
         {configured ? (
           <Button
             type="button"
-            variant="outline"
+            variant="destructive-outline"
             disabled={disabled}
             onClick={() => void save("remove")}
           >
@@ -446,13 +489,12 @@ export function BoatEnvironmentRows({
               Each thread you send to Boat gets its own machine, billed by the second while it runs.
             </DialogDescription>
           </DialogHeader>
-          <DialogPanel>
-            <BoatSetupForm
-              hostEnvironmentId={hostEnvironmentId}
-              status={status}
-              onSaved={() => setEditing(false)}
-            />
-          </DialogPanel>
+          <BoatSetupForm
+            hostEnvironmentId={hostEnvironmentId}
+            status={status}
+            onSaved={() => setEditing(false)}
+            onCancel={() => setEditing(false)}
+          />
         </DialogPopup>
       </Dialog>
     </>
