@@ -6,10 +6,14 @@ import {
   type EnvironmentId,
 } from "@t3tools/contracts";
 
-import { usePrimaryEnvironmentId } from "../state/environments";
+import { useEffect, useRef, useState } from "react";
+
+import { wakeBoatMachine } from "../lib/boatMachine";
+import { type EnvironmentPresentation, usePrimaryEnvironmentId } from "../state/environments";
 import { useEnvironmentQuery } from "../state/query";
 import { serverEnvironment } from "../state/server";
 import { useEnvironmentScope } from "../state/session";
+import { useStableCallback } from "./useStableCallback";
 
 /**
  * Boat lives on the primary environment's server, which holds the API key and starts machines.
@@ -38,7 +42,10 @@ export function useBoatHostFor(project: EnvironmentProject | null): EnvironmentI
 }
 
 /** Whether a saved environment's address is this Boat machine's. */
-export function isBoatMachineAt(machine: BoatMachine, httpBaseUrl: string | null): boolean {
+export function isBoatMachineAt(
+  machine: Pick<BoatMachine, "httpBaseUrl">,
+  httpBaseUrl: string | null,
+): boolean {
   const origin = httpBaseUrl ? originOf(httpBaseUrl) : null;
   return (
     origin !== null && machine.httpBaseUrl !== null && originOf(machine.httpBaseUrl) === origin
@@ -51,6 +58,67 @@ export function boatMachineAt(
   httpBaseUrl: string | null,
 ): BoatMachine | null {
   return status?.machines.find((machine) => isBoatMachineAt(machine, httpBaseUrl)) ?? null;
+}
+
+/** The host's Boat machine an environment runs on, or null when it is not one. */
+export function useBoatMachineFor(environment: EnvironmentPresentation | null): {
+  readonly hostEnvironmentId: EnvironmentId | null;
+  readonly machine: BoatMachine | null;
+} {
+  const { hostEnvironmentId, status } = useBoat();
+  const machine =
+    environment === null || environment.environmentId === hostEnvironmentId
+      ? null
+      : boatMachineAt(status, environment.displayUrl);
+  return { hostEnvironmentId, machine };
+}
+
+export type BoatMachineWake = {
+  readonly machine: BoatMachine;
+  readonly waking: boolean;
+  readonly error: string | null;
+  /** Resumes the machine; resolves true once this client is connected to it. */
+  readonly wake: () => Promise<boolean>;
+};
+
+/**
+ * Opening a thread on a stopped Boat machine resumes it. A machine that stops while its thread
+ * stays open is left stopped until the user resumes it or sends a message, so an open tab does
+ * not undo the idle stop.
+ */
+export function useBoatMachineWake(
+  environment: EnvironmentPresentation | null,
+  threadKey: string | null,
+): BoatMachineWake | null {
+  const { hostEnvironmentId, machine } = useBoatMachineFor(environment);
+  const [waking, setWaking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const wake = useStableCallback(async () => {
+    if (!machine || !hostEnvironmentId || !environment) return false;
+    setWaking(true);
+    setError(null);
+    try {
+      await wakeBoatMachine({
+        hostEnvironmentId,
+        environmentId: environment.environmentId,
+        sandboxId: machine.sandboxId,
+      });
+      return true;
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "The Boat machine did not resume.");
+      return false;
+    } finally {
+      setWaking(false);
+    }
+  });
+  const openedThreadKey = useRef<string | null>(null);
+  useEffect(() => {
+    if (threadKey === null || machine === null || openedThreadKey.current === threadKey) return;
+    openedThreadKey.current = threadKey;
+    if (machine.state === "stopped") void wake();
+  }, [machine, threadKey, wake]);
+  // The host lists the machine as stopped until its resume finishes.
+  return machine?.state === "stopped" ? { machine, waking, error, wake } : null;
 }
 
 function originOf(url: string): string | null {

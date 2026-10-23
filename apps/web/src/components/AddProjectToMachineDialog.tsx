@@ -193,7 +193,12 @@ function AddProjectToMachineDialog({ request }: { request: AddProjectToMachineRe
     try {
       const destination =
         boatChosen && boatHost
-          ? await startBoatMachine({ hostEnvironmentId: boatHost, size, onStep: setStep })
+          ? await startBoatMachine({
+              hostEnvironmentId: boatHost,
+              size,
+              projectId: project.environmentId === boatHost ? project.id : null,
+              onStep: setStep,
+            })
           : target;
       if (!destination) return;
       setStep(null);

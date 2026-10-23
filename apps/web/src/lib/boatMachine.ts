@@ -1,7 +1,8 @@
 import type { EnvironmentPresentation } from "@t3tools/client-runtime/connection";
 import { runAtomCommand, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
-import type { BoatSize, EnvironmentId } from "@t3tools/contracts";
+import type { BoatSize, EnvironmentId, ProjectId } from "@t3tools/contracts";
 
+import { environmentCatalog } from "../connection/catalog";
 import { connectPairing } from "../connection/onboarding";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { environmentPresentations } from "../state/presentation";
@@ -53,13 +54,18 @@ function waitForConnection(environmentId: EnvironmentId) {
 export async function startBoatMachine(input: {
   readonly hostEnvironmentId: EnvironmentId;
   readonly size: BoatSize;
+  // The host's project the machine is for, whose worktree cleanup rules then apply to it.
+  readonly projectId: ProjectId | null;
   readonly onStep: (step: BoatMachineStep) => void;
 }): Promise<{ readonly environmentId: EnvironmentId; readonly label: string }> {
   input.onStep("starting");
   const spawned = await runAtomCommand(
     appAtomRegistry,
     serverEnvironment.spawnBoatMachine,
-    { environmentId: input.hostEnvironmentId, input: { size: input.size } },
+    {
+      environmentId: input.hostEnvironmentId,
+      input: { size: input.size, ...(input.projectId ? { projectId: input.projectId } : {}) },
+    },
     { label: "Start Boat machine", reportFailure: false },
   );
   if (spawned._tag === "Failure") throw new Error(failureMessage(spawned));
@@ -86,4 +92,40 @@ export async function startBoatMachine(input: {
   }
   const presentation = await waitForConnection(paired.value);
   return { environmentId: paired.value, label: presentation.entry.target.label };
+}
+
+// One resume per machine, however many threads or sends ask for it.
+const wakes = new Map<string, Promise<void>>();
+
+/**
+ * Resumes a stopped Boat machine from the host environment and resolves once this client is
+ * connected to it again.
+ */
+export function wakeBoatMachine(input: {
+  readonly hostEnvironmentId: EnvironmentId;
+  readonly environmentId: EnvironmentId;
+  readonly sandboxId: string;
+}): Promise<void> {
+  const pending = wakes.get(input.sandboxId);
+  if (pending) return pending;
+  const wake = (async () => {
+    const resumed = await runAtomCommand(
+      appAtomRegistry,
+      serverEnvironment.runBoatMachineAction,
+      {
+        environmentId: input.hostEnvironmentId,
+        input: { sandboxId: input.sandboxId, action: "resume" },
+      },
+      { label: "Resume Boat machine", reportFailure: false },
+    );
+    if (resumed._tag === "Failure") throw new Error(failureMessage(resumed));
+    // The connection backs off while the machine is stopped; it reconnects now instead.
+    await runAtomCommand(appAtomRegistry, environmentCatalog.retryNow, input.environmentId, {
+      label: "Reconnect to Boat machine",
+      reportFailure: false,
+    });
+    await waitForConnection(input.environmentId);
+  })().finally(() => wakes.delete(input.sandboxId));
+  wakes.set(input.sandboxId, wake);
+  return wake;
 }

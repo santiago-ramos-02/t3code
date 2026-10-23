@@ -327,6 +327,9 @@ export function SavedBackendListRow({
               {boatMachineStateText(boat.machine)}
             </p>
           ) : null}
+          {boat?.machine.notice ? (
+            <p className="text-xs text-muted-foreground">{boat.machine.notice}</p>
+          ) : null}
           {diagnosis ? (
             <ConnectionDiagnosisSummary
               diagnosis={diagnosis}

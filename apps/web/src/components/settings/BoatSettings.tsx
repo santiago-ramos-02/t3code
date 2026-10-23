@@ -60,7 +60,9 @@ export function boatMachineStateText(machine: BoatMachine): string {
     case "stopping":
       return "Stopping";
     case "stopped":
-      return "Stopped, not billed";
+      return machine.snapshot === null
+        ? "Stopped, not billed"
+        : "Stopped, kept in a named snapshot";
     case "deleting":
       return "Deleting";
     case "failed":
@@ -454,6 +456,11 @@ export function BoatEnvironmentRows({
                 {boatMachineStateText(machine)}
                 {machine.state === "failed" ? null : " · Not paired with this device"}
               </span>
+            }
+            below={
+              machine.notice ? (
+                <p className="text-xs text-muted-foreground">{machine.notice}</p>
+              ) : undefined
             }
           >
             <Menu>
