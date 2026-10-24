@@ -9,6 +9,7 @@ export const PROVIDER_ORDER: readonly UsageProviderKind[] = [
   "opencode",
   "antigravity",
   "pi",
+  "muse",
 ];
 
 /** The usage series a provider driver reports under, or null for drivers without one. */
@@ -25,6 +26,7 @@ export const PROVIDER_LABEL: Record<UsageProviderKind, string> = {
   opencode: "OpenCode",
   antigravity: "Antigravity",
   pi: "Pi",
+  muse: "Muse Code",
 };
 
 /** Shared labels for provider-instance and live-limit surfaces. */
@@ -51,6 +53,7 @@ export function useProviderColors(): Record<UsageProviderKind, string> {
     opencode: "#5b9bbd",
     antigravity: "#8c7bd1",
     pi: "#4d9f8a",
+    muse: "#0866ff",
   };
 }
 
