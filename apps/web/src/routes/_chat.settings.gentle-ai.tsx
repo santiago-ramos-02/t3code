@@ -44,7 +44,7 @@ function GentleAiEnvironmentRoute(
   );
 }
 
-export const Route = createFileRoute("/settings/gentle-ai")({
+export const Route = createFileRoute("/_chat/settings/gentle-ai")({
   // `flow` names a Gentle AI flow open in place of the page, so back and links return to it.
   validateSearch: (raw: Record<string, unknown>): { flow?: string } => {
     const flow = parseGentleAiFlow(raw.flow);

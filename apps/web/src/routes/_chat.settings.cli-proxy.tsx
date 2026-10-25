@@ -30,6 +30,6 @@ function CliProxyEnvironmentRoute({ environmentId }: { readonly environmentId: E
   return <ModelProxySettings environmentId={environmentId} readOnly={access !== "granted"} />;
 }
 
-export const Route = createFileRoute("/settings/cli-proxy")({
+export const Route = createFileRoute("/_chat/settings/cli-proxy")({
   component: SettingsCliProxyRoute,
 });
