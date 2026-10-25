@@ -363,12 +363,7 @@ function GentleAiClaudeProfilePicker(props: {
               <Text
                 accessibilityRole="link"
                 className="text-xs text-primary"
-                onPress={() =>
-                  navigation.navigate("SettingsSheet", {
-                    screen: "SettingsContent",
-                    params: { screen: "SettingsCliProxy" },
-                  })
-                }
+                onPress={() => navigation.navigate("SettingsCliProxy")}
               >
                 {GENTLE_AI_CLAUDE_PROFILE_PROXY_LINK}
               </Text>

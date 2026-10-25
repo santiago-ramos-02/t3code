@@ -30,7 +30,6 @@ import { ProviderInstanceIcon } from "./ProviderInstanceIcon";
 import { cn } from "~/lib/utils";
 import { deriveProviderInstanceEntries, shouldShowInstanceBadge } from "../../providerInstances";
 
-/** Geometry and preview limits stay identical in lineage and timeline tooltips. */
 export function SubagentTooltipContent(props: {
   title: string;
   /** The named agent it ran as, such as Gentle AI's odd-explorer. */
