@@ -14,7 +14,16 @@ import {
 
 describe("mobile usage provider presentation", () => {
   it("keeps labels exhaustive and Pi in the shared reading order", () => {
-    expect(PROVIDER_ORDER.at(-1)).toBe("pi");
+    expect(PROVIDER_ORDER).toEqual([
+      "codex",
+      "claude",
+      "grok",
+      "cursor",
+      "opencode",
+      "antigravity",
+      "pi",
+      "muse",
+    ]);
     expect(Object.keys(PROVIDER_LABEL).toSorted()).toEqual([...PROVIDER_ORDER].toSorted());
     expect(PROVIDER_LABEL.pi).toBe("Pi");
   });

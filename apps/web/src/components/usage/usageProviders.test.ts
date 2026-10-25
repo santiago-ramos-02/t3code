@@ -12,6 +12,7 @@ describe("usage provider presentation", () => {
       "opencode",
       "antigravity",
       "pi",
+      "muse",
     ]);
     expect(Object.keys(PROVIDER_PRESENTATION)).toEqual(PROVIDER_ORDER);
   });
