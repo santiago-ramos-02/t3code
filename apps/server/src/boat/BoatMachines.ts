@@ -15,6 +15,7 @@ import {
 import { resolveWorktreeCleanup } from "@t3tools/shared/projectSettings";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
+import type * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import { HttpClient } from "effect/http";
@@ -28,6 +29,7 @@ import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
+import { captureBoatUsage } from "./boatUsage.ts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 
 import * as ServerConfig from "../config.ts";
@@ -64,6 +66,8 @@ export const BOAT_T3_PORT = 3773;
 // trial refuses anything longer.
 export const BOAT_MACHINE_TTL_SECONDS = 2 * 60 * 60;
 const MINUTE_MS = 60 * 1000;
+// How often a running machine's usage is copied to this server; stops and deletes copy first.
+const USAGE_COPY_INTERVAL_MS = 15 * MINUTE_MS;
 const DAY_MS = 24 * 60 * MINUTE_MS;
 // Clients forget their pairings with the machines listed here.
 const DELETED_RECORDS = 20;
@@ -464,6 +468,40 @@ export const make = Effect.gen(function* () {
   // One lifecycle change at a time, so a check cannot delete a machine the user is resuming.
   const lifecycle = yield* Semaphore.make(1);
 
+  // A copy of each machine's usage stays on this server, so it still counts once the machine is gone.
+  const usageCopiedAt = new Map<string, number>();
+  // One copy per machine at a time: two would each write over the other's newest hours.
+  const copyingUsage = new Set<string>();
+  const copyUsage = (boat: BoatApi, machine: BoatMachine, timeout: Duration.Input) =>
+    Effect.suspend(() => {
+      if (copyingUsage.has(machine.sandboxId)) return Effect.void;
+      copyingUsage.add(machine.sandboxId);
+      return captureBoatUsage({
+        boat,
+        machine,
+        stateDir: serverConfig.stateDir,
+        t3Command: T3_COMMAND,
+        timeout,
+      }).pipe(
+        Effect.provideService(FileSystem.FileSystem, fileSystem),
+        Effect.provideService(Path.Path, path),
+        Effect.provideService(HttpClient.HttpClient, httpClient),
+        Effect.andThen(DateTime.now),
+        Effect.map((now) => usageCopiedAt.set(machine.sandboxId, DateTime.toEpochMillis(now))),
+        Effect.ensuring(Effect.sync(() => copyingUsage.delete(machine.sandboxId))),
+        Effect.asVoid,
+      );
+    });
+  // Stop and delete hold the lifecycle lock, so their last copy gets a short budget. A copy
+  // already running for the machine saves as it reads, so they skip theirs.
+  const keepUsage = (boat: BoatApi, machine: BoatMachine) => copyUsage(boat, machine, "1 minute");
+  // A first copy reads the machine's whole history, so it runs beside the checks.
+  const keepUsageInBackground = (boat: BoatApi, machine: BoatMachine, now: number) => {
+    const copiedAt = usageCopiedAt.get(machine.sandboxId) ?? Number.NEGATIVE_INFINITY;
+    if (now - copiedAt < USAGE_COPY_INTERVAL_MS) return Effect.void;
+    return copyUsage(boat, machine, "30 minutes").pipe(Effect.forkDetach, Effect.asVoid);
+  };
+
   const readReport = (boat: BoatApi, sandboxId: string, withCheckouts: boolean) =>
     boat
       .runCommand(sandboxId, {
@@ -484,6 +522,7 @@ export const make = Effect.gen(function* () {
     machine: BoatMachine,
   ) {
     const report = yield* readReport(boat, machine.sandboxId, true);
+    yield* keepUsage(boat, machine);
     yield* boat.stopSandbox(machine.sandboxId);
     const stoppedAt = DateTime.formatIso(yield* DateTime.now);
     lastBusy.delete(machine.sandboxId);
@@ -595,6 +634,7 @@ export const make = Effect.gen(function* () {
     machine: BoatMachine,
     reason: string,
   ) {
+    if (machine.state === "running") yield* keepUsage(boat, machine);
     yield* boat.deleteSandbox(machine.sandboxId);
     if (machine.snapshot !== null) {
       yield* boat.deleteNamedSnapshot(machine.snapshot).pipe(Effect.ignore);
@@ -718,6 +758,7 @@ export const make = Effect.gen(function* () {
       return;
     }
     yield* boat.extendSandbox(sandboxId, BOAT_MACHINE_TTL_SECONDS);
+    yield* keepUsageInBackground(boat, machine, now);
     if (machine.report === null || !sameReport(machine.report, report)) {
       yield* changeMachine(sandboxId, (current) => ({ ...current, report }));
     }

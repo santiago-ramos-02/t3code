@@ -57,6 +57,7 @@ import {
   type CachedFile,
   type ScanCache,
 } from "./usageScanCache.ts";
+import { importedUsageForWindow, readImportedUsage, withImportedUsage } from "./importedUsage.ts";
 
 const LITELLM_RATES_URL =
   "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json";
@@ -930,7 +931,12 @@ export const make = Effect.gen(function* () {
         return created;
       }),
     );
-    return yield* Deferred.await(deferred);
+    const summary = yield* Deferred.await(deferred);
+    const imported = yield* readImportedUsage(config.stateDir).pipe(
+      Effect.provideService(FileSystem.FileSystem, fileSystem),
+      Effect.provideService(Path.Path, path),
+    );
+    return withImportedUsage(summary, importedUsageForWindow(imported, input));
   });
 
   return { readSummary, refreshRates, awaitPersisted } as const;
