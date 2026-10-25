@@ -4,11 +4,14 @@
  *
  * @module gentleAi/GentleAiBinary
  */
+import { spawnAndCollect } from "@t3tools/provider-core/server/snapshotProbe";
 import * as HostProcess from "@t3tools/shared/HostProcess";
-import { resolveCommandPath } from "@t3tools/shared/shell";
+import { resolveCommandPath, resolveSpawnCommand } from "@t3tools/shared/shell";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
+import * as ChildProcess from "effect/process/ChildProcess";
 
 import { piPackages } from "../provider/PiPlainExtensions.ts";
 
@@ -49,9 +52,50 @@ export function gentleAiInstallPath(
   return environment.HOME ? path.join(environment.HOME, ".local", "bin", "gentle-ai") : null;
 }
 
+/** Whether a gentle-ai version is a build of this fork, such as 4.2.0-t3.d1dbfe0. */
+export function isForkGentleAiVersion(version: string): boolean {
+  return version.includes("-t3.");
+}
+
+// Keyed by the file's size and modification time: a self-update replaces the binary in place.
+const forkBuilds = new Map<string, boolean>();
+
+const isForkBuild = Effect.fn("GentleAiBinary.isForkBuild")(function* (binaryPath: string) {
+  const fileSystem = yield* FileSystem.FileSystem;
+  const info = yield* fileSystem.stat(binaryPath).pipe(Effect.option);
+  if (Option.isNone(info)) return false;
+  const key = [
+    binaryPath,
+    info.value.size,
+    Option.match(info.value.mtime, { onNone: () => "", onSome: (date) => date.getTime() }),
+  ].join(":");
+  const known = forkBuilds.get(key);
+  if (known !== undefined) return known;
+  const environment = yield* HostProcess.Environment;
+  const resolved = yield* resolveSpawnCommand(binaryPath, ["version"], { env: environment });
+  const output = yield* spawnAndCollect(
+    binaryPath,
+    ChildProcess.make(resolved.command, resolved.args, {
+      env: environment,
+      extendEnv: false,
+      shell: resolved.shell,
+      stdin: "ignore",
+    }),
+  ).pipe(
+    Effect.map((result) => result.stdout),
+    Effect.timeoutOption("10 seconds"),
+    Effect.map(Option.getOrElse(() => "")),
+    Effect.orElseSucceed(() => ""),
+  );
+  const fork = isForkGentleAiVersion(output);
+  forkBuilds.set(key, fork);
+  return fork;
+});
+
 /**
  * The configured binary, else gentle-ai on PATH, else the copy T3 Code installed, else the
- * copy gentle-pi bundles, else null.
+ * copy gentle-pi bundles, else null. A fork build T3 Code installed beats one on PATH that is
+ * not, so installing from T3 Code takes effect over an upstream gentle-ai.
  */
 export const resolveGentleAiBinary = Effect.fn("resolveGentleAiBinary")(function* (
   configured: string,
@@ -59,18 +103,27 @@ export const resolveGentleAiBinary = Effect.fn("resolveGentleAiBinary")(function
   const trimmed = configured.trim();
   if (trimmed) return trimmed;
   const onPath = yield* resolveCommandPath("gentle-ai").pipe(Effect.orElseSucceed(() => null));
-  if (onPath) return onPath;
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const hostPlatform = yield* HostProcess.Platform;
   const environment = yield* HostProcess.Environment;
-  const installed = gentleAiInstallPath(path, hostPlatform, environment);
-  if (
-    installed !== null &&
-    (yield* fileSystem.exists(installed).pipe(Effect.orElseSucceed(() => false)))
-  ) {
-    return installed;
+  const installPath = gentleAiInstallPath(path, hostPlatform, environment);
+  const installed =
+    installPath !== null &&
+    (yield* fileSystem.exists(installPath).pipe(Effect.orElseSucceed(() => false)))
+      ? installPath
+      : null;
+  // Windows paths ignore case, and PATH lookup spells the extension the way PATHEXT does.
+  const samePath = (left: string, right: string) =>
+    hostPlatform === "win32"
+      ? path.resolve(left).toLowerCase() === path.resolve(right).toLowerCase()
+      : path.resolve(left) === path.resolve(right);
+  if (onPath && installed && !samePath(onPath, installed)) {
+    // Only both being present costs a version check.
+    if (!(yield* isForkBuild(onPath)) && (yield* isForkBuild(installed))) return installed;
   }
+  if (onPath) return onPath;
+  if (installed) return installed;
   const gentlePi = (yield* piPackages({ environment }).pipe(
     Effect.orElseSucceed(() => []),
   )).findLast((entry) => entry.manifest?.name === "gentle-pi");

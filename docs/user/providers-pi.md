@@ -72,6 +72,15 @@ installs Pi's example `subagent` extension, T3 Code also shows its task progress
 UI. Pi runs those children without a session, so they cannot be opened or resumed as T3 Code
 threads.
 
+## Gentle AI
+
+Gentle AI reaches Pi through the gentle-pi package. In **Settings > Gentle AI**, Pi's
+gentle-pi section offers **Install** when gentle-pi is missing. T3 Code
+installs its own build of gentle-pi, which carries the settings T3 Code manages, such as
+profiles, the persona, and command rules. When Pi loads gentle-pi from another source,
+such as `npm:gentle-pi`, **Use T3 Code's build** replaces it. On mobile, the same choice
+is in a project's settings. **Update** keeps whichever source is installed current.
+
 ## Troubleshooting
 
 - If Pi is unavailable, confirm that the configured binary runs on the server machine, then refresh

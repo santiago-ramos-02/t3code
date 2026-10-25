@@ -10,6 +10,8 @@ import * as HttpClientResponse from "effect/http/HttpClientResponse";
 import * as ChildProcess from "effect/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
+import { GENTLE_PI_FORK_SOURCE } from "@t3tools/contracts";
+
 import { makePiGentleSettings } from "./PiGentleSettings.ts";
 
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
@@ -120,6 +122,104 @@ if (process.argv[2] === "update" && process.argv[3] === "npm:gentle-pi") {
           profiles: [],
           effectiveProfile: null,
         });
+      }),
+    ),
+  );
+
+  it.effect("installs the fork's gentle-pi, replacing one from another source", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+        const platform = yield* HostProcess.Platform;
+        const root = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-pi-gentle-install-" });
+        const script = path.join(root, "fake-pi.cjs");
+        const binary = path.join(root, platform === "win32" ? "fake-pi.cmd" : "fake-pi");
+        const calls = path.join(root, "calls.log");
+        yield* fileSystem.writeFileString(
+          script,
+          `
+const fs = require("node:fs");
+const path = require("node:path");
+const home = process.env.PI_CODING_AGENT_DIR;
+const [command, source] = process.argv.slice(2);
+fs.appendFileSync(${encodeJson(calls)}, command + " " + source + "\\n");
+const settings = path.join(home, "settings.json");
+if (command === "remove") {
+  fs.writeFileSync(settings, JSON.stringify({ packages: [] }));
+} else if (command === "install") {
+  const packageDir = path.join(home, "git", ...source.slice(4).split("/"));
+  fs.mkdirSync(packageDir, { recursive: true });
+  fs.writeFileSync(path.join(packageDir, "package.json"), JSON.stringify({ name: "gentle-pi", version: "3.8.0" }));
+  fs.writeFileSync(settings, JSON.stringify({ packages: [source] }));
+} else if (command !== "update") {
+  process.exit(2);
+}
+`,
+        );
+        yield* fileSystem.writeFileString(
+          binary,
+          platform === "win32"
+            ? `@echo off\r\n"${process.execPath}" "${script}" %*\r\n`
+            : `#!/bin/sh\nexec '${process.execPath}' '${script}' "$@"\n`,
+        );
+        if (platform !== "win32") yield* fileSystem.chmod(binary, 0o755);
+        const settingsFor = (agentHome: string) =>
+          makePiGentleSettings({
+            environment: {
+              PI_CODING_AGENT_DIR: agentHome,
+              GENTLE_PI_CONFIG_HOME: path.join(root, "config"),
+            },
+            piBinaryPath: binary,
+            fileSystem,
+            path,
+            spawner,
+            httpClient,
+          });
+        const takeCalls = Effect.gen(function* () {
+          const logged = yield* fileSystem
+            .readFileString(calls)
+            .pipe(Effect.orElseSucceed(() => ""));
+          yield* fileSystem.remove(calls, { force: true });
+          return logged.trim().split("\n").filter(Boolean);
+        });
+
+        // Without gentle-pi, install adds the fork.
+        const fresh = yield* settingsFor(path.join(root, "fresh"));
+        expect(yield* fresh.action({ type: "install" })).toMatchObject({
+          available: true,
+          version: "3.8.0",
+          source: GENTLE_PI_FORK_SOURCE,
+        });
+        expect(yield* takeCalls).toEqual([`install ${GENTLE_PI_FORK_SOURCE}`]);
+
+        // npm's gentle-pi would shadow the fork, so it is removed first.
+        const agentHome = path.join(root, "agent");
+        const npmDir = path.join(agentHome, "npm", "node_modules", "gentle-pi");
+        yield* fileSystem.makeDirectory(npmDir, { recursive: true });
+        yield* fileSystem.writeFileString(
+          path.join(npmDir, "package.json"),
+          encodeJson({ name: "gentle-pi", version: "3.6.0" }),
+        );
+        yield* fileSystem.writeFileString(
+          path.join(agentHome, "settings.json"),
+          encodeJson({ packages: ["npm:gentle-pi"] }),
+        );
+        const gentle = yield* settingsFor(agentHome);
+        expect(yield* gentle.read()).toMatchObject({ source: "npm:gentle-pi" });
+        expect(yield* gentle.action({ type: "install" })).toMatchObject({
+          available: true,
+          source: GENTLE_PI_FORK_SOURCE,
+        });
+        expect(yield* takeCalls).toEqual([
+          "remove npm:gentle-pi",
+          `install ${GENTLE_PI_FORK_SOURCE}`,
+        ]);
+
+        // Installing over the fork updates it in place.
+        yield* gentle.action({ type: "install" });
+        expect(yield* takeCalls).toEqual([`update ${GENTLE_PI_FORK_SOURCE}`]);
       }),
     ),
   );
@@ -480,6 +580,7 @@ process.stdout.write(JSON.stringify({ schema: "gentle-pi.api/v1", ...line }) + "
         expect(yield* gentle.read(cwd)).toEqual({
           available: true,
           version: "3.7.0",
+          source: "npm:gentle-pi",
           updateAvailable: true,
           globalPersona: "neutral",
           profiles: [

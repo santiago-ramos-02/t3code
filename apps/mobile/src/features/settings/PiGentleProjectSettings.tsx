@@ -1,5 +1,10 @@
 import { useAtomValue } from "@effect/atom-react";
-import type { EnvironmentId, PiGentleState, ProviderInstanceId } from "@t3tools/contracts";
+import {
+  isGentlePiForkSource,
+  type EnvironmentId,
+  type PiGentleState,
+  type ProviderInstanceId,
+} from "@t3tools/contracts";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -23,7 +28,8 @@ type ProjectAction =
   | { readonly type: "create" | "pin"; readonly name: string }
   | { readonly type: "activate"; readonly name: string }
   | { readonly type: "clearPin" }
-  | { readonly type: "setPersona"; readonly mode: "gentleman" | "neutral" | null };
+  | { readonly type: "setPersona"; readonly mode: "gentleman" | "neutral" | null }
+  | { readonly type: "install" | "update" };
 
 export function PiGentleProjectSettings(props: {
   readonly environmentId: EnvironmentId;
@@ -94,19 +100,22 @@ function PiGentleInstanceSettings(props: {
     };
   }, [instanceId, props.environmentId, props.workspaceRoot, read, refresh]);
 
-  // Gentle AI is an optional Pi package: nothing shows until the server confirms Pi loads it.
-  // The server only fails a read once gentle-pi is installed, so a failure is shown.
-  if (state === null ? error === null : !state.available) return null;
+  // The server only fails a read once gentle-pi is installed, so a failure is shown. Without a
+  // supported gentle-pi, only someone who can maintain the environment sees the way to install it.
+  if (state === null ? error === null : !state.available && !canEdit) return null;
 
   // Every choice saves as soon as it changes, like the web Pi settings.
   const localPin = state?.project?.pinSource === "local" ? state.project.pinned : null;
   const editable = canEdit && !pending;
+  // T3 Code's gentle-pi carries the API these settings use; one from npm or elsewhere is replaced.
+  const fromFork = state?.source !== undefined && isGentlePiForkSource(state.source);
 
   async function act(action: ProjectAction) {
     if (pending) return;
     setPending(true);
     setError(null);
-    const request = { ...action, cwd: props.workspaceRoot };
+    // Install and update act on the whole Pi, not this checkout.
+    const request = action.type === "install" ? action : { ...action, cwd: props.workspaceRoot };
     try {
       const result = await update({
         environmentId: props.environmentId,
@@ -145,8 +154,48 @@ function PiGentleInstanceSettings(props: {
               }}
             />
           </View>
+        ) : !state.available ? (
+          <View className="gap-2">
+            <Text className="text-sm text-foreground-muted">
+              {state.version === null
+                ? "Gentle AI adds profiles, a persona, and its agents to this Pi."
+                : `T3 Code needs Gentle AI 3.5 or newer, and ${state.version} is installed.`}
+            </Text>
+            {error ? <Text className="text-sm text-danger-foreground">{error}</Text> : null}
+            {state.version !== null && fromFork ? (
+              <Action
+                label={pending ? "Updating…" : "Update Gentle AI"}
+                disabled={!editable}
+                onPress={() => void act({ type: "update" })}
+              />
+            ) : (
+              <Action
+                label={
+                  pending
+                    ? "Installing…"
+                    : state.version === null
+                      ? "Install Gentle AI"
+                      : "Install T3 Code's build"
+                }
+                disabled={!editable}
+                onPress={() => void act({ type: "install" })}
+              />
+            )}
+          </View>
         ) : (
           <>
+            {state.source !== undefined && !fromFork && canEdit ? (
+              <View className="gap-2">
+                <Text className="text-sm text-foreground-muted">
+                  {`Pi loads Gentle AI from ${state.source}. T3 Code's build replaces it.`}
+                </Text>
+                <Action
+                  label={pending ? "Installing…" : "Use T3 Code's build"}
+                  disabled={!editable}
+                  onPress={() => void act({ type: "install" })}
+                />
+              </View>
+            ) : null}
             {state.compatibilityWarning ? (
               <Text className="text-sm text-foreground-muted">{state.compatibilityWarning}</Text>
             ) : null}

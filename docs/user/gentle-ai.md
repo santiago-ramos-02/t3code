@@ -1,6 +1,6 @@
 # Gentle AI
 
-[Gentle AI](https://github.com/Gentleman-Programming/gentle-ai) adds a
+[Gentle AI](https://github.com/santiago-ramos-02/gentle-ai) adds a
 development workflow, subagents, skills, memory, and review to coding agents. It installs into each agent's own configuration, so threads get it
 through whichever provider runs them: Claude, Codex, Cursor, OpenCode,
 Antigravity, or Pi.

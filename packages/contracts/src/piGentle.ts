@@ -8,6 +8,14 @@ import { ProviderInstanceId } from "./providerInstance.ts";
  */
 export const PI_GENTLE_PACKAGES: ReadonlyArray<string> = ["gentle-pi", "gentle-engram"];
 
+/** The Pi package source of this fork's gentle-pi, which carries the API T3 Code uses. */
+export const GENTLE_PI_FORK_SOURCE = "git:github.com/santiago-ramos-02/gentle-shell";
+
+/** Whether a Pi package source is this fork's gentle-pi, pinned to a ref or not. */
+export function isGentlePiForkSource(source: string): boolean {
+  return source === GENTLE_PI_FORK_SOURCE || source.startsWith(`${GENTLE_PI_FORK_SOURCE}@`);
+}
+
 export const PiGentleRoutingEntry = Schema.Struct({
   model: Schema.optionalKey(Schema.String),
   thinking: Schema.optionalKey(
@@ -81,6 +89,8 @@ export const PiGentleState = Schema.Struct({
   // The installed commit when gentle-pi is installed from git, which the version alone
   // does not tell apart.
   commit: Schema.optionalKey(Schema.String),
+  // The Pi package source gentle-pi was installed from, such as npm:gentle-pi.
+  source: Schema.optionalKey(Schema.String),
   // Whether Pi's package source has a newer gentle-pi; absent when that cannot be known,
   // such as a pinned version, a local folder, or no network.
   updateAvailable: Schema.optionalKey(Schema.Boolean),
@@ -116,8 +126,9 @@ export const PiGentleReadInput = Schema.Struct({
 export const PiGentleActionInput = Schema.Struct({
   instanceId: ProviderInstanceId,
   action: Schema.Union([
-    // Updates an installed gentle-pi in place. T3 Code never installs it: users opt into
-    // Gentle AI with Pi's own package manager.
+    // Installs this fork's gentle-pi, replacing one from another source.
+    Schema.Struct({ type: Schema.Literal("install") }),
+    // Updates an installed gentle-pi in place, from the source Pi installed it with.
     Schema.Struct({
       type: Schema.Literal("update"),
       cwd: Schema.optionalKey(TrimmedNonEmptyString),

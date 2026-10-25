@@ -11,6 +11,8 @@ import {
   PiGentleRoutingEntry,
   type PiGentleComposerState,
   type PiGentleState,
+  GENTLE_PI_FORK_SOURCE,
+  isGentlePiForkSource,
 } from "@t3tools/contracts";
 import * as Cache from "effect/Cache";
 import * as Duration from "effect/Duration";
@@ -172,7 +174,7 @@ export type PiGentleAction = typeof PiGentleActionInput.Type.action;
 
 /** The gentle-pi API call that performs an action. */
 function apiCall(
-  command: Exclude<PiGentleAction, { readonly type: "update" }>,
+  command: Exclude<PiGentleAction, { readonly type: "update" | "install" }>,
   userHome: string,
 ): readonly [method: string, params: unknown] {
   const cwd = command.cwd === undefined ? {} : { cwd: command.cwd };
@@ -514,6 +516,7 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
         return {
           available: false,
           version,
+          ...(found === null ? {} : { source: found.source }),
           globalPersona: "gentleman",
           profiles: [],
           active: null,
@@ -528,6 +531,7 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
         return {
           available: true,
           version,
+          ...(found === null ? {} : { source: found.source }),
           ...update,
           globalPersona: state.persona,
           profiles: state.profiles,
@@ -554,6 +558,7 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
       return {
         available: true,
         version,
+        ...(found === null ? {} : { source: found.source }),
         ...update,
         ...(compatibilityWarning === undefined ? {} : { compatibilityWarning }),
         globalPersona,
@@ -735,6 +740,32 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
 
   const action = (command: PiGentleAction) =>
     Effect.gen(function* () {
+      if (command.type === "install") {
+        // gentle-pi from another source, such as npm, would shadow the fork, so it goes first.
+        const found = yield* gentlePackage();
+        if (found !== null && isGentlePiForkSource(found.source)) {
+          yield* runPi(["update", found.source], {
+            env: environment,
+            timeout: "5 minutes",
+            failure: "Gentle AI update failed.",
+          });
+        } else {
+          if (found !== null) {
+            yield* runPi(["remove", found.source], {
+              env: environment,
+              timeout: "2 minutes",
+              failure: "Removing the other Gentle AI from Pi failed.",
+            });
+          }
+          yield* runPi(["install", GENTLE_PI_FORK_SOURCE], {
+            env: environment,
+            timeout: "10 minutes",
+            failure: "Gentle AI install failed.",
+          });
+        }
+        yield* Cache.invalidateAll(latestCache);
+        return yield* readAfterChange();
+      }
       if (command.type === "update") {
         // An outdated gentle-pi still counts as installed here, so it can be updated in place
         // from the same source and scope Pi installed it with.

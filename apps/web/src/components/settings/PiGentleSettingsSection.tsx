@@ -1,4 +1,5 @@
 import {
+  isGentlePiForkSource,
   PiGentleActionInput,
   type EnvironmentId,
   type PiGentleCommandAction,
@@ -178,7 +179,8 @@ function usePiGentle({
         ? "project"
         : action.type === "setGlobalPersona" ||
             action.type === "activate" ||
-            action.type === "update"
+            action.type === "update" ||
+            action.type === "install"
           ? "global"
           : action.type === "setCommandRules"
             ? "commands"
@@ -276,22 +278,51 @@ export function PiGentleSettingsSection({
     );
   }
 
+  // T3 Code's gentle-pi carries the API these settings use; one from npm or elsewhere is replaced.
+  const fromFork = state.source !== undefined && isGentlePiForkSource(state.source);
+  const installButton = (label: string) => (
+    <Button
+      size="sm"
+      variant="outline"
+      disabled={!canEdit}
+      onClick={() => void runAction({ type: "install" })}
+    >
+      {pending === "install" ? "Installing…" : label}
+    </Button>
+  );
+
   if (!state.available) {
-    return state.version === null ? null : (
+    if (state.version === null) {
+      return readOnly ? null : (
+        <SettingsSection title={title} icon={sectionIcon}>
+          <SettingsRow
+            title="Not installed"
+            description="Gentle AI adds profiles, a persona, and its agents to this Pi."
+            status={errorFor("global")}
+            control={installButton("Install")}
+          />
+        </SettingsSection>
+      );
+    }
+    return (
       <SettingsSection title={title} icon={sectionIcon} {...readOnlyProps(readOnly)}>
         <SettingsRow
           title="Update for Pi"
           description={`T3 Code needs Gentle AI 3.5 or newer, and ${state.version} is installed.`}
           status={errorFor("global")}
           control={
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={!canEdit}
-              onClick={() => void runAction({ type: "update" })}
-            >
-              {pending === "update" ? "Updating…" : "Update Gentle AI"}
-            </Button>
+            fromFork ? (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!canEdit}
+                onClick={() => void runAction({ type: "update" })}
+              >
+                {pending === "update" ? "Updating…" : "Update Gentle AI"}
+              </Button>
+            ) : (
+              installButton("Install T3 Code's build")
+            )
           }
         />
       </SettingsSection>
@@ -335,6 +366,14 @@ export function PiGentleSettingsSection({
       >
         {state.compatibilityWarning ? (
           <SettingsRow title="Untested version" description={state.compatibilityWarning} />
+        ) : null}
+        {state.source !== undefined && !fromFork ? (
+          <SettingsRow
+            title="Installed from another source"
+            description={`Pi loads Gentle AI from ${state.source}. T3 Code's build replaces it.`}
+            status={errorFor("global")}
+            control={installButton("Use T3 Code's build")}
+          />
         ) : null}
         <SettingsRow
           title="Persona"
