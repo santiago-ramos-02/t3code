@@ -63,7 +63,9 @@ jobs:
             apps/web/src/lib/imageCompression.test.ts
           vp run --filter t3 --filter @t3tools/web typecheck
           vp exec tsc --noEmit -p apps/web/tsconfig.json
-          node scripts/release-smoke.ts
+          # The smoke resolves a fresh lockfile, so newer releases of patched
+          # dependencies leave exact-version patches unused; the build uses the committed lockfile.
+          pnpm_config_allow_unused_patches=true node scripts/release-smoke.ts
           git diff --exit-code
 
       - name: Publish validated main
