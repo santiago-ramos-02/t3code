@@ -45,7 +45,8 @@ import {
 import { BranchToolbarEnvironmentSelector } from "./BranchToolbarEnvironmentSelector";
 import { BOAT_TARGET, openAddProjectToMachine } from "./AddProjectToMachineDialog";
 import { type AddProjectTarget, useAddProjectTargets } from "../hooks/useAddProjectTargets";
-import { useBoatHostFor } from "../hooks/useBoat";
+import { useBoatHostFor, useBoatMachineOf } from "../hooks/useBoat";
+import { BoatMachineMenuSection } from "./BoatMachineMenuSection";
 import { BranchToolbarEnvModeSelector } from "./BranchToolbarEnvModeSelector";
 import { PreviousWorktreeItemContent } from "./PreviousWorktreeItemContent";
 import { ThreadDetailsControl } from "./chat/ThreadDetailsControl";
@@ -213,6 +214,11 @@ const RunContextSelector = memo(function RunContextSelector({
         ? resolveEnvModeLabel("worktree")
         : resolveCurrentWorkspaceLabel(activeWorktreePath);
   const isPanel = displayMode === "panel";
+  const boat = useBoatMachineOf(environmentId);
+  const boatSection =
+    boat && showEnvironmentIndicator ? (
+      <BoatMachineMenuSection hostEnvironmentId={boat.hostEnvironmentId} machine={boat.machine} />
+    ) : null;
   const isLocked = envLocked || (envModeLocked && (!isPanel || !showEnvironmentPicker));
   const workspacePath =
     forceNewWorktree || (effectiveEnvMode === "worktree" && !activeWorktreePath)
@@ -284,6 +290,31 @@ const RunContextSelector = memo(function RunContextSelector({
       {isPanel && showEnvironmentIndicator ? workspaceIcon : null}
     </>
   );
+
+  // A started thread's machine cannot change, but a Boat machine still has details and actions.
+  if (isLocked && boatSection) {
+    return (
+      <Menu>
+        <MenuTrigger
+          render={isPanel ? <ThreadDetailsControl part="select" /> : <ComposerControl size="xs" />}
+          className={isPanel ? undefined : "min-w-0 max-w-[48%] flex-initial justify-start"}
+          onContextMenu={handleContextMenu}
+          aria-label={isPanel ? "Run context" : undefined}
+          data-composer-context-control
+        >
+          {triggerContent}
+          {!isPanel ? <ChevronDownIcon className="size-3 shrink-0 mx-0!" /> : null}
+        </MenuTrigger>
+        <MenuPopup
+          align="start"
+          side={isPanel ? "bottom" : "top"}
+          {...(!isPanel ? composerFloatingLayerProps : {})}
+        >
+          {boatSection}
+        </MenuPopup>
+      </Menu>
+    );
+  }
 
   if (isLocked) {
     return (
@@ -415,6 +446,12 @@ const RunContextSelector = memo(function RunContextSelector({
                 </MenuSub>
               ) : null}
             </MenuGroup>
+            <MenuSeparator />
+          </>
+        ) : null}
+        {boatSection ? (
+          <>
+            {boatSection}
             <MenuSeparator />
           </>
         ) : null}
