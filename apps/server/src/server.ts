@@ -62,6 +62,7 @@ import * as AcpRegistrySupport from "@t3tools/provider-acp-registry/server/AcpRe
 import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import * as CheckpointStore from "./checkpointing/CheckpointStore.ts";
 import * as SourceControlBuiltInDrivers from "./sourceControl/builtInDrivers.ts";
+import * as ServerSourceControlHost from "./sourceControl/ServerSourceControlHost.ts";
 import { BUILT_IN_SOURCE_CONTROL_DRIVER_LIST } from "./sourceControl/sourceControlDefinitions.ts";
 import * as TextGeneration from "./textGeneration/TextGeneration.ts";
 import * as ProviderInstanceRegistryHydration from "./provider/ProviderInstanceRegistryHydration.ts";
@@ -116,6 +117,8 @@ import * as ReviewService from "./review/ReviewService.ts";
 import * as SourceControlProviderRegistry from "./sourceControl/SourceControlProviderRegistry.ts";
 import * as PullRequestReadCache from "./pullRequest/PullRequestReadCache.ts";
 import * as SourceControlRateLimit from "@t3tools/source-control-core/server/SourceControlRateLimit";
+import * as Socket from "effect/socket/Socket";
+import * as GitHubCredentials from "@t3tools/source-control-github/server/GitHubCredentials";
 import * as SourceControlRepositoryService from "./sourceControl/SourceControlRepositoryService.ts";
 import * as WorktreeSetupTracker from "./project/WorktreeSetupTracker.ts";
 import * as Observability from "./observability/Observability.ts";
@@ -343,6 +346,13 @@ const layerSourceControlProviderRegistry = SourceControlProviderRegistry.layer.p
   Layer.provideMerge(layerVcsDriverRegistry),
 );
 
+// The host's own GitHub login, which Boat machines are given.
+const layerGitHubCredentials = GitHubCredentials.layer.pipe(
+  Layer.provide(ServerSourceControlHost.layer),
+  Layer.provide(GitVcsDriver.layer),
+  Layer.provide(layerVcsDriverRegistry),
+);
+
 const layerRepositoryIdentityResolver = Layer.effect(
   RepositoryIdentityResolver.RepositoryIdentityResolver,
   Effect.gen(function* () {
@@ -394,6 +404,7 @@ const layerGitWorkflow = GitWorkflowService.layer.pipe(
 
 const layerSourceControlRepositoryService = SourceControlRepositoryService.layer.pipe(
   Layer.provideMerge(GitVcsDriver.layer),
+  Layer.provideMerge(GitHubCredentials.layer),
   Layer.provideMerge(layerSourceControlProviderRegistry),
 );
 
@@ -640,6 +651,8 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
       BoatMachines.layer.pipe(
         Layer.provide(ProcessRunner.layer),
         Layer.provide(layerServerSettings),
+        Layer.provide(layerGitHubCredentials),
+        Layer.provide(Socket.layerWebSocketConstructorGlobal),
       ),
       Engram.layer,
     ),

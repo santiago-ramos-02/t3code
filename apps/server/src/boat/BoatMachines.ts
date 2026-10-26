@@ -26,7 +26,9 @@ import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
+import * as Socket from "effect/socket/Socket";
 import * as SubscriptionRef from "effect/SubscriptionRef";
+import * as GitHubCredentials from "@t3tools/source-control-github/server/GitHubCredentials";
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import { captureBoatUsage } from "./boatUsage.ts";
@@ -43,6 +45,7 @@ import {
   type BoatApi,
 } from "./BoatApi.ts";
 import { makeBoatCli } from "./BoatCli.ts";
+import { giveMachineGitHubLogin } from "./machineGitHub.ts";
 import {
   HostVersion,
   T3_COMMAND,
@@ -132,6 +135,8 @@ export const make = Effect.gen(function* () {
   const settingsService = yield* Settings.ServerSettingsService;
   const secrets = yield* ServerSecretStore.ServerSecretStore;
   const httpClient = yield* HttpClient.HttpClient;
+  const githubCredentials = yield* GitHubCredentials.GitHubCredentials;
+  const webSocket = yield* Socket.WebSocketConstructor;
   const cli = makeBoatCli({
     runner: yield* ProcessRunner.ProcessRunner,
     path,
@@ -334,6 +339,14 @@ export const make = Effect.gen(function* () {
     return installed !== null && lastLine(installed.stdout) === "installed" ? null : unavailable;
   });
 
+  // Resolves to the notice for a machine that could not be signed in to GitHub, else null.
+  const giveGitHubLogin = (boat: BoatApi, sandboxId: string) =>
+    giveMachineGitHubLogin({ boat, sandboxId, t3Command: T3_COMMAND, port: BOAT_T3_PORT }).pipe(
+      Effect.provideService(GitHubCredentials.GitHubCredentials, githubCredentials),
+      Effect.provideService(HttpClient.HttpClient, httpClient),
+      Effect.provideService(Socket.WebSocketConstructor, webSocket),
+    );
+
   // A stopped machine keeps its disk but not its processes, so a resume starts T3 Code again.
   const serveT3 = Effect.fn("BoatMachines.serveT3")(function* (
     boat: BoatApi,
@@ -353,7 +366,9 @@ export const make = Effect.gen(function* () {
     if (waited.exitCode !== 0) {
       return yield* fail("T3 Code did not start on the Boat machine within two minutes.");
     }
-    return notice;
+    // The login lives on the machine's disk, but this server's token can change, so each start sends it.
+    const loginNotice = yield* giveGitHubLogin(boat, sandboxId);
+    return [notice, loginNotice].filter((text) => text !== null).join(" ") || null;
   });
 
   const startT3 = Effect.fn("BoatMachines.startT3")(function* (
