@@ -1,17 +1,18 @@
 import type { EnvironmentPresentation } from "@t3tools/client-runtime/connection";
 import { runAtomCommand, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
-import type { BoatSize, EnvironmentId, ProjectId } from "@t3tools/contracts";
+import type { BoatSize, BoatStatus, EnvironmentId, ProjectId } from "@t3tools/contracts";
+import * as Option from "effect/Option";
+import { AsyncResult } from "effect/reactivity";
 
 import { environmentCatalog } from "../connection/catalog";
 import { connectPairing } from "../connection/onboarding";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { environmentPresentations } from "../state/presentation";
 import { serverEnvironment } from "../state/server";
+import type { MachineStartStep } from "./machineStartSteps";
 
 // Pairing finishes before the first connection; a machine that does not connect by then is broken.
 const CONNECT_TIMEOUT_MS = 60_000;
-
-export type BoatMachineStep = "starting" | "pairing";
 
 function failureMessage(result: Parameters<typeof squashAtomCommandFailure>[0]): string {
   const error = squashAtomCommandFailure(result);
@@ -47,18 +48,43 @@ function waitForConnection(environmentId: EnvironmentId) {
 }
 
 /**
+ * Reports the start steps of the machine the host starts next, as the host's status stream says
+ * them, so every client sees the same steps. The host lists a machine only once it exists, and a
+ * machine already starting belongs to someone else's start. Returns the way to stop watching.
+ */
+function watchStartSteps(
+  hostEnvironmentId: EnvironmentId,
+  onSteps: (steps: ReadonlyArray<MachineStartStep>) => void,
+): () => void {
+  const atom = serverEnvironment.boatStatus({ environmentId: hostEnvironmentId, input: {} });
+  const statusOf = (result: AsyncResult.AsyncResult<BoatStatus, unknown>) =>
+    Option.getOrNull(AsyncResult.value(result));
+  const alreadyListed = new Set(
+    statusOf(appAtomRegistry.get(atom))?.machines.map((machine) => machine.sandboxId),
+  );
+  return appAtomRegistry.subscribe(atom, (result) => {
+    const starting = statusOf(result)?.machines.find(
+      (machine) => machine.state === "starting" && !alreadyListed.has(machine.sandboxId),
+    );
+    if (starting) onSteps(starting.startSteps);
+  });
+}
+
+/**
  * Starts a Boat machine from the host environment, pairs this client with it, and resolves once
- * it is connected. A machine this client could not pair with is deleted, since nothing else can
- * reach it and it bills while it runs.
+ * it is connected. `onSteps` gets the steps taken so far each time they change. A machine this
+ * client could not pair with is deleted, since nothing else can reach it and it bills while it
+ * runs.
  */
 export async function startBoatMachine(input: {
   readonly hostEnvironmentId: EnvironmentId;
   readonly size: BoatSize;
   // The host's project the machine is for, whose worktree cleanup rules then apply to it.
   readonly projectId: ProjectId | null;
-  readonly onStep: (step: BoatMachineStep) => void;
+  readonly onSteps: (steps: ReadonlyArray<MachineStartStep>) => void;
 }): Promise<{ readonly environmentId: EnvironmentId; readonly label: string }> {
-  input.onStep("starting");
+  input.onSteps(["starting"]);
+  const stopWatching = watchStartSteps(input.hostEnvironmentId, input.onSteps);
   const spawned = await runAtomCommand(
     appAtomRegistry,
     serverEnvironment.spawnBoatMachine,
@@ -67,11 +93,11 @@ export async function startBoatMachine(input: {
       input: { size: input.size, ...(input.projectId ? { projectId: input.projectId } : {}) },
     },
     { label: "Start Boat machine", reportFailure: false },
-  );
+  ).finally(stopWatching);
   if (spawned._tag === "Failure") throw new Error(failureMessage(spawned));
 
-  input.onStep("pairing");
   const { machine, httpBaseUrl, pairingCredential } = spawned.value;
+  input.onSteps([...machine.startSteps, "connecting"]);
   const paired = await runAtomCommand(
     appAtomRegistry,
     connectPairing,

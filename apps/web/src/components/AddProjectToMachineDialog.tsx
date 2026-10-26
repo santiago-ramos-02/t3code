@@ -1,5 +1,4 @@
-import { useParams } from "@tanstack/react-router";
-import { scopeProjectRef } from "@t3tools/client-runtime/environment";
+import { useParams, useRouter } from "@tanstack/react-router";
 import {
   getAddProjectInitialQuery,
   getCloneDestinationPath,
@@ -29,10 +28,9 @@ import { useNewThreadHandler } from "../hooks/useHandleNewThread";
 import { useLogicalProjectEnvironments } from "../hooks/useLogicalProjectEnvironments";
 import {
   COPYABLE_FILE_MAX_BYTES,
-  addProjectToMachine,
   isDefaultCopiedFile,
+  startAddProjectToMachine,
 } from "../lib/addProjectToMachine";
-import { type BoatMachineStep, startBoatMachine } from "../lib/boatMachine";
 import { formatBytes } from "../lib/formatBytes";
 import { newProjectId } from "../lib/utils";
 import { useProject } from "../state/entities";
@@ -86,6 +84,7 @@ function AddProjectToMachineDialog({ request }: { request: AddProjectToMachineRe
   const project = useProject(request.projectRef);
   const handleNewThread = useNewThreadHandler();
   const { draftId: routeDraftId } = useParams({ strict: false });
+  const router = useRouter();
   const { environments } = useEnvironments();
   const targets = useAddProjectTargets(project, useLogicalProjectEnvironments(project, false));
   const boatHost = useBoatHostFor(project);
@@ -98,7 +97,6 @@ function AddProjectToMachineDialog({ request }: { request: AddProjectToMachineRe
   const targetLabel = boatChosen ? "the Boat machine" : (target?.label ?? "the other machine");
   const [chosenSize, setChosenSize] = useState<BoatSize | null>(null);
   const size = chosenSize ?? boatSettings?.defaultSize ?? "default";
-  const [step, setStep] = useState<BoatMachineStep | null>(null);
   const source = environments.find((env) => env.environmentId === request.projectRef.environmentId);
   const sourceUrl =
     project?.repositoryIdentity?.origin?.remoteUrl ??
@@ -137,7 +135,6 @@ function AddProjectToMachineDialog({ request }: { request: AddProjectToMachineRe
     .filter((file) => selectedFiles.has(file.path))
     .reduce((total, file) => total + file.byteLength, 0);
 
-  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // The project or every target can vanish while the dialog is open. Submitting
@@ -181,47 +178,54 @@ function AddProjectToMachineDialog({ request }: { request: AddProjectToMachineRe
     void handleNewThread(targetRef);
   };
 
-  const submit = async () => {
-    if (!project || (!target && !boatChosen) || submitting) return;
+  // Closes at once: the composer shows the steps, so the dialog never waits on the machine.
+  const submit = () => {
+    const destination = boatChosen
+      ? boatHost
+        ? ({
+            kind: "boat",
+            hostEnvironmentId: boatHost,
+            size,
+            projectId: project?.environmentId === boatHost ? project.id : null,
+          } as const)
+        : null
+      : target
+        ? ({
+            kind: "machine",
+            environmentId: target.environmentId,
+            label: target.label,
+          } as const)
+        : null;
+    if (!project || !destination) return;
     if (destinationPath.trim().length === 0) {
       setError(`Choose a folder on ${targetLabel}.`);
       return;
     }
-    setSubmitting(true);
-    setError(null);
     const projectId = newProjectId();
-    try {
-      const destination =
-        boatChosen && boatHost
-          ? await startBoatMachine({
-              hostEnvironmentId: boatHost,
-              size,
-              projectId: project.environmentId === boatHost ? project.id : null,
-              onStep: setStep,
-            })
-          : target;
-      if (!destination) return;
-      setStep(null);
-      await addProjectToMachine({
+    const startedAt = router.state.location.href;
+    startAddProjectToMachine({
+      source: request.projectRef,
+      title: project.title,
+      targetLabel: boatChosen ? "a new Boat machine" : targetLabel,
+      destination,
+      add: {
         source: { environmentId: project.environmentId, cwd: project.workspaceRoot },
         subdirectory: projectSubdirectory(
           project.repositoryIdentity?.rootPath,
           project.workspaceRoot,
         ),
-        target: { environmentId: destination.environmentId, label: destination.label },
         projectId,
         title: project.title,
         remoteUrl,
         destinationPath: destinationPath.trim(),
         files: files.filter((file) => selectedFiles.has(file.path)).map((file) => file.path),
-      });
-      close();
-      openClonedProject(scopeProjectRef(destination.environmentId, projectId));
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not start the clone.");
-      setStep(null);
-      setSubmitting(false);
-    }
+      },
+      // Someone who moved on while the machine started is not pulled back to the new project.
+      onStarted: (targetRef) => {
+        if (router.state.location.href === startedAt) openClonedProject(targetRef);
+      },
+    });
+    close();
   };
 
   const selectedTarget: EnvironmentId | typeof BOAT_TARGET | null = boatChosen
@@ -239,8 +243,7 @@ function AddProjectToMachineDialog({ request }: { request: AddProjectToMachineRe
     <Dialog
       open
       onOpenChange={(open) => {
-        // Closing mid-start would leave a billing machine nobody connects to.
-        if (!open && !submitting) close();
+        if (!open) close();
       }}
     >
       <DialogPopup className="sm:max-w-xl">
@@ -248,7 +251,7 @@ function AddProjectToMachineDialog({ request }: { request: AddProjectToMachineRe
           className="flex min-h-0 flex-col"
           onSubmit={(event) => {
             event.preventDefault();
-            void submit();
+            submit();
           }}
         >
           <DialogHeader>
@@ -291,7 +294,6 @@ function AddProjectToMachineDialog({ request }: { request: AddProjectToMachineRe
                     onValueChange={(value) => {
                       if (value) setTargetId(value);
                     }}
-                    disabled={submitting}
                     items={targetOptions}
                   >
                     <SelectTrigger size="sm" aria-label="Machine to add the project to">
@@ -347,7 +349,6 @@ function AddProjectToMachineDialog({ request }: { request: AddProjectToMachineRe
                   onValueChange={(value) => {
                     if (value) setChosenSize(value);
                   }}
-                  disabled={submitting}
                   items={BoatSize.literals.map((value) => ({ value, label: value }))}
                 >
                   <SelectTrigger id={`${id}-size`} size="sm">
@@ -465,19 +466,11 @@ function AddProjectToMachineDialog({ request }: { request: AddProjectToMachineRe
             {error ? <p className="text-destructive-foreground text-sm">{error}</p> : null}
           </DialogPanel>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={close} disabled={submitting}>
+            <Button type="button" variant="outline" onClick={close}>
               Cancel
             </Button>
-            <Button type="submit" disabled={unavailable || submitting}>
-              {step === "starting"
-                ? "Starting machine…"
-                : step === "pairing"
-                  ? "Connecting…"
-                  : submitting
-                    ? "Starting…"
-                    : boatChosen
-                      ? `Start ${size} machine`
-                      : `Clone to ${target?.label ?? "machine"}`}
+            <Button type="submit" disabled={unavailable}>
+              {boatChosen ? `Start ${size} machine` : `Clone to ${target?.label ?? "machine"}`}
             </Button>
           </DialogFooter>
         </form>

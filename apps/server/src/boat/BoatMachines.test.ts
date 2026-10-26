@@ -462,6 +462,82 @@ describe("BoatMachines", () => {
     }).pipe(Effect.provide(layerEnvironment)),
   );
 
+  describe("start steps", () => {
+    // Every distinct step list the status stream showed for the machine while it started.
+    const watchStartSteps = (service: BoatMachines.BoatMachines["Service"]) =>
+      Effect.gen(function* () {
+        const seen: Array<ReadonlyArray<string>> = [];
+        const watching = yield* Deferred.make<void>();
+        const fiber = yield* service.streamChanges.pipe(
+          Stream.runForEach((status) =>
+            Effect.gen(function* () {
+              yield* Deferred.succeed(watching, undefined);
+              const steps = status.machines[0]?.startSteps;
+              const last = seen.at(-1);
+              if (steps && JSON.stringify(steps) !== JSON.stringify(last)) seen.push(steps);
+            }),
+          ),
+          Effect.forkChild,
+        );
+        yield* Deferred.await(watching);
+        return { seen, stop: Fiber.interrupt(fiber) };
+      });
+
+    it.effect("reports installing and signing in through the status stream, in order", () =>
+      Effect.gen(function* () {
+        const boat = makeFakeBoat({ pairing: PAIRING_OUTPUT });
+        const service = yield* makeService(boat);
+        yield* service.configure({ apiKey: "boat_test_key" });
+        const watcher = yield* watchStartSteps(service);
+
+        const result = yield* service.spawn({});
+        yield* watcher.stop;
+
+        assert.deepStrictEqual(watcher.seen, [
+          ["starting"],
+          ["starting", "installing"],
+          ["starting", "installing", "signing-in"],
+          [],
+        ]);
+        // The saved machine is past its start, while the result keeps what the start went through.
+        assert.deepStrictEqual(result.machine.startSteps, ["starting", "installing", "signing-in"]);
+        assert.deepStrictEqual((yield* service.current).machines[0]?.startSteps, []);
+      }).pipe(Effect.provide(layerEnvironment)),
+    );
+
+    it.effect("leaves out installing and signing in when there is nothing to do for them", () =>
+      Effect.gen(function* () {
+        const boat = makeFakeBoat({ pairing: PAIRING_OUTPUT });
+        boat.control.runtimeCurrent = true;
+        const service = yield* makeService(boat, makeFakeCli().runner, HOST_VERSION, null);
+        yield* service.configure({ apiKey: "boat_test_key" });
+        const watcher = yield* watchStartSteps(service);
+
+        const result = yield* service.spawn({});
+        yield* watcher.stop;
+
+        assert.deepStrictEqual(watcher.seen, [["starting"], []]);
+        assert.deepStrictEqual(result.machine.startSteps, ["starting"]);
+      }).pipe(Effect.provide(layerEnvironment)),
+    );
+
+    it.effect("takes no start steps when a stopped machine resumes", () =>
+      Effect.gen(function* () {
+        const boat = makeFakeBoat({ pairing: PAIRING_OUTPUT });
+        const service = yield* makeService(boat);
+        yield* service.configure({ apiKey: "boat_test_key" });
+        yield* service.spawn({});
+        yield* service.machineAction({ sandboxId: SANDBOX_ID, action: "stop" });
+        const watcher = yield* watchStartSteps(service);
+
+        yield* service.machineAction({ sandboxId: SANDBOX_ID, action: "resume" });
+        yield* watcher.stop;
+
+        assert.deepStrictEqual(watcher.seen, [[]]);
+      }).pipe(Effect.provide(layerEnvironment)),
+    );
+  });
+
   it.effect("gives a resumed machine the GitHub token again", () =>
     Effect.gen(function* () {
       const boat = makeFakeBoat({ pairing: PAIRING_OUTPUT });

@@ -7,6 +7,7 @@ import {
   DEFAULT_BOAT_SETTINGS,
   boatMachineLabel,
   type BoatConfigureInput,
+  type BoatStartStep,
   type BoatMachineActionInput,
   type BoatSpawnInput,
   type BoatSpawnResult,
@@ -321,6 +322,15 @@ export const make = Effect.gen(function* () {
       }),
     );
 
+  // Records the step a new machine is on, for clients to show. Resumes and restores are not starts,
+  // so only a machine still listed as starting takes a step.
+  const startStep = (sandboxId: string, step: BoatStartStep) =>
+    changeMachine(sandboxId, (machine) =>
+      machine.state === "starting"
+        ? { ...machine, startSteps: [...machine.startSteps.filter((s) => s !== step), step] }
+        : machine,
+    ).pipe(Effect.ignore);
+
   // Makes the machine run this server's build, which the fork publishes. A build nobody published,
   // such as a local one, leaves the machine on the template's T3 Code. Returns the notice for that.
   const installForkRuntime = Effect.fn("BoatMachines.installForkRuntime")(function* (
@@ -332,6 +342,7 @@ export const make = Effect.gen(function* () {
     if (commands === null) return unavailable;
     const probe = yield* boat.runCommand(sandboxId, { command: commands.probe });
     if (lastLine(probe.stdout) === "current") return null;
+    yield* startStep(sandboxId, "installing");
     // A download that fails for any reason must not stop the machine from starting.
     const installed = yield* boat
       .runCommand(sandboxId, { command: commands.install, timeoutSeconds: 300 })
@@ -342,7 +353,12 @@ export const make = Effect.gen(function* () {
   // Resolves to the notice for a machine that could not be signed in to GitHub, else null.
   const giveGitHubLogin = (boat: BoatApi, sandboxId: string) =>
     giveMachineGitHubLogin({ boat, sandboxId, t3Command: T3_COMMAND, port: BOAT_T3_PORT }).pipe(
-      Effect.provideService(GitHubCredentials.GitHubCredentials, githubCredentials),
+      // The step shows only when there is a token to give, which the lookup is first to know.
+      Effect.provideService(GitHubCredentials.GitHubCredentials, {
+        ...githubCredentials,
+        get: (host) =>
+          githubCredentials.get(host).pipe(Effect.tap(() => startStep(sandboxId, "signing-in"))),
+      }),
       Effect.provideService(HttpClient.HttpClient, httpClient),
       Effect.provideService(Socket.WebSocketConstructor, webSocket),
     );
@@ -396,6 +412,7 @@ export const make = Effect.gen(function* () {
         putMachine({
           ...machine,
           state: "failed",
+          startSteps: [],
           problem: `${reason} T3 Code could not delete it (${error.detail}); Boat stops it within two hours.`,
         }),
       ),
@@ -423,6 +440,7 @@ export const make = Effect.gen(function* () {
       report: null,
       snapshot: null,
       notice: null,
+      startSteps: ["starting"],
     };
     // onError also covers interruption, such as the client disconnecting mid-start, since only
     // this call's caller ever receives the pairing credential.
@@ -430,14 +448,19 @@ export const make = Effect.gen(function* () {
       yield* putMachine(starting);
       yield* waitUntilReady(boat, sandbox.id, BOAT_START_FAILED_STATES);
       const { notice, ...started } = yield* startT3(boat, starting);
+      const { machines } = yield* SubscriptionRef.get(state);
+      const steps =
+        machines.find((m) => m.sandboxId === sandbox.id)?.startSteps ?? starting.startSteps;
       const machine: BoatMachine = {
         ...starting,
         state: "running",
         httpBaseUrl: started.httpBaseUrl,
         notice,
+        startSteps: [],
       };
       yield* putMachine(machine);
-      return { machine, ...started };
+      // The saved machine is past its start; the result keeps the steps for the client to show.
+      return { machine: { ...machine, startSteps: steps }, ...started };
     }).pipe(
       Effect.onError(() => discard(boat, starting, "The Boat machine did not finish starting.")),
     );
@@ -453,7 +476,7 @@ export const make = Effect.gen(function* () {
       ),
       Effect.catch(() =>
         Effect.forEach(unfinished, (machine) =>
-          putMachine({ ...machine, state: "failed", problem: reason }),
+          putMachine({ ...machine, state: "failed", problem: reason, startSteps: [] }),
         ),
       ),
       Effect.ignore,
