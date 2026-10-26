@@ -441,6 +441,7 @@ export const make = Effect.gen(function* () {
       snapshot: null,
       notice: null,
       startSteps: ["starting"],
+      startId: input.startId ?? null,
     };
     // onError also covers interruption, such as the client disconnecting mid-start, since only
     // this call's caller ever receives the pairing credential.

@@ -33,6 +33,7 @@ const machine: BoatMachine = {
   snapshot: null,
   notice: null,
   startSteps: [],
+  startId: null,
 };
 
 const run = (boat: Partial<BoatMachines.BoatMachines["Service"]>) =>

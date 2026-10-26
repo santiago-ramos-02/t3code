@@ -505,6 +505,32 @@ describe("BoatMachines", () => {
       }).pipe(Effect.provide(layerEnvironment)),
     );
 
+    it.effect("lists the starting machine with the id its start request carried", () =>
+      Effect.gen(function* () {
+        const boat = makeFakeBoat({ pairing: PAIRING_OUTPUT });
+        const service = yield* makeService(boat);
+        yield* service.configure({ apiKey: "boat_test_key" });
+        const startIds = new Set<string | null>();
+        const watching = yield* Deferred.make<void>();
+        const fiber = yield* service.streamChanges.pipe(
+          Stream.runForEach((status) =>
+            Effect.gen(function* () {
+              yield* Deferred.succeed(watching, undefined);
+              const machine = status.machines[0];
+              if (machine?.state === "starting") startIds.add(machine.startId);
+            }),
+          ),
+          Effect.forkChild,
+        );
+        yield* Deferred.await(watching);
+
+        yield* service.spawn({ startId: "start-1" });
+        yield* Fiber.interrupt(fiber);
+
+        assert.deepStrictEqual([...startIds], ["start-1"]);
+      }).pipe(Effect.provide(layerEnvironment)),
+    );
+
     it.effect("leaves out installing and signing in when there is nothing to do for them", () =>
       Effect.gen(function* () {
         const boat = makeFakeBoat({ pairing: PAIRING_OUTPUT });

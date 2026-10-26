@@ -1,6 +1,6 @@
 import type { EnvironmentPresentation } from "@t3tools/client-runtime/connection";
 import { runAtomCommand, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
-import type { BoatSize, BoatStatus, EnvironmentId, ProjectId } from "@t3tools/contracts";
+import type { BoatSize, EnvironmentId, ProjectId } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import { AsyncResult } from "effect/reactivity";
 
@@ -9,7 +9,8 @@ import { connectPairing } from "../connection/onboarding";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { environmentPresentations } from "../state/presentation";
 import { serverEnvironment } from "../state/server";
-import type { MachineStartStep } from "./machineStartSteps";
+import { startStepsFor, type MachineStartStep } from "./machineStartSteps";
+import { randomUUID } from "./utils";
 
 // Pairing finishes before the first connection; a machine that does not connect by then is broken.
 const CONNECT_TIMEOUT_MS = 60_000;
@@ -48,25 +49,19 @@ function waitForConnection(environmentId: EnvironmentId) {
 }
 
 /**
- * Reports the start steps of the machine the host starts next, as the host's status stream says
- * them, so every client sees the same steps. The host lists a machine only once it exists, and a
- * machine already starting belongs to someone else's start. Returns the way to stop watching.
+ * Reports the start steps of the machine whose start carried `startId`, as the host's status
+ * stream says them, so every client sees the same steps. Returns the way to stop watching.
  */
 function watchStartSteps(
   hostEnvironmentId: EnvironmentId,
+  startId: string,
   onSteps: (steps: ReadonlyArray<MachineStartStep>) => void,
 ): () => void {
   const atom = serverEnvironment.boatStatus({ environmentId: hostEnvironmentId, input: {} });
-  const statusOf = (result: AsyncResult.AsyncResult<BoatStatus, unknown>) =>
-    Option.getOrNull(AsyncResult.value(result));
-  const alreadyListed = new Set(
-    statusOf(appAtomRegistry.get(atom))?.machines.map((machine) => machine.sandboxId),
-  );
   return appAtomRegistry.subscribe(atom, (result) => {
-    const starting = statusOf(result)?.machines.find(
-      (machine) => machine.state === "starting" && !alreadyListed.has(machine.sandboxId),
-    );
-    if (starting) onSteps(starting.startSteps);
+    const machines = Option.getOrNull(AsyncResult.value(result))?.machines ?? [];
+    const steps = startStepsFor(machines, startId);
+    if (steps) onSteps(steps);
   });
 }
 
@@ -84,13 +79,18 @@ export async function startBoatMachine(input: {
   readonly onSteps: (steps: ReadonlyArray<MachineStartStep>) => void;
 }): Promise<{ readonly environmentId: EnvironmentId; readonly label: string }> {
   input.onSteps(["starting"]);
-  const stopWatching = watchStartSteps(input.hostEnvironmentId, input.onSteps);
+  const startId = randomUUID();
+  const stopWatching = watchStartSteps(input.hostEnvironmentId, startId, input.onSteps);
   const spawned = await runAtomCommand(
     appAtomRegistry,
     serverEnvironment.spawnBoatMachine,
     {
       environmentId: input.hostEnvironmentId,
-      input: { size: input.size, ...(input.projectId ? { projectId: input.projectId } : {}) },
+      input: {
+        size: input.size,
+        startId,
+        ...(input.projectId ? { projectId: input.projectId } : {}),
+      },
     },
     { label: "Start Boat machine", reportFailure: false },
   ).finally(stopWatching);

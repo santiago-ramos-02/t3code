@@ -103,6 +103,8 @@ export const BoatMachine = Schema.Struct({
   notice: nullByDefault(Schema.String),
   // The start steps taken so far, the last being the current one; empty once the start is over.
   startSteps: Schema.Array(BoatStartStep).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
+  // The id the start request carried, so the client that sent it follows this machine's steps.
+  startId: nullByDefault(Schema.String),
 });
 export type BoatMachine = typeof BoatMachine.Type;
 
@@ -151,6 +153,8 @@ export type BoatConfigureInput = typeof BoatConfigureInput.Type;
 export const BoatSpawnInput = Schema.Struct({
   size: Schema.optionalKey(BoatSize),
   projectId: Schema.optionalKey(ProjectId),
+  // A random id the client picks, which the machine carries while it starts.
+  startId: Schema.optionalKey(Schema.String),
 });
 export type BoatSpawnInput = typeof BoatSpawnInput.Type;
 
