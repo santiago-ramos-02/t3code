@@ -17,8 +17,10 @@ import * as ServerConfig from "../config.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import * as Settings from "../serverSettings.ts";
 import * as BoatMachines from "./BoatMachines.ts";
+import { HostVersion } from "./forkRuntime.ts";
 
 const SANDBOX_ID = "bx_test0001";
+const HOST_VERSION = "0.9.0-nightly.20261026.1";
 const MACHINE_URL = "https://box-node-test-3773.on.boat.dev";
 // The machine Boat creates from a named snapshot after the stopped disk expired.
 const RESTORED_ID = "bx_test0002";
@@ -48,6 +50,10 @@ const makeFakeBoat = (options: {
   // What a test changes about Boat and the machine's T3 Code server as it goes.
   const control = {
     serverStarts: true,
+    // The machine already runs this server's build, so nothing is downloaded.
+    runtimeCurrent: false,
+    // The fork published a release for this server's build.
+    releasePublished: true,
     report: {
       activeTurns: 0,
       threads: 1,
@@ -122,6 +128,12 @@ const makeFakeBoat = (options: {
         return result(0, `login noise\n${JSON.stringify({ ...control.report, checkouts })}\n`);
       }
       if (command.includes("echo up || echo down")) return result(0, "down\n");
+      if (command.includes("echo current || echo other")) {
+        return result(0, control.runtimeCurrent ? "current\n" : "other\n");
+      }
+      if (command.includes("curl -fsSL")) {
+        return result(0, control.releasePublished ? "installed\n" : "unavailable\n");
+      }
       if (command.includes("seq 1 120")) return result(control.serverStarts ? 0 : 1, "");
       if (command.includes("auth pairing create")) {
         if (options.pairingReached) {
@@ -208,10 +220,12 @@ const makeFakeCli = (login?: { readonly signedIn: boolean; readonly revokeFails?
 const makeService = (
   client: HttpClient.HttpClient,
   cli: ProcessRunner.ProcessRunner["Service"] = makeFakeCli().runner,
+  hostVersion = HOST_VERSION,
 ) =>
   BoatMachines.make.pipe(
     Effect.provideService(HttpClient.HttpClient, client),
     Effect.provideService(ProcessRunner.ProcessRunner, cli),
+    Effect.provideService(HostVersion, hostVersion),
   );
 
 const callsTo = (calls: ReadonlyArray<BoatCall>, method: string, suffix: string) =>
@@ -410,6 +424,94 @@ describe("BoatMachines", () => {
         (call) => call.body?.detached === true,
       );
       assert.strictEqual(serves.length, 2);
+    }).pipe(Effect.provide(layerEnvironment)),
+  );
+
+  it.effect("installs this server's build before starting T3 Code on a new machine", () =>
+    Effect.gen(function* () {
+      const boat = makeFakeBoat({ pairing: PAIRING_OUTPUT });
+      const service = yield* makeService(boat.client);
+      yield* service.configure({ apiKey: "boat_test_key" });
+
+      const { machine } = yield* service.spawn({});
+
+      const commands = boat.calls.map((call) => String(call.body?.command ?? ""));
+      const installAt = commands.findIndex((command) => command.includes("curl -fsSL"));
+      const serveAt = boat.calls.findIndex((call) => call.body?.detached === true);
+      assert.isAbove(installAt, -1);
+      assert.isAbove(serveAt, installAt);
+      const install = commands[installAt] ?? "";
+      const archive = `t3-${HOST_VERSION}-linux-x64.tar.gz`;
+      assert.include(
+        install,
+        `https://github.com/santiago-ramos-02/t3code/releases/download/v${HOST_VERSION}/t3-${HOST_VERSION}-linux-x64.tar.gz`,
+      );
+      assert.include(install, `.t3-runtime"/${HOST_VERSION}.partial`);
+      assert.include(install, `tar -xzf`);
+      assert.include(install, archive);
+      // The serve command picks the installed build before the template's or the published one.
+      const serve = String(boat.calls[serveAt]?.body?.command ?? "");
+      assert.include(serve, '.t3-runtime"/current/t3');
+      assert.strictEqual(machine.notice, null);
+    }).pipe(Effect.provide(layerEnvironment)),
+  );
+
+  it.effect("downloads nothing when the machine already runs this server's build", () =>
+    Effect.gen(function* () {
+      const boat = makeFakeBoat({ pairing: PAIRING_OUTPUT });
+      boat.control.runtimeCurrent = true;
+      const service = yield* makeService(boat.client);
+      yield* service.configure({ apiKey: "boat_test_key" });
+
+      const { machine } = yield* service.spawn({});
+
+      const commands = boat.calls.map((call) => String(call.body?.command ?? ""));
+      assert.isFalse(commands.some((command) => command.includes("curl -fsSL")));
+      assert.strictEqual(boat.calls.filter((call) => call.body?.detached === true).length, 1);
+      assert.strictEqual(machine.notice, null);
+    }).pipe(Effect.provide(layerEnvironment)),
+  );
+
+  it.effect("falls back to the template's T3 Code and says so when no build is published", () =>
+    Effect.gen(function* () {
+      const boat = makeFakeBoat({ pairing: PAIRING_OUTPUT });
+      boat.control.releasePublished = false;
+      const service = yield* makeService(boat.client);
+      yield* service.configure({ apiKey: "boat_test_key" });
+
+      const { machine } = yield* service.spawn({});
+
+      assert.strictEqual(machine.state, "running");
+      assert.include(machine.notice ?? "", HOST_VERSION);
+      assert.include(machine.notice ?? "", "may not match this server");
+      const serve = boat.calls.find((call) => call.body?.detached === true);
+      assert.include(String(serve?.body?.command), "command -v t3");
+      assert.include(String(serve?.body?.command), "npx -y t3@latest");
+      assert.deepStrictEqual(
+        (yield* service.current).machines.map((m) => m.notice),
+        [machine.notice],
+      );
+
+      // A resume tries again, and clears the notice once the build installs.
+      yield* service.machineAction({ sandboxId: SANDBOX_ID, action: "stop" });
+      boat.control.releasePublished = true;
+      const resumed = yield* service.machineAction({ sandboxId: SANDBOX_ID, action: "resume" });
+      assert.strictEqual(resumed.machines[0]?.notice, null);
+    }).pipe(Effect.provide(layerEnvironment)),
+  );
+
+  it.effect("never puts an unsafe version into a command", () =>
+    Effect.gen(function* () {
+      const boat = makeFakeBoat({ pairing: PAIRING_OUTPUT });
+      const service = yield* makeService(boat.client, makeFakeCli().runner, "1.0.0'; rm -rf /; '");
+      yield* service.configure({ apiKey: "boat_test_key" });
+
+      const { machine } = yield* service.spawn({});
+
+      const commands = boat.calls.map((call) => String(call.body?.command ?? ""));
+      assert.isFalse(commands.some((command) => command.includes("rm -rf /")));
+      assert.isFalse(commands.some((command) => command.includes("curl -fsSL")));
+      assert.include(machine.notice ?? "", "may not match this server");
     }).pipe(Effect.provide(layerEnvironment)),
   );
 
