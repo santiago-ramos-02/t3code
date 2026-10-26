@@ -363,6 +363,7 @@ export const make = Effect.gen(function* () {
         apiVersion: describe.apiVersion,
         oddFeatures: describe.methods.includes("odd.features"),
         claudeProfiles: describe.methods.includes("claude.profiles"),
+        reviewConsent: describe.methods.includes("review.consent"),
         installed: true,
         version,
         binaryPath,

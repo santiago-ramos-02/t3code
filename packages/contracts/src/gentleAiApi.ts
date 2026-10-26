@@ -390,6 +390,18 @@ export const GentleAiReviewMode = Schema.Struct({
 });
 export type GentleAiReviewMode = typeof GentleAiReviewMode.Type;
 
+/**
+ * gentle-ai's own `gentle-ai.review-consent/v1` report for one project: `ask` relays the question
+ * before each medium- or high-risk review, `always` reviews without asking.
+ */
+export const GentleAiReviewConsentValue = Schema.Literals(["ask", "always"]);
+export const GentleAiReviewConsent = Schema.Struct({
+  schema: Schema.String,
+  operation: Schema.String,
+  consent: GentleAiReviewConsentValue,
+});
+export type GentleAiReviewConsent = typeof GentleAiReviewConsent.Type;
+
 const StoreEntry = Schema.Struct({
   name: Schema.String,
   path: Schema.String,
@@ -531,6 +543,7 @@ export const GENTLE_AI_METHODS = {
   // Without a cwd, the global setting read from the home directory.
   "odd.features": query(Schema.Struct({ cwd: Cwd }), GentleAiOddFeatures),
   "review.status": query(Schema.Struct({ cwd: Opt(Cwd) }), GentleAiReviewMode),
+  "review.consent": query(Schema.Struct({ cwd: Cwd }), GentleAiReviewConsent),
   "reviewStore.survey": query(Schema.Struct({ cwd: Cwd }), GentleAiReviewStore),
   "uninstall.plan": query(
     GentleAiUninstallParams,
@@ -591,6 +604,10 @@ export const GENTLE_AI_METHODS = {
     }),
     GentleAiReviewMode,
   ),
+  "review.consent.set": job(
+    Schema.Struct({ cwd: Cwd, consent: GentleAiReviewConsentValue }),
+    GentleAiReviewConsent,
+  ),
   "reviewStore.reset": job(
     Schema.Struct({
       cwd: Cwd,
@@ -632,6 +649,7 @@ const QUERY_METHODS = [
   "tools.list",
   "builder.engines",
   "review.status",
+  "review.consent",
   "reviewStore.survey",
   "uninstall.plan",
   "doctor",
@@ -653,6 +671,7 @@ const JOB_METHODS = [
   "builder.generate",
   "builder.install",
   "review.set",
+  "review.consent.set",
   "reviewStore.reset",
   "uninstall.run",
   "claude.profiles.save",

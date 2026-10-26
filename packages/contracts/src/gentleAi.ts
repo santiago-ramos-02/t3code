@@ -57,6 +57,8 @@ export const GentleAiStatus = Schema.Struct({
   oddFeatures: Schema.Boolean,
   // Whether this gentle-ai keeps Claude Code profiles (claude.profiles); absent from older servers.
   claudeProfiles: Schema.optionalKey(Schema.Boolean),
+  // Whether this gentle-ai keeps a project's review consent (review.consent); absent from older servers.
+  reviewConsent: Schema.optionalKey(Schema.Boolean),
   // Names of the skills and slash commands gentle-ai installed into the agents it set up, from
   // its own footprint. Absent without one (older releases), when a built-in list decides.
   resources: Schema.optional(Schema.Array(Schema.String)),

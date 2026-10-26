@@ -1,6 +1,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import {
   gentleAiProjectReview,
+  gentleAiProjectReviewConsent,
   gentleAiReviewHistoryLabel,
   gentleAiReviewStoreSummary,
 } from "@t3tools/client-runtime/gentle-ai";
@@ -37,19 +38,26 @@ export function GentleAiProjectReviewSettings(props: {
   ).data;
   // Review needs a gentle-ai with the API, set up in some agent.
   if (status?.apiVersion == null || status.agents.length === 0) return null;
-  return <ProjectReview {...props} />;
+  return <ProjectReview {...props} reviewConsent={status.reviewConsent === true} />;
 }
 
 function ProjectReview(props: {
   readonly environmentId: EnvironmentId;
   readonly workspaceRoot: string;
   readonly environmentLabel: string;
+  readonly reviewConsent: boolean;
 }) {
   const { environmentId, workspaceRoot: cwd } = props;
   const session = useAtomValue(environmentSession.sessionStateValueAtom(environmentId));
   const sessionResult = useAtomValue(environmentSession.sessionStateAtom(environmentId));
   const mode = useGentleAiQuery(environmentId, "review.status", { cwd });
   const store = useGentleAiQuery(environmentId, "reviewStore.survey", { cwd });
+  const consent = useGentleAiQuery(
+    environmentId,
+    "review.consent",
+    { cwd },
+    { enabled: props.reviewConsent },
+  );
   const job = useEnvironmentQuery(serverEnvironment.gentleAiJob({ environmentId, input: {} })).data;
   const start = useAtomCommand(serverEnvironment.startGentleAiJob, {
     reportFailure: false,
@@ -67,6 +75,10 @@ function ProjectReview(props: {
     });
 
   const review = mode.data === null ? null : gentleAiProjectReview(mode.data);
+  const askFirst =
+    mode.data === null || consent.data === null
+      ? null
+      : gentleAiProjectReviewConsent(mode.data, consent.data);
   const counts = store.data === null ? null : gentleAiReviewStoreSummary(store.data);
   const canClear = counts !== null && (counts.removable > 0 || counts.inFlight > 0);
 
@@ -89,6 +101,25 @@ function ProjectReview(props: {
         disabled={disabled || review === null || (!review.checked && !review.canTurnOn)}
         onValueChange={(enabled) => startJob("review.set", { cwd, enabled, scope: "clone" })}
       />
+      {props.reviewConsent ? (
+        <SettingsSwitchRow
+          icon="bolt.circle"
+          label="Review without asking"
+          subtitle={
+            consent.error ??
+            (askFirst === null
+              ? "Reading…"
+              : askFirst.checked
+                ? "Reviews every risky change in this project without asking first."
+                : "Asks before reviewing each risky change in this project.")
+          }
+          value={askFirst?.checked ?? false}
+          disabled={disabled || askFirst === null || !askFirst.available}
+          onValueChange={(always) =>
+            startJob("review.consent.set", { cwd, consent: always ? "always" : "ask" })
+          }
+        />
+      ) : null}
       <ListRowLayout
         icon="doc.text"
         label="Review history"

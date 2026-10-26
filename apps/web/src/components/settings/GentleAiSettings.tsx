@@ -225,6 +225,7 @@ export function GentleAiSettingsPanel({
               : null
           }
           claudeProfiles={status?.claudeProfiles === true}
+          reviewConsent={status?.reviewConsent === true}
           advancedRows={binaryPathRow}
         />
       </SettingsPageContainer>

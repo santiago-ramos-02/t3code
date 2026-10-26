@@ -62,6 +62,9 @@ environment:
 - **Review before delivery** follows the setting for every project until you
   turn it off here. The reset button returns it to the shared setting. A
   project cannot turn review on while it is off for every project.
+- **Review without asking** skips the question an agent asks before reviewing
+  each risky change in this project. Turn it off to be asked again. It needs a
+  gentle-ai recent enough to keep it; older ones do not show the row.
 - **Review history** shows what clearing it would remove, and clears it.
 - **Pi profile** pins a gentle-pi profile for this checkout, and **Pi persona**
   overrides the persona for the project, when Pi has gentle-pi.
@@ -82,7 +85,7 @@ particular gentle-ai. Left empty, T3 Code uses `gentle-ai` on the environment's
 
 On mobile, **Settings > Gentle AI** shows task progress, updates, sync, your
 agents with their model presets and Claude Code profile, and backups. A
-project's **Project overview** has its review, review history, and Pi profile
+project's **Project overview** has its review, review without asking, review history, and Pi profile
 and persona. Add or
 remove agents, edit profiles, models, and Pi command rules, and create agents from web or desktop.
 
