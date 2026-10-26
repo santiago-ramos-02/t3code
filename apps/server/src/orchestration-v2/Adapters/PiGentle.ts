@@ -26,6 +26,7 @@ import {
 import {
   GENTLE_ACTIVITY_WIDGET_KEY,
   gentleTodoSteps,
+  gentleWorkflowName,
   readGentleActivity,
   type GentleTask,
   type GentleThreadItem,
@@ -58,10 +59,12 @@ const AGENT_PHASES = new Map<string, OddPhase>([
   ["gentle-ai-verify", "checking"],
 ]);
 
-const WORKFLOW_NAME = "ODD workflow";
-
 const isOddPhase = (value: unknown): value is OddPhase =>
   ODD_PHASES.some((phase) => phase === value);
+
+const fromEpochMillis = (millis: number) => DateTime.makeUnsafe(millis);
+const toMillis = (value: DateTime.Utc | null) =>
+  value === null ? null : DateTime.toEpochMillis(value);
 
 const phaseTitle = (phase: OddPhase) => `${phase.charAt(0).toUpperCase()}${phase.slice(1)}`;
 
@@ -98,7 +101,7 @@ interface GentleTaskState<Turn extends PiGentleTurn> {
   /** The turn that first saw the subagent, whose workflow lists it. */
   readonly turn: Turn;
   readonly workflow: GentleWorkflowState<Turn>;
-  readonly startedAt: DateTime.Utc;
+  startedAt: DateTime.Utc;
   readonly childThreadId: ThreadId;
   readonly childRootNodeId: NodeId;
   title: string;
@@ -122,7 +125,10 @@ interface GentleWorkflowState<Turn extends PiGentleTurn> {
   readonly id: NodeId;
   readonly childThreadId: ThreadId;
   readonly childRootNodeId: NodeId;
-  readonly startedAt: DateTime.Utc;
+  /** The earliest start of its members. */
+  startedAt: DateTime.Utc;
+  /** The feature or request it carries out. */
+  name: string;
   /** In the order they started, with the latest snapshot of each. */
   readonly members: Map<
     string,
@@ -279,6 +285,7 @@ export function makePiGentle<Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>
         nativeItemId: `${nativeId}:thread-root`,
       }),
       startedAt: now,
+      name: gentleWorkflowName([], turn.turnInput.message.text),
       members: new Map(),
       thread: null,
       status: null,
@@ -323,18 +330,41 @@ export function makePiGentle<Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>
       prompt: task.prompt,
       ...(task.result === null ? {} : { result: task.result }),
     }));
-    const encoded = fingerprint({ status, phases, agents });
+    const parent = workflow.turn.turnInput;
+    const name = gentleWorkflowName(
+      members.map(({ task }) => task.prompt),
+      parent.message.text,
+    );
+    const encoded = fingerprint({ name, status, phases, agents });
     if (encoded === workflow.emitted) return;
     workflow.emitted = encoded;
 
-    const { turn, nativeId, id, childThreadId, childRootNodeId, startedAt } = workflow;
-    const parent = turn.turnInput;
-    const request = parent.message.text.trim() || WORKFLOW_NAME;
+    // The members carry the times, which gentle-pi keeps across a restart of T3.
+    const startedAt = fromEpochMillis(
+      Math.min(...members.map(({ entry }) => DateTime.toEpochMillis(entry.startedAt))),
+    );
+    const completedAt =
+      status === "running"
+        ? null
+        : fromEpochMillis(
+            Math.max(
+              ...members.map(({ entry }) =>
+                DateTime.toEpochMillis(entry.completedAt ?? workflow.completedAt ?? now),
+              ),
+            ),
+          );
+    const { turn, nativeId, id, childThreadId, childRootNodeId } = workflow;
+    const request = parent.message.text.trim() || name;
     const isNew = workflow.status === null;
-    const lifecycleChanged = workflow.status !== status;
+    const timesChanged =
+      toMillis(workflow.startedAt) !== toMillis(startedAt) ||
+      toMillis(workflow.completedAt) !== toMillis(completedAt);
+    const lifecycleChanged = workflow.status !== status || timesChanged;
+    const renamed = workflow.name !== name;
     workflow.status = status;
-    workflow.completedAt = status === "running" ? null : (workflow.completedAt ?? now);
-    const { completedAt } = workflow;
+    workflow.name = name;
+    workflow.startedAt = startedAt;
+    workflow.completedAt = completedAt;
 
     if (isNew) {
       workflow.thread = makeSubagentChildThread({
@@ -347,7 +377,7 @@ export function makePiGentle<Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>
         title: subagentThreadTitle({
           parentTitle: parent.appThread.title,
           prompt: request,
-          title: WORKFLOW_NAME,
+          title: name,
           ordinal: workflows.size,
         }),
         now,
@@ -355,6 +385,12 @@ export function makePiGentle<Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>
         creationSource: "provider",
       });
       yield* emit({ type: "app_thread.created", driver, appThread: workflow.thread });
+    } else if (renamed && workflow.thread !== null) {
+      // A later member can be the first to name the feature; the thread title follows.
+      workflow.thread = { ...workflow.thread, title: name };
+      yield* emit({ type: "app_thread.created", driver, appThread: workflow.thread });
+    }
+    if (isNew) {
       // The request opens the workflow's thread, where Claude's workflows show their script.
       const openingItemId = `${nativeId}:request`;
       const opening = makeSubagentConversationArtifacts({
@@ -439,12 +475,12 @@ export function makePiGentle<Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>
         childThreadId,
         nativeTaskRef: ref(nativeId),
         prompt: request,
-        title: WORKFLOW_NAME,
+        title: name,
         model: null,
         status,
         ...progress,
         result: null,
-        workflow: { name: WORKFLOW_NAME, phases, agents },
+        workflow: { name, phases, agents },
         startedAt,
         completedAt,
         updatedAt: now,
@@ -456,7 +492,7 @@ export function makePiGentle<Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>
       turnItem: {
         ...itemFields(turn, nativeId, startedAt, now),
         status,
-        title: WORKFLOW_NAME,
+        title: name,
         completedAt,
         type: "subagent",
         subagentId: id,
@@ -470,6 +506,17 @@ export function makePiGentle<Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>
       },
     });
   });
+
+  // gentle-pi's own times win, since T3 may only see a task after it ran; without them the
+  // first sighting stands in.
+  const updateTimes = (entry: GentleTaskState<Turn>, task: GentleTask, now: DateTime.Utc) => {
+    if (task.startedAt !== null) entry.startedAt = fromEpochMillis(task.startedAt);
+    entry.completedAt = !task.terminal
+      ? null
+      : task.endedAt === null
+        ? (entry.completedAt ?? now)
+        : fromEpochMillis(task.endedAt);
+  };
 
   const emitTask = Effect.fnUntraced(function* (task: GentleTask, now: DateTime.Utc) {
     const state = deps.threadState();
@@ -505,6 +552,8 @@ export function makePiGentle<Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>
         items: new Map(),
         resultShown: false,
       };
+      // The workflow reads the member's times, so they are set before it is first drawn.
+      updateTimes(entry, task, now);
       tasks.set(task.id, entry);
       workflow.members.set(task.id, {
         task,
@@ -529,7 +578,7 @@ export function makePiGentle<Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>
     entry.status = task.status;
     entry.version = task.version;
     entry.progress = task.progress;
-    entry.completedAt = task.terminal ? (entry.completedAt ?? now) : null;
+    updateTimes(entry, task, now);
     const { startedAt, completedAt, childThreadId, childRootNodeId } = entry;
 
     if (isNew) {
