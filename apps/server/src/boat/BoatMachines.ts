@@ -7,6 +7,7 @@ import {
   DEFAULT_BOAT_SETTINGS,
   boatMachineLabel,
   type BoatConfigureInput,
+  type BoatStartStep,
   type BoatMachineActionInput,
   type BoatSpawnInput,
   type BoatSpawnResult,
@@ -26,7 +27,9 @@ import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
+import * as Socket from "effect/socket/Socket";
 import * as SubscriptionRef from "effect/SubscriptionRef";
+import * as GitHubCredentials from "@t3tools/source-control-github/server/GitHubCredentials";
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import { captureBoatUsage } from "./boatUsage.ts";
@@ -43,6 +46,14 @@ import {
   type BoatApi,
 } from "./BoatApi.ts";
 import { makeBoatCli } from "./BoatCli.ts";
+import { giveMachineGitHubLogin } from "./machineGitHub.ts";
+import {
+  HostVersion,
+  T3_COMMAND,
+  forkRuntimeCommands,
+  forkRuntimeUnavailableNotice,
+  lastLine,
+} from "./forkRuntime.ts";
 import {
   BOAT_FREE_STOPPED_DAYS,
   BOAT_SETUP_GRACE_MS,
@@ -72,8 +83,6 @@ const DAY_MS = 24 * 60 * MINUTE_MS;
 // Clients forget their pairings with the machines listed here.
 const DELETED_RECORDS = 20;
 
-// A template installs the fork's `t3`; Boat's base image only has npm, so it runs the published one.
-const T3_COMMAND = `$(command -v t3 >/dev/null 2>&1 && echo t3 || echo "npx -y t3@latest")`;
 const T3_SERVE = `sh -lc 'exec ${T3_COMMAND} serve --host 0.0.0.0 --port ${BOAT_T3_PORT} --no-browser'`;
 const T3_UP = `curl -sf -o /dev/null http://127.0.0.1:${BOAT_T3_PORT}/`;
 const T3_WAIT = `for i in $(seq 1 120); do ${T3_UP} && exit 0; sleep 1; done; exit 1`;
@@ -120,12 +129,15 @@ export class BoatMachines extends Context.Service<
 >()("t3/boat/BoatMachines") {}
 
 export const make = Effect.gen(function* () {
+  const hostVersion = yield* HostVersion;
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const serverConfig = yield* ServerConfig.ServerConfig;
   const settingsService = yield* Settings.ServerSettingsService;
   const secrets = yield* ServerSecretStore.ServerSecretStore;
   const httpClient = yield* HttpClient.HttpClient;
+  const githubCredentials = yield* GitHubCredentials.GitHubCredentials;
+  const webSocket = yield* Socket.WebSocketConstructor;
   const cli = makeBoatCli({
     runner: yield* ProcessRunner.ProcessRunner,
     path,
@@ -310,6 +322,47 @@ export const make = Effect.gen(function* () {
       }),
     );
 
+  // Records the step a new machine is on, for clients to show. Resumes and restores are not starts,
+  // so only a machine still listed as starting takes a step.
+  const startStep = (sandboxId: string, step: BoatStartStep) =>
+    changeMachine(sandboxId, (machine) =>
+      machine.state === "starting"
+        ? { ...machine, startSteps: [...machine.startSteps.filter((s) => s !== step), step] }
+        : machine,
+    ).pipe(Effect.ignore);
+
+  // Makes the machine run this server's build, which the fork publishes. A build nobody published,
+  // such as a local one, leaves the machine on the template's T3 Code. Returns the notice for that.
+  const installForkRuntime = Effect.fn("BoatMachines.installForkRuntime")(function* (
+    boat: BoatApi,
+    sandboxId: string,
+  ) {
+    const unavailable = forkRuntimeUnavailableNotice(hostVersion);
+    const commands = forkRuntimeCommands(hostVersion);
+    if (commands === null) return unavailable;
+    const probe = yield* boat.runCommand(sandboxId, { command: commands.probe });
+    if (lastLine(probe.stdout) === "current") return null;
+    yield* startStep(sandboxId, "installing");
+    // A download that fails for any reason must not stop the machine from starting.
+    const installed = yield* boat
+      .runCommand(sandboxId, { command: commands.install, timeoutSeconds: 300 })
+      .pipe(Effect.orElseSucceed(() => null));
+    return installed !== null && lastLine(installed.stdout) === "installed" ? null : unavailable;
+  });
+
+  // Resolves to the notice for a machine that could not be signed in to GitHub, else null.
+  const giveGitHubLogin = (boat: BoatApi, sandboxId: string) =>
+    giveMachineGitHubLogin({ boat, sandboxId, t3Command: T3_COMMAND, port: BOAT_T3_PORT }).pipe(
+      // The step shows only when there is a token to give, which the lookup is first to know.
+      Effect.provideService(GitHubCredentials.GitHubCredentials, {
+        ...githubCredentials,
+        get: (host) =>
+          githubCredentials.get(host).pipe(Effect.tap(() => startStep(sandboxId, "signing-in"))),
+      }),
+      Effect.provideService(HttpClient.HttpClient, httpClient),
+      Effect.provideService(Socket.WebSocketConstructor, webSocket),
+    );
+
   // A stopped machine keeps its disk but not its processes, so a resume starts T3 Code again.
   const serveT3 = Effect.fn("BoatMachines.serveT3")(function* (
     boat: BoatApi,
@@ -319,7 +372,9 @@ export const make = Effect.gen(function* () {
     const probe = yield* boat.runCommand(sandboxId, {
       command: `${T3_UP} && echo up || echo down`,
     });
+    let notice: string | null = null;
     if (probe.stdout.trim() !== "up") {
+      notice = yield* installForkRuntime(boat, sandboxId);
       yield* boat.runCommand(sandboxId, { command: setMachineLabel(boatMachineLabel(machine)) });
       yield* boat.startDetached(sandboxId, T3_SERVE);
     }
@@ -327,6 +382,9 @@ export const make = Effect.gen(function* () {
     if (waited.exitCode !== 0) {
       return yield* fail("T3 Code did not start on the Boat machine within two minutes.");
     }
+    // The login lives on the machine's disk, but this server's token can change, so each start sends it.
+    const loginNotice = yield* giveGitHubLogin(boat, sandboxId);
+    return [notice, loginNotice].filter((text) => text !== null).join(" ") || null;
   });
 
   const startT3 = Effect.fn("BoatMachines.startT3")(function* (
@@ -334,7 +392,7 @@ export const make = Effect.gen(function* () {
     machine: BoatMachine,
   ) {
     const { sandboxId } = machine;
-    yield* serveT3(boat, machine);
+    const notice = yield* serveT3(boat, machine);
     const pairing = yield* boat.runCommand(sandboxId, { command: T3_PAIRING, timeoutSeconds: 120 });
     const json = pairing.stdout.slice(pairing.stdout.indexOf("{"));
     const credential = decodePairingCredential(json);
@@ -342,7 +400,7 @@ export const make = Effect.gen(function* () {
       return yield* fail("T3 Code on the Boat machine did not create a pairing link.");
     }
     const httpBaseUrl = yield* boat.hostPublicPort(sandboxId, BOAT_T3_PORT);
-    return { httpBaseUrl, pairingCredential: credential.value.credential };
+    return { httpBaseUrl, pairingCredential: credential.value.credential, notice };
   });
 
   // A machine no client can reach would bill until Boat's TTL stops it, so it is deleted. When
@@ -354,6 +412,7 @@ export const make = Effect.gen(function* () {
         putMachine({
           ...machine,
           state: "failed",
+          startSteps: [],
           problem: `${reason} T3 Code could not delete it (${error.detail}); Boat stops it within two hours.`,
         }),
       ),
@@ -381,20 +440,27 @@ export const make = Effect.gen(function* () {
       report: null,
       snapshot: null,
       notice: null,
+      startSteps: ["starting"],
     };
     // onError also covers interruption, such as the client disconnecting mid-start, since only
     // this call's caller ever receives the pairing credential.
     return yield* Effect.gen(function* () {
       yield* putMachine(starting);
       yield* waitUntilReady(boat, sandbox.id, BOAT_START_FAILED_STATES);
-      const started = yield* startT3(boat, starting);
+      const { notice, ...started } = yield* startT3(boat, starting);
+      const { machines } = yield* SubscriptionRef.get(state);
+      const steps =
+        machines.find((m) => m.sandboxId === sandbox.id)?.startSteps ?? starting.startSteps;
       const machine: BoatMachine = {
         ...starting,
         state: "running",
         httpBaseUrl: started.httpBaseUrl,
+        notice,
+        startSteps: [],
       };
       yield* putMachine(machine);
-      return { machine, ...started };
+      // The saved machine is past its start; the result keeps the steps for the client to show.
+      return { machine: { ...machine, startSteps: steps }, ...started };
     }).pipe(
       Effect.onError(() => discard(boat, starting, "The Boat machine did not finish starting.")),
     );
@@ -410,7 +476,7 @@ export const make = Effect.gen(function* () {
       ),
       Effect.catch(() =>
         Effect.forEach(unfinished, (machine) =>
-          putMachine({ ...machine, state: "failed", problem: reason }),
+          putMachine({ ...machine, state: "failed", problem: reason, startSteps: [] }),
         ),
       ),
       Effect.ignore,
@@ -558,7 +624,7 @@ export const make = Effect.gen(function* () {
       stoppedAt: null,
       snapshot: null,
     };
-    yield* Effect.gen(function* () {
+    const notice = yield* Effect.gen(function* () {
       yield* boat.deleteSandbox(machine.sandboxId);
       if (subdomain) {
         // Boat frees the old machine's subdomain in the background.
@@ -567,11 +633,12 @@ export const make = Effect.gen(function* () {
           .pipe(Effect.retry({ schedule: Schedule.spaced("3 seconds"), times: 10 }));
       }
       yield* waitUntilReady(boat, sandbox.id, BOAT_START_FAILED_STATES);
-      yield* serveT3(boat, restored);
+      const serveNotice = yield* serveT3(boat, restored);
       const httpBaseUrl = yield* boat.hostPublicPort(sandbox.id, BOAT_T3_PORT);
       if (httpBaseUrl !== machine.httpBaseUrl) {
         return yield* fail("Boat gave the restored machine a different address.");
       }
+      return serveNotice;
     }).pipe(
       Effect.tapError((error) =>
         boat.deleteSandbox(sandbox.id).pipe(
@@ -590,7 +657,9 @@ export const make = Effect.gen(function* () {
     lastBusy.set(sandbox.id, DateTime.toEpochMillis(yield* DateTime.now));
     return yield* update((status) => ({
       ...status,
-      machines: status.machines.map((m) => (m.sandboxId === machine.sandboxId ? restored : m)),
+      machines: status.machines.map((m) =>
+        m.sandboxId === machine.sandboxId ? { ...restored, notice } : m,
+      ),
     }));
   });
 
@@ -604,9 +673,9 @@ export const make = Effect.gen(function* () {
       yield* forget(machine, "Boat no longer has its disk.");
       return yield* fail("Boat no longer has this machine's disk, so T3 Code removed it.");
     }
-    yield* Effect.gen(function* () {
+    const notice = yield* Effect.gen(function* () {
       yield* waitUntilReady(boat, machine.sandboxId, BOAT_TERMINAL_STATES);
-      yield* serveT3(boat, machine);
+      return yield* serveT3(boat, machine);
     }).pipe(
       // A machine no client can reach would bill for nothing; it stays stopped to retry.
       Effect.onError(() => boat.stopSandbox(machine.sandboxId).pipe(Effect.ignore)),
@@ -623,7 +692,7 @@ export const make = Effect.gen(function* () {
       ...current,
       state: "running",
       problem: null,
-      notice: null,
+      notice,
       stoppedAt: null,
       snapshot: snapshotKept ? current.snapshot : null,
     }));

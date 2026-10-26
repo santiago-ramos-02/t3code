@@ -44,6 +44,8 @@ export interface GentleAiSectionProps {
   readonly onError: (message: string) => void;
   /** Whether this gentle-ai keeps Claude Code profiles. */
   readonly claudeProfiles: boolean;
+  /** Whether this gentle-ai keeps a project's review consent. */
+  readonly reviewConsent: boolean;
   /** Opens a flow in place of the page; null returns to the page. */
   readonly openFlow: (flow: GentleAiFlow | null) => void;
 }
@@ -64,6 +66,7 @@ export function GentleAiSettingsPage({
   agentExtras,
   piProvider,
   claudeProfiles,
+  reviewConsent,
   advancedRows,
 }: {
   readonly environmentId: EnvironmentId;
@@ -78,6 +81,8 @@ export function GentleAiSettingsPage({
   readonly piProvider: GentleAiPiProvider | null;
   /** Whether this gentle-ai keeps Claude Code profiles. */
   readonly claudeProfiles: boolean;
+  /** Whether this gentle-ai keeps a project's review consent. */
+  readonly reviewConsent: boolean;
   /** Rows the caller owns, such as the binary path, shown at the end of More. */
   readonly advancedRows: ReactNode;
 }) {
@@ -117,6 +122,7 @@ export function GentleAiSettingsPage({
     onError: setError,
     openFlow: onFlowChange,
     claudeProfiles,
+    reviewConsent,
   };
   const close = () => onFlowChange(null);
   const errorBanner = error ? (

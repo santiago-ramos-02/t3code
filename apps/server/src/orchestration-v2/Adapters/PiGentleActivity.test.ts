@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { gentleTodoSteps, readGentleActivity } from "./PiGentleActivity.ts";
+import { gentleTodoSteps, gentleWorkflowName, readGentleActivity } from "./PiGentleActivity.ts";
 
 const task = (
   id: string,
@@ -111,6 +111,24 @@ describe("readGentleActivity", () => {
     expect(entry).toMatchObject({ background: false, model: null, items: [] });
   });
 
+  it("reads the start and end times a newer gentle-pi sends, null until they happen", () => {
+    const tasks =
+      readGentleActivity(
+        widget(
+          task("a", "completed", [], { summary: { startedAt: 1_000, endedAt: 4_000 } }),
+          task("b", "running", [], { summary: { startedAt: 2_000, endedAt: null } }),
+          task("c", "queued", [], { summary: { startedAt: null, endedAt: null } }),
+          task("d", "completed"),
+        ),
+      ) ?? [];
+    expect(tasks.map((entry) => [entry.startedAt, entry.endedAt])).toEqual([
+      [1_000, 4_000],
+      [2_000, null],
+      [null, null],
+      [null, null],
+    ]);
+  });
+
   it("ignores widgets that are not gentle-pi activity", () => {
     expect(readGentleActivity(["not json"])).toBeNull();
     expect(readGentleActivity(undefined)).toBeNull();
@@ -135,5 +153,24 @@ describe("gentleTodoSteps", () => {
       { id: "todo-2", text: "Ship", status: "pending" },
     ]);
     expect(gentleTodoSteps("read", {})).toBeUndefined();
+  });
+});
+
+describe("gentleWorkflowName", () => {
+  it("humanizes the feature a prompt's ODD document names", () => {
+    expect(
+      gentleWorkflowName(
+        ["Look around", "Spec: odd/tasks/boat-fork-runtime.md, T2, S3-S4", "odd/tasks/other.md"],
+        "Add a runtime",
+      ),
+    ).toBe("Boat fork runtime");
+  });
+
+  it("uses the request's first line, capped, then the default", () => {
+    expect(gentleWorkflowName(["Look around"], "  Add dark mode \nplease")).toBe("Add dark mode");
+    const capped = gentleWorkflowName([], "x".repeat(200));
+    expect(capped).toHaveLength(72);
+    expect(capped.endsWith("...")).toBe(true);
+    expect(gentleWorkflowName([], " \n")).toBe("ODD workflow");
   });
 });

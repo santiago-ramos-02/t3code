@@ -9,6 +9,7 @@ import { SettingResetButton, SettingsRow, SettingsSection } from "../settingsLay
 import { GentleAiConfirm } from "./GentleAiConfirm";
 import {
   gentleAiProjectReview,
+  gentleAiProjectReviewConsent,
   gentleAiReviewGlobalEnabled,
   gentleAiReviewHistoryLabel,
   gentleAiReviewStoreSummary,
@@ -96,8 +97,15 @@ function ProjectReviewRows({
   startJob,
   onError,
   cwd,
+  reviewConsent,
 }: GentleAiSectionProps & { readonly cwd: string }) {
   const mode = useGentleAiQuery(environmentId, "review.status", { cwd });
+  const consent = useGentleAiQuery(
+    environmentId,
+    "review.consent",
+    { cwd },
+    { enabled: reviewConsent },
+  );
   const store = useGentleAiQuery(environmentId, "reviewStore.survey", { cwd });
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [includeInFlight, setIncludeInFlight] = useState(false);
@@ -110,6 +118,10 @@ function ProjectReviewRows({
     run(startJob("review.set", { cwd, enabled, scope: "clone" }));
 
   const review = mode.data === null ? null : gentleAiProjectReview(mode.data);
+  const askFirst =
+    mode.data === null || consent.data === null
+      ? null
+      : gentleAiProjectReviewConsent(mode.data, consent.data);
   const counts = store.data === null ? null : gentleAiReviewStoreSummary(store.data);
   const storeStatus = store.error
     ? store.error
@@ -156,6 +168,33 @@ function ProjectReviewRows({
           )
         }
       />
+      {reviewConsent ? (
+        <SettingsRow
+          title="Review without asking"
+          description={
+            consent.error ??
+            (askFirst?.checked
+              ? "Reviews every risky change in this project without asking first."
+              : "Asks before reviewing each risky change in this project.")
+          }
+          control={
+            askFirst === null ? (
+              consent.error ? null : (
+                controlSkeleton
+              )
+            ) : (
+              <Switch
+                aria-label="Review without asking in this project"
+                checked={askFirst.checked}
+                disabled={disabled || !askFirst.available}
+                onCheckedChange={(always) =>
+                  run(startJob("review.consent.set", { cwd, consent: always ? "always" : "ask" }))
+                }
+              />
+            )
+          }
+        />
+      ) : null}
       <SettingsRow
         title="Review history"
         description={storeStatus}

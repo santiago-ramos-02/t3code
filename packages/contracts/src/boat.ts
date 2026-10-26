@@ -49,6 +49,11 @@ export const BoatMachineState = Schema.Literals([
 ]);
 export type BoatMachineState = typeof BoatMachineState.Type;
 
+// The steps a new machine goes through before a client can pair with it. Steps that do not apply
+// to a start, such as installing when the machine already runs this server's build, are skipped.
+export const BoatStartStep = Schema.Literals(["starting", "installing", "signing-in"]);
+export type BoatStartStep = typeof BoatStartStep.Type;
+
 // Absent from machines saved before the field existed.
 const nullByDefault = <S extends Schema.Top>(schema: S) =>
   Schema.NullOr(schema).pipe(Schema.withDecodingDefaultKey(Effect.succeed(null)));
@@ -96,6 +101,8 @@ export const BoatMachine = Schema.Struct({
   snapshot: nullByDefault(Schema.String),
   // Something the user should know that is not a failure, such as why cleanup kept it.
   notice: nullByDefault(Schema.String),
+  // The start steps taken so far, the last being the current one; empty once the start is over.
+  startSteps: Schema.Array(BoatStartStep).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
 });
 export type BoatMachine = typeof BoatMachine.Type;
 

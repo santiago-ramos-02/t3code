@@ -40,6 +40,9 @@ const GentleActivitySchema = Schema.Struct({
         ]),
         lastStep: Schema.String,
         error: Schema.NullOr(Schema.String),
+        // Epoch milliseconds; newer gentle-pi only, and null until the task starts or ends.
+        startedAt: Schema.optional(Schema.NullOr(Schema.Finite)),
+        endedAt: Schema.optional(Schema.NullOr(Schema.Finite)),
       }),
       thread: Schema.Struct({
         version: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
@@ -86,6 +89,9 @@ export interface GentleTask {
   readonly background: boolean;
   /** The `provider/model` it runs on, when gentle-pi reports a specific one. */
   readonly model: string | null;
+  /** Epoch milliseconds from gentle-pi, which survive a restart of T3; null when not sent yet. */
+  readonly startedAt: number | null;
+  readonly endedAt: number | null;
   readonly progress: string;
   readonly result: string | null;
   /** Changes whenever anything in the task's thread changes. */
@@ -139,6 +145,8 @@ function readTask(task: GentleActivityTask): GentleTask {
     terminal,
     background: summary.mode === "background",
     model: model && model !== "default" ? model : null,
+    startedAt: summary.startedAt ?? null,
+    endedAt: summary.endedAt ?? null,
     progress,
     result: terminal && finalText.trim() ? boundedText(finalText.trim(), MAX_RESULT_CHARS) : null,
     version: task.thread.version,
@@ -157,6 +165,28 @@ export function readGentleActivity(
   if (line === undefined || line.length > MAX_WIDGET_LINE_CHARS) return null;
   const activity = decodeGentleActivity(line);
   return Option.isNone(activity) ? null : activity.value.tasks.map(readTask);
+}
+
+const ODD_FEATURE_DOCUMENT = /odd\/tasks\/([\w.-]+?)\.md/;
+// The cap subagentThreadTitle puts on a thread title.
+const MAX_NAME_CHARS = 72;
+const DEFAULT_WORKFLOW_NAME = "ODD workflow";
+
+/**
+ * What to call an ODD workflow: its feature, as the first member prompt to reference
+ * `odd/tasks/<feature>.md` names it (`boat-fork-runtime` is "Boat fork runtime"), else the
+ * first line of the request.
+ */
+export function gentleWorkflowName(prompts: ReadonlyArray<string>, request: string): string {
+  for (const prompt of prompts) {
+    const feature = ODD_FEATURE_DOCUMENT.exec(prompt)?.[1]?.replace(/[-_]+/g, " ").trim();
+    if (feature) return `${feature.charAt(0).toUpperCase()}${feature.slice(1)}`;
+  }
+  const firstLine = request.split("\n", 1)[0]?.trim();
+  if (!firstLine) return DEFAULT_WORKFLOW_NAME;
+  return firstLine.length > MAX_NAME_CHARS
+    ? `${firstLine.slice(0, MAX_NAME_CHARS - 3)}...`
+    : firstLine;
 }
 
 /**

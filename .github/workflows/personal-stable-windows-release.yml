@@ -407,6 +407,13 @@ jobs:
           merge-multiple: true
           path: release-assets
 
+      # Boat machines download this archive to run the exact build of the server that starts them.
+      - name: Download Linux CLI archive
+        uses: ./.github/actions/download-artifact-with-retry
+        with:
+          name: personal-stable-wsl-runtime-x64
+          path: release-assets
+
       - name: Merge macOS updater manifests
         shell: bash
         run: |
@@ -445,6 +452,10 @@ jobs:
               exit 1
             fi
           done
+          if ! compgen -G "release-assets/t3-${RELEASE_VERSION}-linux-x64.tar.gz" >/dev/null; then
+            echo "Missing Linux CLI archive t3-${RELEASE_VERSION}-linux-x64.tar.gz" >&2
+            exit 1
+          fi
           if (( $(find release-assets -maxdepth 1 -name '*.dmg' | wc -l) < 2 )); then
             echo "Expected both arm64 and x64 macOS disk images." >&2
             exit 1

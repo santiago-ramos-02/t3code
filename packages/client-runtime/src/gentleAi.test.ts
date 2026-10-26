@@ -12,6 +12,7 @@ import {
   gentleAiSyncNeeded,
   formatGentleAiBytes,
   gentleAiProjectReview,
+  gentleAiProjectReviewConsent,
   gentleAiReviewGlobalEnabled,
   gentleAiReviewHistoryLabel,
   gentleAiReviewStoreSummary,
@@ -294,6 +295,40 @@ describe("gentleAiProjectReview", () => {
       checked: false,
       overridden: false,
       canTurnOn: false,
+    });
+  });
+});
+
+describe("gentleAiProjectReviewConsent", () => {
+  const mode = (effective: string) => ({
+    scope: "both",
+    status: { global: "on", clone_local: "", effective, source: "global" },
+  });
+  const consent = (value: "ask" | "always") => ({
+    schema: "gentle-ai.review-consent/v1",
+    operation: "status",
+    consent: value,
+  });
+
+  it("asks before each review until the project chooses to review without asking", () => {
+    expect(gentleAiProjectReviewConsent(mode("on"), consent("ask"))).toEqual({
+      checked: false,
+      available: true,
+    });
+    expect(gentleAiProjectReviewConsent(mode("on"), consent("always"))).toEqual({
+      checked: true,
+      available: true,
+    });
+  });
+
+  it("can only be turned on while review runs here, but can always be turned back off", () => {
+    expect(gentleAiProjectReviewConsent(mode("off"), consent("ask"))).toEqual({
+      checked: false,
+      available: false,
+    });
+    expect(gentleAiProjectReviewConsent(mode("off"), consent("always"))).toEqual({
+      checked: true,
+      available: true,
     });
   });
 });

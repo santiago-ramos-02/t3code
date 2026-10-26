@@ -34,6 +34,7 @@ const stopped = (
   report: null,
   snapshot,
   notice: null,
+  startSteps: [],
 });
 
 describe("boatKeepReason", () => {

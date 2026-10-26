@@ -10,6 +10,7 @@ import {
   type GentleAiModelAgent,
   type GentleAiModels,
   type GentleAiOddFeatures,
+  type GentleAiReviewConsent,
   type GentleAiReviewMode,
   type GentleAiReviewStore,
   type OrchestrationV2ExecutionNode,
@@ -34,6 +35,7 @@ export const GENTLE_AI_JOB_LABELS = {
   "builder.generate": "Generating agent",
   "builder.install": "Installing agent",
   "review.set": "Changing the review setting",
+  "review.consent.set": "Changing whether review asks first",
   "reviewStore.reset": "Clearing review history",
   "uninstall.run": "Removing Gentle AI",
   "claude.profiles.save": "Saving the Claude Code profile",
@@ -380,6 +382,18 @@ export function gentleAiProjectReview(mode: GentleAiReviewMode) {
     overridden: mode.status.clone_local === "off",
     canTurnOn: mode.status.global !== "off",
   };
+}
+
+/**
+ * Whether review in one project starts without asking first. It only matters while review runs
+ * there, so it turns on only then, but a project that reviews without asking can always go back.
+ */
+export function gentleAiProjectReviewConsent(
+  mode: GentleAiReviewMode,
+  consent: GentleAiReviewConsent,
+) {
+  const checked = consent.consent === "always";
+  return { checked, available: checked || mode.status.effective === "on" };
 }
 
 /**
