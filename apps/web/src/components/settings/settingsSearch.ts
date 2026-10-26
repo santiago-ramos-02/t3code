@@ -61,7 +61,6 @@ export interface SettingsSearchItem {
   readonly localEnvironmentOnly?: boolean;
   readonly wslAvailableOnly?: boolean;
   readonly managedTunnelOnly?: boolean;
-  readonly redesignOnly?: boolean;
   readonly secondary?: boolean;
   readonly requiresThreadAutoSettlement?: boolean;
 }
@@ -76,7 +75,6 @@ export interface SettingsSearchAvailability {
   readonly isWslSettingsRowVisible: boolean;
   readonly hasThreadAutoSettlement: boolean;
   readonly managedTunnelActive?: boolean;
-  readonly redesignEnabled?: boolean;
 }
 
 export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
@@ -90,8 +88,8 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/gentle-ai": "Gentle AI",
   "/settings/cli-proxy": "CLIProxyAPI",
   "/settings/integrations": "Integrations",
-  "/settings/scheduled-tasks": "Scheduled Tasks",
-  "/settings/source-control": "Source Control",
+  "/settings/scheduled-tasks": "Scheduled tasks",
+  "/settings/source-control": "Source control",
   "/settings/storage": "Storage",
   "/settings/connections": "Connections",
   "/settings/beta": "Beta",
@@ -270,13 +268,6 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["wide full width column layout messages composer monitor"],
   },
   {
-    id: "sidebar-project-icon-colors",
-    title: "Colored project icons",
-    to: "/settings/appearance",
-    searchTerms: ["sidebar favicon logo grayscale gray color"],
-    redesignOnly: true,
-  },
-  {
     id: "math-rendering",
     title: "Render math",
     to: "/settings/appearance",
@@ -364,7 +355,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "new-design",
     title: "New design",
     to: "/settings/beta",
-    searchTerms: ["beta redesign look style sidebar composer gray quieter classic"],
+    searchTerms: ["beta redesign look style sidebar composer black quieter classic"],
   },
   {
     id: "working-shelf",
@@ -1191,8 +1182,7 @@ export function filterAvailableSettingsSearchItems(
       (!item.localEnvironmentOnly || !availability.localEnvironmentDisabled) &&
       (!item.wslAvailableOnly || availability.isWslSettingsRowVisible) &&
       (!item.requiresThreadAutoSettlement || availability.hasThreadAutoSettlement) &&
-      (!item.managedTunnelOnly || availability.managedTunnelActive === true) &&
-      (!item.redesignOnly || availability.redesignEnabled === true),
+      (!item.managedTunnelOnly || availability.managedTunnelActive === true),
   );
 }
 

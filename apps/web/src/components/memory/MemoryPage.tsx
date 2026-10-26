@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 
 import { isElectron } from "../../env";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
-import { useEscapeToGoBack } from "../../hooks/useNavigateBack";
 import { useMemoryEnvironments, usePrimaryEnvironmentId } from "../../state/environments";
 import { useEnvironmentQuery } from "../../state/query";
 import { serverEnvironment } from "../../state/server";
@@ -63,7 +62,6 @@ export function MemoryPage() {
     void navigate({ search: (previous) => ({ ...previous, memory: id }), replace: true });
   const closeMemory = () =>
     void navigate({ search: ({ memory: _memory, ...previous }) => previous, replace: true });
-  useEscapeToGoBack(search.memory === undefined ? undefined : closeMemory);
 
   const { refresh } = overview;
   useEffect(() => {

@@ -17,7 +17,7 @@ export interface ClaudeCacheLifetimeShape {
  */
 export class ClaudeCacheLifetime extends Context.Reference<ClaudeCacheLifetimeShape>(
   "t3/orchestration-v2/Adapters/ClaudeCacheLifetime",
-  { defaultValue: () => ({ latest: Effect.succeed(undefined), observe: () => Effect.void }) },
+  { defaultValue: () => ({ latest: Effect.undefined, observe: () => Effect.void }) },
 ) {}
 
 export const layer = Layer.effect(

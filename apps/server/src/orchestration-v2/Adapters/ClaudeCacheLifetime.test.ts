@@ -28,9 +28,9 @@ const storeTurn = (input: {
     `;
   });
 
-const readLifetime = Effect.gen(function* () {
-  return yield* ClaudeCacheLifetime.ClaudeCacheLifetime;
-}).pipe(Effect.provide(ClaudeCacheLifetime.layer));
+const readLifetime = ClaudeCacheLifetime.ClaudeCacheLifetime.pipe(
+  Effect.provide(ClaudeCacheLifetime.layer),
+);
 
 it.effect("starts from the lifetime Claude Code last stored, then follows what it reports", () =>
   Effect.gen(function* () {

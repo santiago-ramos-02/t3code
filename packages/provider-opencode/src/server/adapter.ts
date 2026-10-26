@@ -44,7 +44,6 @@ import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
-import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as Random from "effect/Random";
@@ -994,6 +993,7 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
           if (settledNativeRequestIds.size >= 2_048) settledNativeRequestIds.clear();
           settledNativeRequestIds.add(nativeRequestId);
         };
+        // @effect-diagnostics-next-line abortControllerInEffect:off - Session closure aborts this stream independently of the creation fiber.
         const abortController = new AbortController();
         let closing = false;
         let hasConnected = false;
@@ -1071,7 +1071,7 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
             return firstFailure ?? failures.find((failure) => failure !== undefined);
           });
           const failure = yield* visit(rootId, false);
-          if (failure) return yield* Effect.fail(failure);
+          if (failure) return yield* failure;
         }, Effect.timeout("15 seconds"));
 
         const updateProviderSession =
@@ -1567,7 +1567,7 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
             ).pipe(
               Effect.timeout("1 second"),
               Effect.map((response) => Object.keys(response.data ?? {})),
-              Effect.catch(() => Effect.succeed(undefined)),
+              Effect.catch(() => Effect.void),
             );
             if (serverNames !== undefined) turn.mcpServerNames = serverNames;
           }
@@ -2800,12 +2800,15 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
           return state;
         };
 
-        const resolvePromptParts = (turnInput: ProviderAdapter.ProviderAdapterV2TurnInput) => {
-          const text = providerMessageTextWithAttachmentPaths({
+        const resolvePromptParts = Effect.fnUntraced(function* (
+          turnInput: ProviderAdapter.ProviderAdapterV2TurnInput,
+        ) {
+          const text = (yield* providerMessageTextWithAttachmentPaths({
             text: turnInput.message.text,
             attachments: turnInput.message.attachments,
             resolveAttachmentPath: host.resolveAttachmentPath,
-          }).trim();
+            resolveExtractedTextPath: host.resolveExtractedTextPath,
+          })).trim();
           const files = OpenCodeRuntime.toOpenCodeFileParts({
             attachments: turnInput.message.attachments,
             resolveAttachmentPath: host.resolveAttachmentPath,
@@ -2814,7 +2817,7 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
             throw protocolError("OpenCode turns require text or at least one valid attachment");
           }
           return [...(text.length === 0 ? [] : [{ type: "text" as const, text }]), ...files];
-        };
+        });
 
         const readSnapshot = Effect.fnUntraced(function* (
           providerThread: OrchestrationV2ProviderThread,
@@ -3102,7 +3105,7 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
               const isCompaction =
                 turnInput.message.text.trim() === "/compact" &&
                 turnInput.message.attachments.length === 0;
-              const parts = isCompaction ? [] : resolvePromptParts(turnInput);
+              const parts = isCompaction ? [] : yield* resolvePromptParts(turnInput);
               const startedAt = yield* DateTime.now;
               const syntheticNativeTurnId = `${sessionId}:attempt:${turnInput.attemptId}`;
               const providerTurnId = idAllocator.derive.providerTurn({
@@ -3167,6 +3170,7 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
                 admissionMessageObserved: false,
                 idleDuringAdmission: false,
                 admissionSettled: Deferred.makeUnsafe<void>(),
+                // @effect-diagnostics-next-line abortControllerInEffect:off - Turn interruption owns prompt admission cancellation.
                 admissionAbortController: new AbortController(),
               };
               if (turn.admissionMessageId !== null)
@@ -3304,11 +3308,17 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
                   `OpenCode model '${turn.modelSelection.model}' must use provider/model format`,
                 );
               }
-              const text = providerMessageTextWithAttachmentPaths({
+              const text = (yield* providerMessageTextWithAttachmentPaths({
                 text: steerInput.message.text,
                 attachments: steerInput.message.attachments,
                 resolveAttachmentPath: host.resolveAttachmentPath,
-              }).trim();
+                resolveExtractedTextPath: host.resolveExtractedTextPath,
+              })).trim();
+              if (state.activeTurn !== turn || turn.interrupted || turn.finalized) {
+                return yield* protocolError(
+                  `OpenCode turn ${steerInput.providerTurnId} is not active`,
+                );
+              }
               const files = OpenCodeRuntime.toOpenCodeFileParts({
                 attachments: steerInput.message.attachments,
                 resolveAttachmentPath: host.resolveAttachmentPath,
@@ -3327,6 +3337,7 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
               turn.admissionMessageObserved = false;
               turn.idleDuringAdmission = false;
               turn.admissionSettled = Deferred.makeUnsafe<void>();
+              // @effect-diagnostics-next-line abortControllerInEffect:off - Steering replaces the admission request independently of this command fiber.
               turn.admissionAbortController = new AbortController();
               if (turn.admissionMessageId !== null)
                 turn.usage.promptMessageIds.add(turn.admissionMessageId);
@@ -3727,20 +3738,3 @@ export const OpenCodeAdapterV2Driver: ProviderAdapterDriver<
       ),
   ),
 };
-
-const layer: Layer.Layer<ProviderAdapter.ProviderAdapterV2, never, OpenCodeAdapterV2DriverEnv> =
-  Layer.effect(
-    ProviderAdapter.ProviderAdapterV2,
-    Effect.gen(function* () {
-      const hostEnvironment = yield* HostProcess.Environment;
-      const providerEventLoggers = yield* ProviderEventLoggers.ProviderEventLoggers;
-      return yield* makeOpenCodeAdapterV2({
-        instanceId: OPENCODE_DEFAULT_INSTANCE_ID,
-        settings: DEFAULT_OPENCODE_SETTINGS,
-        environment: hostEnvironment,
-        ...(providerEventLoggers.native === undefined
-          ? {}
-          : { nativeEventLogger: providerEventLoggers.native }),
-      });
-    }),
-  );

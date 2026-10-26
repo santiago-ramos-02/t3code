@@ -213,7 +213,7 @@ export const readImportedUsage = Effect.fn("importedUsage.read")(function* (stat
           Effect.map((text) => Option.getOrUndefined(decodeImportedUsage(text))),
           Effect.orElseSucceed(() => undefined),
         )
-      : Effect.succeed(undefined),
+      : Effect.undefined,
   );
   return files.filter((file) => file !== undefined);
 });
