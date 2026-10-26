@@ -656,20 +656,20 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
         input.updateCurrentTab === false ? timeoutMs : timeoutMs + HOST_RESPONSE_GRACE_MS;
       const result = yield* Deferred.await(deferred).pipe(Effect.timeoutOption(responseTimeoutMs));
       return yield* Option.match(result, {
-        onNone: () =>
-          Effect.gen(function* () {
-            // Metadata reads do not invalidate a host. For actions, evict only a host that
-            // answered nothing since this request went out; other threads may still be using it.
-            // Do not replay actions: the host may have applied them before the timeout.
-            const host = (yield* SynchronizedRef.get(state)).clients.get(connection.clientId);
-            if (
-              input.updateCurrentTab !== false &&
-              (host?.queue !== connection.queue || host.answered === offered)
-            ) {
-              yield* disconnect(connection.clientId, connection.queue, true);
-            }
-            return yield* new PreviewAutomationTimeoutError(requestContext);
-          }),
+        // The enclosing operation owns the span for this inline handler.
+        onNone: Effect.fnUntraced(function* () {
+          // Metadata reads do not invalidate a host. For actions, evict only a host that
+          // answered nothing since this request went out; other threads may still be using it.
+          // Do not replay actions: the host may have applied them before the timeout.
+          const host = (yield* SynchronizedRef.get(state)).clients.get(connection.clientId);
+          if (
+            input.updateCurrentTab !== false &&
+            (host?.queue !== connection.queue || host.answered === offered)
+          ) {
+            yield* disconnect(connection.clientId, connection.queue, true);
+          }
+          return yield* new PreviewAutomationTimeoutError(requestContext);
+        }),
         onSome: (value) => Effect.succeed(value as A),
       });
     });
