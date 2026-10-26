@@ -1,0 +1,180 @@
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import { assert, describe, it } from "@effect/vitest";
+import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
+import * as ChildProcess from "effect/process/ChildProcess";
+import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
+
+import {
+  buildTemplate,
+  DEFAULT_TEMPLATE_NAME,
+  parsePrepSummary,
+  templateNameFor,
+  templatePrepScript,
+  type TemplateBoat,
+} from "./boatTemplate.ts";
+
+describe("templateNameFor", () => {
+  it("saves over the configured template, but never over a share code", () => {
+    assert.strictEqual(templateNameFor("my-template"), "my-template");
+    assert.strictEqual(templateNameFor(null), DEFAULT_TEMPLATE_NAME);
+    assert.strictEqual(templateNameFor("bsh_abc123"), DEFAULT_TEMPLATE_NAME);
+  });
+});
+
+describe("templatePrepScript", () => {
+  // Runs the script in bash against a scratch home with a PATH of stubs only, so it can never
+  // reach a real tool. Each named tool succeeds unless listed in `failing`; curl always fails, so
+  // nothing downloads; the few system commands the script needs pass through to the real ones.
+  const runScript = (tools: ReadonlyArray<string>, failing: ReadonlyArray<string> = []) =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+      const root = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-template-" });
+      const bin = path.join(root, "bin");
+      const home = path.join(root, "home");
+      const userdata = path.join(home, ".t3", "userdata");
+      yield* fileSystem.makeDirectory(bin);
+      yield* fileSystem.makeDirectory(path.join(userdata, "secrets"), { recursive: true });
+      for (const file of [
+        "environment-id",
+        "statev2.sqlite",
+        "statev2.sqlite-wal",
+        "settings.json",
+        "secrets/server-signing-key.bin",
+        "secrets/boat-api-key.bin",
+        "secrets/cloud-cli-oauth-token.bin",
+        "secrets/source-control-github-token.bin",
+      ]) {
+        yield* fileSystem.writeFileString(path.join(userdata, file), "x");
+      }
+      const stub = Effect.fn(function* (name: string, body: string) {
+        yield* fileSystem.writeFileString(path.join(bin, name), `#!/bin/sh\n${body}\n`);
+        yield* fileSystem.chmod(path.join(bin, name), 0o755);
+      });
+      for (const tool of ["npm", ...tools]) {
+        yield* stub(tool, `exit ${failing.includes(tool) ? 1 : 0}`);
+      }
+      yield* stub("curl", "exit 1");
+      for (const command of ["rm", "sed", "head", "mktemp", "install", "tar", "cat"]) {
+        yield* stub(command, `PATH=/usr/bin:/bin exec ${command} "$@"`);
+      }
+      const script = templatePrepScript("0.1.3-nightly.20261026.1100");
+      assert.isNotNull(script);
+      const output = yield* spawner.string(
+        ChildProcess.make("bash", ["-c", `PATH="$(pwd)/bin"\n${script!}`], {
+          cwd: root,
+          env: { HOME: home, PATH: process.env.PATH },
+        }),
+      );
+      const kept = (yield* fileSystem.readDirectory(userdata, { recursive: true }))
+        .map((file) => file.replaceAll("\\", "/"))
+        .toSorted();
+      return { summary: parsePrepSummary(output), kept };
+    }).pipe(Effect.scoped);
+
+  it.effect("updates the tools it finds and reports each one that failed", () =>
+    Effect.gen(function* () {
+      const { summary } = yield* runScript(["claude", "pi"], ["pi"]);
+      assert.deepStrictEqual(summary, {
+        updated: ["Claude Code"],
+        failed: ["T3 Code 0.1.3-nightly.20261026.1100", "Pi with Gentle AI"],
+      });
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("forgets the install's identity and keeps its settings", () =>
+    Effect.gen(function* () {
+      const { kept } = yield* runScript([]);
+      assert.deepStrictEqual(kept, [
+        "secrets",
+        "secrets/source-control-github-token.bin",
+        "settings.json",
+      ]);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it("refuses a version that is not safe in a command", () => {
+    assert.isNull(templatePrepScript("1.0; rm -rf /"));
+  });
+});
+
+const makeBoat = (options: { readonly log: string }) => {
+  const calls: string[] = [];
+  let state = "provisioning";
+  let snapshot: { name: string; createdAt: string } | null = {
+    name: "my-template",
+    createdAt: "2026-10-01T00:00:00.000Z",
+  };
+  const boat: TemplateBoat = {
+    createSandbox: (input) => {
+      calls.push(`create from ${input.from}`);
+      state = "ready";
+      return Effect.succeed({ id: "bx_build", state: "provisioning" } as never);
+    },
+    getSandbox: () => Effect.succeedSome({ id: "bx_build", state } as never),
+    runCommand: (_id, input) => {
+      if (input.command.startsWith("tail")) {
+        return Effect.succeed({ exitCode: 0, stdout: options.log, stderr: "" });
+      }
+      if (input.command.startsWith("cat")) {
+        return Effect.succeed({ exitCode: 0, stdout: "0\n", stderr: "" });
+      }
+      calls.push("write script");
+      return Effect.succeed({ exitCode: 0, stdout: "", stderr: "" });
+    },
+    startDetached: () => Effect.sync(() => void calls.push("run script")),
+    stopSandbox: () =>
+      Effect.sync(() => {
+        calls.push("stop");
+        state = "stopped";
+      }),
+    deleteSandbox: () => Effect.sync(() => void calls.push("delete build machine")),
+    listNamedSnapshots: () =>
+      Effect.succeed({ snapshots: snapshot === null ? [] : [snapshot], free: 10 }),
+    saveNamedSnapshot: (_id, name) =>
+      Effect.sync(() => {
+        calls.push(`save as ${name}`);
+        snapshot = { name, createdAt: "2026-10-26T00:00:00.000Z" };
+      }),
+  };
+  return { boat, calls };
+};
+
+describe("buildTemplate", () => {
+  it.effect("saves the updated build machine under the template's name, then deletes it", () =>
+    Effect.gen(function* () {
+      const { boat, calls } = makeBoat({ log: "== Codex\nupdated=Codex;failed=\n" });
+      const summary = yield* buildTemplate({
+        boat,
+        from: "my-template",
+        name: "my-template",
+        t3Version: "0.1.3",
+      });
+      assert.deepStrictEqual(summary, { updated: ["Codex"], failed: [] });
+      assert.deepStrictEqual(calls, [
+        "create from my-template",
+        "write script",
+        "run script",
+        "stop",
+        "save as my-template",
+        "delete build machine",
+      ]);
+    }),
+  );
+
+  it.effect("deletes the build machine and saves nothing when the script did not finish", () =>
+    Effect.gen(function* () {
+      const { boat, calls } = makeBoat({ log: "npm ERR! killed\n" });
+      const exit = yield* Effect.exit(
+        buildTemplate({ boat, from: null, name: "my-template", t3Version: "0.1.3" }),
+      );
+      assert.isTrue(Exit.isFailure(exit));
+      assert.notInclude(calls, "save as my-template");
+      assert.strictEqual(calls.at(-1), "delete build machine");
+    }),
+  );
+});

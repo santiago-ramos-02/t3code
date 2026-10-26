@@ -70,7 +70,14 @@ export function boatMachineStateText(machine: BoatMachine): string {
   }
 }
 
-/** Stop, resume, and delete for the host's Boat machines; delete also forgets the pairing. */
+const ACTION_VERBS: Record<BoatMachineAction, (label: string) => string> = {
+  stop: (label) => `stop ${label}`,
+  resume: (label) => `resume ${label}`,
+  delete: (label) => `delete ${label}`,
+  "make-template": (label) => `save ${label} as the template`,
+};
+
+/** The host's Boat machine actions; delete also forgets the pairing. */
 export function useBoatMachineActions(
   hostEnvironmentId: EnvironmentId,
   savedEnvironments: ReadonlyArray<EnvironmentPresentation>,
@@ -90,6 +97,12 @@ export function useBoatMachineActions(
       );
       if (confirmed !== true) return;
     }
+    if (action === "make-template") {
+      const confirmed = await requestConfirmDialog(
+        `Save ${label} as the template?\nA copy of it gets the latest T3 Code, Claude Code, Codex, Pi, and gentle-ai, and every new machine starts from it with its settings and sign-ins. ${label} itself is left as it is. This takes several minutes.`,
+      );
+      if (confirmed !== true) return;
+    }
     setBusySandboxId(machine.sandboxId);
     const result = await runAction({
       environmentId: hostEnvironmentId,
@@ -101,7 +114,7 @@ export function useBoatMachineActions(
       toastManager.add(
         stackedThreadToast({
           type: "error",
-          title: `Could not ${action} ${label}`,
+          title: `Could not ${ACTION_VERBS[action](label)}`,
           description: commandError(result),
         }),
       );
@@ -117,7 +130,7 @@ export function useBoatMachineActions(
   return { act, busySandboxId };
 }
 
-/** Stop or resume, then delete; for a machine's row menu. */
+/** Stop or resume, save as the template, then delete; for a machine's row menu. */
 export function BoatMachineMenuItems({
   machine,
   busy,
@@ -137,6 +150,11 @@ export function BoatMachineMenuItems({
       {machine.state === "stopped" ? (
         <MenuItem disabled={busy} onClick={() => onAction("resume")}>
           Resume machine
+        </MenuItem>
+      ) : null}
+      {machine.state === "running" || machine.state === "stopped" ? (
+        <MenuItem disabled={busy} onClick={() => onAction("make-template")}>
+          Use as template…
         </MenuItem>
       ) : null}
       <MenuItem variant="destructive" disabled={busy} onClick={() => onAction("delete")}>
@@ -278,8 +296,9 @@ export function BoatSetupForm({
             spellCheck={false}
           />
           <span className="mt-1 block text-2xs text-muted-foreground">
-            A named Boat snapshot with your providers signed in. Without one, machines start bare
-            and run the published T3 Code server.
+            A named Boat snapshot with your providers signed in. Set up one machine, then pick Use
+            as template from its menu. Without one, machines start bare and run the published T3
+            Code server.
           </span>
         </label>
         <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_10rem]">
@@ -410,7 +429,7 @@ export function BoatEnvironmentRows({
 }) {
   const [editing, setEditing] = useState(false);
   const { act, busySandboxId } = useBoatMachineActions(hostEnvironmentId, savedEnvironments);
-  const { settings, machines } = status;
+  const { settings, machines, templateBuild } = status;
   const running = machines.filter((machine) => machine.state === "running").length;
 
   return (
@@ -424,10 +443,29 @@ export function BoatEnvironmentRows({
             : `${machines.length} ${machines.length === 1 ? "machine" : "machines"}, ${running} running`
         }
         below={
-          <p className="text-xs text-muted-foreground">
-            New machines are {settings.defaultSize} size and stop after {settings.idleStopMinutes}{" "}
-            idle {settings.idleStopMinutes === 1 ? "minute" : "minutes"}.
-          </p>
+          <>
+            <p className="text-xs text-muted-foreground">
+              New machines start from{" "}
+              {settings.template === null ? "Boat's base image" : `"${settings.template}"`}, are{" "}
+              {settings.defaultSize} size, and stop after {settings.idleStopMinutes} idle{" "}
+              {settings.idleStopMinutes === 1 ? "minute" : "minutes"}.
+            </p>
+            {templateBuild ? (
+              <p
+                role="status"
+                className={cn(
+                  "text-xs",
+                  templateBuild.state === "failed" ? "text-destructive" : "text-muted-foreground",
+                )}
+              >
+                {templateBuild.state === "running"
+                  ? `Saving the template: ${templateBuild.detail}…`
+                  : templateBuild.state === "failed"
+                    ? `Could not save the template. ${templateBuild.detail}`
+                    : templateBuild.detail}
+              </p>
+            ) : null}
+          </>
         }
       >
         <Button type="button" size="xs" variant="outline" onClick={() => setEditing(true)}>

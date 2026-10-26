@@ -129,6 +129,16 @@ export const BoatDeletedMachine = Schema.Struct({
 });
 export type BoatDeletedMachine = typeof BoatDeletedMachine.Type;
 
+// Saving a machine as the template: a build machine copies it, updates its tools, and is saved.
+export const BoatTemplateBuild = Schema.Struct({
+  // The machine being saved as the template.
+  sandboxId: Schema.String,
+  state: Schema.Literals(["running", "done", "failed"]),
+  // The step under way while running; what came of it once it ends.
+  detail: Schema.String,
+});
+export type BoatTemplateBuild = typeof BoatTemplateBuild.Type;
+
 export const BoatStatus = Schema.Struct({
   // Whether the environment holds a Boat API key.
   configured: Schema.Boolean,
@@ -138,6 +148,8 @@ export const BoatStatus = Schema.Struct({
   machines: Schema.Array(BoatMachine),
   // The most recent deletions, newest first.
   deleted: Schema.Array(BoatDeletedMachine).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
+  // The latest template build since this server started.
+  templateBuild: nullByDefault(BoatTemplateBuild),
 });
 export type BoatStatus = typeof BoatStatus.Type;
 
@@ -166,7 +178,8 @@ export const BoatSpawnResult = Schema.Struct({
 });
 export type BoatSpawnResult = typeof BoatSpawnResult.Type;
 
-export const BoatMachineAction = Schema.Literals(["stop", "resume", "delete"]);
+// `make-template` saves the machine's setup as the template new machines start from.
+export const BoatMachineAction = Schema.Literals(["stop", "resume", "delete", "make-template"]);
 export type BoatMachineAction = typeof BoatMachineAction.Type;
 
 export const BoatMachineActionInput = Schema.Struct({

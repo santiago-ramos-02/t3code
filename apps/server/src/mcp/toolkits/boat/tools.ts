@@ -46,7 +46,7 @@ const BoatMachineStartTool = Tool.make("t3_boat_machine_start", {
 const BoatMachineActionTool = Tool.make("t3_boat_machine_action", {
   ...shared,
   description:
-    "Stop, resume, or delete a Boat machine from t3_boat_machine_list. A stopped machine keeps its files and can be resumed; delete removes it and its files for good.",
+    "Stop, resume, or delete a Boat machine from t3_boat_machine_list, or save it as the template. A stopped machine keeps its files and can be resumed; delete removes it and its files for good. make-template copies the machine, updates its tools to their latest versions, saves the copy as the template new machines start from, and leaves the machine itself untouched; it runs in the background and t3_boat_machine_list shows its progress as templateBuild.",
   parameters: BoatMachineActionInput,
   success: MachineList,
 })
