@@ -1147,7 +1147,6 @@ it.effect("starts from the local branch when origin does not have it", () => {
   });
   return Effect.gen(function* () {
     const launches = yield* ThreadLaunch.ThreadLaunchService;
-    const threads = yield* ThreadManagement.ThreadManagementService;
     const launched = yield* launches.launch(
       launchInput({
         command: "command:launch:local-base",
