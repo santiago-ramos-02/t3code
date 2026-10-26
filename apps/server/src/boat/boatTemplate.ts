@@ -237,7 +237,8 @@ export const buildTemplate = Effect.fn("BoatTemplate.build")(function* (input: {
     yield* boat.stopSandbox(sandbox.id);
     yield* waitFor(
       sandboxState(boat, sandbox.id).pipe(
-        Effect.map((state) => (state === "stopped" ? Option.some(state) : Option.none())),
+        // Boat archives a stopped machine's disk; the save needs it archived.
+        Effect.map((state) => (state === "archived" ? Option.some(state) : Option.none())),
       ),
       10,
       "The build machine did not stop within 10 minutes.",

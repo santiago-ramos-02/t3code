@@ -146,7 +146,8 @@ const makeBoat = (options: { readonly log: string }) => {
     stopSandbox: () =>
       Effect.sync(() => {
         calls.push("stop");
-        state = "stopped";
+        // A stopped Boat machine is archived.
+        state = "archived";
       }),
     deleteSandbox: () => Effect.sync(() => void calls.push("delete build machine")),
     // Boat lists a save as soon as it starts, and says when it is ready a check later.

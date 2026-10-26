@@ -147,7 +147,7 @@ const makeFakeBoat = (options: {
         type: "sandbox.info",
         sandbox: {
           id,
-          state: control.stopped.has(id) ? "stopped" : "idle",
+          state: control.stopped.has(id) ? "archived" : "idle",
           subdomain: "box-node-test",
         },
       });
