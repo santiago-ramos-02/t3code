@@ -125,7 +125,8 @@ const sandboxState = (boat: TemplateBoat, sandboxId: string) =>
 
 /**
  * Saves `sandboxId` under `name`, replacing any snapshot of that name, and returns once Boat has
- * it. Boat lists a save as soon as it starts, so only a new snapshot that is `ready` counts.
+ * it. Boat lists a save as soon as it starts and keeps a replaced snapshot's creation time, so
+ * the save is done once a snapshot that is new, or was seen saving, is `ready`.
  */
 export const saveNamedSnapshotAndWait = Effect.fn("BoatTemplate.saveNamedSnapshot")(function* (
   boat: TemplateBoat,
@@ -134,17 +135,31 @@ export const saveNamedSnapshotAndWait = Effect.fn("BoatTemplate.saveNamedSnapsho
 ) {
   const find = <S extends { readonly name: string }>(snapshots: ReadonlyArray<S>) =>
     snapshots.find((snapshot) => snapshot.name === name);
-  const before = find((yield* boat.listNamedSnapshots()).snapshots)?.createdAt ?? null;
+  const identity = (
+    snapshot:
+      | {
+          readonly createdAt: string;
+          readonly snapshotId?: string | undefined;
+          readonly sourceSandboxId?: string | undefined;
+        }
+      | undefined,
+  ) =>
+    snapshot === undefined
+      ? null
+      : `${snapshot.snapshotId ?? ""}|${snapshot.sourceSandboxId ?? ""}|${snapshot.createdAt}`;
+  const before = identity(find((yield* boat.listNamedSnapshots()).snapshots));
   yield* boat.saveNamedSnapshot(sandboxId, name);
+  let seenSaving = false;
   yield* waitFor(
     boat.listNamedSnapshots().pipe(
       Effect.map(({ snapshots }) => {
         const saved = find(snapshots);
-        const ready =
-          saved !== undefined &&
-          saved.createdAt !== before &&
-          (saved.status === undefined || saved.status === "ready");
-        return ready ? Option.some(saved) : Option.none();
+        if (saved === undefined) return Option.none();
+        if (saved.status !== undefined && saved.status !== "ready") {
+          seenSaving = true;
+          return Option.none();
+        }
+        return seenSaving || identity(saved) !== before ? Option.some(saved) : Option.none();
       }),
     ),
     20,

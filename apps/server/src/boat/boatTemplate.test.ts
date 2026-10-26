@@ -109,12 +109,22 @@ describe("templatePrepScript", () => {
 const makeBoat = (options: { readonly log: string }) => {
   const calls: string[] = [];
   let state = "provisioning";
-  let snapshot: { name: string; createdAt: string; status: string } | null = {
+  type Snapshot = {
+    name: string;
+    createdAt: string;
+    status: string;
+    snapshotId: string;
+    sourceSandboxId: string;
+  };
+  let snapshot: Snapshot | null = {
     name: "my-template",
     createdAt: "2026-10-01T00:00:00.000Z",
     status: "ready",
+    snapshotId: "snap_0",
+    sourceSandboxId: "bx_old",
   };
   let saving: string | null = null;
+  let saves = 0;
   const boat: TemplateBoat = {
     createSandbox: (input) => {
       calls.push(`create from ${input.from}`);
@@ -150,11 +160,20 @@ const makeBoat = (options: { readonly log: string }) => {
         }
         return { snapshots: listed, free: 10 };
       }),
-    saveNamedSnapshot: (_id, name) =>
+    saveNamedSnapshot: (sandboxId, name) =>
       Effect.sync(() => {
         calls.push(`save as ${name}`);
         saving = name;
-        snapshot = { name, createdAt: "2026-10-26T00:00:00.000Z", status: "saving" };
+        saves += 1;
+        // Boat keeps a replaced snapshot's creation time.
+        const createdAt = snapshot?.name === name ? snapshot.createdAt : "2026-10-26T00:00:00.000Z";
+        snapshot = {
+          name,
+          createdAt,
+          status: "saving",
+          snapshotId: `snap_${saves}`,
+          sourceSandboxId: sandboxId,
+        };
       }),
   };
   return { boat, calls };
@@ -184,7 +203,7 @@ describe("buildTemplate", () => {
         name: "my-template",
         t3Version: "0.1.3",
       }).pipe(Effect.forkChild);
-      yield* TestClock.adjust("1 minute");
+      yield* TestClock.adjust("30 minutes");
       const summary = yield* Fiber.join(fiber);
       assert.deepStrictEqual(summary, { updated: ["Codex"], failed: [] });
       assert.deepStrictEqual(calls, [
