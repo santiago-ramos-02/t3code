@@ -565,14 +565,18 @@ export const make = Effect.gen(function* () {
     const build = Effect.gen(function* () {
       const name = templateNameFor((yield* SubscriptionRef.get(state)).settings.template);
       const source = `${name}-source`;
-      yield* saveNamedSnapshotAndWait(boat, sandboxId, source);
-      const summary = yield* buildTemplate({
-        boat,
-        from: source,
-        name,
-        t3Version: hostVersion,
-        onStep: (step) => setBuild("running", step).pipe(Effect.ignore),
-      }).pipe(Effect.ensuring(boat.deleteNamedSnapshot(source).pipe(Effect.ignore)));
+      const summary = yield* saveNamedSnapshotAndWait(boat, sandboxId, source).pipe(
+        Effect.andThen(
+          buildTemplate({
+            boat,
+            from: source,
+            name,
+            t3Version: hostVersion,
+            onStep: (step) => setBuild("running", step).pipe(Effect.ignore),
+          }),
+        ),
+        Effect.ensuring(boat.deleteNamedSnapshot(source).pipe(Effect.ignore)),
+      );
       const skipped =
         summary.failed.length === 0 ? "" : ` Could not update ${summary.failed.join(", ")}.`;
       yield* update((status) => ({

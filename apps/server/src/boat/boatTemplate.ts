@@ -35,7 +35,7 @@ const STATUS_PATH = "/tmp/t3-template.status";
  * What runs on the scratch machine. Each tool already there is updated in place and a failure only
  * skips that tool; the last line lists what was updated and what failed. Then the T3 Code home
  * loses everything that belongs to one install, so machines started from the template do not share
- * an identity, sign-ins, signing keys, credentials, or projects and threads.
+ * an identity, signing keys, Boat, cloud, or GitHub credentials, or projects and threads.
  */
 export const templatePrepScript = (t3Version: string): string | null => {
   const runtime = forkRuntimeCommands(t3Version);
@@ -64,7 +64,9 @@ export const templatePrepScript = (t3Version: string): string | null => {
     'command -v pi >/dev/null 2>&1 && step "Pi with Gentle AI" update_pi',
     "command -v gentle-ai >/dev/null 2>&1 && step gentle-ai update_gentle_ai",
     'home="$HOME/.t3/userdata"',
-    'rm -rf "$home/environment-id" "$home/anonymous-id" "$home/server-runtime.json" "$home"/statev2.sqlite* "$home"/state.sqlite* "$home/logs" "$home/attachments" "$home"/secrets/*-signing-key.bin "$home"/secrets/boat-* "$home"/secrets/cloud-*',
+    'rm -rf "$home/environment-id" "$home/anonymous-id" "$home/server-runtime.json" "$home"/statev2.sqlite* "$home"/state.sqlite* "$home/logs" "$home/attachments" "$home"/secrets/*-signing-key.bin "$home"/secrets/boat-* "$home"/secrets/cloud-* "$home"/secrets/source-control-*',
+    // T3 Code gives each new machine the host's GitHub token when it starts.
+    'rm -rf "$HOME/.t3/worktrees" "$HOME/.git-credentials" "$HOME/.config/gh/hosts.yml"',
     'echo "updated=${updated#,};failed=${failed#,}"',
   ].join("\n");
 };

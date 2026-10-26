@@ -48,6 +48,7 @@ describe("templatePrepScript", () => {
         "secrets/boat-api-key.bin",
         "secrets/cloud-cli-oauth-token.bin",
         "secrets/source-control-github-token.bin",
+        "secrets/provider-auth-claude.bin",
       ]) {
         yield* fileSystem.writeFileString(path.join(userdata, file), "x");
       }
@@ -86,12 +87,12 @@ describe("templatePrepScript", () => {
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 
-  it.effect("forgets the install's identity and keeps its settings", () =>
+  it.effect("forgets the install's identity and credentials and keeps its settings", () =>
     Effect.gen(function* () {
       const { kept } = yield* runScript([]);
       assert.deepStrictEqual(kept, [
         "secrets",
-        "secrets/source-control-github-token.bin",
+        "secrets/provider-auth-claude.bin",
         "settings.json",
       ]);
     }).pipe(Effect.provide(NodeServices.layer)),
