@@ -396,41 +396,39 @@ export const makeEngram = Effect.fn("makeEngram")(function* (
   return Engram.of({
     status,
     overview,
-    search: ({ query: text, project, type }) =>
-      Effect.gen(function* () {
-        yield* requireRunning;
-        if (text.trim().length === 0) return { results: [] };
-        const found = yield* get(
-          `/search?${query({ q: text.trim(), type, limit: "40", ...scopeParams(project) })}`,
-          Schema.Array(EngramObservation),
-        );
-        return {
-          results: found.map((observation) => ({
-            observation: toObservation(observation),
-            snippet: memorySnippet(observation.content),
-          })),
-        };
-      }),
-    observation: (id) =>
-      Effect.gen(function* () {
-        yield* requireRunning;
-        const [found, around] = yield* Effect.all(
-          [
-            get(`/observations/${id}`, EngramObservation),
-            get(
-              `/timeline?${query({ observation_id: String(id), before: "5", after: "5", all_projects: "true" })}`,
-              EngramTimeline,
-            ).pipe(Effect.orElseSucceed(() => ({ before: [], after: [] }))),
-          ],
-          { concurrency: "unbounded" },
-        );
-        return {
-          observation: toObservation(found),
-          content: found.content ?? "",
-          before: (around.before ?? []).map(toObservation),
-          after: (around.after ?? []).map(toObservation),
-        };
-      }),
+    search: Effect.fn("Engram.search")(function* ({ query: text, project, type }) {
+      yield* requireRunning;
+      if (text.trim().length === 0) return { results: [] };
+      const found = yield* get(
+        `/search?${query({ q: text.trim(), type, limit: "40", ...scopeParams(project) })}`,
+        Schema.Array(EngramObservation),
+      );
+      return {
+        results: found.map((observation) => ({
+          observation: toObservation(observation),
+          snippet: memorySnippet(observation.content),
+        })),
+      };
+    }),
+    observation: Effect.fn("Engram.observation")(function* (id) {
+      yield* requireRunning;
+      const [found, around] = yield* Effect.all(
+        [
+          get(`/observations/${id}`, EngramObservation),
+          get(
+            `/timeline?${query({ observation_id: String(id), before: "5", after: "5", all_projects: "true" })}`,
+            EngramTimeline,
+          ).pipe(Effect.orElseSucceed(() => ({ before: [], after: [] }))),
+        ],
+        { concurrency: "unbounded" },
+      );
+      return {
+        observation: toObservation(found),
+        content: found.content ?? "",
+        before: (around.before ?? []).map(toObservation),
+        after: (around.after ?? []).map(toObservation),
+      };
+    }),
     health: Effect.gen(function* () {
       yield* requireRunning;
       const doctor = yield* get("/doctor", EngramDoctor);
@@ -444,52 +442,50 @@ export const makeEngram = Effect.fn("makeEngram")(function* (
         })),
       };
     }),
-    judge: ({ relationSyncId, verdict }) =>
-      Effect.gen(function* () {
-        yield* requireRunning;
-        yield* HttpClientRequest.post(`${baseUrl}/conflicts/judge`).pipe(
-          HttpClientRequest.bodyJson({ judgment_id: relationSyncId, relation: verdict }),
-          Effect.flatMap(httpClient.execute),
-          Effect.flatMap(HttpClientResponse.filterStatusOk),
-          Effect.timeout("15 seconds"),
-          Effect.mapError(() => fail("Engram could not record that.")),
+    judge: Effect.fn("Engram.judge")(function* ({ relationSyncId, verdict }) {
+      yield* requireRunning;
+      yield* HttpClientRequest.post(`${baseUrl}/conflicts/judge`).pipe(
+        HttpClientRequest.bodyJson({ judgment_id: relationSyncId, relation: verdict }),
+        Effect.flatMap(httpClient.execute),
+        Effect.flatMap(HttpClientResponse.filterStatusOk),
+        Effect.timeout("15 seconds"),
+        Effect.mapError(() => fail("Engram could not record that.")),
+      );
+    }),
+    exportObsidian: Effect.fn("Engram.exportObsidian")(function* ({ vault, project }) {
+      const folder = vault.trim();
+      if (!path.isAbsolute(folder)) return yield* fail("Choose the vault's full folder path.");
+      const info = yield* fileSystem.stat(folder).pipe(Effect.option);
+      if (info._tag === "None" || info.value.type !== "Directory") {
+        return yield* fail(`There is no folder at ${folder}.`);
+      }
+      const found = yield* binary;
+      if (found === null) return yield* fail("Engram is not installed on this environment.");
+      const args = [
+        "obsidian-export",
+        "--vault",
+        folder,
+        ...(project === undefined ? ["--all"] : ["--project", project]),
+      ];
+      const result = yield* spawnAndCollect(
+        found,
+        ChildProcess.make(found, args, { env: environment, extendEnv: false, stdin: "ignore" }),
+      ).pipe(
+        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+        Effect.timeout("5 minutes"),
+        Effect.mapError(() => fail("Engram could not export to Obsidian.")),
+      );
+      const output = [result.stdout.trim(), result.stderr.trim()].filter(Boolean).join("\n");
+      // Engram exits 1 when any note failed, after writing the others; its summary says which.
+      const summary = obsidianExportSummary(output);
+      if (summary !== null) return summary;
+      if (result.code !== 0) {
+        return yield* fail(
+          `Engram could not export to Obsidian. ${output.split("\n").slice(-3).join(" ")}`.trim(),
         );
-      }),
-    exportObsidian: ({ vault, project }) =>
-      Effect.gen(function* () {
-        const folder = vault.trim();
-        if (!path.isAbsolute(folder)) return yield* fail("Choose the vault's full folder path.");
-        const info = yield* fileSystem.stat(folder).pipe(Effect.option);
-        if (info._tag === "None" || info.value.type !== "Directory") {
-          return yield* fail(`There is no folder at ${folder}.`);
-        }
-        const found = yield* binary;
-        if (found === null) return yield* fail("Engram is not installed on this environment.");
-        const args = [
-          "obsidian-export",
-          "--vault",
-          folder,
-          ...(project === undefined ? ["--all"] : ["--project", project]),
-        ];
-        const result = yield* spawnAndCollect(
-          found,
-          ChildProcess.make(found, args, { env: environment, extendEnv: false, stdin: "ignore" }),
-        ).pipe(
-          Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
-          Effect.timeout("5 minutes"),
-          Effect.mapError(() => fail("Engram could not export to Obsidian.")),
-        );
-        const output = [result.stdout.trim(), result.stderr.trim()].filter(Boolean).join("\n");
-        // Engram exits 1 when any note failed, after writing the others; its summary says which.
-        const summary = obsidianExportSummary(output);
-        if (summary !== null) return summary;
-        if (result.code !== 0) {
-          return yield* fail(
-            `Engram could not export to Obsidian. ${output.split("\n").slice(-3).join(" ")}`.trim(),
-          );
-        }
-        return { created: 0, updated: 0, deleted: 0, problems: [] };
-      }),
+      }
+      return { created: 0, updated: 0, deleted: 0, problems: [] };
+    }),
   });
 });
 

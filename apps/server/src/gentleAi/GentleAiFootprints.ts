@@ -69,8 +69,8 @@ export const make = Effect.gen(function* () {
     Effect.flatMap(resolveGentleAiBinary),
   );
 
-  const forAgents = (agents: ReadonlyArray<string> | "set-up") =>
-    Effect.gen(function* () {
+  const forAgents = Effect.fn("GentleAiFootprints.forAgents")(
+    function* (agents: ReadonlyArray<string> | "set-up") {
       const binaryPath = yield* binary;
       if (binaryPath === null) return null;
       // gentle-ai skips agents it did not set up, and simulates the rest together.
@@ -92,13 +92,13 @@ export const make = Effect.gen(function* () {
           ]),
         ),
       } satisfies GentleAiPlainFootprint;
-    }).pipe(
-      provide,
-      // An older gentle-ai without the method, or any failure: use the built-in lists.
-      Effect.catch((error) =>
-        Effect.logWarning("gentle-ai footprint unavailable", error).pipe(Effect.as(null)),
-      ),
-    );
+    },
+    provide,
+    // An older gentle-ai without the method, or any failure: use the built-in lists.
+    Effect.catch((error) =>
+      Effect.logWarning("gentle-ai footprint unavailable", error).pipe(Effect.as(null)),
+    ),
+  );
 
   return GentleAiFootprints.of({ forAgents, binary: binary.pipe(provide) });
 });

@@ -40,11 +40,8 @@ export const goesThroughProxy = (environment: NodeJS.ProcessEnv) =>
   (environment.ANTHROPIC_BASE_URL ?? "").trim() !== "";
 
 /** The applied profile for a proxied session, or null when none is applied or it is unreadable. */
-export const readClaudeGentleProfile = (
-  environment: NodeJS.ProcessEnv,
-  platform: NodeJS.Platform,
-) =>
-  Effect.gen(function* () {
+export const readClaudeGentleProfile = Effect.fn("readClaudeGentleProfile")(
+  function* (environment: NodeJS.ProcessEnv, platform: NodeJS.Platform) {
     const fileSystem = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
     const file = path.join(hostUserHome(environment, platform), ".gentle-ai", "claude-host.json");
@@ -59,4 +56,6 @@ export const readClaudeGentleProfile = (
       env,
       guide: setup.guide?.trim() ?? "",
     } satisfies ClaudeGentleProfile;
-  }).pipe(Effect.orElseSucceed((): ClaudeGentleProfile | null => null));
+  },
+  Effect.orElseSucceed((): ClaudeGentleProfile | null => null),
+);

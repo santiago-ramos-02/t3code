@@ -41,26 +41,24 @@ const InstallState = Schema.Struct({
 const decodeInstallState = Schema.decodeUnknownEffect(Schema.fromJsonString(InstallState));
 
 /** What gentle-ai recorded installing: its components and the agents it set up. */
-const installState = (userHome: string) =>
-  Effect.gen(function* () {
-    const fileSystem = yield* FileSystem.FileSystem;
-    const path = yield* Path.Path;
-    const statePath = path.join(userHome, ".gentle-ai", "state.json");
-    return yield* fileSystem.readFileString(statePath).pipe(
-      Effect.flatMap(decodeInstallState),
-      Effect.orElseSucceed((): typeof InstallState.Type => ({})),
-    );
-  });
+const installState = Effect.fn("installState")(function* (userHome: string) {
+  const fileSystem = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const statePath = path.join(userHome, ".gentle-ai", "state.json");
+  return yield* fileSystem.readFileString(statePath).pipe(
+    Effect.flatMap(decodeInstallState),
+    Effect.orElseSucceed((): typeof InstallState.Type => ({})),
+  );
+});
 
 /** The components gentle-ai installed, which decide which MCP servers are its own. */
 const installedComponents = (userHome: string) =>
   installState(userHome).pipe(Effect.map((state) => state.components ?? []));
 
-const readText = (filePath: string) =>
-  Effect.gen(function* () {
-    const fileSystem = yield* FileSystem.FileSystem;
-    return yield* fileSystem.readFileString(filePath).pipe(Effect.orElseSucceed(() => null));
-  });
+const readText = Effect.fn("readText")(function* (filePath: string) {
+  const fileSystem = yield* FileSystem.FileSystem;
+  return yield* fileSystem.readFileString(filePath).pipe(Effect.orElseSucceed(() => null));
+});
 
 /** A JSON object with gentle-ai's keys removed; unreadable JSON is kept as it was. */
 const filterJson = (
@@ -367,13 +365,12 @@ const readJsonRecord = (filePath: string) =>
     Effect.orElseSucceed((): Record<string, unknown> => ({})),
   );
 
-const readDirectoryNames = (directory: string) =>
-  Effect.gen(function* () {
-    const fileSystem = yield* FileSystem.FileSystem;
-    return yield* fileSystem
-      .readDirectory(directory)
-      .pipe(Effect.orElseSucceed((): ReadonlyArray<string> => []));
-  });
+const readDirectoryNames = Effect.fn("readDirectoryNames")(function* (directory: string) {
+  const fileSystem = yield* FileSystem.FileSystem;
+  return yield* fileSystem
+    .readDirectory(directory)
+    .pipe(Effect.orElseSucceed((): ReadonlyArray<string> => []));
+});
 
 /**
  * Claude Code with Gentle AI off. Claude reads gentle-ai's footprint from its user settings

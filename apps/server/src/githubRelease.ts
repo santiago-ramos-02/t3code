@@ -58,7 +58,7 @@ export const makeGitHubReleases = Effect.gen(function* () {
    * which is removed afterwards. Every failure goes through `fail` with a sentence a user can
    * read; nothing is unpacked when the checksum does not match.
    */
-  const withVerifiedRelease = <A, E, R, F>(
+  const withVerifiedRelease = Effect.fn("withVerifiedRelease")(function* <A, E, R, F>(
     input: {
       readonly repository: string;
       readonly version: string;
@@ -68,67 +68,66 @@ export const makeGitHubReleases = Effect.gen(function* () {
       readonly fail: (detail: string) => F;
     },
     use: (unpacked: string) => Effect.Effect<A, E, R>,
-  ) =>
-    Effect.gen(function* () {
-      const { fail, asset, label } = input;
-      const base = `https://github.com/${input.repository}/releases/download/v${input.version}`;
-      const checksums = yield* get(`${base}/checksums.txt`, "30 seconds").pipe(
-        Effect.flatMap((response) => response.text),
-        Effect.mapError(() => fail("The release checksums could not be downloaded.")),
+  ) {
+    const { fail, asset, label } = input;
+    const base = `https://github.com/${input.repository}/releases/download/v${input.version}`;
+    const checksums = yield* get(`${base}/checksums.txt`, "30 seconds").pipe(
+      Effect.flatMap((response) => response.text),
+      Effect.mapError(() => fail("The release checksums could not be downloaded.")),
+    );
+    const expected = releaseChecksum(checksums, asset);
+    if (expected === null) {
+      return yield* Effect.fail(fail(`${asset} is not listed in the release checksums.`));
+    }
+    const bytes = yield* get(`${base}/${asset}`, "300 seconds").pipe(
+      Effect.flatMap((response) => response.arrayBuffer),
+      Effect.map((buffer) => new Uint8Array(buffer)),
+      Effect.mapError(() => fail(`${label} could not be downloaded.`)),
+    );
+    const digest = yield* crypto.digest("SHA-256", bytes).pipe(
+      Effect.map((hash) => Buffer.from(hash).toString("hex")),
+      Effect.mapError(() => fail("The download checksum could not be verified.")),
+    );
+    if (digest !== expected) {
+      return yield* Effect.fail(
+        fail("The download does not match its checksum, so nothing was installed."),
       );
-      const expected = releaseChecksum(checksums, asset);
-      if (expected === null) {
-        return yield* Effect.fail(fail(`${asset} is not listed in the release checksums.`));
-      }
-      const bytes = yield* get(`${base}/${asset}`, "300 seconds").pipe(
-        Effect.flatMap((response) => response.arrayBuffer),
-        Effect.map((buffer) => new Uint8Array(buffer)),
-        Effect.mapError(() => fail(`${label} could not be downloaded.`)),
-      );
-      const digest = yield* crypto.digest("SHA-256", bytes).pipe(
-        Effect.map((hash) => Buffer.from(hash).toString("hex")),
-        Effect.mapError(() => fail("The download checksum could not be verified.")),
-      );
-      if (digest !== expected) {
-        return yield* Effect.fail(
-          fail("The download does not match its checksum, so nothing was installed."),
-        );
-      }
+    }
 
-      const work = yield* fileSystem
-        .makeTempDirectory({ prefix: "t3-release-" })
-        .pipe(Effect.mapError(() => fail("A download folder could not be made.")));
-      return yield* Effect.gen(function* () {
-        const archive = path.join(work, asset);
-        const unpacked = path.join(work, "unpacked");
-        yield* fileSystem.writeFile(archive, bytes).pipe(
-          Effect.andThen(fileSystem.makeDirectory(unpacked)),
-          Effect.mapError(() => fail("The download could not be saved.")),
+    const work = yield* fileSystem
+      .makeTempDirectory({ prefix: "t3-release-" })
+      .pipe(Effect.mapError(() => fail("A download folder could not be made.")));
+    return yield* Effect.gen(function* () {
+      const archive = path.join(work, asset);
+      const unpacked = path.join(work, "unpacked");
+      yield* fileSystem.writeFile(archive, bytes).pipe(
+        Effect.andThen(fileSystem.makeDirectory(unpacked)),
+        Effect.mapError(() => fail("The download could not be saved.")),
+      );
+      // tar unpacks both .zip and .tar.gz on Windows 10+, macOS, and Linux. On Windows the
+      // bundled bsdtar is named by path: a GNU tar earlier on PATH, such as Git's, cannot read zips.
+      const tar =
+        platform === "win32"
+          ? path.join(environment.SystemRoot ?? "C:\\Windows", "System32", "tar.exe")
+          : "tar";
+      const unpackedOk = yield* spawner
+        .string(
+          ChildProcess.make(tar, ["-xf", archive, "-C", unpacked], {
+            stdin: "ignore",
+            stderr: "ignore",
+          }),
+        )
+        .pipe(
+          Effect.timeout("120 seconds"),
+          Effect.as(true),
+          Effect.orElseSucceed(() => false),
         );
-        // tar unpacks both .zip and .tar.gz on Windows 10+, macOS, and Linux. On Windows the
-        // bundled bsdtar is named by path: a GNU tar earlier on PATH, such as Git's, cannot read zips.
-        const tar =
-          platform === "win32"
-            ? path.join(environment.SystemRoot ?? "C:\\Windows", "System32", "tar.exe")
-            : "tar";
-        const unpackedOk = yield* spawner
-          .string(
-            ChildProcess.make(tar, ["-xf", archive, "-C", unpacked], {
-              stdin: "ignore",
-              stderr: "ignore",
-            }),
-          )
-          .pipe(
-            Effect.timeout("120 seconds"),
-            Effect.as(true),
-            Effect.orElseSucceed(() => false),
-          );
-        if (!unpackedOk) {
-          return yield* Effect.fail(fail("The download could not be unpacked; tar is needed."));
-        }
-        return yield* use(unpacked);
-      }).pipe(Effect.ensuring(fileSystem.remove(work, { recursive: true }).pipe(Effect.ignore)));
-    });
+      if (!unpackedOk) {
+        return yield* Effect.fail(fail("The download could not be unpacked; tar is needed."));
+      }
+      return yield* use(unpacked);
+    }).pipe(Effect.ensuring(fileSystem.remove(work, { recursive: true }).pipe(Effect.ignore)));
+  });
 
   return { latestVersion, withVerifiedRelease };
 });

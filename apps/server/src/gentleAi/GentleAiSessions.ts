@@ -71,77 +71,77 @@ const gentleOffServices = Effect.gen(function* () {
 });
 
 /** Codex with Gentle AI off runs on a plain mirror of its home for the session's lifetime. */
-export const makeCodexGentleOffSession = (driver: ProviderDriverKind) =>
-  Effect.gen(function* () {
-    const { path, platform, footprints, provide } = yield* gentleOffServices;
-    const prepare: PrepareProviderSession<{
-      readonly settings: CodexSettings;
-      readonly environment: NodeJS.ProcessEnv;
-    }> = (input, runtime) =>
-      gentleAiEnabled(input.modelSelection.options)
-        ? Effect.succeed(runtime)
-        : provide(
-            driver,
-            input,
-            Effect.gen(function* () {
-              const userHome = hostUserHome(runtime.environment, platform);
-              const source = runtime.settings.homePath
-                ? path.resolve(expandHomePath(runtime.settings.homePath, userHome))
-                : runtime.environment.CODEX_HOME?.trim() || path.join(userHome, ".codex");
-              const target = yield* gentleAiOffDirectory("codex");
-              yield* materializeCodexPlainHome({
-                source,
-                target,
-                platform,
-                userHome,
-                footprint: yield* footprints(["codex"]),
-              });
-              return { ...runtime, settings: { ...runtime.settings, homePath: target } };
-            }),
-          );
-    return prepare;
-  });
+export const makeCodexGentleOffSession = Effect.fn("makeCodexGentleOffSession")(function* (
+  driver: ProviderDriverKind,
+) {
+  const { path, platform, footprints, provide } = yield* gentleOffServices;
+  const prepare: PrepareProviderSession<{
+    readonly settings: CodexSettings;
+    readonly environment: NodeJS.ProcessEnv;
+  }> = (input, runtime) =>
+    gentleAiEnabled(input.modelSelection.options)
+      ? Effect.succeed(runtime)
+      : provide(
+          driver,
+          input,
+          Effect.gen(function* () {
+            const userHome = hostUserHome(runtime.environment, platform);
+            const source = runtime.settings.homePath
+              ? path.resolve(expandHomePath(runtime.settings.homePath, userHome))
+              : runtime.environment.CODEX_HOME?.trim() || path.join(userHome, ".codex");
+            const target = yield* gentleAiOffDirectory("codex");
+            yield* materializeCodexPlainHome({
+              source,
+              target,
+              platform,
+              userHome,
+              footprint: yield* footprints(["codex"]),
+            });
+            return { ...runtime, settings: { ...runtime.settings, homePath: target } };
+          }),
+        );
+  return prepare;
+});
 
 /**
  * OpenCode with Gentle AI off runs its session's own server on a plain config home. A server
  * T3 Code does not start loads its own configuration, so Gentle AI cannot be turned off there.
  */
-export const makeOpenCodeGentleOffSession = (
+export const makeOpenCodeGentleOffSession = Effect.fn("makeOpenCodeGentleOffSession")(function* (
   driver: ProviderDriverKind,
   instanceId: ProviderInstanceId,
-) =>
-  Effect.gen(function* () {
-    const { platform, footprints, provide } = yield* gentleOffServices;
-    const prepare: PrepareProviderSession<OpenCodeServerLaunch> = (input, runtime) => {
-      if (gentleAiEnabled(input.modelSelection.options)) return Effect.succeed(runtime);
-      if (runtime.serverUrl?.trim()) {
-        return Effect.fail(
-          new ProviderAdapterOpenSessionError({
-            driver,
-            providerSessionId: input.providerSessionId,
-            cause: new ProviderSetupError({
-              instanceId,
-              operation: "session",
-              detail: OPENCODE_SERVER_GENTLE_OFF_UNSUPPORTED,
-            }),
+) {
+  const { platform, footprints, provide } = yield* gentleOffServices;
+  const prepare: PrepareProviderSession<OpenCodeServerLaunch> = (input, runtime) => {
+    if (gentleAiEnabled(input.modelSelection.options)) return Effect.succeed(runtime);
+    if (runtime.serverUrl?.trim()) {
+      return Effect.fail(
+        new ProviderAdapterOpenSessionError({
+          driver,
+          providerSessionId: input.providerSessionId,
+          cause: new ProviderSetupError({
+            instanceId,
+            operation: "session",
+            detail: OPENCODE_SERVER_GENTLE_OFF_UNSUPPORTED,
           }),
-        );
-      }
-      return provide(
-        driver,
-        input,
-        Effect.gen(function* () {
-          const environment = yield* openCodeGentleOffEnvironment({
-            environment: runtime.environment,
-            platform,
-            footprint: yield* footprints(["opencode"]),
-          });
-          return { ...runtime, environment };
         }),
       );
-    };
-    return prepare;
-  });
+    }
+    return provide(
+      driver,
+      input,
+      Effect.gen(function* () {
+        const environment = yield* openCodeGentleOffEnvironment({
+          environment: runtime.environment,
+          platform,
+          footprint: yield* footprints(["opencode"]),
+        });
+        return { ...runtime, environment };
+      }),
+    );
+  };
+  return prepare;
+});
 
 export const OPENCODE_SERVER_GENTLE_OFF_UNSUPPORTED =
   "Gentle AI cannot be turned off for an OpenCode server T3 Code does not start for this thread.";
@@ -168,57 +168,56 @@ export interface ClaudeSessionLaunch {
  * lives, and gets back the user's own pieces of it, filtered. With Gentle AI on, a Claude Code
  * session that goes through a proxy gets the applied Gentle AI profile's slot models.
  */
-export const makeClaudeGentleSession = (
+export const makeClaudeGentleSession = Effect.fn("makeClaudeGentleSession")(function* (
   driver: ProviderDriverKind,
   settings: Pick<ClaudeSettings, "homePath">,
-) =>
-  Effect.gen(function* () {
-    const { platform, footprints, provide } = yield* gentleOffServices;
-    const prepare: PrepareProviderSession<ClaudeSessionLaunch> = (input, launch) =>
-      provide(
-        driver,
-        input,
-        Effect.gen(function* () {
-          if (gentleAiEnabled(input.modelSelection.options)) {
-            if (!goesThroughProxy(launch.environment)) return launch;
-            const profile = yield* readClaudeGentleProfile(launch.environment, platform);
-            if (profile === null) return launch;
-            const hasSlots = Object.keys(profile.env).length > 0;
-            return {
-              environment: { ...launch.environment, ...profile.env },
-              query: {
-                ...launch.query,
-                ...(hasSlots ? { sdkSettings: { env: { ...profile.env } } } : {}),
-                ...(profile.guide ? { appendSystemPrompt: profile.guide } : {}),
-              },
-            };
-          }
-          const off = yield* claudeGentleOffOptions({
-            claudeHome: yield* resolveClaudeHomePath(settings, launch.environment),
-            environment: launch.environment,
-            platform,
-            cwd: input.runtimePolicy.cwd ?? undefined,
-            footprint: yield* footprints(["claude-code"]),
-          });
+) {
+  const { platform, footprints, provide } = yield* gentleOffServices;
+  const prepare: PrepareProviderSession<ClaudeSessionLaunch> = (input, launch) =>
+    provide(
+      driver,
+      input,
+      Effect.gen(function* () {
+        if (gentleAiEnabled(input.modelSelection.options)) {
+          if (!goesThroughProxy(launch.environment)) return launch;
+          const profile = yield* readClaudeGentleProfile(launch.environment, platform);
+          if (profile === null) return launch;
+          const hasSlots = Object.keys(profile.env).length > 0;
           return {
-            environment: launch.environment,
+            environment: { ...launch.environment, ...profile.env },
             query: {
               ...launch.query,
-              settingSources: ["project", "local"],
-              ...(off.instructions
-                ? { appendSystemPrompt: `# User instructions\n\n${off.instructions}` }
-                : {}),
-              ...(Object.keys(off.agents).length > 0 ? { agents: off.agents } : {}),
-              ...(off.pluginPath ? { plugins: [{ type: "local", path: off.pluginPath }] } : {}),
-              strictMcpConfig: true,
-              mcpServers: off.mcpServers,
-              sdkSettings: off.settings,
+              ...(hasSlots ? { sdkSettings: { env: { ...profile.env } } } : {}),
+              ...(profile.guide ? { appendSystemPrompt: profile.guide } : {}),
             },
           };
-        }),
-      );
-    return prepare;
-  });
+        }
+        const off = yield* claudeGentleOffOptions({
+          claudeHome: yield* resolveClaudeHomePath(settings, launch.environment),
+          environment: launch.environment,
+          platform,
+          cwd: input.runtimePolicy.cwd ?? undefined,
+          footprint: yield* footprints(["claude-code"]),
+        });
+        return {
+          environment: launch.environment,
+          query: {
+            ...launch.query,
+            settingSources: ["project", "local"],
+            ...(off.instructions
+              ? { appendSystemPrompt: `# User instructions\n\n${off.instructions}` }
+              : {}),
+            ...(Object.keys(off.agents).length > 0 ? { agents: off.agents } : {}),
+            ...(off.pluginPath ? { plugins: [{ type: "local", path: off.pluginPath }] } : {}),
+            strictMcpConfig: true,
+            mcpServers: off.mcpServers,
+            sdkSettings: off.settings,
+          },
+        };
+      }),
+    );
+  return prepare;
+});
 
 /**
  * Pi with Gentle AI on tells gentle-pi it runs under an RPC host, so it publishes subagent
@@ -228,44 +227,45 @@ export const makeClaudeGentleSession = (
 /** Names the gentle-ai T3 Code runs for the fork's gentle-pi (lib/t3-fork-gentle-ai.ts there). */
 const GENTLE_PI_T3_GENTLE_AI = "GENTLE_PI_T3_GENTLE_AI";
 
-export const makePiGentleSession = (driver: ProviderDriverKind) =>
-  Effect.gen(function* () {
-    const { path, provide } = yield* gentleOffServices;
-    const gentleAiBinary = yield* gentleAiBinaryLookup;
-    const prepare: PrepareProviderSession<{
-      readonly args: ReadonlyArray<string>;
-      readonly environment: NodeJS.ProcessEnv;
-      readonly cwd: string;
-    }> = (input, launch) => {
-      const environment = { ...launch.environment };
-      if (gentleAiEnabled(input.modelSelection.options)) {
-        environment.GENTLE_SHELL_INTERACTIVE_HOST = "1";
-        // The fork's gentle-pi runs this gentle-ai instead of its pinned upstream copy when it
-        // is a fork build, so Pi and T3 Code drive the same one. An explicit value wins.
-        if (environment[GENTLE_PI_T3_GENTLE_AI] !== undefined) {
-          return Effect.succeed({ ...launch, environment });
-        }
-        return gentleAiBinary.pipe(
-          Effect.map((binary) => {
-            if (binary !== null && path.isAbsolute(binary)) {
-              environment[GENTLE_PI_T3_GENTLE_AI] = binary;
-            }
-            return { ...launch, environment };
-          }),
-        );
+export const makePiGentleSession = Effect.fn("makePiGentleSession")(function* (
+  driver: ProviderDriverKind,
+) {
+  const { path, provide } = yield* gentleOffServices;
+  const gentleAiBinary = yield* gentleAiBinaryLookup;
+  const prepare: PrepareProviderSession<{
+    readonly args: ReadonlyArray<string>;
+    readonly environment: NodeJS.ProcessEnv;
+    readonly cwd: string;
+  }> = (input, launch) => {
+    const environment = { ...launch.environment };
+    if (gentleAiEnabled(input.modelSelection.options)) {
+      environment.GENTLE_SHELL_INTERACTIVE_HOST = "1";
+      // The fork's gentle-pi runs this gentle-ai instead of its pinned upstream copy when it
+      // is a fork build, so Pi and T3 Code drive the same one. An explicit value wins.
+      if (environment[GENTLE_PI_T3_GENTLE_AI] !== undefined) {
+        return Effect.succeed({ ...launch, environment });
       }
-      delete environment.GENTLE_SHELL_INTERACTIVE_HOST;
-      return provide(
-        driver,
-        input,
-        plainPiExtensionArgs({ cwd: launch.cwd, environment }).pipe(
-          Effect.map((plainArgs) => ({
-            ...launch,
-            environment,
-            args: [...launch.args, ...plainArgs],
-          })),
-        ),
+      return gentleAiBinary.pipe(
+        Effect.map((binary) => {
+          if (binary !== null && path.isAbsolute(binary)) {
+            environment[GENTLE_PI_T3_GENTLE_AI] = binary;
+          }
+          return { ...launch, environment };
+        }),
       );
-    };
-    return prepare;
-  });
+    }
+    delete environment.GENTLE_SHELL_INTERACTIVE_HOST;
+    return provide(
+      driver,
+      input,
+      plainPiExtensionArgs({ cwd: launch.cwd, environment }).pipe(
+        Effect.map((plainArgs) => ({
+          ...launch,
+          environment,
+          args: [...launch.args, ...plainArgs],
+        })),
+      ),
+    );
+  };
+  return prepare;
+});

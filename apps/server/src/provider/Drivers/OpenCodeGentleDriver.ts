@@ -25,18 +25,17 @@ export const OpenCodeGentleDriver: ProviderDriver<
   ProviderUsageReaderEnv<typeof OpenCodeDriver>
 > = {
   ...OpenCodeDriver,
-  create: (input) =>
-    Effect.gen(function* () {
-      const prepareSession = yield* makeOpenCodeGentleOffSession(
-        OpenCodeDriver.driverKind,
-        input.instanceId,
-      );
-      return yield* OpenCodeDriver.create(input).pipe(
-        Effect.provideService(OpenCodeGentleHooks, {
-          prepareSession,
-          wrapSharedServerAdapter: (adapter) =>
-            withoutGentleAiOff(adapter, OPENCODE_SERVER_GENTLE_OFF_UNSUPPORTED),
-        }),
-      );
-    }),
+  create: Effect.fn("OpenCodeGentleDriver.create")(function* (input) {
+    const prepareSession = yield* makeOpenCodeGentleOffSession(
+      OpenCodeDriver.driverKind,
+      input.instanceId,
+    );
+    return yield* OpenCodeDriver.create(input).pipe(
+      Effect.provideService(OpenCodeGentleHooks, {
+        prepareSession,
+        wrapSharedServerAdapter: (adapter) =>
+          withoutGentleAiOff(adapter, OPENCODE_SERVER_GENTLE_OFF_UNSUPPORTED),
+      }),
+    );
+  }),
 };

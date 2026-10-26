@@ -1169,12 +1169,12 @@ export const layerWithOptions = (
               Effect.catchCause(() => Effect.succeed(false)),
             );
 
-      const releaseInstanceEntries = (
-        entries: ReadonlyArray<LiveSessionEntry>,
-        detail: string,
-        options?: { readonly onlyIfIdle: boolean },
-      ) =>
-        Effect.gen(function* () {
+      const releaseInstanceEntries = Effect.fn("ProviderSessionManager.releaseInstanceEntries")(
+        function* (
+          entries: ReadonlyArray<LiveSessionEntry>,
+          detail: string,
+          options?: { readonly onlyIfIdle: boolean },
+        ) {
           const outcomes = yield* Effect.forEach(
             entries,
             (entry) =>
@@ -1192,7 +1192,8 @@ export const layerWithOptions = (
           if (failure !== undefined && Exit.isFailure(failure)) {
             return yield* Effect.failCause(failure.cause);
           }
-        });
+        },
+      );
 
       const instanceCloseError = (instanceId: ProviderInstanceId) => (cause: unknown) =>
         new ProviderSessionCloseError({

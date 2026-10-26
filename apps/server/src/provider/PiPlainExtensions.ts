@@ -125,42 +125,40 @@ export const plainPiExtensionArgs = Effect.fn("plainPiExtensionArgs")(function* 
   const sources: string[] = [];
   const skills: string[] = [];
   const prompts: string[] = [];
-  const addResource = (target: string, list: string[]) =>
-    Effect.gen(function* () {
-      if (yield* fileSystem.exists(target)) list.push(target);
-    });
-  const extensionEntries = (directory: string) =>
-    Effect.gen(function* () {
-      if (!(yield* fileSystem.exists(directory))) return [];
-      const names = yield* fileSystem.readDirectory(directory);
-      const entries: string[] = [];
-      for (const name of names) {
-        if (name.startsWith(".") || name.endsWith(".d.ts")) continue;
-        const entryPath = path.join(directory, name);
-        const info = yield* fileSystem.stat(entryPath);
-        if (info.type === "File" && /\.(?:ts|js|mjs)$/.test(name)) {
+  const addResource = Effect.fn("addResource")(function* (target: string, list: string[]) {
+    if (yield* fileSystem.exists(target)) list.push(target);
+  });
+  const extensionEntries = Effect.fn("extensionEntries")(function* (directory: string) {
+    if (!(yield* fileSystem.exists(directory))) return [];
+    const names = yield* fileSystem.readDirectory(directory);
+    const entries: string[] = [];
+    for (const name of names) {
+      if (name.startsWith(".") || name.endsWith(".d.ts")) continue;
+      const entryPath = path.join(directory, name);
+      const info = yield* fileSystem.stat(entryPath);
+      if (info.type === "File" && /\.(?:ts|js|mjs)$/.test(name)) {
+        entries.push(entryPath);
+        continue;
+      }
+      if (info.type !== "Directory") continue;
+      const manifestPath = path.join(entryPath, "package.json");
+      if (yield* fileSystem.exists(manifestPath)) {
+        const manifest = yield* decodePackage(yield* fileSystem.readFileString(manifestPath));
+        if (manifest.pi?.extensions?.length) {
           entries.push(entryPath);
           continue;
         }
-        if (info.type !== "Directory") continue;
-        const manifestPath = path.join(entryPath, "package.json");
-        if (yield* fileSystem.exists(manifestPath)) {
-          const manifest = yield* decodePackage(yield* fileSystem.readFileString(manifestPath));
-          if (manifest.pi?.extensions?.length) {
-            entries.push(entryPath);
-            continue;
-          }
-        }
-        for (const index of ["index.ts", "index.js", "index.mjs"]) {
-          const candidate = path.join(entryPath, index);
-          if (yield* fileSystem.exists(candidate)) {
-            entries.push(candidate);
-            break;
-          }
+      }
+      for (const index of ["index.ts", "index.js", "index.mjs"]) {
+        const candidate = path.join(entryPath, index);
+        if (yield* fileSystem.exists(candidate)) {
+          entries.push(candidate);
+          break;
         }
       }
-      return entries;
-    });
+    }
+    return entries;
+  });
   for (const item of yield* piPackages(input)) {
     // A declared package that is not installed cannot load in Pi either.
     if (item.manifest === null) continue;

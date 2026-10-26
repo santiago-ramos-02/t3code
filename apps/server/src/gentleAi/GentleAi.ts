@@ -270,13 +270,13 @@ export const make = Effect.gen(function* () {
   );
 
   /** Runs gentle-ai to completion; `output` is stdout and stderr together, as reports use both. */
-  const run = (
-    binaryPath: string,
-    args: ReadonlyArray<string>,
-    timeout: Duration.Input,
-    cwd?: string,
-  ) =>
-    Effect.gen(function* () {
+  const run = Effect.fn("GentleAi.run")(
+    function* (
+      binaryPath: string,
+      args: ReadonlyArray<string>,
+      timeout: Duration.Input,
+      cwd?: string,
+    ) {
       const resolved = yield* resolveSpawnCommand(binaryPath, args, { env: environment });
       const result = yield* spawnAndCollect(
         binaryPath,
@@ -295,14 +295,12 @@ export const make = Effect.gen(function* () {
       );
       const output = [result.stdout.trim(), result.stderr.trim()].filter(Boolean).join("\n");
       return { code: result.code, stdout: result.stdout, output };
-    }).pipe(
-      provide,
-      Effect.mapError((cause) =>
-        isGentleAiError(cause)
-          ? cause
-          : new GentleAiError({ detail: "gentle-ai could not be run." }),
-      ),
-    );
+    },
+    provide,
+    Effect.mapError((cause) =>
+      isGentleAiError(cause) ? cause : new GentleAiError({ detail: "gentle-ai could not be run." }),
+    ),
+  );
 
   const readStatus = Effect.gen(function* () {
     const binaryPath = yield* binary;
@@ -407,13 +405,12 @@ export const make = Effect.gen(function* () {
     } satisfies GentleAiStatus;
   });
 
-  const publish = (next: GentleAiStatus) =>
-    Effect.gen(function* () {
-      const changed = yield* Ref.modify(stateRef, (previous) =>
-        Equal.equals(previous, next) ? [false, previous] : [true, next],
-      );
-      if (changed) yield* PubSub.publish(changes, next);
-    });
+  const publish = Effect.fn("GentleAi.publish")(function* (next: GentleAiStatus) {
+    const changed = yield* Ref.modify(stateRef, (previous) =>
+      Equal.equals(previous, next) ? [false, previous] : [true, next],
+    );
+    if (changed) yield* PubSub.publish(changes, next);
+  });
 
   const refreshLock = yield* Semaphore.make(1);
   // Whatever made a refresh worthwhile (a job, a new binary, the user) can change any answer.
@@ -461,37 +458,36 @@ export const make = Effect.gen(function* () {
     );
   }).pipe(installLock.withPermits(1));
 
-  const action = (input: GentleAiActionInput) =>
-    Effect.gen(function* () {
-      if (input.action === "refresh") {
-        yield* refresh;
-        return { status: yield* Ref.get(stateRef) } satisfies GentleAiActionResult;
-      }
-      if (input.action === "install") {
-        // Detached, so a client that leaves mid-install stops waiting without cancelling the
-        // install or the status read that follows it.
-        const installing = yield* install.pipe(Effect.andThen(refresh), Effect.forkDetach);
-        yield* Fiber.join(installing);
-        return { status: yield* Ref.get(stateRef) } satisfies GentleAiActionResult;
-      }
-      const binaryPath = yield* binary;
-      if (binaryPath === null)
-        return yield* new GentleAiError({ detail: "Gentle AI is not installed." });
-      // Each action is the gentle-ai command of the same name.
-      const args = [input.action];
-      const result = yield* run(binaryPath, args, "5 minutes");
+  const action = Effect.fn("GentleAi.action")(function* (input: GentleAiActionInput) {
+    if (input.action === "refresh") {
       yield* refresh;
-      // doctor reports problems through its exit code, so its report is the result either way.
-      if (result.code !== 0 && input.action !== "doctor") {
-        return yield* new GentleAiError({
-          detail: `gentle-ai ${args[0]} failed. ${result.output.split("\n").slice(-3).join(" ").slice(-400)}`,
-        });
-      }
-      return {
-        status: yield* Ref.get(stateRef),
-        output: result.output,
-      } satisfies GentleAiActionResult;
-    });
+      return { status: yield* Ref.get(stateRef) } satisfies GentleAiActionResult;
+    }
+    if (input.action === "install") {
+      // Detached, so a client that leaves mid-install stops waiting without cancelling the
+      // install or the status read that follows it.
+      const installing = yield* install.pipe(Effect.andThen(refresh), Effect.forkDetach);
+      yield* Fiber.join(installing);
+      return { status: yield* Ref.get(stateRef) } satisfies GentleAiActionResult;
+    }
+    const binaryPath = yield* binary;
+    if (binaryPath === null)
+      return yield* new GentleAiError({ detail: "Gentle AI is not installed." });
+    // Each action is the gentle-ai command of the same name.
+    const args = [input.action];
+    const result = yield* run(binaryPath, args, "5 minutes");
+    yield* refresh;
+    // doctor reports problems through its exit code, so its report is the result either way.
+    if (result.code !== 0 && input.action !== "doctor") {
+      return yield* new GentleAiError({
+        detail: `gentle-ai ${args[0]} failed. ${result.output.split("\n").slice(-3).join(" ").slice(-400)}`,
+      });
+    }
+    return {
+      status: yield* Ref.get(stateRef),
+      output: result.output,
+    } satisfies GentleAiActionResult;
+  });
 
   const apiBinary = Effect.gen(function* () {
     const status = yield* Ref.get(stateRef);
@@ -503,45 +499,44 @@ export const make = Effect.gen(function* () {
   });
 
   /** Validates a method's params, runs it, and validates what gentle-ai answers. */
-  const callMethod = (
+  const callMethod = Effect.fn("GentleAi.callMethod")(function* (
     method: GentleAiQueryMethod | GentleAiJobMethod,
     params: unknown,
     timeout: Duration.Input,
     onEvent?: (event: GentleAiApiEvent) => Effect.Effect<void>,
-  ) =>
-    Effect.gen(function* () {
-      const spec = GENTLE_AI_METHODS[method];
-      const binaryPath = yield* apiBinary;
-      const invalid = () => new GentleAiError({ detail: `Invalid parameters for ${method}.` });
-      const encodedParams = yield* spec
-        .decodeParams(params)
-        .pipe(Effect.flatMap(spec.encodeParams), Effect.mapError(invalid));
-      const data = yield* runGentleAiApi({
-        binaryPath,
-        method,
-        // T3 Code applies Claude Code profiles itself, only to Claude Code it runs through a
-        // proxy (see ClaudeGentleProfile), so gentle-ai leaves ~/.claude alone.
-        params:
-          HOSTED_PROFILE_METHODS.has(method) &&
-          typeof encodedParams === "object" &&
-          encodedParams !== null
-            ? { ...encodedParams, host: GENTLE_AI_PROFILE_HOST }
-            : encodedParams,
-        environment,
-        timeout,
-        ...(onEvent ? { onEvent } : {}),
-      }).pipe(provide);
-      // Decoding checks gentle-ai's answer against the contract; the wire gets it re-encoded.
-      return yield* spec.decodeResult(data).pipe(
-        Effect.flatMap(spec.encodeResult),
-        Effect.mapError(
-          () =>
-            new GentleAiError({
-              detail: `gentle-ai answered ${method} in a form this T3 Code does not understand.`,
-            }),
-        ),
-      );
-    });
+  ) {
+    const spec = GENTLE_AI_METHODS[method];
+    const binaryPath = yield* apiBinary;
+    const invalid = () => new GentleAiError({ detail: `Invalid parameters for ${method}.` });
+    const encodedParams = yield* spec
+      .decodeParams(params)
+      .pipe(Effect.flatMap(spec.encodeParams), Effect.mapError(invalid));
+    const data = yield* runGentleAiApi({
+      binaryPath,
+      method,
+      // T3 Code applies Claude Code profiles itself, only to Claude Code it runs through a
+      // proxy (see ClaudeGentleProfile), so gentle-ai leaves ~/.claude alone.
+      params:
+        HOSTED_PROFILE_METHODS.has(method) &&
+        typeof encodedParams === "object" &&
+        encodedParams !== null
+          ? { ...encodedParams, host: GENTLE_AI_PROFILE_HOST }
+          : encodedParams,
+      environment,
+      timeout,
+      ...(onEvent ? { onEvent } : {}),
+    }).pipe(provide);
+    // Decoding checks gentle-ai's answer against the contract; the wire gets it re-encoded.
+    return yield* spec.decodeResult(data).pipe(
+      Effect.flatMap(spec.encodeResult),
+      Effect.mapError(
+        () =>
+          new GentleAiError({
+            detail: `gentle-ai answered ${method} in a form this T3 Code does not understand.`,
+          }),
+      ),
+    );
+  });
 
   const serviceScope = yield* Effect.scope;
 
@@ -598,61 +593,63 @@ export const make = Effect.gen(function* () {
       };
     });
 
-  const startJob = (method: GentleAiJobMethod, params: unknown) =>
-    Effect.gen(function* () {
-      yield* apiBinary;
-      const started: GentleAiJob = {
-        id: yield* crypto
-          .randomUUIDv4()
-          .pipe(
-            Effect.mapError(
-              () => new GentleAiError({ detail: "Could not start the Gentle AI task." }),
-            ),
+  const startJob = Effect.fn("GentleAi.startJob")(function* (
+    method: GentleAiJobMethod,
+    params: unknown,
+  ) {
+    yield* apiBinary;
+    const started: GentleAiJob = {
+      id: yield* crypto
+        .randomUUIDv4()
+        .pipe(
+          Effect.mapError(
+            () => new GentleAiError({ detail: "Could not start the Gentle AI task." }),
           ),
-        method,
-        phase: "running",
-        startedAt: DateTime.formatIso(yield* DateTime.now),
-        finishedAt: null,
-        steps: [],
-        log: [],
-      };
-      const claimed = yield* Ref.modify(jobRef, (job) =>
-        job?.phase === "running" ? [false, job] : [true, started],
-      );
-      if (!claimed)
-        return yield* new GentleAiError({
-          detail: "Another Gentle AI task is running. Wait for it to finish.",
-        });
-      yield* PubSub.publish(jobChanges, started);
-      yield* callMethod(method, params, "30 minutes", onJobEvent).pipe(
-        Effect.exit,
-        Effect.flatMap((exit) =>
-          Effect.gen(function* () {
-            const finishedAt = DateTime.formatIso(yield* DateTime.now);
-            const failure = Exit.findErrorOption(exit);
-            // Clients re-read as soon as they hear a job finished, so answers from before it go
-            // first. The refresh below clears them again along with status.
-            yield* Cache.invalidateAll(queryCache);
-            yield* updateJob((job) =>
-              Exit.isSuccess(exit)
-                ? { ...job, phase: "succeeded", finishedAt, result: exit.value }
-                : {
-                    ...job,
-                    phase: "failed",
-                    finishedAt,
-                    error: Option.isSome(failure)
-                      ? failure.value.detail
-                      : "The Gentle AI task stopped unexpectedly.",
-                  },
-            );
-            // Jobs change what gentle-ai set up, which providers and settings reflect.
-            yield* refresh;
-          }),
         ),
-        Effect.forkIn(serviceScope),
-      );
-      return started;
-    });
+      method,
+      phase: "running",
+      startedAt: DateTime.formatIso(yield* DateTime.now),
+      finishedAt: null,
+      steps: [],
+      log: [],
+    };
+    const claimed = yield* Ref.modify(jobRef, (job) =>
+      job?.phase === "running" ? [false, job] : [true, started],
+    );
+    if (!claimed)
+      return yield* new GentleAiError({
+        detail: "Another Gentle AI task is running. Wait for it to finish.",
+      });
+    yield* PubSub.publish(jobChanges, started);
+    yield* callMethod(method, params, "30 minutes", onJobEvent).pipe(
+      Effect.exit,
+      Effect.flatMap((exit) =>
+        Effect.gen(function* () {
+          const finishedAt = DateTime.formatIso(yield* DateTime.now);
+          const failure = Exit.findErrorOption(exit);
+          // Clients re-read as soon as they hear a job finished, so answers from before it go
+          // first. The refresh below clears them again along with status.
+          yield* Cache.invalidateAll(queryCache);
+          yield* updateJob((job) =>
+            Exit.isSuccess(exit)
+              ? { ...job, phase: "succeeded", finishedAt, result: exit.value }
+              : {
+                  ...job,
+                  phase: "failed",
+                  finishedAt,
+                  error: Option.isSome(failure)
+                    ? failure.value.detail
+                    : "The Gentle AI task stopped unexpectedly.",
+                },
+          );
+          // Jobs change what gentle-ai set up, which providers and settings reflect.
+          yield* refresh;
+        }),
+      ),
+      Effect.forkIn(serviceScope),
+    );
+    return started;
+  });
 
   // A changed binary path points at another gentle-ai, so status re-reads straight away.
   yield* settingsService.streamChanges.pipe(

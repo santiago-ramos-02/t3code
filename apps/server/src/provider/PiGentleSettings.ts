@@ -247,15 +247,17 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
   const readJson = (filePath: string) =>
     fileSystem.readFileString(filePath).pipe(Effect.flatMap(decodeJson));
 
-  const writeAtomicText = (filePath: string, text: string) =>
-    Effect.gen(function* () {
-      yield* fileSystem.makeDirectory(path.dirname(filePath), { recursive: true });
-      const temporary = `${filePath}.${yield* crypto.randomUUIDv4()}.tmp`;
-      yield* fileSystem.writeFileString(temporary, text);
-      yield* fileSystem
-        .rename(temporary, filePath)
-        .pipe(Effect.ensuring(fileSystem.remove(temporary, { force: true }).pipe(Effect.ignore)));
-    });
+  const writeAtomicText = Effect.fn("PiGentleSettings.writeAtomicText")(function* (
+    filePath: string,
+    text: string,
+  ) {
+    yield* fileSystem.makeDirectory(path.dirname(filePath), { recursive: true });
+    const temporary = `${filePath}.${yield* crypto.randomUUIDv4()}.tmp`;
+    yield* fileSystem.writeFileString(temporary, text);
+    yield* fileSystem
+      .rename(temporary, filePath)
+      .pipe(Effect.ensuring(fileSystem.remove(temporary, { force: true }).pipe(Effect.ignore)));
+  });
   const writeAtomic = (filePath: string, value: unknown) =>
     Effect.flatMap(encodeJson(value), (json) => writeAtomicText(filePath, `${json}\n`));
 
@@ -329,24 +331,27 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
    * newer gentle-pi. Pinned versions and refs never move, and a local folder is not Pi's to
    * update, so neither reports an update; neither does a check that cannot reach the remote.
    */
-  const updateStatus = (found: { source: string; directory: string; version: string }) =>
-    Effect.gen(function* () {
-      const pinned = (gitLocation(found.source) ?? found.source.slice("npm:".length)).includes("@");
-      if (found.source.startsWith("npm:")) {
-        if (pinned) return {};
-        const latest = yield* Cache.get(latestCache, found.source);
-        return latest === ""
-          ? {}
-          : { updateAvailable: compareSemverVersions(latest, found.version) > 0 };
-      }
-      if (gitLocation(found.source) === null) return {};
-      const commit = yield* git(["rev-parse", "HEAD"], found.directory);
-      if (commit === "") return {};
-      const installed = { commit: commit.slice(0, 7) };
-      if (pinned) return installed;
+  const updateStatus = Effect.fn("PiGentleSettings.updateStatus")(function* (found: {
+    source: string;
+    directory: string;
+    version: string;
+  }) {
+    const pinned = (gitLocation(found.source) ?? found.source.slice("npm:".length)).includes("@");
+    if (found.source.startsWith("npm:")) {
+      if (pinned) return {};
       const latest = yield* Cache.get(latestCache, found.source);
-      return latest === "" ? installed : { ...installed, updateAvailable: latest !== commit };
-    });
+      return latest === ""
+        ? {}
+        : { updateAvailable: compareSemverVersions(latest, found.version) > 0 };
+    }
+    if (gitLocation(found.source) === null) return {};
+    const commit = yield* git(["rev-parse", "HEAD"], found.directory);
+    if (commit === "") return {};
+    const installed = { commit: commit.slice(0, 7) };
+    if (pinned) return installed;
+    const latest = yield* Cache.get(latestCache, found.source);
+    return latest === "" ? installed : { ...installed, updateAvailable: latest !== commit };
+  });
 
   /**
    * gentle-pi's own API script, when the installed release ships one. Through it gentle-pi
@@ -389,7 +394,7 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
    * Runs Pi to completion and fails with the tail of its output when it exits non-zero, so a
    * failed install or setup reaches the user instead of looking like success.
    */
-  const runPi = (
+  const runPi = Effect.fn("PiGentleSettings.runPi")(function* (
     args: ReadonlyArray<string>,
     options: {
       readonly cwd?: string;
@@ -397,33 +402,32 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
       readonly timeout: Duration.Input;
       readonly failure: string;
     },
-  ) =>
-    Effect.gen(function* () {
-      const binary = input.piBinaryPath ?? "pi";
-      const resolved = yield* resolveSpawnCommand(binary, args, { env: options.env });
-      const result = yield* spawnAndCollect(
-        binary,
-        ChildProcess.make(resolved.command, resolved.args, {
-          ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
-          env: options.env,
-          extendEnv: false,
-          shell: resolved.shell,
-          stdin: "ignore",
-        }),
-      ).pipe(
-        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
-        Effect.timeoutOrElse({
-          duration: options.timeout,
-          orElse: () =>
-            Effect.fail(new PiGentleSettingsError({ detail: `${options.failure} Pi timed out.` })),
-        }),
-      );
-      if (result.code === 0) return;
-      const output = (result.stderr.trim() || result.stdout.trim()).split("\n").slice(-3);
-      return yield* new PiGentleSettingsError({
-        detail: `${options.failure} ${output.join(" ").slice(-400) || `Pi exited with code ${result.code}.`}`,
-      });
+  ) {
+    const binary = input.piBinaryPath ?? "pi";
+    const resolved = yield* resolveSpawnCommand(binary, args, { env: options.env });
+    const result = yield* spawnAndCollect(
+      binary,
+      ChildProcess.make(resolved.command, resolved.args, {
+        ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+        env: options.env,
+        extendEnv: false,
+        shell: resolved.shell,
+        stdin: "ignore",
+      }),
+    ).pipe(
+      Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+      Effect.timeoutOrElse({
+        duration: options.timeout,
+        orElse: () =>
+          Effect.fail(new PiGentleSettingsError({ detail: `${options.failure} Pi timed out.` })),
+      }),
+    );
+    if (result.code === 0) return;
+    const output = (result.stderr.trim() || result.stdout.trim()).split("\n").slice(-3);
+    return yield* new PiGentleSettingsError({
+      detail: `${options.failure} ${output.join(" ").slice(-400) || `Pi exited with code ${result.code}.`}`,
     });
+  });
 
   const loadProfiles = Effect.gen(function* () {
     if (!(yield* fileSystem.exists(profilesPath))) {
@@ -433,30 +437,31 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
     return yield* Effect.try({ try: () => parseProfiles(value), catch: toGentleError });
   });
 
-  const resolveProjectPaths = (cwd: string) =>
-    Effect.gen(function* () {
-      if (!path.isAbsolute(cwd))
-        return yield* new PiGentleSettingsError({ detail: "Choose an absolute project folder." });
-      const git = (args: ReadonlyArray<string>) =>
-        spawner
-          .string(ChildProcess.make("git", args, { cwd, stdin: "ignore", stderr: "ignore" }))
-          .pipe(
-            Effect.timeout("5 seconds"),
-            Effect.map((output) => output.trim()),
-          );
-      const repository = yield* Effect.all([
-        git(["rev-parse", "--show-toplevel"]),
-        git(["rev-parse", "--path-format=absolute", "--git-common-dir"]),
-      ]).pipe(Effect.orElseSucceed(() => null));
-      return {
-        localPin: repository
-          ? path.join(path.resolve(repository[1]), "gentle-ai", "profile-pin.json")
-          : null,
-        repoPin: repository
-          ? path.join(path.resolve(repository[0]), ".pi", "gentle-ai", "profile.json")
-          : null,
-      };
-    });
+  const resolveProjectPaths = Effect.fn("PiGentleSettings.resolveProjectPaths")(function* (
+    cwd: string,
+  ) {
+    if (!path.isAbsolute(cwd))
+      return yield* new PiGentleSettingsError({ detail: "Choose an absolute project folder." });
+    const git = (args: ReadonlyArray<string>) =>
+      spawner
+        .string(ChildProcess.make("git", args, { cwd, stdin: "ignore", stderr: "ignore" }))
+        .pipe(
+          Effect.timeout("5 seconds"),
+          Effect.map((output) => output.trim()),
+        );
+    const repository = yield* Effect.all([
+      git(["rev-parse", "--show-toplevel"]),
+      git(["rev-parse", "--path-format=absolute", "--git-common-dir"]),
+    ]).pipe(Effect.orElseSucceed(() => null));
+    return {
+      localPin: repository
+        ? path.join(path.resolve(repository[1]), "gentle-ai", "profile-pin.json")
+        : null,
+      repoPin: repository
+        ? path.join(path.resolve(repository[0]), ".pi", "gentle-ai", "profile.json")
+        : null,
+    };
+  });
 
   // Every Gentle read and action needs the project's git layout; composers re-read after each
   // turn, so the two git lookups are cached briefly instead of spawned every time.
@@ -467,176 +472,176 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
   });
   const projectPaths = (cwd: string) => Cache.get(projectPathsCache, cwd);
 
-  const readPin = (filePath: string) =>
-    Effect.gen(function* () {
-      if (!(yield* fileSystem.exists(filePath))) return null;
-      return yield* readJson(filePath).pipe(
-        Effect.flatMap(decodePin),
-        Effect.map((pin) => (validProfileName(pin.profile) ? pin.profile : null)),
-        Effect.orElseSucceed(() => null),
-      );
-    });
+  const readPin = Effect.fn("PiGentleSettings.readPin")(function* (filePath: string) {
+    if (!(yield* fileSystem.exists(filePath))) return null;
+    return yield* readJson(filePath).pipe(
+      Effect.flatMap(decodePin),
+      Effect.map((pin) => (validProfileName(pin.profile) ? pin.profile : null)),
+      Effect.orElseSucceed(() => null),
+    );
+  });
 
   /** The profile a project's pin selects: the checkout pin, then the repository declaration. */
-  const resolvePin = (store: ProfileStore, cwd: string) =>
-    Effect.gen(function* () {
-      const paths = yield* projectPaths(cwd);
-      const local = paths.localPin ? yield* readPin(paths.localPin) : null;
-      const repo = paths.repoPin ? yield* readPin(paths.repoPin) : null;
-      const pinned =
-        local && Object.hasOwn(store.profiles, local)
-          ? local
-          : repo && Object.hasOwn(store.profiles, repo)
-            ? repo
-            : null;
+  const resolvePin = Effect.fn("PiGentleSettings.resolvePin")(function* (
+    store: ProfileStore,
+    cwd: string,
+  ) {
+    const paths = yield* projectPaths(cwd);
+    const local = paths.localPin ? yield* readPin(paths.localPin) : null;
+    const repo = paths.repoPin ? yield* readPin(paths.repoPin) : null;
+    const pinned =
+      local && Object.hasOwn(store.profiles, local)
+        ? local
+        : repo && Object.hasOwn(store.profiles, repo)
+          ? repo
+          : null;
+    return {
+      paths,
+      pinned,
+      source: pinned === null ? null : pinned === local ? ("local" as const) : ("repo" as const),
+    };
+  });
+
+  const readPersona = Effect.fn("PiGentleSettings.readPersona")(function* (filePath: string) {
+    if (!(yield* fileSystem.exists(filePath))) return null;
+    return yield* readJson(filePath).pipe(
+      Effect.flatMap(Schema.decodeUnknownEffect(PersonaFile)),
+      Effect.map(({ mode }) => mode),
+      Effect.orElseSucceed(() => null),
+    );
+  });
+
+  const readFresh = Effect.fn("PiGentleSettings.readFresh")(function* (cwd: string | undefined) {
+    const found = yield* gentlePackage(cwd);
+    const version = found?.version ?? null;
+    // An outdated install reports its version so clients offer an update; clients show nothing
+    // Gentle-related when there is no version at all.
+    if (!isSupported(version))
       return {
-        paths,
-        pinned,
-        source: pinned === null ? null : pinned === local ? ("local" as const) : ("repo" as const),
-      };
-    });
-
-  const readPersona = (filePath: string) =>
-    Effect.gen(function* () {
-      if (!(yield* fileSystem.exists(filePath))) return null;
-      return yield* readJson(filePath).pipe(
-        Effect.flatMap(Schema.decodeUnknownEffect(PersonaFile)),
-        Effect.map(({ mode }) => mode),
-        Effect.orElseSucceed(() => null),
-      );
-    });
-
-  const readFresh = (cwd?: string) =>
-    Effect.gen(function* () {
-      const found = yield* gentlePackage(cwd);
-      const version = found?.version ?? null;
-      // An outdated install reports its version so clients offer an update; clients show nothing
-      // Gentle-related when there is no version at all.
-      if (!isSupported(version))
-        return {
-          available: false,
-          version,
-          ...(found === null ? {} : { source: found.source }),
-          globalPersona: "gentleman",
-          profiles: [],
-          active: null,
-          project: null,
-        } satisfies PiGentleState;
-      const update = found === null ? {} : yield* updateStatus(found);
-      const script = yield* apiScript(found);
-      if (script !== null) {
-        const state = yield* readApiState(script, cwd);
-        if (state.profilesError !== undefined)
-          return yield* new PiGentleSettingsError({ detail: state.profilesError });
-        return {
-          available: true,
-          version,
-          ...(found === null ? {} : { source: found.source }),
-          ...update,
-          globalPersona: state.persona,
-          profiles: state.profiles,
-          active: state.active,
-          project: state.project
-            ? {
-                pinAvailable: state.project.pinAvailable,
-                pinned: state.project.pinned?.profile ?? null,
-                pinSource: state.project.pinned?.source ?? null,
-                persona: { ...state.project.persona, global: state.persona },
-              }
-            : null,
-          ...(state.commandRules === undefined ? {} : { commandRules: state.commandRules }),
-        } satisfies PiGentleState;
-      }
-      const store = yield* loadProfiles;
-      const pin = cwd ? yield* resolvePin(store, cwd) : null;
-      const paths = pin?.paths ?? null;
-      const globalPersona = (yield* readPersona(globalPersonaPath)) ?? "gentleman";
-      const personaOverride = cwd
-        ? yield* readPersona(path.join(path.resolve(cwd), ".pi", "gentle-ai", "persona.json"))
-        : null;
-      const compatibilityWarning = gentleCompatibilityWarning(version);
+        available: false,
+        version,
+        ...(found === null ? {} : { source: found.source }),
+        globalPersona: "gentleman",
+        profiles: [],
+        active: null,
+        project: null,
+      } satisfies PiGentleState;
+    const update = found === null ? {} : yield* updateStatus(found);
+    const script = yield* apiScript(found);
+    if (script !== null) {
+      const state = yield* readApiState(script, cwd);
+      if (state.profilesError !== undefined)
+        return yield* new PiGentleSettingsError({ detail: state.profilesError });
       return {
         available: true,
         version,
         ...(found === null ? {} : { source: found.source }),
         ...update,
-        ...(compatibilityWarning === undefined ? {} : { compatibilityWarning }),
-        globalPersona,
-        profiles: Object.entries(store.profiles).map(([name, routing]) => ({ name, routing })),
-        active: store.active ?? null,
-        project: paths
+        globalPersona: state.persona,
+        profiles: state.profiles,
+        active: state.active,
+        project: state.project
           ? {
-              pinAvailable: paths.localPin !== null,
-              pinned: pin?.pinned ?? null,
-              pinSource: pin?.source ?? null,
-              persona: {
-                effective: personaOverride ?? globalPersona,
-                global: globalPersona,
-                override: personaOverride,
-              },
+              pinAvailable: state.project.pinAvailable,
+              pinned: state.project.pinned?.profile ?? null,
+              pinSource: state.project.pinned?.source ?? null,
+              persona: { ...state.project.persona, global: state.persona },
             }
           : null,
+        ...(state.commandRules === undefined ? {} : { commandRules: state.commandRules }),
       } satisfies PiGentleState;
-    }).pipe(Effect.mapError(toGentleError));
+    }
+    const store = yield* loadProfiles;
+    const pin = cwd ? yield* resolvePin(store, cwd) : null;
+    const paths = pin?.paths ?? null;
+    const globalPersona = (yield* readPersona(globalPersonaPath)) ?? "gentleman";
+    const personaOverride = cwd
+      ? yield* readPersona(path.join(path.resolve(cwd), ".pi", "gentle-ai", "persona.json"))
+      : null;
+    const compatibilityWarning = gentleCompatibilityWarning(version);
+    return {
+      available: true,
+      version,
+      ...(found === null ? {} : { source: found.source }),
+      ...update,
+      ...(compatibilityWarning === undefined ? {} : { compatibilityWarning }),
+      globalPersona,
+      profiles: Object.entries(store.profiles).map(([name, routing]) => ({ name, routing })),
+      active: store.active ?? null,
+      project: paths
+        ? {
+            pinAvailable: paths.localPin !== null,
+            pinned: pin?.pinned ?? null,
+            pinSource: pin?.source ?? null,
+            persona: {
+              effective: personaOverride ?? globalPersona,
+              global: globalPersona,
+              override: personaOverride,
+            },
+          }
+        : null,
+    } satisfies PiGentleState;
+  }, Effect.mapError(toGentleError));
 
-  const readComposerFresh = (cwd: string) =>
-    Effect.gen(function* () {
-      const found = yield* gentlePackage(cwd);
-      if (!isSupported(found?.version)) return { available: false } satisfies PiGentleComposerState;
-      if (!path.isAbsolute(cwd))
-        return yield* new PiGentleSettingsError({ detail: "Choose an absolute project folder." });
-      const composerProfiles = (
-        profiles: ReadonlyArray<{ readonly name: string; readonly routing: GentleRouting }>,
-        pinned: string | null,
-        active: string | null,
-      ) => ({
-        profiles: profiles.map(({ name, routing }) => {
-          const orchestrator = routing[PI_GENTLE_ORCHESTRATOR];
-          return orchestrator === undefined ? { name } : { name, orchestrator };
-        }),
-        effectiveProfile:
-          pinned !== null
-            ? { name: pinned, pinned: true }
-            : active === null
-              ? null
-              : { name: active, pinned: false },
-      });
-      const script = yield* apiScript(found);
-      // A broken profiles.json hides only the profile list.
-      const profiles = yield* (
-        script !== null
-          ? readApiState(script, cwd).pipe(
-              Effect.filterOrFail(
-                (state) => state.profilesError === undefined,
-                () => new PiGentleSettingsError({ detail: "Gentle profiles are unreadable." }),
+  const readComposerFresh = Effect.fn("PiGentleSettings.readComposerFresh")(function* (
+    cwd: string,
+  ) {
+    const found = yield* gentlePackage(cwd);
+    if (!isSupported(found?.version)) return { available: false } satisfies PiGentleComposerState;
+    if (!path.isAbsolute(cwd))
+      return yield* new PiGentleSettingsError({ detail: "Choose an absolute project folder." });
+    const composerProfiles = (
+      profiles: ReadonlyArray<{ readonly name: string; readonly routing: GentleRouting }>,
+      pinned: string | null,
+      active: string | null,
+    ) => ({
+      profiles: profiles.map(({ name, routing }) => {
+        const orchestrator = routing[PI_GENTLE_ORCHESTRATOR];
+        return orchestrator === undefined ? { name } : { name, orchestrator };
+      }),
+      effectiveProfile:
+        pinned !== null
+          ? { name: pinned, pinned: true }
+          : active === null
+            ? null
+            : { name: active, pinned: false },
+    });
+    const script = yield* apiScript(found);
+    // A broken profiles.json hides only the profile list.
+    const profiles = yield* (
+      script !== null
+        ? readApiState(script, cwd).pipe(
+            Effect.filterOrFail(
+              (state) => state.profilesError === undefined,
+              () => new PiGentleSettingsError({ detail: "Gentle profiles are unreadable." }),
+            ),
+            Effect.map((state) =>
+              composerProfiles(
+                state.profiles,
+                state.project?.pinned?.profile ?? null,
+                state.active,
               ),
-              Effect.map((state) =>
-                composerProfiles(
-                  state.profiles,
-                  state.project?.pinned?.profile ?? null,
-                  state.active,
-                ),
-              ),
-            )
-          : loadProfiles.pipe(
-              Effect.flatMap((store) =>
-                resolvePin(store, cwd).pipe(
-                  Effect.map((pin) =>
-                    composerProfiles(
-                      Object.entries(store.profiles).map(([name, routing]) => ({ name, routing })),
-                      pin.pinned,
-                      store.active ?? null,
-                    ),
+            ),
+          )
+        : loadProfiles.pipe(
+            Effect.flatMap((store) =>
+              resolvePin(store, cwd).pipe(
+                Effect.map((pin) =>
+                  composerProfiles(
+                    Object.entries(store.profiles).map(([name, routing]) => ({ name, routing })),
+                    pin.pinned,
+                    store.active ?? null,
                   ),
                 ),
               ),
-            )
-      ).pipe(Effect.orElseSucceed(() => ({})));
-      return {
-        available: true,
-        ...profiles,
-      } satisfies PiGentleComposerState;
-    }).pipe(Effect.mapError(toGentleError));
+            ),
+          )
+    ).pipe(Effect.orElseSucceed(() => ({})));
+    return {
+      available: true,
+      ...profiles,
+    } satisfies PiGentleComposerState;
+  }, Effect.mapError(toGentleError));
 
   // Each read runs gentle-pi's API (Node) and git, and settings pages and composers read on
   // every open. Repeat reads reuse the answer briefly; T3's own changes clear it at once, and
@@ -669,8 +674,8 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
    * Makes a profile's orchestrator entry Pi's default model, as Gentle AI's own apply does. A
    * profile without an orchestrator model leaves Pi's settings untouched.
    */
-  const applyOrchestrator = (entry: PiGentleRoutingEntry | undefined) =>
-    Effect.gen(function* () {
+  const applyOrchestrator = Effect.fn("PiGentleSettings.applyOrchestrator")(
+    function* (entry: PiGentleRoutingEntry | undefined) {
       const model = entry?.model;
       if (model === undefined) return;
       const separator = model.indexOf("/");
@@ -688,58 +693,61 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
       else settings.defaultThinkingLevel = entry.thinking;
       // Gentle AI's serialization of Pi settings: two-space indent and a trailing newline.
       yield* writeAtomicText(piSettingsPath, `${yield* encodeGentleJson(settings)}\n`);
-    }).pipe(
-      Effect.mapError((cause) =>
-        isPiGentleSettingsError(cause)
-          ? cause
-          : new PiGentleSettingsError({
-              detail: `The orchestrator could not be set in ${piSettingsPath}.`,
-              cause,
-            }),
-      ),
-    );
+    },
+    Effect.mapError((cause) =>
+      isPiGentleSettingsError(cause)
+        ? cause
+        : new PiGentleSettingsError({
+            detail: `The orchestrator could not be set in ${piSettingsPath}.`,
+            cause,
+          }),
+    ),
+  );
 
   /**
    * Activates `name` everywhere Gentle AI reads it: subagent routing in models.json, the active
    * marker, and the orchestrator in Pi's settings. A failure puts back models.json and restores
    * `previous` as the profile store.
    */
-  const applyGlobalProfile = (store: ProfileStore, name: string, previous: ProfileStore = store) =>
-    Effect.gen(function* () {
-      const selected = store.profiles[name];
-      if (!Object.hasOwn(store.profiles, name) || selected === undefined)
-        return yield* new PiGentleSettingsError({ detail: "The profile no longer exists." });
-      const hadModels = yield* fileSystem.exists(modelsPath);
-      const previousModels = hadModels
-        ? yield* readJson(modelsPath).pipe(
-            Effect.flatMap((value) =>
-              Effect.try({ try: () => parseRouting(value), catch: toGentleError }),
-            ),
-          )
-        : {};
-      const knownAgents = new Set([
-        ...Object.keys(previousModels),
-        ...Object.values(store.profiles).flatMap(Object.keys),
-      ]);
-      const nextModels = Object.fromEntries(
-        [...knownAgents].map((agent) => [agent, selected[agent] ?? {}]),
-      );
-      const restoreModels = hadModels
-        ? writeAtomic(modelsPath, previousModels)
-        : fileSystem.remove(modelsPath, { force: true });
-      yield* writeAtomic(modelsPath, nextModels);
-      yield* writeAtomic(profilesPath, { ...store, active: name }).pipe(
-        Effect.onError(() => restoreModels.pipe(Effect.ignore)),
-      );
-      yield* applyOrchestrator(selected[PI_GENTLE_ORCHESTRATOR]).pipe(
-        Effect.onError(() =>
-          Effect.all([restoreModels, writeAtomic(profilesPath, previous)]).pipe(Effect.ignore),
-        ),
-      );
-    });
+  const applyGlobalProfile = Effect.fn("PiGentleSettings.applyGlobalProfile")(function* (
+    store: ProfileStore,
+    name: string,
+    previous: ProfileStore = store,
+  ) {
+    const selected = store.profiles[name];
+    if (!Object.hasOwn(store.profiles, name) || selected === undefined)
+      return yield* new PiGentleSettingsError({ detail: "The profile no longer exists." });
+    const hadModels = yield* fileSystem.exists(modelsPath);
+    const previousModels = hadModels
+      ? yield* readJson(modelsPath).pipe(
+          Effect.flatMap((value) =>
+            Effect.try({ try: () => parseRouting(value), catch: toGentleError }),
+          ),
+        )
+      : {};
+    const knownAgents = new Set([
+      ...Object.keys(previousModels),
+      ...Object.values(store.profiles).flatMap(Object.keys),
+    ]);
+    const nextModels = Object.fromEntries(
+      [...knownAgents].map((agent) => [agent, selected[agent] ?? {}]),
+    );
+    const restoreModels = hadModels
+      ? writeAtomic(modelsPath, previousModels)
+      : fileSystem.remove(modelsPath, { force: true });
+    yield* writeAtomic(modelsPath, nextModels);
+    yield* writeAtomic(profilesPath, { ...store, active: name }).pipe(
+      Effect.onError(() => restoreModels.pipe(Effect.ignore)),
+    );
+    yield* applyOrchestrator(selected[PI_GENTLE_ORCHESTRATOR]).pipe(
+      Effect.onError(() =>
+        Effect.all([restoreModels, writeAtomic(profilesPath, previous)]).pipe(Effect.ignore),
+      ),
+    );
+  });
 
-  const action = (command: PiGentleAction) =>
-    Effect.gen(function* () {
+  const action = Effect.fn("PiGentleSettings.action")(
+    function* (command: PiGentleAction) {
       if (command.type === "install") {
         // gentle-pi from another source, such as npm, would shadow the fork, so it goes first.
         const found = yield* gentlePackage();
@@ -874,11 +882,10 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
         }
       }
       return yield* readAfterChange(command.cwd);
-    }).pipe(
-      // A change that failed partway may still have written something.
-      Effect.onError(() => forgetReads),
-      Effect.mapError(toGentleError),
-    );
+    }, // A change that failed partway may still have written something.
+    Effect.onError(() => forgetReads),
+    Effect.mapError(toGentleError),
+  );
 
   return { read, readComposer, action };
 });

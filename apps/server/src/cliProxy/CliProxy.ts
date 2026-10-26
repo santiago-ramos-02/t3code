@@ -358,44 +358,43 @@ const make = Effect.gen(function* () {
   });
 
   /** A management call with the key T3 Code holds. */
-  const call = (input: {
+  const call = Effect.fn("CliProxy.call")(function* (input: {
     readonly method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
     readonly path: string;
     readonly body?: unknown;
     /** The model list as Claude Code sees it: names and the IDs it sends. */
     readonly claudeListing?: boolean;
-  }) =>
-    Effect.gen(function* () {
-      if (!isAllowedManagementPath(input.path)) {
-        return yield* fail("That is not a CLIProxyAPI management path.");
-      }
-      const { host, port, clientKey } = yield* config;
-      const models = input.path.split("?")[0] === "/v1/models";
-      const key = models ? clientKey : yield* managementKey;
-      if (key === null) {
-        return yield* fail(
-          models
-            ? "CLIProxyAPI has no client key in its config."
-            : "T3 Code does not have this proxy's management key yet.",
-        );
-      }
-      const response = yield* request({
-        method: input.method,
-        url: `http://${host}:${port}${input.path}`,
-        headers: {
-          Authorization: `Bearer ${key}`,
-          ...(models && input.claudeListing ? { "anthropic-version": "2023-06-01" } : {}),
-        },
-        json: input.body,
-        timeout: "60 seconds",
-        failure: "CLIProxyAPI did not answer.",
-      });
-      const text = yield* response.text.pipe(Effect.orElseSucceed(() => ""));
-      // Logs and YAML come back as text; everything else is JSON.
-      const data: unknown =
-        text === "" ? null : Option.getOrElse(decodeJsonText(text), (): unknown => text);
-      return { status: response.status, data };
+  }) {
+    if (!isAllowedManagementPath(input.path)) {
+      return yield* fail("That is not a CLIProxyAPI management path.");
+    }
+    const { host, port, clientKey } = yield* config;
+    const models = input.path.split("?")[0] === "/v1/models";
+    const key = models ? clientKey : yield* managementKey;
+    if (key === null) {
+      return yield* fail(
+        models
+          ? "CLIProxyAPI has no client key in its config."
+          : "T3 Code does not have this proxy's management key yet.",
+      );
+    }
+    const response = yield* request({
+      method: input.method,
+      url: `http://${host}:${port}${input.path}`,
+      headers: {
+        Authorization: `Bearer ${key}`,
+        ...(models && input.claudeListing ? { "anthropic-version": "2023-06-01" } : {}),
+      },
+      json: input.body,
+      timeout: "60 seconds",
+      failure: "CLIProxyAPI did not answer.",
     });
+    const text = yield* response.text.pipe(Effect.orElseSucceed(() => ""));
+    // Logs and YAML come back as text; everything else is JSON.
+    const data: unknown =
+      text === "" ? null : Option.getOrElse(decodeJsonText(text), (): unknown => text);
+    return { status: response.status, data };
+  });
 
   const readManagementReady = Effect.gen(function* () {
     if ((yield* managementKey) === null) return false;
@@ -480,15 +479,14 @@ const make = Effect.gen(function* () {
     return NodePath.resolve(path) === binary ? pid : null;
   });
 
-  const waitFor = (listening: boolean) =>
-    Effect.gen(function* () {
-      const { host, port } = yield* config;
-      for (let tries = 0; tries < 80; tries++) {
-        if ((yield* Effect.promise(() => isListening(host, port))) === listening) return true;
-        yield* Effect.sleep("250 millis");
-      }
-      return false;
-    });
+  const waitFor = Effect.fn("CliProxy.waitFor")(function* (listening: boolean) {
+    const { host, port } = yield* config;
+    for (let tries = 0; tries < 80; tries++) {
+      if ((yield* Effect.promise(() => isListening(host, port))) === listening) return true;
+      yield* Effect.sleep("250 millis");
+    }
+    return false;
+  });
 
   const start = Effect.gen(function* () {
     if (!(yield* Effect.promise(() => exists(binary)))) {
@@ -555,67 +553,66 @@ const make = Effect.gen(function* () {
     if (!(yield* waitFor(false))) return yield* fail("CLIProxyAPI did not stop.");
   });
 
-  const setStartAtLogin = (enabled: boolean) =>
-    Effect.gen(function* () {
-      if (platform === "win32") {
-        const quote = quotePs;
-        const task = yield* windowsTask;
-        const taskName = quote(task?.name ?? newTaskName);
-        const script = enabled
-          ? [
-              `$action = New-ScheduledTaskAction -Execute 'conhost.exe' -Argument '--headless "${quote(binary)}" -config "${quote(configPath)}"' -WorkingDirectory '${quote(dir)}'`,
-              `$trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME`,
-              `$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 5 -RestartInterval (New-TimeSpan -Minutes 1) -Hidden`,
-              `Register-ScheduledTask -TaskName '${taskName}' -Action $action -Trigger $trigger -Settings $settings -Force | Out-Null`,
-              `'ok'`,
-            ].join("; ")
-          : task === null
-            ? "'ok'"
-            : `Unregister-ScheduledTask -TaskName '${taskName}' -Confirm:$false -ErrorAction SilentlyContinue; 'ok'`;
-        if ((yield* powershell(script)) !== "ok") {
-          return yield* fail("Windows did not accept the login task.");
-        }
-        return;
+  const setStartAtLogin = Effect.fn("CliProxy.setStartAtLogin")(function* (enabled: boolean) {
+    if (platform === "win32") {
+      const quote = quotePs;
+      const task = yield* windowsTask;
+      const taskName = quote(task?.name ?? newTaskName);
+      const script = enabled
+        ? [
+            `$action = New-ScheduledTaskAction -Execute 'conhost.exe' -Argument '--headless "${quote(binary)}" -config "${quote(configPath)}"' -WorkingDirectory '${quote(dir)}'`,
+            `$trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME`,
+            `$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 5 -RestartInterval (New-TimeSpan -Minutes 1) -Hidden`,
+            `Register-ScheduledTask -TaskName '${taskName}' -Action $action -Trigger $trigger -Settings $settings -Force | Out-Null`,
+            `'ok'`,
+          ].join("; ")
+        : task === null
+          ? "'ok'"
+          : `Unregister-ScheduledTask -TaskName '${taskName}' -Confirm:$false -ErrorAction SilentlyContinue; 'ok'`;
+      if ((yield* powershell(script)) !== "ok") {
+        return yield* fail("Windows did not accept the login task.");
       }
-      if (platform === "darwin") {
-        const plist = NodePath.join(
-          NodeOS.homedir(),
-          "Library",
-          "LaunchAgents",
-          `${MAC_AGENT}.plist`,
-        );
-        if (enabled) {
-          const escape = (value: string) =>
-            value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-          yield* attempt("The login item could not be written", () =>
-            writeFileAtomic(
-              plist,
-              `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict>\n<key>Label</key><string>${MAC_AGENT}</string>\n<key>ProgramArguments</key><array><string>${escape(binary)}</string><string>-config</string><string>${escape(configPath)}</string></array>\n<key>WorkingDirectory</key><string>${escape(dir)}</string>\n<key>RunAtLoad</key><true/>\n<key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>\n</dict></plist>\n`,
-            ),
-          );
-        } else {
-          yield* run("launchctl", ["unload", "-w", plist]);
-          yield* Effect.promise(() => NodeFSP.rm(plist, { force: true }));
-        }
-        return;
-      }
-      const unit = NodePath.join(NodeOS.homedir(), ".config", "systemd", "user", LINUX_UNIT);
+      return;
+    }
+    if (platform === "darwin") {
+      const plist = NodePath.join(
+        NodeOS.homedir(),
+        "Library",
+        "LaunchAgents",
+        `${MAC_AGENT}.plist`,
+      );
       if (enabled) {
-        yield* attempt("The login service could not be written", () =>
+        const escape = (value: string) =>
+          value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        yield* attempt("The login item could not be written", () =>
           writeFileAtomic(
-            unit,
-            `[Unit]\nDescription=CLIProxyAPI\n\n[Service]\nExecStart="${binary}" -config "${configPath}"\nWorkingDirectory=${dir}\nRestart=on-failure\n\n[Install]\nWantedBy=default.target\n`,
+            plist,
+            `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict>\n<key>Label</key><string>${MAC_AGENT}</string>\n<key>ProgramArguments</key><array><string>${escape(binary)}</string><string>-config</string><string>${escape(configPath)}</string></array>\n<key>WorkingDirectory</key><string>${escape(dir)}</string>\n<key>RunAtLoad</key><true/>\n<key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>\n</dict></plist>\n`,
           ),
         );
-        yield* run("systemctl", ["--user", "daemon-reload"]);
-        if ((yield* run("systemctl", ["--user", "enable", LINUX_UNIT])) === null) {
-          return yield* fail("systemd did not enable the login service.");
-        }
       } else {
-        yield* run("systemctl", ["--user", "disable", LINUX_UNIT]);
-        yield* Effect.promise(() => NodeFSP.rm(unit, { force: true }));
+        yield* run("launchctl", ["unload", "-w", plist]);
+        yield* Effect.promise(() => NodeFSP.rm(plist, { force: true }));
       }
-    });
+      return;
+    }
+    const unit = NodePath.join(NodeOS.homedir(), ".config", "systemd", "user", LINUX_UNIT);
+    if (enabled) {
+      yield* attempt("The login service could not be written", () =>
+        writeFileAtomic(
+          unit,
+          `[Unit]\nDescription=CLIProxyAPI\n\n[Service]\nExecStart="${binary}" -config "${configPath}"\nWorkingDirectory=${dir}\nRestart=on-failure\n\n[Install]\nWantedBy=default.target\n`,
+        ),
+      );
+      yield* run("systemctl", ["--user", "daemon-reload"]);
+      if ((yield* run("systemctl", ["--user", "enable", LINUX_UNIT])) === null) {
+        return yield* fail("systemd did not enable the login service.");
+      }
+    } else {
+      yield* run("systemctl", ["--user", "disable", LINUX_UNIT]);
+      yield* Effect.promise(() => NodeFSP.rm(unit, { force: true }));
+    }
+  });
 
   /** Installs when missing, otherwise moves to the latest release; the previous one is kept. */
   const update = Effect.gen(function* () {
@@ -686,83 +683,80 @@ const make = Effect.gen(function* () {
    * and whose model list holds the proxy's other models and pools, and as a usage source for
    * its accounts' limits. Adding again re-reads the models. Removing takes both away.
    */
-  const setConnected = (enabled: boolean) =>
-    Effect.gen(function* () {
-      const settings = yield* serverSettings.getSettings.pipe(
-        Effect.mapError(() => fail("T3 Code's settings could not be read.")),
-      );
-      const { [PROVIDER_ID]: _previous, ...otherInstances } = settings.providerInstances;
-      if (!enabled) {
-        yield* serverSettings
-          .updateSettings({
-            providerInstances: otherInstances,
-            usageLimitSources: { [USAGE_SOURCE_ID]: null },
-          })
-          .pipe(Effect.mapError(() => fail("T3 Code's settings could not be changed.")));
-        return;
-      }
-      const { host, port, clientKey } = yield* config;
-      const key = yield* managementKey;
-      if (clientKey === null) return yield* fail("CLIProxyAPI has no client key in its config.");
-      if (key === null)
-        return yield* fail("T3 Code does not have this proxy's management key yet.");
-      const url = `http://${host}:${port}`;
-      const models = yield* call({ method: "GET", path: "/v1/models", claudeListing: true });
-      const proxyConfig = yield* call({ method: "GET", path: "/v8/management/config" });
-      if (models.status !== 200) return yield* fail("CLIProxyAPI did not list its models.");
+  const setConnected = Effect.fn("CliProxy.setConnected")(function* (enabled: boolean) {
+    const settings = yield* serverSettings.getSettings.pipe(
+      Effect.mapError(() => fail("T3 Code's settings could not be read.")),
+    );
+    const { [PROVIDER_ID]: _previous, ...otherInstances } = settings.providerInstances;
+    if (!enabled) {
       yield* serverSettings
         .updateSettings({
-          providerInstances: {
-            ...otherInstances,
-            [PROVIDER_ID]: {
-              driver: ProviderDriverKind.make("claudeAgent"),
-              displayName: "CLIProxyAPI",
-              environment: [
-                { name: "ANTHROPIC_BASE_URL", value: url, sensitive: false },
-                { name: "ANTHROPIC_AUTH_TOKEN", value: clientKey, sensitive: true },
-              ],
-              enabled: true,
-              config: {
-                customModels: proxyCustomModels(
-                  models.data,
-                  proxyConfig.status === 200 ? proxyConfig.data : null,
-                ),
-              },
-            },
-          },
-          usageLimitSources: {
-            [USAGE_SOURCE_ID]: {
-              kind: "cliproxy",
-              label: "CLIProxyAPI on this computer",
-              url,
-              managementKey: key,
-              enabled: true,
-            },
-          },
+          providerInstances: otherInstances,
+          usageLimitSources: { [USAGE_SOURCE_ID]: null },
         })
         .pipe(Effect.mapError(() => fail("T3 Code's settings could not be changed.")));
-    });
+      return;
+    }
+    const { host, port, clientKey } = yield* config;
+    const key = yield* managementKey;
+    if (clientKey === null) return yield* fail("CLIProxyAPI has no client key in its config.");
+    if (key === null) return yield* fail("T3 Code does not have this proxy's management key yet.");
+    const url = `http://${host}:${port}`;
+    const models = yield* call({ method: "GET", path: "/v1/models", claudeListing: true });
+    const proxyConfig = yield* call({ method: "GET", path: "/v8/management/config" });
+    if (models.status !== 200) return yield* fail("CLIProxyAPI did not list its models.");
+    yield* serverSettings
+      .updateSettings({
+        providerInstances: {
+          ...otherInstances,
+          [PROVIDER_ID]: {
+            driver: ProviderDriverKind.make("claudeAgent"),
+            displayName: "CLIProxyAPI",
+            environment: [
+              { name: "ANTHROPIC_BASE_URL", value: url, sensitive: false },
+              { name: "ANTHROPIC_AUTH_TOKEN", value: clientKey, sensitive: true },
+            ],
+            enabled: true,
+            config: {
+              customModels: proxyCustomModels(
+                models.data,
+                proxyConfig.status === 200 ? proxyConfig.data : null,
+              ),
+            },
+          },
+        },
+        usageLimitSources: {
+          [USAGE_SOURCE_ID]: {
+            kind: "cliproxy",
+            label: "CLIProxyAPI on this computer",
+            url,
+            managementKey: key,
+            enabled: true,
+          },
+        },
+      })
+      .pipe(Effect.mapError(() => fail("T3 Code's settings could not be changed.")));
+  });
 
-  const setManagementKey = (key: string) =>
-    Effect.gen(function* () {
-      const trimmed = key.trim();
-      if (trimmed === "") return yield* fail("Enter the management key.");
-      yield* attempt("The key could not be saved", () => writeFileAtomic(keyPath, `${trimmed}\n`));
-      const { host, port } = yield* config;
-      if (yield* Effect.promise(() => isListening(host, port))) {
-        const check = yield* call({ method: "GET", path: "/v8/management/config" });
-        if (check.status === 401 || check.status === 403) {
-          yield* Effect.promise(() => NodeFSP.rm(keyPath, { force: true }));
-          return yield* fail("CLIProxyAPI did not accept that management key.");
-        }
+  const setManagementKey = Effect.fn("CliProxy.setManagementKey")(function* (key: string) {
+    const trimmed = key.trim();
+    if (trimmed === "") return yield* fail("Enter the management key.");
+    yield* attempt("The key could not be saved", () => writeFileAtomic(keyPath, `${trimmed}\n`));
+    const { host, port } = yield* config;
+    if (yield* Effect.promise(() => isListening(host, port))) {
+      const check = yield* call({ method: "GET", path: "/v8/management/config" });
+      if (check.status === 401 || check.status === 403) {
+        yield* Effect.promise(() => NodeFSP.rm(keyPath, { force: true }));
+        return yield* fail("CLIProxyAPI did not accept that management key.");
       }
-    });
+    }
+  });
 
   // Actions and polls take turns, so a poll never reports a restart half done.
   const turns = yield* Semaphore.make(1);
 
-  const action = (input: CliProxyAction) =>
-    Effect.gen(function* () {
+  const action = Effect.fn("CliProxy.action")(
+    function* (input: CliProxyAction) {
       switch (input.type) {
         case "update":
           yield* update;
@@ -791,16 +785,15 @@ const make = Effect.gen(function* () {
       const next = yield* current;
       yield* PubSub.publish(changes, next);
       return next;
-    }).pipe(
-      // A failed action can still have changed something, such as stopping before a failed start.
-      Effect.tapError(() =>
-        refreshSlow.pipe(
-          Effect.andThen(current),
-          Effect.flatMap((next) => PubSub.publish(changes, next)),
-        ),
+    }, // A failed action can still have changed something, such as stopping before a failed start.
+    Effect.tapError(() =>
+      refreshSlow.pipe(
+        Effect.andThen(current),
+        Effect.flatMap((next) => PubSub.publish(changes, next)),
       ),
-      turns.withPermits(1),
-    );
+    ),
+    turns.withPermits(1),
+  );
 
   // Polled for what changes outside T3 Code, such as the proxy exiting; actions publish at once.
   const streamChanges = Stream.unwrap(

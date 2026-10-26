@@ -144,18 +144,20 @@ export const make = Effect.gen(function* () {
     return `sha256-${NodeCrypto.createHash("sha256").update(bytes).digest("hex")}`;
   });
 
-  const markerMatches = (serverIdentity: string) =>
-    Effect.gen(function* () {
+  const markerMatches = Effect.fn("DesktopWslServerTree.markerMatches")(
+    function* (serverIdentity: string) {
       const raw = yield* fs.readFileString(join(versionDir, MARKER_FILE_NAME));
       const marker = yield* decodeMarker(raw);
       // Legacy version-only markers fail the decode above (missing
       // serverIdentity) and are treated as cache misses, so they migrate on
       // the next extraction.
       return marker.version === version && marker.serverIdentity === serverIdentity;
-    }).pipe(Effect.orElseSucceed(() => false));
+    },
+    Effect.orElseSucceed(() => false),
+  );
 
-  const extract = (serverIdentity: string) =>
-    Effect.gen(function* () {
+  const extract = Effect.fn("DesktopWslServerTree.extract")(
+    function* (serverIdentity: string) {
       yield* Effect.log(`[wsl-server-tree] Extracting ${serverRoot} to ${versionDir}...`);
       yield* fs.makeDirectory(treeRoot, { recursive: true });
       // A sibling temp directory permits atomic rename; explicit cleanup avoids a scoped finalizer failing after the move.
@@ -175,11 +177,11 @@ export const make = Effect.gen(function* () {
         ),
       );
       yield* Effect.log(`[wsl-server-tree] Extraction complete at ${versionDir}.`);
-    }).pipe(
-      Effect.mapError(
-        (cause) => new DesktopWslServerTreeExtractError({ targetDir: versionDir, cause }),
-      ),
-    );
+    },
+    Effect.mapError(
+      (cause) => new DesktopWslServerTreeExtractError({ targetDir: versionDir, cause }),
+    ),
+  );
 
   const gate = yield* Semaphore.make(1);
 

@@ -40,7 +40,9 @@ export const layer = Layer.effect(
     const latest = yield* Ref.make(stored[0]?.ttl ?? undefined);
     return {
       latest: Ref.get(latest),
-      observe: (ttlSeconds: number) => Ref.set(latest, ttlSeconds),
+      observe: Effect.fn("ClaudeCacheLifetime.observe")(function (ttlSeconds: number) {
+        return Ref.set(latest, ttlSeconds);
+      }),
     };
   }),
 );

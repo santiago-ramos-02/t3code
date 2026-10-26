@@ -30,30 +30,29 @@ export const PiGentleDriver: ProviderDriver<
   ProviderUsageReaderEnv<typeof PiDriver>
 > = {
   ...PiDriver,
-  create: (input) =>
-    Effect.gen(function* () {
-      const claudeCacheLifetime = yield* ClaudeCacheLifetime.ClaudeCacheLifetime;
-      const instance = yield* PiDriver.create(input).pipe(
-        Effect.provideService(PiGentleHooks, {
-          prepareSession: yield* makePiGentleSession(PiDriver.driverKind),
-          callCacheTtlSeconds: (usage, call) =>
-            claudeCacheLifetime.latest.pipe(
-              Effect.map((claudeCodeTtlSeconds) =>
-                piCallCacheTtlSeconds(usage, call, claudeCodeTtlSeconds),
-              ),
+  create: Effect.fn("PiGentleDriver.create")(function* (input) {
+    const claudeCacheLifetime = yield* ClaudeCacheLifetime.ClaudeCacheLifetime;
+    const instance = yield* PiDriver.create(input).pipe(
+      Effect.provideService(PiGentleHooks, {
+        prepareSession: yield* makePiGentleSession(PiDriver.driverKind),
+        callCacheTtlSeconds: (usage, call) =>
+          claudeCacheLifetime.latest.pipe(
+            Effect.map((claudeCodeTtlSeconds) =>
+              piCallCacheTtlSeconds(usage, call, claudeCodeTtlSeconds),
             ),
-          makeGentle: makePiGentle,
-        }),
-      );
-      // gentle-pi settings, profiles, and setup, read through its own API.
-      const piGentle = yield* makePiGentleSettings({
-        environment: yield* mergeProviderInstanceEnvironment(input.environment),
-        httpClient: yield* HttpClient.HttpClient,
-        piBinaryPath: input.config.binaryPath,
-        fileSystem: yield* FileSystem.FileSystem,
-        path: yield* Path.Path,
-        spawner: yield* ChildProcessSpawner.ChildProcessSpawner,
-      });
-      return { ...instance, piGentle };
-    }),
+          ),
+        makeGentle: makePiGentle,
+      }),
+    );
+    // gentle-pi settings, profiles, and setup, read through its own API.
+    const piGentle = yield* makePiGentleSettings({
+      environment: yield* mergeProviderInstanceEnvironment(input.environment),
+      httpClient: yield* HttpClient.HttpClient,
+      piBinaryPath: input.config.binaryPath,
+      fileSystem: yield* FileSystem.FileSystem,
+      path: yield* Path.Path,
+      spawner: yield* ChildProcessSpawner.ChildProcessSpawner,
+    });
+    return { ...instance, piGentle };
+  }),
 };
