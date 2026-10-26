@@ -53,7 +53,7 @@ function failureMessage(result: Parameters<typeof squashAtomCommandFailure>[0]):
  * Resolves when the clone finishes, or null once it is removed. A failed or
  * cancelled clone keeps waiting, since the composer offers a retry.
  */
-export function waitForClone(environmentId: EnvironmentId, projectId: ProjectId) {
+function waitForClone(environmentId: EnvironmentId, projectId: ProjectId) {
   return new Promise<ProjectCloneSnapshot | null>((resolve) => {
     const atom = environmentProjectClonesAtom(environmentId);
     let seen = false;
@@ -105,7 +105,7 @@ export function dismissProjectFileCopy(ref: ScopedProjectRef) {
  * talk to each other. Resolves once the clone starts. The caller opens the new
  * project, whose composer shows the clone and copy progress, so nothing toasts.
  */
-export async function addProjectToMachine(input: AddProjectToMachineInput): Promise<void> {
+async function addProjectToMachine(input: AddProjectToMachineInput): Promise<void> {
   // Read first, so the copy reflects the files as they were when the user asked.
   const reads = await Promise.all(
     input.files.map(async (relativePath) => {
