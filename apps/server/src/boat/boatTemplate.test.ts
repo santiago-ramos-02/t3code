@@ -2,15 +2,18 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as ChildProcess from "effect/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
+import * as TestClock from "effect/testing/TestClock";
 
 import {
   buildTemplate,
   DEFAULT_TEMPLATE_NAME,
   parsePrepSummary,
+  saveNamedSnapshotAndWait,
   templateNameFor,
   templatePrepScript,
   type TemplateBoat,
@@ -106,10 +109,12 @@ describe("templatePrepScript", () => {
 const makeBoat = (options: { readonly log: string }) => {
   const calls: string[] = [];
   let state = "provisioning";
-  let snapshot: { name: string; createdAt: string } | null = {
+  let snapshot: { name: string; createdAt: string; status: string } | null = {
     name: "my-template",
     createdAt: "2026-10-01T00:00:00.000Z",
+    status: "ready",
   };
+  let saving: string | null = null;
   const boat: TemplateBoat = {
     createSandbox: (input) => {
       calls.push(`create from ${input.from}`);
@@ -134,27 +139,53 @@ const makeBoat = (options: { readonly log: string }) => {
         state = "stopped";
       }),
     deleteSandbox: () => Effect.sync(() => void calls.push("delete build machine")),
+    // Boat lists a save as soon as it starts, and says when it is ready a check later.
     listNamedSnapshots: () =>
-      Effect.succeed({ snapshots: snapshot === null ? [] : [snapshot], free: 10 }),
+      Effect.sync(() => {
+        const listed = snapshot === null ? [] : [snapshot];
+        if (snapshot?.status === "saving") snapshot = { ...snapshot, status: "ready" };
+        else if (saving !== null) {
+          calls.push(`saw ${saving} ready`);
+          saving = null;
+        }
+        return { snapshots: listed, free: 10 };
+      }),
     saveNamedSnapshot: (_id, name) =>
       Effect.sync(() => {
         calls.push(`save as ${name}`);
-        snapshot = { name, createdAt: "2026-10-26T00:00:00.000Z" };
+        saving = name;
+        snapshot = { name, createdAt: "2026-10-26T00:00:00.000Z", status: "saving" };
       }),
   };
   return { boat, calls };
 };
 
+describe("saveNamedSnapshotAndWait", () => {
+  it.effect("returns only once Boat has finished saving", () =>
+    Effect.gen(function* () {
+      const { boat, calls } = makeBoat({ log: "" });
+      const fiber = yield* saveNamedSnapshotAndWait(boat, "bx_source", "my-template-source").pipe(
+        Effect.forkChild,
+      );
+      yield* TestClock.adjust("1 minute");
+      yield* Fiber.join(fiber);
+      assert.deepStrictEqual(calls, ["save as my-template-source", "saw my-template-source ready"]);
+    }),
+  );
+});
+
 describe("buildTemplate", () => {
   it.effect("saves the updated build machine under the template's name, then deletes it", () =>
     Effect.gen(function* () {
       const { boat, calls } = makeBoat({ log: "== Codex\nupdated=Codex;failed=\n" });
-      const summary = yield* buildTemplate({
+      const fiber = yield* buildTemplate({
         boat,
         from: "my-template",
         name: "my-template",
         t3Version: "0.1.3",
-      });
+      }).pipe(Effect.forkChild);
+      yield* TestClock.adjust("1 minute");
+      const summary = yield* Fiber.join(fiber);
       assert.deepStrictEqual(summary, { updated: ["Codex"], failed: [] });
       assert.deepStrictEqual(calls, [
         "create from my-template",
@@ -162,6 +193,7 @@ describe("buildTemplate", () => {
         "run script",
         "stop",
         "save as my-template",
+        "saw my-template ready",
         "delete build machine",
       ]);
     }),

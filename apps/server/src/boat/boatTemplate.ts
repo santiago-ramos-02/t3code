@@ -125,22 +125,26 @@ const sandboxState = (boat: TemplateBoat, sandboxId: string) =>
 
 /**
  * Saves `sandboxId` under `name`, replacing any snapshot of that name, and returns once Boat has
- * it. Boat saves in the background, so a new creation time is what says the save finished.
+ * it. Boat lists a save as soon as it starts, so only a new snapshot that is `ready` counts.
  */
 export const saveNamedSnapshotAndWait = Effect.fn("BoatTemplate.saveNamedSnapshot")(function* (
   boat: TemplateBoat,
   sandboxId: string,
   name: string,
 ) {
-  const createdAt = (snapshots: ReadonlyArray<{ name: string; createdAt: string }>) =>
-    snapshots.find((snapshot) => snapshot.name === name)?.createdAt ?? null;
-  const before = createdAt((yield* boat.listNamedSnapshots()).snapshots);
+  const find = <S extends { readonly name: string }>(snapshots: ReadonlyArray<S>) =>
+    snapshots.find((snapshot) => snapshot.name === name);
+  const before = find((yield* boat.listNamedSnapshots()).snapshots)?.createdAt ?? null;
   yield* boat.saveNamedSnapshot(sandboxId, name);
   yield* waitFor(
     boat.listNamedSnapshots().pipe(
       Effect.map(({ snapshots }) => {
-        const after = createdAt(snapshots);
-        return after !== null && after !== before ? Option.some(after) : Option.none();
+        const saved = find(snapshots);
+        const ready =
+          saved !== undefined &&
+          saved.createdAt !== before &&
+          (saved.status === undefined || saved.status === "ready");
+        return ready ? Option.some(saved) : Option.none();
       }),
     ),
     20,
