@@ -1,7 +1,7 @@
 import { ProjectId, type ProjectCloneSnapshot } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { machineStartRows } from "./machineStartSteps";
+import { machineStartRows, startStepsFor } from "./machineStartSteps";
 
 const clone = (overrides: Partial<ProjectCloneSnapshot>): ProjectCloneSnapshot => ({
   projectId: ProjectId.make("project-1"),
@@ -81,5 +81,22 @@ describe("machineStartRows", () => {
     expect(rowFor({ phase: "done" })?.status).toBe("done");
     expect(rowFor({ phase: "failed", error: "boom" })?.status).toBe("failed");
     expect(rowFor({ phase: "cancelled" })).toMatchObject({ status: "failed", detail: "Cancelled" });
+  });
+});
+
+describe("startStepsFor", () => {
+  it("follows this client's machine when another start began first", () => {
+    const machines = [
+      { state: "starting", startId: "other-client", startSteps: ["starting", "installing"] },
+      { state: "starting", startId: "this-client", startSteps: ["starting"] },
+    ] as const;
+    expect(startStepsFor(machines, "this-client")).toEqual(["starting"]);
+  });
+
+  it("has no steps until the host lists the machine, or once its start is over", () => {
+    expect(startStepsFor([], "this-client")).toBeNull();
+    expect(
+      startStepsFor([{ state: "running", startId: "this-client", startSteps: [] }], "this-client"),
+    ).toBeNull();
   });
 });

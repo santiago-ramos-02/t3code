@@ -35,6 +35,7 @@ const stopped = (
   snapshot,
   notice: null,
   startSteps: [],
+  startId: null,
 });
 
 describe("boatKeepReason", () => {

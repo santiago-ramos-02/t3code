@@ -2462,13 +2462,14 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         hasPendingBackgroundWork: Effect.gen(function* () {
           return pendingWake !== null || (yield* gentle.hasPendingBackgroundWork);
         }),
-        hasPendingBackgroundWorkForThread: (providerThread) =>
-          Effect.gen(function* () {
+        hasPendingBackgroundWorkForThread: Effect.fn("PiAdapter.hasPendingBackgroundWorkForThread")(
+          function* (providerThread: OrchestrationV2ProviderThread) {
             return (
               (pendingWake !== null && pendingWake.state.providerThread.id === providerThread.id) ||
               (yield* gentle.hasPendingBackgroundWorkForThread(providerThread))
             );
-          }),
+          },
+        ),
         getModelContextWindow: (selection) => {
           if (selection.instanceId !== options.instanceId) return undefined;
           const slug =

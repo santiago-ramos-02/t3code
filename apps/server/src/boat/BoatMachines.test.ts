@@ -505,6 +505,32 @@ describe("BoatMachines", () => {
       }).pipe(Effect.provide(layerEnvironment)),
     );
 
+    it.effect("lists the starting machine with the id its start request carried", () =>
+      Effect.gen(function* () {
+        const boat = makeFakeBoat({ pairing: PAIRING_OUTPUT });
+        const service = yield* makeService(boat);
+        yield* service.configure({ apiKey: "boat_test_key" });
+        const startIds = new Set<string | null>();
+        const watching = yield* Deferred.make<void>();
+        const fiber = yield* service.streamChanges.pipe(
+          Stream.runForEach((status) =>
+            Effect.gen(function* () {
+              yield* Deferred.succeed(watching, undefined);
+              const machine = status.machines[0];
+              if (machine?.state === "starting") startIds.add(machine.startId);
+            }),
+          ),
+          Effect.forkChild,
+        );
+        yield* Deferred.await(watching);
+
+        yield* service.spawn({ startId: "start-1" });
+        yield* Fiber.interrupt(fiber);
+
+        assert.deepStrictEqual([...startIds], ["start-1"]);
+      }).pipe(Effect.provide(layerEnvironment)),
+    );
+
     it.effect("leaves out installing and signing in when there is nothing to do for them", () =>
       Effect.gen(function* () {
         const boat = makeFakeBoat({ pairing: PAIRING_OUTPUT });
@@ -553,7 +579,7 @@ describe("BoatMachines", () => {
   );
 
   it.effect(
-    "starts a machine without GitHub access and says private repositories will not clone",
+    "starts a machine without GitHub access and says private repositories will not clone or push",
     () =>
       Effect.gen(function* () {
         const boat = makeFakeBoat({ pairing: PAIRING_OUTPUT });
@@ -564,7 +590,7 @@ describe("BoatMachines", () => {
 
         assert.strictEqual(result.machine.state, "running");
         assert.strictEqual(result.pairingCredential, "PAIR-CODE");
-        assert.include(result.machine.notice, "private repositories will not clone");
+        assert.include(result.machine.notice, "cannot clone private repositories or push");
         assert.deepStrictEqual(boat.machine.tickets, []);
         assert.deepStrictEqual(boat.machine.requests, []);
         assert.isFalse(
@@ -585,7 +611,7 @@ describe("BoatMachines", () => {
       const result = yield* service.spawn({});
 
       assert.strictEqual(result.machine.state, "running");
-      assert.include(result.machine.notice, "private repositories will not clone");
+      assert.include(result.machine.notice, "cannot clone private repositories or push");
       assert.notInclude(JSON.stringify(result), HOST_GITHUB_TOKEN);
       assert.deepStrictEqual(boat.machine.requests, []);
     }).pipe(Effect.provide(layerEnvironment)),
@@ -600,7 +626,7 @@ describe("BoatMachines", () => {
 
       const { machine } = yield* service.spawn({});
 
-      assert.include(machine.notice, "private repositories will not clone");
+      assert.include(machine.notice, "cannot clone private repositories or push");
       assert.include(machine.notice, "could not be installed");
     }).pipe(Effect.provide(layerEnvironment)),
   );

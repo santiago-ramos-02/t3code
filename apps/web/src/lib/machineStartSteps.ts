@@ -1,5 +1,6 @@
 import {
   projectCloneProgressSummary,
+  type BoatMachine,
   type BoatStartStep,
   type ProjectCloneSnapshot,
 } from "@t3tools/contracts";
@@ -13,6 +14,15 @@ const STEP_LABELS: Record<MachineStartStep, string> = {
   "signing-in": "Signing in to GitHub",
   connecting: "Connecting",
 };
+
+/** The steps of the machine whose start carried `startId`, or null until the host lists it. */
+export function startStepsFor(
+  machines: ReadonlyArray<Pick<BoatMachine, "state" | "startId" | "startSteps">>,
+  startId: string,
+): ReadonlyArray<BoatStartStep> | null {
+  const machine = machines.find((m) => m.state === "starting" && m.startId === startId);
+  return machine?.startSteps ?? null;
+}
 
 export interface MachineStartRow {
   readonly id: string;

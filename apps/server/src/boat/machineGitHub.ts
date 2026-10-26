@@ -1,5 +1,5 @@
 /**
- * Gives a Boat machine this server's GitHub token so it can clone private repositories. Boat keeps
+ * Gives a Boat machine this server's GitHub token so it can clone private repositories and push. Boat keeps
  * every command, so the token goes to the machine's own T3 Code server over HTTPS instead.
  */
 import {
@@ -31,9 +31,9 @@ import type { BoatApi } from "./BoatApi.ts";
 const GITHUB_HOST = "github.com";
 
 const NO_GITHUB_LOGIN_NOTICE =
-  "This server has no GitHub login to give the machine, so private repositories will not clone on it. Sign in with `gh auth login` or add a GitHub token in Settings, then resume the machine.";
+  "This server has no GitHub login to give the machine, so it cannot clone private repositories or push to GitHub. Sign in with `gh auth login` or add a GitHub token in Settings, then resume the machine.";
 const GITHUB_LOGIN_FAILED_NOTICE =
-  "T3 Code could not give this machine your GitHub login, so private repositories will not clone on it. Resume the machine to try again.";
+  "T3 Code could not give this machine your GitHub login, so it cannot clone private repositories or push to GitHub. Resume the machine to try again.";
 
 /** The settings change that saves a GitHub token as the one the server reads. */
 export const gitHubTokenPatch = (token: string) =>

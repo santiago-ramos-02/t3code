@@ -177,6 +177,7 @@ import * as ProcessGroupMetrics from "./resourceTelemetry/ProcessGroupMetrics.ts
 import * as ResourceTelemetry from "./resourceTelemetry/ResourceTelemetry.ts";
 import * as GentleAi from "./gentleAi/GentleAi.ts";
 import * as BoatMachines from "./boat/BoatMachines.ts";
+import * as MachineGitTools from "./boat/machineGitTools.ts";
 import * as CliProxy from "./cliProxy/CliProxy.ts";
 import * as Engram from "./memory/Engram.ts";
 import * as GentleAiFootprints from "./gentleAi/GentleAiFootprints.ts";
@@ -653,6 +654,11 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
         Layer.provide(layerServerSettings),
         Layer.provide(layerGitHubCredentials),
         Layer.provide(Socket.layerWebSocketConstructorGlobal),
+      ),
+      MachineGitTools.layer.pipe(
+        Layer.provide(ProcessRunner.layer),
+        Layer.provide(layerServerSettings),
+        Layer.provide(layerGitHubCredentials),
       ),
       Engram.layer,
     ),

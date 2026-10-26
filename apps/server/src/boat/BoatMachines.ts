@@ -47,6 +47,7 @@ import {
 } from "./BoatApi.ts";
 import { makeBoatCli } from "./BoatCli.ts";
 import { giveMachineGitHubLogin } from "./machineGitHub.ts";
+import { BOAT_MACHINE_ENV } from "./machineGitTools.ts";
 import {
   HostVersion,
   T3_COMMAND,
@@ -83,7 +84,7 @@ const DAY_MS = 24 * 60 * MINUTE_MS;
 // Clients forget their pairings with the machines listed here.
 const DELETED_RECORDS = 20;
 
-const T3_SERVE = `sh -lc 'exec ${T3_COMMAND} serve --host 0.0.0.0 --port ${BOAT_T3_PORT} --no-browser'`;
+const T3_SERVE = `sh -lc 'export ${BOAT_MACHINE_ENV}=1; exec ${T3_COMMAND} serve --host 0.0.0.0 --port ${BOAT_T3_PORT} --no-browser'`;
 const T3_UP = `curl -sf -o /dev/null http://127.0.0.1:${BOAT_T3_PORT}/`;
 const T3_WAIT = `for i in $(seq 1 120); do ${T3_UP} && exit 0; sleep 1; done; exit 1`;
 const T3_PAIRING = `sh -lc '${T3_COMMAND} auth pairing create --json'`;
@@ -441,6 +442,7 @@ export const make = Effect.gen(function* () {
       snapshot: null,
       notice: null,
       startSteps: ["starting"],
+      startId: input.startId ?? null,
     };
     // onError also covers interruption, such as the client disconnecting mid-start, since only
     // this call's caller ever receives the pairing credential.
