@@ -314,10 +314,12 @@ describe("gentleAiProjectReviewConsent", () => {
     expect(gentleAiProjectReviewConsent(mode("on"), consent("ask"))).toEqual({
       checked: false,
       available: true,
+      description: "Asks before reviewing each risky change in this project.",
     });
     expect(gentleAiProjectReviewConsent(mode("on"), consent("always"))).toEqual({
       checked: true,
       available: true,
+      description: "Reviews every risky change in this project without asking first.",
     });
   });
 
@@ -325,10 +327,12 @@ describe("gentleAiProjectReviewConsent", () => {
     expect(gentleAiProjectReviewConsent(mode("off"), consent("ask"))).toEqual({
       checked: false,
       available: false,
+      description: "Turn on review in this project to choose this.",
     });
     expect(gentleAiProjectReviewConsent(mode("off"), consent("always"))).toEqual({
       checked: true,
       available: true,
+      description: "Reviews start without asking once review is on in this project.",
     });
   });
 });

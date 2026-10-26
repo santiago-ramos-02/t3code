@@ -173,9 +173,8 @@ function ProjectReviewRows({
           title="Review without asking"
           description={
             consent.error ??
-            (askFirst?.checked
-              ? "Reviews every risky change in this project without asking first."
-              : "Asks before reviewing each risky change in this project.")
+            askFirst?.description ??
+            "Asks before reviewing each risky change in this project."
           }
           control={
             askFirst === null ? (

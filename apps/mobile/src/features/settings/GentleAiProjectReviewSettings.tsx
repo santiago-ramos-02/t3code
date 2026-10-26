@@ -105,14 +105,7 @@ function ProjectReview(props: {
         <SettingsSwitchRow
           icon="bolt.circle"
           label="Review without asking"
-          subtitle={
-            consent.error ??
-            (askFirst === null
-              ? "Reading…"
-              : askFirst.checked
-                ? "Reviews every risky change in this project without asking first."
-                : "Asks before reviewing each risky change in this project.")
-          }
+          subtitle={consent.error ?? (askFirst === null ? "Reading…" : askFirst.description)}
           value={askFirst?.checked ?? false}
           disabled={disabled || askFirst === null || !askFirst.available}
           onValueChange={(always) =>

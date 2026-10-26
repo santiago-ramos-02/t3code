@@ -393,7 +393,15 @@ export function gentleAiProjectReviewConsent(
   consent: GentleAiReviewConsent,
 ) {
   const checked = consent.consent === "always";
-  return { checked, available: checked || mode.status.effective === "on" };
+  const reviewing = mode.status.effective === "on";
+  const description = !reviewing
+    ? checked
+      ? "Reviews start without asking once review is on in this project."
+      : "Turn on review in this project to choose this."
+    : checked
+      ? "Reviews every risky change in this project without asking first."
+      : "Asks before reviewing each risky change in this project.";
+  return { checked, available: checked || reviewing, description };
 }
 
 /**
