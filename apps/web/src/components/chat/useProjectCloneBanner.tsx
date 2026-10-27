@@ -89,7 +89,6 @@ export function useProjectCloneBanner(activeProjectRef: ScopedProjectRef | null)
       return {
         id: `project-clone:${projectId}`,
         variant: "info",
-        priority: "activity",
         icon: <DownloadIcon />,
         title: `Cloning ${name}`,
         description: projectCloneProgressSummary(activeProjectClone),
@@ -173,7 +172,6 @@ function machineStartBannerItem(
     return {
       id: `machine-start:${job.id}`,
       variant: "info",
-      priority: "activity",
       icon: <DownloadIcon />,
       title: `Adding ${job.title} to ${job.targetLabel}`,
       children,
