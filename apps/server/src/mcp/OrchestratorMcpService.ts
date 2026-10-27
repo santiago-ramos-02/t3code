@@ -1076,6 +1076,22 @@ function timelineItem(input: {
   };
 }
 
+// The URL is stored on the child thread and sent to the machine, so it must carry no secret. An
+// https login is dropped (the machine gets its own GitHub access); a URL that embeds a password
+// for any other scheme, or that does not parse, has no safe form and gives undefined. A scp-style
+// or ssh URL without a password only names a login, such as `git@`, and is kept.
+const originUrlWithoutCredentials = (remoteUrl: string): string | undefined => {
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(remoteUrl)) return remoteUrl;
+  if (!URL.canParse(remoteUrl)) return undefined;
+  const parsed = new URL(remoteUrl);
+  if (parsed.protocol === "https:" || parsed.protocol === "http:") {
+    parsed.username = "";
+    parsed.password = "";
+    return parsed.toString();
+  }
+  return parsed.password === "" ? remoteUrl : undefined;
+};
+
 // `git ls-remote --exit-code` exits 2 when the remote has no matching ref.
 const LS_REMOTE_NO_MATCH = 2;
 
@@ -1172,10 +1188,17 @@ const make = Effect.gen(function* () {
           `The branch "${branch}" is not on origin, so the Boat machine cannot work from it. Push it with \`git push -u origin ${branch}\` first, then delegate again.`,
         );
       }
+      const cloneUrl = originUrlWithoutCredentials(remoteUrl);
+      if (cloneUrl === undefined) {
+        return yield* failure(
+          "invalid_request",
+          "The parent project's origin remote embeds credentials, which are not passed to a Boat machine. Set origin to a URL without credentials and try again.",
+        );
+      }
       return boatDelegateModelSelection({
         sandboxId: input.sandboxId,
         remote: input.remote,
-        remoteUrl,
+        remoteUrl: cloneUrl,
         branch,
       });
     },

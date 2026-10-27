@@ -263,6 +263,9 @@ export const makeBoatAdapterV2 = (input: {
         });
         // Once the machine has the message, stopping its run is the machine's job.
         let accepted = false;
+        // An interrupt before the machine answers ends the turn here, and the machine's run is
+        // stopped once its answer shows it took the message.
+        let interruptRequested = false;
         let settled = false;
         let turnStartedAt = openedAt;
         let fiber: Fiber.Fiber<void> | undefined;
@@ -472,6 +475,10 @@ export const makeBoatAdapterV2 = (input: {
               message: { messageId: turn.message.messageId, text: turn.message.text },
             });
           }
+          if (interruptRequested) {
+            yield* machine.stop({ threadId: machineThreadId, requestId: providerTurnId });
+            return { status: "interrupted" } satisfies Outcome;
+          }
           yield* markAccepted();
 
           let last: MachineRun | undefined;
@@ -514,7 +521,7 @@ export const makeBoatAdapterV2 = (input: {
           }),
           cancelBeforeAccepted: Effect.gen(function* () {
             if (accepted || fiber === undefined) return false;
-            yield* Fiber.interrupt(fiber);
+            interruptRequested = true;
             yield* settle({ status: "interrupted" });
             return true;
           }),

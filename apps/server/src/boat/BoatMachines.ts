@@ -19,7 +19,7 @@ import { resolveWorktreeCleanup } from "@t3tools/shared/projectSettings";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
-import type * as Duration from "effect/Duration";
+import * as Duration from "effect/Duration";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -99,6 +99,11 @@ const MINUTE_MS = 60 * 1000;
 // How often a running machine's usage is copied to this server; stops and deletes copy first.
 const USAGE_COPY_INTERVAL_MS = 15 * MINUTE_MS;
 const DAY_MS = 24 * 60 * MINUTE_MS;
+// How long a new machine may stay in starting before a caller stops waiting: longer than a start
+// takes (boot, install, serve and pairing waits add up to about 13 minutes at their limits).
+const MACHINE_START_LIMIT_MS = 15 * MINUTE_MS;
+// How long a caller waits for a machine to finish stopping.
+const MACHINE_STOP_LIMIT_MS = 5 * MINUTE_MS;
 // Clients forget their pairings with the machines listed here.
 const DELETED_RECORDS = 20;
 
@@ -882,15 +887,33 @@ export const make = Effect.gen(function* () {
         );
       }
       if (machine.state === "starting" || machine.state === "stopping") {
-        yield* SubscriptionRef.changes(state).pipe(
-          Stream.filter((next) =>
-            next.machines.every(
-              (m) =>
-                m.sandboxId !== sandboxId || (m.state !== "starting" && m.state !== "stopping"),
-            ),
-          ),
-          Stream.runHead,
-        );
+        // A start has until its limit from creation, however many callers wait on it.
+        const waitMs =
+          machine.state === "starting"
+            ? Date.parse(machine.createdAt) +
+              MACHINE_START_LIMIT_MS -
+              DateTime.toEpochMillis(yield* DateTime.now)
+            : MACHINE_STOP_LIMIT_MS;
+        const settled =
+          waitMs <= 0
+            ? Option.none()
+            : yield* SubscriptionRef.changes(state).pipe(
+                Stream.filter((next) =>
+                  next.machines.every(
+                    (m) =>
+                      m.sandboxId !== sandboxId ||
+                      (m.state !== "starting" && m.state !== "stopping"),
+                  ),
+                ),
+                Stream.runHead,
+                Effect.timeoutOption(Duration.millis(waitMs)),
+                Effect.map(Option.flatten),
+              );
+        if (Option.isNone(settled)) {
+          return yield* fail(
+            `That Boat machine is still ${machine.state}. Check it with t3_boat_machine_list, or delete it and start a new one.`,
+          );
+        }
         continue;
       }
       if (machine.state !== "running" && machine.state !== "stopped") {

@@ -1400,6 +1400,27 @@ describe("BoatMachines.connect", () => {
       );
     }).pipe(Effect.provide(layerEnvironment)),
   );
+
+  it.effect("gives up on a machine that stays in starting", () =>
+    Effect.gen(function* () {
+      const pairingReached = yield* Deferred.make<void>();
+      const pairingRelease = yield* Deferred.make<void>();
+      const boat = makeFakeBoat({ pairing: PAIRING_OUTPUT, pairingReached, pairingRelease });
+      const service = yield* makeService(boat);
+      yield* service.configure({ apiKey: "boat_test_key" });
+      yield* service.spawn({}).pipe(Effect.forkChild);
+      yield* Deferred.await(pairingReached);
+
+      // A start that outlasts its limit is stuck, and a caller no longer waits for it.
+      yield* TestClock.adjust("16 minutes");
+      const error = yield* Effect.scoped(
+        service.connect({ sandboxId: SANDBOX_ID, scopes: ORCHESTRATION_SCOPES, group: ProbeRpcs }),
+      ).pipe(Effect.flip);
+
+      assert.include(error.detail, "still starting");
+      assert.strictEqual((yield* service.current).machines[0]?.state, "starting");
+    }).pipe(Effect.provide(layerEnvironment)),
+  );
 });
 
 const REMOTE_URL = "https://github.com/acme/widgets.git";

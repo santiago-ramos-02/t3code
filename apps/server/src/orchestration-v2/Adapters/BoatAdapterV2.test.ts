@@ -77,6 +77,7 @@ interface Machine {
 const makeMachines = (machine: Machine) => {
   const calls: Array<Call> = [];
   const connections = { opened: 0, closed: 0 };
+  const closed = Deferred.makeUnsafe<void>();
   let follows = 0;
   const machines: MachineThreads = {
     ensureProject: (input) =>
@@ -92,7 +93,10 @@ const makeMachines = (machine: Machine) => {
           calls.push({ kind: "connect" });
           connections.opened++;
         }),
-        () => Effect.sync(() => connections.closed++),
+        () =>
+          Effect.sync(() => connections.closed++).pipe(
+            Effect.andThen(Deferred.succeed(closed, undefined)),
+          ),
       ).pipe(
         Effect.as({
           launch: (input) =>
@@ -111,7 +115,7 @@ const makeMachines = (machine: Machine) => {
         }),
       ),
   };
-  return { machines, calls, connections };
+  return { machines, calls, connections, closed };
 };
 
 const makeAppThread = (): OrchestrationV2AppThread => ({
@@ -676,17 +680,65 @@ describe("BoatAdapterV2", () => {
       }).pipe(Effect.scoped),
   );
 
-  it.effect("ends an interrupted turn here when the machine has not received it yet", () =>
+  it.effect(
+    "ends an interrupted turn at once, then stops the machine thread if it took the launch",
+    () =>
+      Effect.gen(function* () {
+        const launchStarted = yield* Deferred.make<void>();
+        const launchGate = yield* Deferred.make<void>();
+        const { runtime, turnInput, calls, connections, closed } = yield* open({
+          launch: Deferred.succeed(launchStarted, undefined).pipe(
+            Effect.andThen(Deferred.await(launchGate)),
+          ),
+        });
+        const turn = turnInput(1);
+        const providerTurnId = derive.providerTurn({
+          driver: BOAT_DRIVER,
+          nativeTurnId: String(turn.attemptId),
+        });
+        yield* runtime.startTurn(turn);
+        // The launch is under way and waits for the machine.
+        yield* Deferred.await(launchStarted);
+
+        yield* runtime.interruptTurn({ providerThread: turn.providerThread, providerTurnId });
+        const events = yield* untilTerminal(runtime.events);
+        assert.strictEqual(ofType(events, "turn.terminal").length, 1);
+        assert.strictEqual(ofType(events, "turn.terminal")[0]?.status, "interrupted");
+        assert.deepStrictEqual(ofType(events, "provider_thread.updated"), []);
+        // Whether the machine took the launch is not known yet, so nothing is stopped.
+        assert.deepStrictEqual(
+          calls.filter((call) => call.kind === "stop"),
+          [],
+        );
+
+        // The machine had it after all: its run is stopped, and the turn does not end twice.
+        yield* Deferred.succeed(launchGate, undefined);
+        yield* Deferred.await(closed);
+        assert.deepStrictEqual(
+          calls.filter((call) => call.kind === "stop"),
+          [{ kind: "stop", threadId: HOST_THREAD_ID, requestId: providerTurnId }],
+        );
+        assert.deepStrictEqual(
+          calls.filter((call) => call.kind === "follow"),
+          [],
+        );
+        assert.deepStrictEqual(connections, { opened: 1, closed: 1 });
+      }).pipe(Effect.scoped),
+  );
+
+  it.effect("stops nothing for an interrupted turn whose launch the machine refused", () =>
     Effect.gen(function* () {
       const launchStarted = yield* Deferred.make<void>();
-      const { runtime, turnInput, calls, connections } = yield* open({
-        launch: Deferred.succeed(launchStarted, undefined).pipe(Effect.andThen(Effect.never)),
+      const launchGate = yield* Deferred.make<void>();
+      const { runtime, turnInput, calls, closed } = yield* open({
+        launch: Deferred.succeed(launchStarted, undefined).pipe(
+          Effect.andThen(Deferred.await(launchGate)),
+          Effect.andThen(Effect.fail(new BoatError({ detail: "The machine is out of disk." }))),
+        ),
       });
       const turn = turnInput(1);
       yield* runtime.startTurn(turn);
-      // The launch is under way and waits for the machine.
       yield* Deferred.await(launchStarted);
-
       yield* runtime.interruptTurn({
         providerThread: turn.providerThread,
         providerTurnId: derive.providerTurn({
@@ -695,14 +747,14 @@ describe("BoatAdapterV2", () => {
         }),
       });
       const events = yield* untilTerminal(runtime.events);
-
       assert.strictEqual(ofType(events, "turn.terminal")[0]?.status, "interrupted");
-      assert.deepStrictEqual(ofType(events, "provider_thread.updated"), []);
+
+      yield* Deferred.succeed(launchGate, undefined);
+      yield* Deferred.await(closed);
       assert.deepStrictEqual(
         calls.filter((call) => call.kind === "stop"),
         [],
       );
-      assert.deepStrictEqual(connections, { opened: 1, closed: 1 });
     }).pipe(Effect.scoped),
   );
 

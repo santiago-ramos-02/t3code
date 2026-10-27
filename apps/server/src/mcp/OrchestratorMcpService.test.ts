@@ -3102,6 +3102,51 @@ describe("OrchestratorMcpService Boat machine delegation", () => {
     ),
   );
 
+  it.effect("strips credentials from an https origin before the machine sees it", () =>
+    run(
+      {
+        machines: [{ sandboxId, state: "running" }],
+        origin: "https://octocat:ghp_secret@github.com/acme/app.git",
+        currentBranch: branch,
+      },
+      (service, dispatched) =>
+        Effect.gen(function* () {
+          yield* delegate(service);
+          const [request] = yield* Ref.get(dispatched);
+          assert.deepEqual(
+            (request as DelegatedRequest).modelSelection,
+            boatDelegateModelSelection({
+              sandboxId,
+              remote: { instanceId: codexInstanceId, model: "gpt-5.4" },
+              remoteUrl: "https://github.com/acme/app.git",
+              branch,
+            }),
+          );
+          assert.notInclude(JSON.stringify(request), "ghp_secret");
+        }),
+    ),
+  );
+
+  it.effect(
+    "refuses an origin whose credentials cannot be stripped without breaking the clone",
+    () =>
+      run(
+        {
+          machines: [{ sandboxId, state: "running" }],
+          origin: "ssh://octocat:ghp_secret@git.example.com/acme/app.git",
+          currentBranch: branch,
+        },
+        (service, dispatched) =>
+          Effect.gen(function* () {
+            const failure = yield* delegate(service).pipe(Effect.flip);
+            assert.equal(failure.code, "invalid_request");
+            assert.include(failure.message, "credentials");
+            assert.notInclude(failure.message, "ghp_secret");
+            assert.deepEqual(yield* Ref.get(dispatched), []);
+          }),
+      ),
+  );
+
   it.effect("keeps the local selection without a machine", () =>
     run({ machines: [] }, (service, dispatched) =>
       Effect.gen(function* () {
