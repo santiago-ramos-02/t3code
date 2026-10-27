@@ -313,7 +313,7 @@ function scheduledTaskSummary(task: ScheduledTask, mayRun: boolean): Orchestrato
 }
 
 const GENTLE_AI_DELEGATION =
-  "Gentle AI orchestrates this thread, so its own subagents run delegated work. Turn Gentle AI off for this thread to delegate through T3 Code.";
+  "Gentle AI orchestrates this thread, so its own subagents run delegated work. Turn Gentle AI off for this thread to delegate through T3 Code. Tasks on a Boat machine (delegate_task with machine) still run.";
 
 /**
  * Whether the Gentle AI orchestrator runs this thread, on any harness Gentle AI set up, where its
@@ -2283,7 +2283,11 @@ const make = Effect.gen(function* () {
         );
       }
       const providers = yield* loadProviders;
-      if (gentleAiOwnsDelegation(parent.thread, providers, yield* gentleAi.current)) {
+      // Gentle AI's subagents run locally, so a Boat machine task stays with T3 Code.
+      if (
+        input.machine === undefined &&
+        gentleAiOwnsDelegation(parent.thread, providers, yield* gentleAi.current)
+      ) {
         return yield* failure("delegation_owned_by_gentle_ai", GENTLE_AI_DELEGATION);
       }
       const key = yield* requestKey(input.clientRequestId);

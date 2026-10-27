@@ -18,6 +18,7 @@ import {
   ThreadId,
   type OrchestrationV2ServerCommand,
   type OrchestrationV2ThreadProjection,
+  type GentleAiStatus,
   type ServerProvider,
 } from "@t3tools/contracts";
 import { checkpointWorkspace } from "@t3tools/provider-testing/replayWorkspace";
@@ -28,7 +29,10 @@ import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 
 import * as BoatMachines from "../boat/BoatMachines.ts";
-import { boatDelegateModelSelection } from "../orchestration-v2/Adapters/BoatAdapterV2.ts";
+import {
+  boatDelegateModelSelection,
+  boatInstanceId,
+} from "../orchestration-v2/Adapters/BoatAdapterV2.ts";
 import { CodexProviderCapabilitiesV2 } from "../orchestration-v2/Adapters/CodexAdapterV2.ts";
 import * as CommandReceiptStore from "../orchestration-v2/CommandReceiptStore.ts";
 import * as LegacyV1ThreadImporter from "../orchestration-v2/legacy/LegacyV1ThreadImporter.ts";
@@ -2843,6 +2847,7 @@ describe("OrchestratorMcpService Boat machine delegation", () => {
       readonly branchOnOrigin?: boolean;
       /** What `git ls-remote --exit-code` answers; absent means the test never expects the call. */
       readonly lsRemoteExitCode?: number;
+      readonly gentleAi?: GentleAiStatus;
     },
     body: (
       service: OrchestratorMcpService.OrchestratorMcpService["Service"],
@@ -2921,7 +2926,7 @@ describe("OrchestratorMcpService Boat machine delegation", () => {
             Layer.provide(Layer.mock(ThreadLaunchService.ThreadLaunchService)({})),
             Layer.provide(
               Layer.mock(GentleAi.GentleAi)({
-                current: Effect.succeed(GentleAi.NOT_INSTALLED),
+                current: Effect.succeed(input.gentleAi ?? GentleAi.NOT_INSTALLED),
               }),
             ),
             Layer.provide(layerDependencies),
@@ -2966,6 +2971,35 @@ describe("OrchestratorMcpService Boat machine delegation", () => {
           );
           // The machine makes its own worktree, so the host prepares none.
           assert.isUndefined(request.workspaceStrategy);
+        }),
+    ),
+  );
+
+  it.effect("runs a machine task on a thread whose local delegation Gentle AI owns", () =>
+    run(
+      {
+        machines: [{ sandboxId, state: "running" }],
+        origin: remoteUrl,
+        currentBranch: branch,
+        gentleAi: { ...GentleAi.NOT_INSTALLED, installed: true, drivers: [codexProvider.driver] },
+      },
+      (service, dispatched) =>
+        Effect.gen(function* () {
+          const local = yield* service
+            .delegateTask(scope, {
+              task: "Run the suite.",
+              mode: "async",
+              clientRequestId: "delegate-gentle-local",
+            })
+            .pipe(Effect.flip);
+          assert.equal(local.code, "delegation_owned_by_gentle_ai");
+          const result = yield* delegate(service);
+          assert.equal(result.status, "running");
+          const [request] = yield* Ref.get(dispatched);
+          assert.equal(
+            (request as DelegatedRequest).modelSelection.instanceId,
+            boatInstanceId(sandboxId),
+          );
         }),
     ),
   );
