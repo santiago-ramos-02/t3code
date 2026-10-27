@@ -37,7 +37,7 @@ const BoatMachineListTool = Tool.make("t3_boat_machine_list", {
 const BoatMachineStartTool = Tool.make("t3_boat_machine_start", {
   ...shared,
   description:
-    "Start a new Boat machine running its own T3 Code server, billed per second to the user's Boat account. Omit size for the user's default; only use a larger size when the user asks. Takes a minute or two. Give the user pairingUrl: opening it in T3 Code, on any device, adds the machine as an environment. The link works once. Stop or delete the machine with t3_boat_machine_action when the user is done.",
+    "Start a new Boat machine running its own T3 Code server, billed per second to the user's Boat account. Omit size for the user's default; only use a larger size when the user asks. Takes a minute or two. Give the user pairingUrl: opening it in T3 Code, on any device, adds the machine as an environment. The link works once. To give the machine work, call delegate_task with machine set to its sandboxId; it can be starting or stopped. Stop or delete the machine with t3_boat_machine_action when the user is done.",
   parameters: Schema.Struct({ size: Schema.optionalKey(BoatSize) }),
   success: Schema.Struct({ machine: LabeledMachine, pairingUrl: Schema.String }),
 })

@@ -27,6 +27,8 @@ import * as Layer from "effect/Layer";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 
+import * as BoatMachines from "../boat/BoatMachines.ts";
+import { boatDelegateModelSelection } from "../orchestration-v2/Adapters/BoatAdapterV2.ts";
 import { CodexProviderCapabilitiesV2 } from "../orchestration-v2/Adapters/CodexAdapterV2.ts";
 import * as CommandReceiptStore from "../orchestration-v2/CommandReceiptStore.ts";
 import * as LegacyV1ThreadImporter from "../orchestration-v2/legacy/LegacyV1ThreadImporter.ts";
@@ -62,6 +64,7 @@ const decodeTarget = Schema.decodeUnknownEffect(OrchestratorMcpTarget);
 const layerOrchestratorServiceWithoutGentleAi = OrchestratorMcpService.layer.pipe(
   Layer.provide(Layer.mock(ThreadLaunchService.ThreadLaunchService)({})),
   Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
+  Layer.provide(Layer.mock(BoatMachines.BoatMachines)({})),
 );
 
 // Gentle AI is not installed unless a test sets it up.
@@ -2732,6 +2735,388 @@ describe("OrchestratorMcpService provider resolution", () => {
       }),
     );
   });
+});
+
+describe("OrchestratorMcpService Boat machine delegation", () => {
+  const parentThreadId = ThreadId.make("thread:mcp-boat-parent");
+  const childThreadId = ThreadId.make("thread:mcp-boat-child");
+  const parentRunId = RunId.make("run:mcp-boat-parent");
+  const parentNodeId = NodeId.make("node:mcp-boat-root");
+  const taskId = NodeId.make("node:mcp-boat-task");
+  const projectId = ProjectId.make("project:mcp-boat");
+  const codexInstanceId = ProviderInstanceId.make("codex");
+  const sandboxId = "bx_test0001";
+  const remoteUrl = "git@github.com:acme/app.git";
+  const branch = "feat/x";
+
+  const scope: McpInvocationScope = {
+    environmentId: EnvironmentId.make("environment:mcp-boat"),
+    requestNamespace: "provider-session:mcp-boat",
+    thread: {
+      threadId: parentThreadId,
+      providerSessionId: "provider-session:mcp-boat",
+      providerInstanceId: codexInstanceId,
+    },
+    client: undefined,
+    capabilities: new Set(["orchestration"]),
+    issuedAt: 1,
+  };
+
+  const task = {
+    id: taskId,
+    threadId: parentThreadId,
+    runId: parentRunId,
+    parentNodeId,
+    origin: "app_owned",
+    createdBy: "agent",
+    driver: ProviderDriverKind.make("boat"),
+    providerInstanceId: codexInstanceId,
+    providerThreadId: null,
+    childThreadId,
+    nativeTaskRef: null,
+    prompt: "Run the suite.",
+    title: null,
+    model: "gpt-5.4",
+    status: "running",
+    result: null,
+    startedAt: null,
+    completedAt: null,
+  };
+
+  const parentProjection = (subagents: ReadonlyArray<unknown>) =>
+    ({
+      thread: {
+        id: parentThreadId,
+        projectId,
+        title: "MCP parent",
+        createdBy: "user",
+        creationSource: "web",
+        modelSelection: { instanceId: codexInstanceId, model: "gpt-5.4" },
+        runtimeMode: "full-access",
+        interactionMode: "default",
+      },
+      runs: [
+        {
+          id: parentRunId,
+          ordinal: 1,
+          status: "running",
+          rootNodeId: parentNodeId,
+          providerInstanceId: codexInstanceId,
+          modelSelection: { instanceId: codexInstanceId, model: "gpt-5.4" },
+        },
+      ],
+      contextTransfers: [],
+      subagents,
+    }) as unknown as OrchestrationV2ThreadProjection;
+
+  const childProjection = {
+    thread: { id: childThreadId, title: "Child" },
+    runs: [],
+    contextTransfers: [],
+    messages: [],
+    subagents: [],
+    providerThreads: [],
+    runtimeRequests: [],
+    turnItems: [],
+  } as unknown as OrchestrationV2ThreadProjection;
+
+  const codexProvider: ServerProvider = {
+    instanceId: codexInstanceId,
+    driver: ProviderDriverKind.make("codex"),
+    enabled: true,
+    installed: true,
+    version: "test",
+    status: "ready",
+    auth: { status: "authenticated" },
+    checkedAt: "2026-10-27T00:00:00.000Z",
+    models: [{ slug: "gpt-5.4", name: "gpt-5.4", isCustom: false, capabilities: null }],
+    slashCommands: [],
+    skills: [],
+  };
+
+  // Only the calls a machine delegation makes are implemented: any other call to a mock defects.
+  const run = <A, E>(
+    input: {
+      readonly machines: ReadonlyArray<{ readonly sandboxId: string; readonly state: string }>;
+      readonly origin?: string | null;
+      readonly currentBranch?: string | null;
+      readonly branchOnOrigin?: boolean;
+      /** What `git ls-remote --exit-code` answers; absent means the test never expects the call. */
+      readonly lsRemoteExitCode?: number;
+    },
+    body: (
+      service: OrchestratorMcpService.OrchestratorMcpService["Service"],
+      dispatched: Ref.Ref<ReadonlyArray<OrchestrationV2ServerCommand>>,
+    ) => Effect.Effect<A, E, never>,
+  ) =>
+    Effect.gen(function* () {
+      const dispatched = yield* Ref.make<ReadonlyArray<OrchestrationV2ServerCommand>>([]);
+      const layerDependencies = Layer.mergeAll(
+        NodeServices.layer,
+        Layer.mock(ThreadManagementService.ThreadManagementService)({
+          hasReceipt: () => Effect.succeed(false),
+          getThreadRecords: (threadId) =>
+            Ref.get(dispatched).pipe(
+              Effect.map((commands) =>
+                threadId === parentThreadId
+                  ? parentProjection(commands.length > 0 ? [task] : [])
+                  : childProjection,
+              ),
+            ),
+          isProviderInstanceEnabledForProject: () => Effect.succeed(true),
+          dispatch: (command) =>
+            Ref.update(dispatched, (commands) => [...commands, command]).pipe(
+              Effect.as({
+                sequence: 1,
+                storedEvents: [
+                  {
+                    sequence: 1,
+                    commandId: null,
+                    event: { type: "subagent.updated", payload: task },
+                  },
+                ],
+              } as never),
+            ),
+        }),
+        Layer.mock(ProviderRegistry.ProviderRegistry)({
+          getProviders: Effect.succeed([codexProvider]),
+          refreshInstance: () => Effect.succeed([codexProvider]),
+        }),
+        Layer.succeed(
+          ProviderAdapterRegistry.ProviderAdapterRegistryV2,
+          ProviderAdapterRegistry.ProviderAdapterRegistryV2.of({
+            list: () => Effect.succeed([codexInstanceId]),
+            get: (instanceId) =>
+              Effect.succeed({
+                instanceId,
+              } as unknown as ProviderAdapter.ProviderAdapterV2["Service"]),
+          }),
+        ),
+        Layer.mock(ProjectService.ProjectService)({
+          getById: () => Effect.succeedSome({ id: projectId, workspaceRoot: "/repo" } as never),
+        }),
+        Layer.mock(SecretRequests.SecretRequests)({}),
+        Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),
+        Layer.mock(BoatMachines.BoatMachines)({
+          current: Effect.succeed({ machines: input.machines } as never),
+        }),
+        Layer.mock(GitVcsDriver.GitVcsDriver)({
+          readConfigValue: (_cwd, key) =>
+            Effect.succeed(key === "remote.origin.url" ? (input.origin ?? null) : null),
+          statusDetailsLocal: () =>
+            Effect.succeed({ branch: input.currentBranch ?? null } as never),
+          remoteBranchExists: () => Effect.succeed(input.branchOnOrigin ?? true),
+          ...(input.lsRemoteExitCode === undefined
+            ? {}
+            : { execute: () => Effect.succeed({ exitCode: input.lsRemoteExitCode } as never) }),
+        }),
+        ServerSettings.layerTest(),
+      );
+      return yield* Effect.gen(function* () {
+        const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+        return yield* body(service, dispatched);
+      }).pipe(
+        Effect.provide(
+          OrchestratorMcpService.layer.pipe(
+            Layer.provide(Layer.mock(ThreadLaunchService.ThreadLaunchService)({})),
+            Layer.provide(
+              Layer.mock(GentleAi.GentleAi)({
+                current: Effect.succeed(GentleAi.NOT_INSTALLED),
+              }),
+            ),
+            Layer.provide(layerDependencies),
+          ),
+        ),
+      );
+    });
+
+  const delegate = (service: OrchestratorMcpService.OrchestratorMcpService["Service"]) =>
+    service.delegateTask(scope, {
+      task: "Run the suite.",
+      machine: sandboxId,
+      mode: "async",
+      clientRequestId: "delegate-boat-1",
+    });
+
+  type DelegatedRequest = Extract<OrchestrationV2ServerCommand, { type: "delegated_task.request" }>;
+
+  it.effect("creates the child on the machine with the resolved target, origin and branch", () =>
+    run(
+      {
+        machines: [{ sandboxId, state: "stopped" }],
+        origin: remoteUrl,
+        currentBranch: branch,
+      },
+      (service, dispatched) =>
+        Effect.gen(function* () {
+          const result = yield* delegate(service);
+          assert.equal(result.status, "running");
+          const commands = yield* Ref.get(dispatched);
+          assert.equal(commands.length, 1);
+          const request = commands[0] as DelegatedRequest;
+          assert.equal(request.type, "delegated_task.request");
+          assert.deepEqual(
+            request.modelSelection,
+            boatDelegateModelSelection({
+              sandboxId,
+              remote: { instanceId: codexInstanceId, model: "gpt-5.4" },
+              remoteUrl,
+              branch,
+            }),
+          );
+          // The machine makes its own worktree, so the host prepares none.
+          assert.isUndefined(request.workspaceStrategy);
+        }),
+    ),
+  );
+
+  it.effect("ignores isolation worktree for a machine task", () =>
+    run(
+      {
+        machines: [{ sandboxId, state: "running" }],
+        origin: remoteUrl,
+        currentBranch: branch,
+      },
+      (service, dispatched) =>
+        Effect.gen(function* () {
+          yield* service.delegateTask(scope, {
+            task: "Run the suite.",
+            machine: sandboxId,
+            isolation: "worktree",
+            mode: "async",
+            clientRequestId: "delegate-boat-isolation",
+          });
+          const [request] = yield* Ref.get(dispatched);
+          assert.isUndefined((request as DelegatedRequest).workspaceStrategy);
+        }),
+    ),
+  );
+
+  it.effect("fails an unknown machine before creating a thread", () =>
+    run(
+      {
+        machines: [{ sandboxId: "bx_other", state: "running" }],
+        origin: remoteUrl,
+        currentBranch: branch,
+      },
+      (service, dispatched) =>
+        Effect.gen(function* () {
+          const failure = yield* delegate(service).pipe(Effect.flip);
+          assert.equal(failure.code, "invalid_request");
+          assert.include(failure.message, sandboxId);
+          assert.include(failure.message, "t3_boat_machine_list");
+          assert.deepEqual(yield* Ref.get(dispatched), []);
+        }),
+    ),
+  );
+
+  it.effect("fails a machine that is being deleted before creating a thread", () =>
+    run(
+      { machines: [{ sandboxId, state: "deleting" }], origin: remoteUrl, currentBranch: branch },
+      (service, dispatched) =>
+        Effect.gen(function* () {
+          const failure = yield* delegate(service).pipe(Effect.flip);
+          assert.equal(failure.code, "invalid_request");
+          assert.include(failure.message, "deleted");
+          assert.deepEqual(yield* Ref.get(dispatched), []);
+        }),
+    ),
+  );
+
+  it.effect("fails when the project has no origin remote", () =>
+    run(
+      { machines: [{ sandboxId, state: "running" }], origin: null, currentBranch: branch },
+      (service, dispatched) =>
+        Effect.gen(function* () {
+          const failure = yield* delegate(service).pipe(Effect.flip);
+          assert.equal(failure.code, "invalid_request");
+          assert.include(failure.message, "origin");
+          assert.deepEqual(yield* Ref.get(dispatched), []);
+        }),
+    ),
+  );
+
+  it.effect("fails on a detached HEAD", () =>
+    run(
+      { machines: [{ sandboxId, state: "running" }], origin: remoteUrl, currentBranch: null },
+      (service, dispatched) =>
+        Effect.gen(function* () {
+          const failure = yield* delegate(service).pipe(Effect.flip);
+          assert.equal(failure.code, "invalid_request");
+          assert.include(failure.message, "detached");
+          assert.deepEqual(yield* Ref.get(dispatched), []);
+        }),
+    ),
+  );
+
+  it.effect("tells the agent to push a branch that is not on origin", () =>
+    run(
+      {
+        machines: [{ sandboxId, state: "running" }],
+        origin: remoteUrl,
+        currentBranch: branch,
+        branchOnOrigin: false,
+        lsRemoteExitCode: 2,
+      },
+      (service, dispatched) =>
+        Effect.gen(function* () {
+          const failure = yield* delegate(service).pipe(Effect.flip);
+          assert.equal(failure.code, "invalid_request");
+          assert.include(failure.message, `git push -u origin ${branch}`);
+          assert.deepEqual(yield* Ref.get(dispatched), []);
+        }),
+    ),
+  );
+
+  it.effect("accepts a branch origin has although it is not fetched locally", () =>
+    run(
+      {
+        machines: [{ sandboxId, state: "running" }],
+        origin: remoteUrl,
+        currentBranch: branch,
+        branchOnOrigin: false,
+        lsRemoteExitCode: 0,
+      },
+      (service, dispatched) =>
+        Effect.gen(function* () {
+          yield* delegate(service);
+          assert.equal((yield* Ref.get(dispatched)).length, 1);
+        }),
+    ),
+  );
+
+  it.effect("leaves an unreachable origin to the machine's own check", () =>
+    run(
+      {
+        machines: [{ sandboxId, state: "running" }],
+        origin: remoteUrl,
+        currentBranch: branch,
+        branchOnOrigin: false,
+        lsRemoteExitCode: 128,
+      },
+      (service, dispatched) =>
+        Effect.gen(function* () {
+          yield* delegate(service);
+          assert.equal((yield* Ref.get(dispatched)).length, 1);
+        }),
+    ),
+  );
+
+  it.effect("keeps the local selection without a machine", () =>
+    run({ machines: [] }, (service, dispatched) =>
+      Effect.gen(function* () {
+        yield* service.delegateTask(scope, {
+          task: "Run the suite.",
+          mode: "async",
+          clientRequestId: "delegate-boat-local",
+        });
+        const [request] = yield* Ref.get(dispatched);
+        const { modelSelection, workspaceStrategy } = request as DelegatedRequest;
+        assert.deepEqual(modelSelection, { instanceId: codexInstanceId, model: "gpt-5.4" });
+        assert.isUndefined(workspaceStrategy);
+      }),
+    ),
+  );
 });
 
 describe("OrchestratorMcpService thread lookup", () => {

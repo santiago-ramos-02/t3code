@@ -155,6 +155,10 @@ export const OrchestratorMcpDelegateTaskInput = Schema.Struct({
         "'shared' (default): parent checkout. 'worktree': new prepared checkout from the parent commit, for a separate checkout or PR per child. Uncommitted edits stay out.",
     }),
   ),
+  machine: Schema.optional(TrimmedNonEmptyString).annotate({
+    description:
+      "Boat machine `sandboxId`. Runs the child there on the current branch as pushed to origin; unpushed work stays out. Ignores `isolation`.",
+  }),
   mode: Schema.optional(
     Schema.Literals(["async", "wait"]).annotate({
       description:

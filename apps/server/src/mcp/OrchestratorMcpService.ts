@@ -88,7 +88,9 @@ import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
+import * as BoatMachines from "../boat/BoatMachines.ts";
 import * as GentleAi from "../gentleAi/GentleAi.ts";
+import { boatDelegateModelSelection } from "../orchestration-v2/Adapters/BoatAdapterV2.ts";
 import * as ProviderAdapterRegistry from "../orchestration-v2/ProviderAdapterRegistry.ts";
 import {
   subagentResultForRun,
@@ -1074,6 +1076,9 @@ function timelineItem(input: {
   };
 }
 
+// `git ls-remote --exit-code` exits 2 when the remote has no matching ref.
+const LS_REMOTE_NO_MATCH = 2;
+
 const make = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
   const threadManagement = yield* ThreadManagementService.ThreadManagementService;
@@ -1084,6 +1089,7 @@ const make = Effect.gen(function* () {
   const projects = yield* ProjectService.ProjectService;
   const threadLaunch = yield* ThreadLaunchService.ThreadLaunchService;
   const gitDriver = yield* GitVcsDriver.GitVcsDriver;
+  const boat = yield* BoatMachines.BoatMachines;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
 
   const requireProject = (projectId: ProjectId) =>
@@ -1099,6 +1105,81 @@ const make = Effect.gen(function* () {
         }),
       ),
     );
+
+  // A machine task runs where the project's origin branch is checked out on the machine, so the
+  // parent's checkout must have both before anything is created.
+  const resolveMachineModelSelection = Effect.fn("OrchestratorMcpService.resolveMachineSelection")(
+    function* (input: {
+      readonly parentThread: {
+        readonly projectId: ProjectId;
+        readonly worktreePath: string | null;
+      };
+      readonly sandboxId: string;
+      readonly remote: ModelSelection;
+    }) {
+      const status = yield* boat.current;
+      const machine = status.machines.find((entry) => entry.sandboxId === input.sandboxId);
+      if (machine === undefined || machine.state === "deleting") {
+        return yield* failure(
+          "invalid_request",
+          `Boat machine ${input.sandboxId} does not exist or was deleted. Use an id from t3_boat_machine_list.`,
+        );
+      }
+      const project = yield* requireProject(input.parentThread.projectId);
+      const cwd = input.parentThread.worktreePath ?? project.workspaceRoot;
+      const readFailure = () =>
+        failure("invalid_request", "Unable to read the parent checkout's git state.");
+      const remoteUrl = (yield* gitDriver
+        .readConfigValue(cwd, "remote.origin.url")
+        .pipe(Effect.mapError(readFailure)))?.trim();
+      if (!remoteUrl) {
+        return yield* failure(
+          "invalid_request",
+          "The parent project has no origin remote, so a Boat machine cannot clone it. Add an origin remote and push the branch first.",
+        );
+      }
+      const { branch } = yield* gitDriver
+        .statusDetailsLocal(cwd)
+        .pipe(Effect.mapError(readFailure));
+      if (branch === null) {
+        return yield* failure(
+          "invalid_request",
+          "The parent checkout is on a detached HEAD, so a Boat machine has no branch to start from. Check out a branch and push it first.",
+        );
+      }
+      // The tracking ref only moves on fetch, so a branch pushed elsewhere is confirmed with origin
+      // itself. Only a definite "no such branch" rejects: if origin cannot be reached, the machine
+      // makes the same check at turn time.
+      const onOrigin =
+        (yield* gitDriver
+          .remoteBranchExists({ cwd, remoteName: "origin", refName: branch })
+          .pipe(Effect.mapError(readFailure))) ||
+        (yield* gitDriver
+          .execute({
+            operation: "OrchestratorMcpService.delegateTask.originBranch",
+            cwd,
+            args: ["ls-remote", "--exit-code", "--heads", "origin", `refs/heads/${branch}`],
+            allowNonZeroExit: true,
+            timeoutMs: 15_000,
+          })
+          .pipe(
+            Effect.map((result) => result.exitCode !== LS_REMOTE_NO_MATCH),
+            Effect.orElseSucceed(() => true),
+          ));
+      if (!onOrigin) {
+        return yield* failure(
+          "invalid_request",
+          `The branch "${branch}" is not on origin, so the Boat machine cannot work from it. Push it with \`git push -u origin ${branch}\` first, then delegate again.`,
+        );
+      }
+      return boatDelegateModelSelection({
+        sandboxId: input.sandboxId,
+        remote: input.remote,
+        remoteUrl,
+        branch,
+      });
+    },
+  );
 
   const projectDefaultModelSelection = (
     project: Effect.Success<ReturnType<typeof requireProject>>,
@@ -2204,8 +2285,21 @@ const make = Effect.gen(function* () {
         parent.thread.interactionMode,
         input.interactionMode,
       );
+      const modelSelection =
+        input.machine === undefined
+          ? target.modelSelection
+          : yield* resolveMachineModelSelection({
+              parentThread: parent.thread,
+              sandboxId: input.machine,
+              remote: target.modelSelection,
+            });
+      // The machine makes its own worktree from origin, so `isolation` has no host effect there.
       let workspaceStrategy: OrchestrationV2ThreadLaunchWorkspaceStrategy | undefined;
-      if (input.isolation === "worktree" && !isRetryOfAcceptedDelegation) {
+      if (
+        input.isolation === "worktree" &&
+        input.machine === undefined &&
+        !isRetryOfAcceptedDelegation
+      ) {
         const project = yield* requireProject(parent.thread.projectId);
         const base = yield* gitDriver
           .resolveCommit({
@@ -2248,7 +2342,7 @@ const make = Effect.gen(function* () {
           parentNodeId: parentRun.rootNodeId,
           task: taskPrompt(input),
           ...(input.title === undefined ? {} : { title: input.title }),
-          modelSelection: target.modelSelection,
+          modelSelection,
           runtimeMode,
           interactionMode,
           ...(workspaceStrategy === undefined ? {} : { workspaceStrategy }),
@@ -2989,6 +3083,7 @@ export const layer: Layer.Layer<
   | ThreadManagementService.ThreadManagementService
   | ThreadLaunchService.ThreadLaunchService
   | GitVcsDriver.GitVcsDriver
+  | BoatMachines.BoatMachines
   | ProviderRegistry.ProviderRegistry
   | ProviderAdapterRegistry.ProviderAdapterRegistryV2
   | ScheduledTaskService.ScheduledTaskService

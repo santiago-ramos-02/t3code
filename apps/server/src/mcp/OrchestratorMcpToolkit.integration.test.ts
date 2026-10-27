@@ -1,3 +1,5 @@
+import * as NodeURL from "node:url";
+
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it } from "@effect/vitest";
 import {
@@ -15,6 +17,7 @@ import {
   type ProviderOptionDescriptor,
   type ServerProvider,
   ThreadId,
+  TurnItemId,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -24,6 +27,17 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { McpSchema, McpServer } from "effect/ai";
 
+import * as BoatMachines from "../boat/BoatMachines.ts";
+import type { MachineLaunchInput, MachineThreads } from "../boat/machineThreads.ts";
+import {
+  BOAT_DRIVER,
+  BoatProviderCapabilitiesV2,
+  boatInstanceId,
+  boatTargetOf,
+  makeBoatAdapterV2,
+  sandboxIdOfBoatInstance,
+} from "../orchestration-v2/Adapters/BoatAdapterV2.ts";
+import * as ProviderAdapterRegistry from "../orchestration-v2/ProviderAdapterRegistry.ts";
 import { CodexOrchestratorReplayHarness } from "../orchestration-v2/Adapters/CodexAdapterV2.testkit.ts";
 import * as CommandReceiptStore from "../orchestration-v2/CommandReceiptStore.ts";
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
@@ -51,6 +65,7 @@ import * as McpInvocationContext from "./McpInvocationContext.ts";
 const layerOrchestratorToolkit = McpHttpServer.layerOrchestratorToolkit.pipe(
   Layer.provide(Layer.mock(ThreadLaunchService.ThreadLaunchService)({})),
   Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
+  Layer.provide(Layer.mock(BoatMachines.BoatMachines)({})),
 );
 
 // Effect returns a declared tool failure as `isError` with its encoded payload
@@ -92,9 +107,7 @@ const readDelegatedTaskStatusTranscript = Effect.fn("readDelegatedTaskStatusTran
   followupResult: string,
 ) {
   const fs = yield* FileSystem.FileSystem;
-  const text = yield* fs.readFileString(
-    decodeURIComponent(delegatedTaskStatusTranscriptFile.pathname),
-  );
+  const text = yield* fs.readFileString(NodeURL.fileURLToPath(delegatedTaskStatusTranscriptFile));
   return yield* decodeProviderReplayNdjson(text.replaceAll(queuedFollowupResult, followupResult));
 }, Effect.provide(NodeServices.layer));
 
@@ -583,6 +596,277 @@ describe("orchestrator MCP toolkit", () => {
             afterRead.subagents.find((task) => task.id === queuedFollowup.taskId)
               ?.completionDelivery?.state,
           ).toBe("acknowledged");
+        }).pipe(Effect.provide(layerTest));
+      }),
+    ),
+  );
+
+  it.live("runs a machine delegate through the Boat adapter and completes the local task", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const sandboxId = "bx_test0001";
+        const remoteUrl = "git@github.com:acme/app.git";
+        const branch = "feat/boat";
+        const machineResult = "Ran the suite on the machine: 12 passed.";
+        const cwd = yield* checkpointWorkspace("delegated-task-status");
+        const rawTranscript = yield* readDelegatedTaskStatusTranscript(delegatedResult);
+        const transcript = yield* CodexOrchestratorReplayHarness.decodeTranscript(
+          materializeReplayTranscriptWorkspace(rawTranscript, cwd),
+        );
+
+        const launches: Array<MachineLaunchInput> = [];
+        const machines: MachineThreads = {
+          ensureProject: () =>
+            Effect.succeed({ projectId: ProjectId.make("project:machine"), workspaceRoot: "/app" }),
+          connect: () =>
+            Effect.succeed({
+              launch: (input) => Effect.sync(() => void launches.push(input)),
+              dispatch: () => Effect.void,
+              stop: () => Effect.void,
+              follow: () =>
+                Stream.make(
+                  { status: "running", items: [], failure: null },
+                  {
+                    status: "completed",
+                    items: [
+                      {
+                        kind: "assistant_message",
+                        id: TurnItemId.make("machine:answer"),
+                        messageId: MessageId.make("machine:message:answer"),
+                        text: machineResult,
+                        streaming: false,
+                      },
+                    ],
+                    failure: null,
+                  },
+                ),
+            }),
+        };
+        const boatAdapter = makeBoatAdapterV2({ sandboxId, machines });
+        const layerRegistry = Layer.effect(
+          ProviderAdapterRegistry.ProviderAdapterRegistryV2,
+          Effect.gen(function* () {
+            const codex = yield* ProviderAdapterRegistry.ProviderAdapterRegistryV2;
+            const isBoat = (instanceId: ProviderInstanceId) =>
+              sandboxIdOfBoatInstance(instanceId) === sandboxId;
+            return ProviderAdapterRegistry.ProviderAdapterRegistryV2.of({
+              ...codex,
+              get: (instanceId) =>
+                isBoat(instanceId) ? Effect.succeed(boatAdapter) : codex.get(instanceId),
+              getMetadata: (instanceId) =>
+                isBoat(instanceId)
+                  ? Effect.succeed({
+                      driver: BOAT_DRIVER,
+                      continuationKey: `boat:${sandboxId}`,
+                      enabled: true,
+                      capabilities: BoatProviderCapabilitiesV2,
+                    })
+                  : (codex.getMetadata?.(instanceId) ??
+                    Effect.fail(
+                      new ProviderAdapterRegistry.ProviderAdapterRegistryLookupError({
+                        instanceId,
+                      }),
+                    )),
+            });
+          }),
+        ).pipe(
+          Layer.provide(
+            CodexOrchestratorReplayHarness.makeProviderAdapterRegistryLayer(transcript),
+          ),
+        );
+
+        const layerOrchestrator = ProviderReplayHarness.layerWithRegistry(
+          {
+            name: "delegated-task-status/boat",
+            runtimePolicyOverride: { cwd },
+          },
+          layerRegistry,
+        );
+        const layerOrchestration = Layer.merge(
+          layerOrchestrator,
+          ThreadManagementService.layer.pipe(
+            Layer.provide(layerOrchestrator),
+            Layer.provide(ServerSettings.layerTest()),
+            Layer.provide(
+              CommandReceiptStore.layer.pipe(Layer.provide(SqlitePersistence.layerMemory)),
+            ),
+          ),
+        );
+        const layerTest = McpHttpServer.layerOrchestratorToolkit.pipe(
+          Layer.provide(Layer.mock(ThreadLaunchService.ThreadLaunchService)({})),
+          Layer.provide(
+            Layer.mock(GitVcsDriver.GitVcsDriver)({
+              readConfigValue: (_cwd, key) =>
+                Effect.succeed(key === "remote.origin.url" ? remoteUrl : null),
+              statusDetailsLocal: () => Effect.succeed({ branch } as never),
+              remoteBranchExists: () => Effect.succeed(true),
+            }),
+          ),
+          Layer.provide(
+            Layer.mock(BoatMachines.BoatMachines)({
+              current: Effect.succeed({ machines: [{ sandboxId, state: "stopped" }] } as never),
+            }),
+          ),
+          Layer.provideMerge(McpServer.McpServer.layer),
+          Layer.provideMerge(layerOrchestration),
+          Layer.provide(layerRegistry.pipe(Layer.provide(McpProviderSessions.layer))),
+          Layer.provide(
+            ProviderRegistryMock.layer([
+              makeProviderSnapshot({
+                instanceId: codexInstanceId,
+                driver: ProviderDriverKind.make("codex"),
+                model: codexModel,
+              }),
+            ]),
+          ),
+          Layer.provide(ServerSettings.layerTest()),
+          Layer.provide(layerUnusedScheduledTaskStub),
+          Layer.provide(layerGentleAiNotInstalled),
+          Layer.provide(
+            Layer.mock(ProjectService.ProjectService)({
+              getById: () => Effect.succeedSome({ id: projectId, workspaceRoot: cwd } as never),
+            }),
+          ),
+          Layer.provideMerge(
+            SecretRequests.layer.pipe(
+              Layer.provide(layerMemorySecretStore),
+              Layer.provide(layerOrchestration),
+            ),
+          ),
+          Layer.provide(NodeServices.layer),
+        );
+
+        yield* Effect.gen(function* () {
+          const orchestrator = yield* Orchestrator.OrchestratorV2;
+          const server = yield* McpServer.McpServer;
+          const parentCreate = yield* orchestrator.dispatch({
+            type: "thread.create",
+            createdBy: "user",
+            creationSource: "web",
+            commandId: CommandId.make("command:mcp-boat-parent:create"),
+            threadId: parentThreadId,
+            projectId,
+            title: "MCP boat parent",
+            modelSelection: codexSelection,
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            branch: null,
+            worktreePath: cwd,
+          });
+          yield* orchestrator.dispatch({
+            type: "message.dispatch",
+            createdBy: "user",
+            creationSource: "web",
+            commandId: CommandId.make("command:mcp-boat-parent:start"),
+            threadId: parentThreadId,
+            messageId: MessageId.make("message:mcp-boat-parent:start"),
+            text: parentPrompt,
+            attachments: [],
+            modelSelection: codexSelection,
+            dispatchMode: { type: "start_immediately" },
+          });
+          yield* orchestrator
+            .streamStoredEventsFrom({
+              threadId: parentThreadId,
+              afterSequence: parentCreate.sequence,
+            })
+            .pipe(
+              Stream.filter(
+                (stored) =>
+                  stored.event.type === "provider-turn.updated" &&
+                  stored.event.payload.status === "running",
+              ),
+              Stream.runHead,
+              Effect.flatMap(
+                Option.match({
+                  onNone: () => Effect.die("Parent provider turn did not start."),
+                  onSome: () => Effect.void,
+                }),
+              ),
+            );
+
+          const invocation: McpInvocationContext.McpInvocationScope = {
+            environmentId: EnvironmentId.make("environment:mcp-boat"),
+            requestNamespace: "mcp-provider-session-boat-parent",
+            thread: {
+              threadId: parentThreadId,
+              providerSessionId: "mcp-provider-session-boat-parent",
+              providerInstanceId: codexInstanceId,
+            },
+            client: undefined,
+            capabilities: new Set(["orchestration"]),
+            issuedAt: 1,
+          };
+          const invoke = (name: string, args: Record<string, unknown>) =>
+            server
+              .callTool({ name, arguments: args })
+              .pipe(
+                Effect.provideService(McpInvocationContext.McpInvocationContext, invocation),
+                Effect.provideService(McpSchema.McpServerClient, client),
+              );
+
+          const startSequence = yield* orchestrator.getThreadEventSequence(parentThreadId);
+          const delegatedCall = yield* invoke("delegate_task", {
+            task: delegatedPrompt,
+            machine: sandboxId,
+            mode: "async",
+            clientRequestId: "delegate-boat-machine-1",
+          });
+          expect(delegatedCall.isError).not.toBe(true);
+          const started = yield* decodeDelegateTaskResult(delegatedCall.structuredContent).pipe(
+            Effect.orDie,
+          );
+          yield* orchestrator
+            .streamStoredEventsFrom({ threadId: parentThreadId, afterSequence: startSequence })
+            .pipe(
+              Stream.filter(
+                (stored) =>
+                  stored.event.type === "context-transfer.created" &&
+                  stored.event.payload.type === "subagent_result" &&
+                  stored.event.payload.sourceThreadId === started.childThreadId,
+              ),
+              Stream.runHead,
+              Effect.flatMap(
+                Option.match({
+                  onNone: () => Effect.die("Delegated result transfer was not created."),
+                  onSome: () => Effect.void,
+                }),
+              ),
+            );
+
+          // The child keeps the Boat selection, including where the machine works.
+          const child = yield* orchestrator.getThreadProjection(started.childThreadId);
+          expect(child.thread.modelSelection.instanceId).toBe(boatInstanceId(sandboxId));
+          expect(boatTargetOf(child.thread.modelSelection)).toEqual({
+            remote: codexSelection,
+            remoteUrl,
+            branch,
+          });
+          // Its turn ran on the machine.
+          expect(launches).toHaveLength(1);
+          expect(launches[0]).toMatchObject({
+            threadId: started.childThreadId,
+            modelSelection: codexSelection,
+            baseBranch: branch,
+          });
+          expect(launches[0]?.message.text).toContain(delegatedPrompt);
+
+          const statusCall = yield* invoke("task_status", { taskId: started.taskId });
+          const status = yield* decodeDelegateTaskResult(statusCall.structuredContent).pipe(
+            Effect.orDie,
+          );
+          expect(status).toMatchObject({
+            status: "completed",
+            summary: machineResult,
+            providerInstanceId: boatInstanceId(sandboxId),
+            hasPendingChildRuns: false,
+            latestTerminalStatus: "completed",
+          });
+          const parent = yield* orchestrator.getThreadProjection(parentThreadId);
+          expect(parent.subagents.find((task) => task.id === started.taskId)).toMatchObject({
+            status: "completed",
+            result: machineResult,
+          });
         }).pipe(Effect.provide(layerTest));
       }),
     ),

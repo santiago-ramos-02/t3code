@@ -242,8 +242,10 @@ export const makeBoatAdapterV2 = (input: {
         Queue.offer(events, event).pipe(Effect.asVoid);
       const openedAt = yield* DateTime.now;
 
+      // The orchestrator hands a first turn a thread without a native ref, so the machine's thread
+      // falls back to the host thread's id, which `ensureThread` uses as the native id.
       const machineThreadIdOf = (providerThread: OrchestrationV2ProviderThread) => {
-        const nativeId = providerThread.nativeThreadRef?.nativeId;
+        const nativeId = providerThread.nativeThreadRef?.nativeId ?? providerThread.appThreadId;
         return nativeId === null || nativeId === undefined ? undefined : ThreadId.make(nativeId);
       };
 

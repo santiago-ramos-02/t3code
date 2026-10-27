@@ -241,6 +241,14 @@ reports what it would change.
 The browser always runs in Chrome's sandbox. Where you cannot change the host,
 set `T3CODE_SERVER_BROWSER_SANDBOX=0` for the environment to run without it.
 
+## Run delegated tasks on a Boat machine
+
+An agent that orchestrates others can start a Boat machine and hand it a delegated task. It is woken with
+the result like any other delegated task, and you can follow up on or cancel the task as usual. The
+machine works on the project's current branch as pushed to origin, so unpushed commits and uncommitted
+edits are not visible to it. Attachments are not supported, and the machine's approval prompts are not
+forwarded; they show as needing attention on the machine.
+
 ## Connect an outside agent
 
 Claude Code, Codex, ChatGPT and other agents T3 Code did not start can drive
