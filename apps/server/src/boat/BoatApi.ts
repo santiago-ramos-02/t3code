@@ -29,7 +29,16 @@ export type BoatCommandResult = typeof CommandResult.Type;
 const HostedPort = Schema.Struct({ url: Schema.String });
 
 const NamedSnapshots = Schema.Struct({
-  snapshots: Schema.Array(Schema.Struct({ name: Schema.String, createdAt: Schema.String })),
+  snapshots: Schema.Array(
+    Schema.Struct({
+      name: Schema.String,
+      createdAt: Schema.String,
+      // `saving` until Boat can start a machine from it, then `ready`.
+      status: Schema.optional(Schema.String),
+      snapshotId: Schema.optional(Schema.String),
+      sourceSandboxId: Schema.optional(Schema.String),
+    }),
+  ),
   allowance: Schema.optional(Schema.Struct({ free: Schema.optional(Schema.Number) })),
 });
 // Boat's free named snapshots per wallet, when it does not say.

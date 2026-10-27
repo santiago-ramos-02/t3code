@@ -9,7 +9,11 @@ import {
 import { useEffect, useRef, useState } from "react";
 
 import { wakeBoatMachine } from "../lib/boatMachine";
-import { type EnvironmentPresentation, usePrimaryEnvironmentId } from "../state/environments";
+import {
+  type EnvironmentPresentation,
+  useEnvironment,
+  usePrimaryEnvironmentId,
+} from "../state/environments";
 import { useEnvironmentQuery } from "../state/query";
 import { serverEnvironment } from "../state/server";
 import { useEnvironmentScope } from "../state/session";
@@ -71,6 +75,12 @@ export function useBoatMachineFor(environment: EnvironmentPresentation | null): 
       ? null
       : boatMachineAt(status, environment.displayUrl);
   return { hostEnvironmentId, machine };
+}
+
+/** The host's Boat machine an environment id runs on, or null when it is not one. */
+export function useBoatMachineOf(environmentId: EnvironmentId) {
+  const { hostEnvironmentId, machine } = useBoatMachineFor(useEnvironment(environmentId));
+  return hostEnvironmentId !== null && machine !== null ? { hostEnvironmentId, machine } : null;
 }
 
 export type BoatMachineWake = {

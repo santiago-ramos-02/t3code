@@ -29,6 +29,7 @@ const HOST_VERSION = "0.9.0-nightly.20261026.1";
 const MACHINE_URL = "https://box-node-test-3773.on.boat.dev";
 // The machine Boat creates from a named snapshot after the stopped disk expired.
 const RESTORED_ID = "bx_test0002";
+const BUILD_ID = "bx_build0003";
 // The token this server holds for GitHub, and the short-lived one the machine issues for itself.
 const HOST_GITHUB_TOKEN = "ghp_hosttoken";
 const MACHINE_ACCESS_TOKEN = "MACHINE-ACCESS-TOKEN";
@@ -88,6 +89,9 @@ const makeFakeBoat = (options: {
     // Boat deleted the stopped disk after its free days.
     expired: false,
     snapshots: [] as Array<{ name: string; createdAt: string }>,
+    stopped: new Set<string>(),
+    // The last line the template's update script logged.
+    templateLog: "updated=Claude Code,Codex;failed=Pi with Gentle AI\n",
   };
   const json = (request: HttpClientRequest.HttpClientRequest, body: unknown, status = 200) =>
     Effect.succeed(HttpClientResponse.fromWeb(request, Response.json(body, { status })));
@@ -110,7 +114,12 @@ const makeFakeBoat = (options: {
           options.createFailure.status,
         );
       }
-      const id = String(body?.from ?? "").startsWith("t3-boat-") ? RESTORED_ID : SANDBOX_ID;
+      const from = String(body?.from ?? "");
+      const id = from.startsWith("t3-boat-")
+        ? RESTORED_ID
+        : from.endsWith("-source")
+          ? BUILD_ID
+          : SANDBOX_ID;
       return json(request, { sandbox: { id, state: "provisioning" } });
     }
     if (path === "/named-snapshots") {
@@ -129,14 +138,18 @@ const makeFakeBoat = (options: {
     if (sandbox === null) {
       return json(request, { message: `unexpected ${request.method} ${path}` }, 404);
     }
-    const [, id, action = ""] = sandbox;
+    const [, id = "", action = ""] = sandbox;
     if (options.gone && id === SANDBOX_ID) {
       return json(request, { message: "Sandbox not found." }, 404);
     }
     if (request.method === "GET" && action === "") {
       return json(request, {
         type: "sandbox.info",
-        sandbox: { id, state: "idle", subdomain: "box-node-test" },
+        sandbox: {
+          id,
+          state: control.stopped.has(id) ? "archived" : "idle",
+          subdomain: "box-node-test",
+        },
       });
     }
     if (request.method === "PATCH" && action === "") return json(request, { ok: true });
@@ -145,6 +158,10 @@ const makeFakeBoat = (options: {
       if (body?.detached === true) return json(request, { type: "command.started" });
       const result = (exitCode: number, stdout: string) =>
         json(request, { exitCode, stdout, stderr: "" });
+      if (command.includes("/tmp/t3-template.sh")) return result(0, "");
+      if (command.includes("cat /tmp/t3-template.status")) return result(0, "0\n");
+      if (command.startsWith("tail -n 1 /tmp/t3-template.log"))
+        return result(0, control.templateLog);
       if (command.includes("base64 -d")) {
         const checkouts = command.includes("REPORT=checkouts") ? control.checkouts : null;
         return result(0, `login noise\n${JSON.stringify({ ...control.report, checkouts })}\n`);
@@ -181,6 +198,8 @@ const makeFakeBoat = (options: {
         409,
       );
     }
+    if (action === "/stop") control.stopped.add(id);
+    if (action === "/resume") control.stopped.delete(id);
     if (action === "/stop" || action === "/resume") return json(request, { ok: true });
     if (request.method === "DELETE" && action === "") return json(request, { ok: true });
     return json(request, { message: `unexpected ${request.method} ${path}` }, 404);
@@ -734,6 +753,64 @@ describe("BoatMachines", () => {
       assert.deepStrictEqual((yield* service.current).machines, []);
     }).pipe(Effect.provide(layerEnvironment)),
   );
+
+  describe("make-template", () => {
+    const makeTemplate = (boat: FakeBoat) =>
+      Effect.gen(function* () {
+        const service = yield* makeService(boat);
+        yield* service.configure({ apiKey: "boat_test_key" });
+        yield* service.spawn({});
+        const started = yield* service.machineAction({
+          sandboxId: SANDBOX_ID,
+          action: "make-template",
+        });
+        assert.strictEqual(started.templateBuild?.state, "running");
+        const ended = yield* service.streamChanges.pipe(
+          Stream.filter((status) => status.templateBuild?.state !== "running"),
+          Stream.runHead,
+        );
+        return Option.getOrThrow(ended);
+      });
+
+    it.effect("saves an updated copy as the template new machines start from", () =>
+      Effect.gen(function* () {
+        const boat = makeFakeBoat({ pairing: PAIRING_OUTPUT });
+        const status = yield* makeTemplate(boat);
+        assert.deepStrictEqual(status.templateBuild, {
+          sandboxId: SANDBOX_ID,
+          state: "done",
+          detail: 'New machines start from "t3code-template". Could not update Pi with Gentle AI.',
+        });
+        assert.strictEqual(status.settings.template, "t3code-template");
+        const builds = callsTo(boat.calls, "POST", "/sandboxes");
+        assert.strictEqual(builds.at(-1)?.body?.from, "t3code-template-source");
+        assert.deepStrictEqual(
+          boat.control.snapshots.map((snapshot) => snapshot.name),
+          ["t3code-template"],
+        );
+        assert.strictEqual(callsTo(boat.calls, "DELETE", `/sandboxes/${BUILD_ID}`).length, 1);
+        // The machine itself keeps running.
+        assert.strictEqual(callsTo(boat.calls, "POST", `/sandboxes/${SANDBOX_ID}/stop`).length, 0);
+        assert.strictEqual(status.machines[0]?.state, "running");
+      }).pipe(Effect.provide(layerEnvironment)),
+    );
+
+    it.effect("keeps the old template and says why when the update does not finish", () =>
+      Effect.gen(function* () {
+        const boat = makeFakeBoat({ pairing: PAIRING_OUTPUT });
+        boat.control.templateLog = "npm ERR! killed\n";
+        const status = yield* makeTemplate(boat);
+        assert.deepStrictEqual(status.templateBuild, {
+          sandboxId: SANDBOX_ID,
+          state: "failed",
+          detail: "The template's update script did not finish.",
+        });
+        assert.strictEqual(status.settings.template, null);
+        assert.deepStrictEqual(boat.control.snapshots, []);
+        assert.strictEqual(callsTo(boat.calls, "DELETE", `/sandboxes/${BUILD_ID}`).length, 1);
+      }).pipe(Effect.provide(layerEnvironment)),
+    );
+  });
 
   it.effect("starts T3 Code again when a stopped machine resumes", () =>
     Effect.gen(function* () {

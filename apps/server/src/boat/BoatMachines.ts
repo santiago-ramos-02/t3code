@@ -4,6 +4,7 @@ import {
   BoatMachineReport,
   BoatSettings,
   BoatStatus,
+  type BoatTemplateBuild,
   DEFAULT_BOAT_SETTINGS,
   boatMachineLabel,
   type BoatConfigureInput,
@@ -17,6 +18,7 @@ import { resolveWorktreeCleanup } from "@t3tools/shared/projectSettings";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import type * as Duration from "effect/Duration";
+import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import { HttpClient } from "effect/http";
@@ -48,6 +50,7 @@ import {
 import { makeBoatCli } from "./BoatCli.ts";
 import { giveMachineGitHubLogin } from "./machineGitHub.ts";
 import { BOAT_MACHINE_ENV } from "./machineGitTools.ts";
+import { buildTemplate, saveNamedSnapshotAndWait, templateNameFor } from "./boatTemplate.ts";
 import {
   HostVersion,
   T3_COMMAND,
@@ -68,6 +71,7 @@ import {
   reportCommand,
 } from "./machineReport.ts";
 
+const isBoatError = Schema.is(BoatError);
 const API_KEY_SECRET = "boat-api-key";
 // The ID of a key the Boat CLI made for T3 Code, revoked when that key is replaced or removed.
 const CLI_KEY_ID_SECRET = "boat-api-key-cli-id";
@@ -169,6 +173,7 @@ export const make = Effect.gen(function* () {
   const state = yield* SubscriptionRef.make<BoatStatus>({
     configured: Option.isSome(yield* readApiKey),
     cli: null,
+    templateBuild: null,
     ...initial,
   });
   // One writer at a time, so a slow spawn cannot overwrite a newer machine list.
@@ -536,6 +541,66 @@ export const make = Effect.gen(function* () {
   // One lifecycle change at a time, so a check cannot delete a machine the user is resuming.
   const lifecycle = yield* Semaphore.make(1);
 
+  // Saves the machine's setup as the template. It takes minutes, so it runs in the background and
+  // the status stream shows its steps; the machine itself is only copied, never changed.
+  const makeTemplate = Effect.fn("BoatMachines.makeTemplate")(function* (
+    boat: BoatApi,
+    machine: BoatMachine,
+  ) {
+    const { sandboxId } = machine;
+    const setBuild = (buildState: BoatTemplateBuild["state"], detail: string) =>
+      update((status) => ({ ...status, templateBuild: { sandboxId, state: buildState, detail } }));
+    let busy = false;
+    yield* update((status) => {
+      busy = status.templateBuild?.state === "running";
+      return busy
+        ? status
+        : {
+            ...status,
+            templateBuild: { sandboxId, state: "running", detail: "Copying the machine" },
+          };
+    });
+    if (busy) return yield* fail("A template is already being saved.");
+
+    const build = Effect.gen(function* () {
+      const name = templateNameFor((yield* SubscriptionRef.get(state)).settings.template);
+      const source = `${name}-source`;
+      const summary = yield* saveNamedSnapshotAndWait(boat, sandboxId, source).pipe(
+        Effect.andThen(
+          buildTemplate({
+            boat,
+            from: source,
+            name,
+            t3Version: hostVersion,
+            onStep: (step) => setBuild("running", step).pipe(Effect.ignore),
+          }),
+        ),
+        Effect.ensuring(boat.deleteNamedSnapshot(source).pipe(Effect.ignore)),
+      );
+      const skipped =
+        summary.failed.length === 0 ? "" : ` Could not update ${summary.failed.join(", ")}.`;
+      yield* update((status) => ({
+        ...status,
+        settings: { ...status.settings, template: name },
+        templateBuild: {
+          sandboxId,
+          state: "done",
+          detail: `New machines start from "${name}".${skipped}`,
+        },
+      }));
+    }).pipe(
+      Effect.catchCause((cause) => {
+        const error = Cause.squash(cause);
+        return setBuild(
+          "failed",
+          isBoatError(error) ? error.detail : "The template could not be saved.",
+        ).pipe(Effect.ignore);
+      }),
+    );
+    yield* build.pipe(Effect.forkIn(serviceScope));
+    return yield* SubscriptionRef.get(state);
+  });
+
   // A copy of each machine's usage stays on this server, so it still counts once the machine is gone.
   const usageCopiedAt = new Map<string, number>();
   // One copy per machine at a time: two would each write over the other's newest hours.
@@ -745,6 +810,8 @@ export const make = Effect.gen(function* () {
           return yield* resumeMachine(boat, machine);
         case "delete":
           return yield* deleteMachine(boat, machine, "It was deleted.");
+        case "make-template":
+          return yield* makeTemplate(boat, machine);
       }
     },
     (effect) => lifecycle.withPermits(1)(effect),
