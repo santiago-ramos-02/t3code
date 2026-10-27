@@ -13,6 +13,8 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 
+import * as BoatMachines from "../boat/BoatMachines.ts";
+import { makeMachineThreads } from "../boat/machineThreads.ts";
 import { withGentleAiSessionRestart } from "../gentleAi/GentleAiSessionPolicy.ts";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import {
@@ -20,6 +22,12 @@ import {
   type AnyProviderAdapterDriver,
 } from "@t3tools/provider-core/server/adapterDriver";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
+import {
+  BOAT_DRIVER,
+  BoatProviderCapabilitiesV2,
+  makeBoatAdapterV2,
+  sandboxIdOfBoatInstance,
+} from "./Adapters/BoatAdapterV2.ts";
 
 const isProviderSetupError = Schema.is(ProviderSetupError);
 
@@ -70,13 +78,30 @@ export class ProviderAdapterRegistryV2 extends Context.Service<
 export const layerFromProviderInstanceRegistry: Layer.Layer<
   ProviderAdapterRegistryV2,
   never,
-  ProviderInstanceRegistry.ProviderInstanceRegistry
+  ProviderInstanceRegistry.ProviderInstanceRegistry | BoatMachines.BoatMachines
 > = Layer.effect(
   ProviderAdapterRegistryV2,
   Effect.gen(function* () {
     const instances = yield* ProviderInstanceRegistry.ProviderInstanceRegistry;
+    const machines = makeMachineThreads(yield* BoatMachines.BoatMachines);
+    const boatAdapters = new Map<
+      ProviderInstanceId,
+      ProviderAdapter.ProviderAdapterV2["Service"]
+    >();
+    // A Boat machine is not a configured provider instance: its id alone names it.
+    const boatAdapterFor = (instanceId: ProviderInstanceId) => {
+      const sandboxId = sandboxIdOfBoatInstance(instanceId);
+      if (sandboxId === undefined) return undefined;
+      const known = boatAdapters.get(instanceId);
+      if (known !== undefined) return known;
+      const adapter = makeBoatAdapterV2({ sandboxId, machines });
+      boatAdapters.set(instanceId, adapter);
+      return adapter;
+    };
     return ProviderAdapterRegistryV2.of({
       get: Effect.fn("ProviderAdapterRegistryV2.get")(function (instanceId) {
+        const boatAdapter = boatAdapterFor(instanceId);
+        if (boatAdapter !== undefined) return Effect.succeed(boatAdapter);
         return instances.getInstance(instanceId).pipe(
           Effect.flatMap((instance) => {
             if (instance === undefined)
@@ -140,6 +165,14 @@ export const layerFromProviderInstanceRegistry: Layer.Layer<
         );
       }),
       getMetadata: Effect.fn("ProviderAdapterRegistry.getMetadata")(function* (instanceId) {
+        if (boatAdapterFor(instanceId) !== undefined) {
+          return {
+            driver: BOAT_DRIVER,
+            continuationKey: `boat:${sandboxIdOfBoatInstance(instanceId)}`,
+            enabled: true,
+            capabilities: BoatProviderCapabilitiesV2,
+          };
+        }
         const instance = yield* instances.getInstance(instanceId);
         if (instance === undefined) {
           return yield* new ProviderAdapterRegistryLookupError({ instanceId });

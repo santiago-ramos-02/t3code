@@ -49,6 +49,7 @@ import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as OrchestrationEventStore from "../persistence/OrchestrationEventStore.ts";
 import * as ProjectEnrichmentService from "../project/ProjectEnrichmentService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
+import * as BoatMachines from "../boat/BoatMachines.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as McpSessionRegistryTestkit from "../mcp/McpSessionRegistry.testkit.ts";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
@@ -153,6 +154,8 @@ const alternateProviderInstance = {
     instanceId: alternateInstanceId,
   },
 } satisfies ProviderInstance;
+
+const layerTestBoatMachines = Layer.mock(BoatMachines.BoatMachines)({});
 
 const layerTestProviderInstanceRegistry = Layer.succeed(
   ProviderInstanceRegistry.ProviderInstanceRegistry,
@@ -285,6 +288,7 @@ const layerTest = Layer.mergeAll(
   Layer.provide(layerServerConfig),
   Layer.provide(ServerSettings.layerTest()),
   Layer.provide(layerTestProviderInstanceRegistry),
+  Layer.provide(layerTestBoatMachines),
   Layer.provide(layerGitWorkflowTest),
   Layer.provide(layerProjectServiceTest),
   Layer.provide(layerPlatformTest),
@@ -298,6 +302,7 @@ const layerLegacyImportTest = RuntimeLayer.layer.pipe(
   Layer.provide(layerServerConfig),
   Layer.provide(ServerSettings.layerTest()),
   Layer.provide(layerTestProviderInstanceRegistry),
+  Layer.provide(layerTestBoatMachines),
   Layer.provide(layerGitWorkflowTest),
   Layer.provide(layerProjectServiceTest),
   Layer.provide(layerPlatformTest),
@@ -363,6 +368,7 @@ const layerProjectDeletionTest = Layer.mergeAll(
   Layer.provide(layerServerConfig),
   Layer.provide(ServerSettings.layerTest()),
   Layer.provide(layerTestProviderInstanceRegistry),
+  Layer.provide(layerTestBoatMachines),
   Layer.provide(layerGitWorkflowTest),
   Layer.provide(layerPlatformTest),
 );
@@ -631,6 +637,7 @@ const layerSharedApplicationDataPlaneTest = Layer.mergeAll(
   Layer.provide(layerServerConfig),
   Layer.provide(ServerSettings.layerTest()),
   Layer.provide(layerTestProviderInstanceRegistry),
+  Layer.provide(layerTestBoatMachines),
   Layer.provide(layerGitWorkflowTest),
   Layer.provide(layerPlatformTest),
 );
@@ -6769,6 +6776,7 @@ const layerQueueResumeDisabledInstanceTest = Layer.mergeAll(
     }),
   ),
   Layer.provide(layerTestProviderInstanceRegistry),
+  Layer.provide(layerTestBoatMachines),
   Layer.provide(layerGitWorkflowTest),
   Layer.provide(layerProjectServiceTest),
   Layer.provide(layerPlatformTest),

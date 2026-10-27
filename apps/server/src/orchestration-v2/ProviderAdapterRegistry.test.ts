@@ -19,6 +19,12 @@ import type * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 
 import * as ProviderAuthFlow from "@t3tools/provider-core/server/providerAuthFlow";
+import * as BoatMachines from "../boat/BoatMachines.ts";
+import {
+  BOAT_DRIVER,
+  BoatProviderCapabilitiesV2,
+  boatInstanceId,
+} from "./Adapters/BoatAdapterV2.ts";
 import type { ProviderAuthController } from "../provider/ProviderAuthService.ts";
 import type { ProviderInstance } from "@t3tools/provider-core/server/driver";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
@@ -75,8 +81,10 @@ const layerInstanceRegistry = Layer.succeed(ProviderInstanceRegistry.ProviderIns
   streamChanges: Stream.empty,
   subscribeChanges: Effect.never,
 });
+const layerBoatMachines = Layer.mock(BoatMachines.BoatMachines)({});
 const layerTest = ProviderAdapterRegistry.layerFromProviderInstanceRegistry.pipe(
   Layer.provide(layerInstanceRegistry),
+  Layer.provide(layerBoatMachines),
 );
 
 it.effect("routes two configured instances of the same driver independently", () =>
@@ -86,6 +94,40 @@ it.effect("routes two configured instances of the same driver independently", ()
     assert.strictEqual(yield* registry.get(personalId), personalAdapter);
     assert.strictEqual(yield* registry.get(workId), workAdapter);
     assert.deepEqual(yield* registry.list(), [personalId, workId]);
+  }).pipe(Effect.provide(layerTest)),
+);
+
+const boatId = boatInstanceId("bx_test0001");
+
+it.effect("routes a Boat machine's instance id to its adapter, without any settings entry", () =>
+  Effect.gen(function* () {
+    const registry = yield* ProviderAdapterRegistry.ProviderAdapterRegistryV2;
+
+    const adapter = yield* registry.get(boatId);
+    assert.strictEqual(adapter.instanceId, boatId);
+    assert.strictEqual(adapter.driver, BOAT_DRIVER);
+    const getMetadata = registry.getMetadata;
+    if (getMetadata === undefined) return yield* Effect.die("The registry has no metadata.");
+    const metadata = yield* getMetadata(boatId);
+    assert.deepStrictEqual(metadata, {
+      driver: BOAT_DRIVER,
+      continuationKey: "boat:bx_test0001",
+      enabled: true,
+      capabilities: BoatProviderCapabilitiesV2,
+    });
+    // A machine is not a configured provider, so no list of instances offers it.
+    assert.deepStrictEqual(yield* registry.list(), [personalId, workId]);
+  }).pipe(Effect.provide(layerTest)),
+);
+
+it.effect("still sends every other instance id to the provider instance registry", () =>
+  Effect.gen(function* () {
+    const registry = yield* ProviderAdapterRegistry.ProviderAdapterRegistryV2;
+
+    assert.strictEqual((yield* registry.get(personalId)).instanceId, personalId);
+    assert.strictEqual((yield* registry.get(workId)).instanceId, workId);
+    const unknown = yield* registry.get(ProviderInstanceId.make("boat")).pipe(Effect.flip);
+    assert.instanceOf(unknown, ProviderAdapterRegistry.ProviderAdapterRegistryLookupError);
   }).pipe(Effect.provide(layerTest)),
 );
 
@@ -203,6 +245,7 @@ it.effect(
                 listInstances: Effect.succeed(related),
               }),
             ),
+            Layer.provide(layerBoatMachines),
           ),
         ),
       );
@@ -265,6 +308,7 @@ it.effect("interrupts admitted session startup when a shared peer signs out", ()
               listInstances: Effect.succeed(related),
             }),
           ),
+          Layer.provide(layerBoatMachines),
         ),
       ),
     );
