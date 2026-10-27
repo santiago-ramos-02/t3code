@@ -7,6 +7,7 @@ import {
   type BoatTemplateBuild,
   DEFAULT_BOAT_SETTINGS,
   boatMachineLabel,
+  type AuthEnvironmentScope,
   type BoatConfigureInput,
   type BoatStartStep,
   type BoatMachineActionInput,
@@ -16,6 +17,7 @@ import {
 } from "@t3tools/contracts";
 import { resolveWorktreeCleanup } from "@t3tools/shared/projectSettings";
 import * as Context from "effect/Context";
+import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import type * as Duration from "effect/Duration";
 import * as Cause from "effect/Cause";
@@ -25,7 +27,12 @@ import { HttpClient } from "effect/http";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
+import type * as Rpc from "effect/rpc/Rpc";
+import type * as RpcClient from "effect/rpc/RpcClient";
+import type { RpcClientError } from "effect/rpc/RpcClientError";
+import type * as RpcGroup from "effect/rpc/RpcGroup";
 import * as Schedule from "effect/Schedule";
+import type * as Scope from "effect/Scope";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
@@ -49,6 +56,13 @@ import {
 } from "./BoatApi.ts";
 import { makeBoatCli } from "./BoatCli.ts";
 import { giveMachineGitHubLogin } from "./machineGitHub.ts";
+import {
+  MACHINE_PROJECT_SCOPES,
+  MachineProjectRpcs,
+  ensureMachineProject,
+  type MachineProject,
+} from "./machineProject.ts";
+import { openMachineRpc } from "./machineRpc.ts";
 import { BOAT_MACHINE_ENV } from "./machineGitTools.ts";
 import { buildTemplate, saveNamedSnapshotAndWait, templateNameFor } from "./boatTemplate.ts";
 import {
@@ -113,7 +127,15 @@ const decodePairingCredential = Schema.decodeUnknownOption(
 );
 
 const fail = (detail: string) => new BoatError({ detail });
+// Text for a shell command, in single quotes.
+const shellQuote = (text: string) => `'${text.replaceAll("'", "'\\''")}'`;
 const sameReport = Schema.toEquivalence(BoatMachineReport);
+
+interface MachineConnection<Rpcs extends Rpc.Any> {
+  readonly sandboxId: string;
+  readonly scopes: ReadonlyArray<AuthEnvironmentScope>;
+  readonly group: RpcGroup.RpcGroup<Rpcs>;
+}
 
 export class BoatMachines extends Context.Service<
   BoatMachines,
@@ -125,6 +147,27 @@ export class BoatMachines extends Context.Service<
     /** Starts a machine running T3 Code and returns a one-time pairing credential for it. */
     readonly spawn: (input: BoatSpawnInput) => Effect.Effect<BoatSpawnResult, BoatError>;
     readonly machineAction: (input: BoatMachineActionInput) => Effect.Effect<BoatStatus, BoatError>;
+    /**
+     * Opens an RPC client to a machine's own T3 Code server for as long as the caller's scope
+     * lives. A stopped machine is resumed and one still starting is waited for. The machine issues
+     * a short-lived token limited to `scopes`; it stays in memory.
+     */
+    readonly connect: <Rpcs extends Rpc.Any>(
+      input: MachineConnection<Rpcs>,
+    ) => Effect.Effect<
+      RpcClient.RpcClient<Rpcs, RpcClientError>,
+      BoatError,
+      Scope.Scope | Rpc.MiddlewareClient<Rpcs>
+    >;
+    /**
+     * The machine's project for a repository, cloned from `remoteUrl` unless it already has one,
+     * after checking that `branch` is on its origin.
+     */
+    readonly ensureProject: (input: {
+      readonly sandboxId: string;
+      readonly remoteUrl: string;
+      readonly branch: string;
+    }) => Effect.Effect<MachineProject, BoatError>;
     /**
      * Applies the idle stop, the worktree cleanup rules, and the snapshots that keep stopped disks
      * past Boat's free days. The layer runs it every minute.
@@ -143,6 +186,7 @@ export const make = Effect.gen(function* () {
   const httpClient = yield* HttpClient.HttpClient;
   const githubCredentials = yield* GitHubCredentials.GitHubCredentials;
   const webSocket = yield* Socket.WebSocketConstructor;
+  const crypto = yield* Crypto.Crypto;
   const cli = makeBoatCli({
     runner: yield* ProcessRunner.ProcessRunner,
     path,
@@ -369,17 +413,19 @@ export const make = Effect.gen(function* () {
       Effect.provideService(Socket.WebSocketConstructor, webSocket),
     );
 
+  const isT3Up = (boat: BoatApi, sandboxId: string) =>
+    boat
+      .runCommand(sandboxId, { command: `${T3_UP} && echo up || echo down` })
+      .pipe(Effect.map((probe) => probe.stdout.trim() === "up"));
+
   // A stopped machine keeps its disk but not its processes, so a resume starts T3 Code again.
   const serveT3 = Effect.fn("BoatMachines.serveT3")(function* (
     boat: BoatApi,
     machine: BoatMachine,
   ) {
     const { sandboxId } = machine;
-    const probe = yield* boat.runCommand(sandboxId, {
-      command: `${T3_UP} && echo up || echo down`,
-    });
     let notice: string | null = null;
-    if (probe.stdout.trim() !== "up") {
+    if (!(yield* isT3Up(boat, sandboxId))) {
       notice = yield* installForkRuntime(boat, sandboxId);
       yield* boat.runCommand(sandboxId, { command: setMachineLabel(boatMachineLabel(machine)) });
       yield* boat.startDetached(sandboxId, T3_SERVE);
@@ -817,6 +863,168 @@ export const make = Effect.gen(function* () {
     (effect) => lifecycle.withPermits(1)(effect),
   );
 
+  // The machine as a caller may use it: resumed if stopped, waited for if starting, and serving
+  // T3 Code. A resumed machine can come back on a new sandbox at the same address, so the sandbox
+  // to use is the one returned.
+  const ensureRunning = Effect.fn("BoatMachines.ensureRunning")(function* (
+    boat: BoatApi,
+    sandboxId: string,
+  ) {
+    for (;;) {
+      const status = yield* SubscriptionRef.get(state);
+      const machine = status.machines.find((m) => m.sandboxId === sandboxId);
+      if (machine === undefined) {
+        const gone = status.deleted.find((entry) => entry.sandboxId === sandboxId);
+        return yield* fail(
+          gone === undefined
+            ? "That Boat machine is not one of this server's."
+            : `That Boat machine was deleted (${gone.reason}).`,
+        );
+      }
+      if (machine.state === "starting" || machine.state === "stopping") {
+        yield* SubscriptionRef.changes(state).pipe(
+          Stream.filter((next) =>
+            next.machines.every(
+              (m) =>
+                m.sandboxId !== sandboxId || (m.state !== "starting" && m.state !== "stopping"),
+            ),
+          ),
+          Stream.runHead,
+        );
+        continue;
+      }
+      if (machine.state !== "running" && machine.state !== "stopped") {
+        return yield* fail(machine.problem ?? `That Boat machine is ${machine.state}.`);
+      }
+      const ready = yield* lifecycle.withPermits(1)(
+        Effect.gen(function* () {
+          // A check or another caller may have changed it while this one waited.
+          const current = (yield* SubscriptionRef.get(state)).machines.find(
+            (m) => m.sandboxId === sandboxId,
+          );
+          if (
+            current === undefined ||
+            (current.state !== "running" && current.state !== "stopped")
+          ) {
+            return Option.none<BoatMachine>();
+          }
+          if (current.state === "stopped") {
+            yield* resumeMachine(boat, current);
+          } else {
+            // Boat stops a machine itself once this server stops renewing it, and a check may not
+            // have noticed yet.
+            const sandbox = yield* boat.getSandbox(sandboxId);
+            if (Option.isNone(sandbox)) {
+              yield* forget(current, "It no longer exists on Boat.");
+              return yield* fail("That Boat machine no longer exists.");
+            }
+            if (sandbox.value.state === "archiving" || sandbox.value.state === "archived") {
+              yield* resumeMachine(boat, current);
+            } else if (!(yield* isT3Up(boat, sandboxId))) {
+              const notice = yield* serveT3(boat, current);
+              yield* changeMachine(sandboxId, (m) => ({ ...m, notice }));
+            }
+          }
+          // A restored machine has a new sandbox but keeps the address.
+          const after = (yield* SubscriptionRef.get(state)).machines.find(
+            (m) => m.httpBaseUrl === current.httpBaseUrl,
+          );
+          if (after === undefined || after.httpBaseUrl === null) {
+            return yield* fail("That Boat machine has no address.");
+          }
+          lastBusy.set(after.sandboxId, DateTime.toEpochMillis(yield* DateTime.now));
+          return Option.some(after);
+        }),
+      );
+      if (Option.isSome(ready)) return ready.value;
+    }
+  });
+
+  const connectTo = Effect.fn("BoatMachines.openMachine")(function* <Rpcs extends Rpc.Any>(
+    input: MachineConnection<Rpcs>,
+  ) {
+    const boat = yield* api;
+    const machine = yield* ensureRunning(boat, input.sandboxId);
+    const client = yield* openMachineRpc({
+      boat,
+      sandboxId: machine.sandboxId,
+      machineUrl: machine.httpBaseUrl ?? "",
+      t3Command: T3_COMMAND,
+      group: input.group,
+      scopes: input.scopes,
+      ttl: "5m",
+      label: "T3 Code delegated task",
+    }).pipe(
+      Effect.provideService(HttpClient.HttpClient, httpClient),
+      Effect.provideService(Socket.WebSocketConstructor, webSocket),
+    );
+    return { client, sandboxId: machine.sandboxId };
+  });
+
+  const connect = Effect.fn("BoatMachines.connect")(function* <Rpcs extends Rpc.Any>(
+    input: MachineConnection<Rpcs>,
+  ) {
+    return (yield* connectTo(input)).client;
+  });
+
+  // The checkout's view of the branch, brought up to date, and whether origin has it.
+  const syncBranch = (boat: BoatApi, sandboxId: string, workspaceRoot: string, branch: string) => {
+    const root = shellQuote(workspaceRoot);
+    const ref = shellQuote(`refs/heads/${branch}`);
+    const tracking = shellQuote(`refs/remotes/origin/${branch}`);
+    return boat
+      .runCommand(sandboxId, {
+        command: `git -C ${root} ls-remote --exit-code --heads origin ${ref} >/dev/null || exit $?; git -C ${root} fetch --quiet origin +${ref}:${tracking}`,
+        timeoutSeconds: 120,
+      })
+      .pipe(
+        // `git ls-remote --exit-code` answers 2 when origin has no such branch.
+        Effect.flatMap((result) =>
+          result.exitCode === 0
+            ? Effect.succeed(true)
+            : result.exitCode === 2
+              ? Effect.succeed(false)
+              : Effect.fail(fail("The Boat machine could not reach the repository's origin.")),
+        ),
+      );
+  };
+
+  // Tasks that start together on one machine would each clone the repository, so a machine
+  // sets up one project at a time.
+  const projectSetups = new Map<string, Semaphore.Semaphore>();
+  const setupFor = (sandboxId: string) => {
+    const existing = projectSetups.get(sandboxId);
+    if (existing !== undefined) return existing;
+    const created = Semaphore.makeUnsafe(1);
+    projectSetups.set(sandboxId, created);
+    return created;
+  };
+
+  const ensureProject = Effect.fn("BoatMachines.ensureProject")(function* (input: {
+    readonly sandboxId: string;
+    readonly remoteUrl: string;
+    readonly branch: string;
+  }) {
+    return yield* setupFor(input.sandboxId).withPermits(1)(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const { client, sandboxId } = yield* connectTo({
+            sandboxId: input.sandboxId,
+            scopes: MACHINE_PROJECT_SCOPES,
+            group: MachineProjectRpcs,
+          });
+          const boat = yield* api;
+          return yield* ensureMachineProject({
+            client,
+            remoteUrl: input.remoteUrl,
+            branch: input.branch,
+            syncBranch: (workspaceRoot) => syncBranch(boat, sandboxId, workspaceRoot, input.branch),
+          }).pipe(Effect.provideService(Crypto.Crypto, crypto));
+        }),
+      ),
+    );
+  });
+
   // Applies the worktree cleanup rules of the project the machine was started for. A running
   // machine's checkouts change, so they are read again right before it is deleted.
   const applyCleanup = Effect.fn("BoatMachines.applyCleanup")(function* (
@@ -992,6 +1200,8 @@ export const make = Effect.gen(function* () {
     configure,
     spawn,
     machineAction,
+    connect,
+    ensureProject,
     checkMachines,
   });
 });

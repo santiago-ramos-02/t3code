@@ -6,11 +6,8 @@
  * @module boat/boatUsage
  */
 import {
-  AuthWebSocketTicketResult,
-  BoatError,
+  AuthDiagnosticsReadScope,
   EnvironmentAuthorizationError,
-  ORCHESTRATION_PROTOCOL_QUERY_PARAM,
-  ORCHESTRATION_PROTOCOL_VERSION,
   UsageReadError,
   UsageSummary,
   UsageSummaryInput,
@@ -24,15 +21,10 @@ import * as DateTime from "effect/DateTime";
 import type * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
-import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
-import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Rpc from "effect/rpc/Rpc";
-import * as RpcClient from "effect/rpc/RpcClient";
 import * as RpcGroup from "effect/rpc/RpcGroup";
-import * as RpcSerialization from "effect/rpc/RpcSerialization";
-import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
 import * as Socket from "effect/socket/Socket";
 
@@ -46,6 +38,7 @@ import {
   mergeImportedUsage,
 } from "../usage/importedUsage.ts";
 import type { BoatApi } from "./BoatApi.ts";
+import { openMachineRpc } from "./machineRpc.ts";
 
 const HOUR_MS = 60 * 60 * 1000;
 // The usage page reads at most this far back, and older transcripts may already be gone.
@@ -64,10 +57,6 @@ const decodeImportedUsage = Schema.decodeUnknownOption(Schema.fromJsonString(Imp
 const isoAt = (timestampMs: number) => DateTime.formatIso(DateTime.makeUnsafe(timestampMs));
 const dayAt = (timestampMs: number) => isoAt(timestampMs).slice(0, 10) as UsageDay;
 
-// A short-lived token that can only read usage and diagnostics, issued by the machine's own CLI.
-const issueUsageToken = (t3Command: string) =>
-  `sh -lc '${t3Command} auth session issue --scope diagnostics:read --ttl 15m --label "T3 Code usage copy" --token-only'`;
-
 /**
  * Reads the hours of a running machine's usage this server does not have yet and stores them.
  * Never fails: a machine that cannot answer keeps what was stored before.
@@ -85,7 +74,6 @@ export const captureBoatUsage = Effect.fn("BoatUsage.capture")(
     if (machineUrl === null) return;
     const fileSystem = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
-    const httpClient = yield* HttpClient.HttpClient;
     const filePath = path.join(
       input.stateDir,
       IMPORTED_USAGE_DIRECTORY,
@@ -107,47 +95,19 @@ export const captureBoatUsage = Effect.fn("BoatUsage.capture")(
     // The current hour is still filling, so it is read again next time.
     const windows = hourlyWindows(sinceMs, capturedUntilMs + HOUR_MS);
 
-    const token = yield* boat
-      .runCommand(machine.sandboxId, {
-        command: issueUsageToken(input.t3Command),
-        timeoutSeconds: 120,
-      })
-      .pipe(
-        Effect.flatMap((result) => {
-          const issued = result.stdout.trim().split("\n").at(-1)?.trim() ?? "";
-          return result.exitCode === 0 && issued.length > 0
-            ? Effect.succeed(issued)
-            : Effect.fail(new BoatError({ detail: "The machine did not issue a usage token." }));
-        }),
-      );
-    const ticket = yield* httpClient
-      .execute(
-        HttpClientRequest.post(`${machineUrl}/api/auth/websocket-ticket`).pipe(
-          HttpClientRequest.bearerToken(token),
-        ),
-      )
-      .pipe(
-        Effect.flatMap(HttpClientResponse.filterStatusOk),
-        Effect.flatMap(HttpClientResponse.schemaBodyJson(AuthWebSocketTicketResult)),
-        Effect.map((result) => result.ticket),
-      );
-
     yield* fileSystem.makeDirectory(path.dirname(filePath), { recursive: true });
     yield* Effect.gen(function* () {
-      const socket = Socket.layerWebSocket(
-        `${machineUrl.replace(/^http/, "ws")}/ws?wsTicket=${encodeURIComponent(ticket)}&${ORCHESTRATION_PROTOCOL_QUERY_PARAM}=${ORCHESTRATION_PROTOCOL_VERSION}`,
-        { openTimeout: "15 seconds" },
-      ).pipe(Layer.provide(Socket.layerWebSocketConstructorGlobal));
-      const protocol = Layer.effect(
-        RpcClient.Protocol,
-        RpcClient.makeProtocolSocket({
-          retryTransientErrors: false,
-          retryPolicy: Schedule.recurs(0),
-        }),
-      ).pipe(Layer.provide(Layer.mergeAll(socket, RpcSerialization.layerJson)));
-      // The protocol's reader must live in a built context, as in the client runtime.
-      const context = yield* Layer.build(protocol);
-      const client = yield* RpcClient.make(UsageRpcs).pipe(Effect.provide(context));
+      // A short-lived token that can only read usage and diagnostics.
+      const client = yield* openMachineRpc({
+        boat,
+        sandboxId: machine.sandboxId,
+        machineUrl,
+        t3Command: input.t3Command,
+        group: UsageRpcs,
+        scopes: [AuthDiagnosticsReadScope],
+        ttl: "15m",
+        label: "T3 Code usage copy",
+      });
       // Each day read is saved before the next, so a long first copy keeps what it read so far.
       let kept = previous;
       for (const window of windows) {
@@ -169,7 +129,7 @@ export const captureBoatUsage = Effect.fn("BoatUsage.capture")(
         );
         yield* writeFileStringAtomically({ filePath, contents: encodeImportedUsage(kept) });
       }
-    }).pipe(Effect.scoped);
+    }).pipe(Effect.scoped, Effect.provide(Socket.layerWebSocketConstructorGlobal));
   },
   (effect, input) =>
     effect.pipe(

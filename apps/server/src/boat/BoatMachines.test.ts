@@ -1,6 +1,12 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
-import { DEFAULT_BOAT_SETTINGS } from "@t3tools/contracts";
+import {
+  AuthOrchestrationOperateScope,
+  AuthOrchestrationReadScope,
+  DEFAULT_BOAT_SETTINGS,
+  EnvironmentAuthorizationError,
+  WS_METHODS,
+} from "@t3tools/contracts";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
@@ -9,6 +15,8 @@ import { HttpClient, HttpClientResponse, type HttpClientRequest } from "effect/h
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
+import * as Rpc from "effect/rpc/Rpc";
+import * as RpcGroup from "effect/rpc/RpcGroup";
 import * as Schema from "effect/Schema";
 import * as Socket from "effect/socket/Socket";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
@@ -34,6 +42,8 @@ const BUILD_ID = "bx_build0003";
 const HOST_GITHUB_TOKEN = "ghp_hosttoken";
 const MACHINE_ACCESS_TOKEN = "MACHINE-ACCESS-TOKEN";
 
+type MachineReply = { readonly value: unknown } | { readonly stream: ReadonlyArray<unknown> };
+
 interface BoatCall {
   readonly method: string;
   readonly path: string;
@@ -52,6 +62,8 @@ const makeFakeBoat = (options: {
   readonly createFailure?: { readonly status: number; readonly message: string };
   // Holds the pairing command open after completing this, as a slow first start does.
   readonly pairingReached?: Deferred.Deferred<void>;
+  // With pairingReached, completes the held pairing command when this completes.
+  readonly pairingRelease?: Deferred.Deferred<void>;
   // Boat no longer has the sandbox, as after a delete from its dashboard.
   readonly gone?: boolean;
 }) => {
@@ -60,15 +72,22 @@ const makeFakeBoat = (options: {
   const machine = {
     tickets: [] as Array<{ readonly path: string; readonly authorization: string | undefined }>,
     sockets: [] as string[],
+    closedSockets: 0,
     requests: [] as Array<{ readonly tag: string; readonly payload: unknown }>,
+    // How the machine's T3 Code server answers a request: a success, or the items of a stream.
+    reply: (_tag: string, _payload: unknown): MachineReply => ({ value: {} }),
   };
   // What a test changes about Boat and the machine's T3 Code server as it goes.
   const control = {
     serverStarts: true,
     // The machine's T3 Code server turns the access token down.
     rejectsAccessToken: false,
+    // T3 Code already answers on the machine, as on one that was not stopped.
+    t3Up: false,
     // The machine already runs this server's build, so nothing is downloaded.
     runtimeCurrent: false,
+    // The branches its checkouts' origin has.
+    originBranches: [] as string[],
     // The fork published a release for this server's build.
     releasePublished: true,
     report: {
@@ -166,7 +185,17 @@ const makeFakeBoat = (options: {
         const checkouts = command.includes("REPORT=checkouts") ? control.checkouts : null;
         return result(0, `login noise\n${JSON.stringify({ ...control.report, checkouts })}\n`);
       }
-      if (command.includes("echo up || echo down")) return result(0, "down\n");
+      if (command.includes("echo up || echo down")) {
+        return result(0, control.t3Up ? "up\n" : "down\n");
+      }
+      if (command.includes("ls-remote")) {
+        return result(
+          control.originBranches.some((branch) => command.includes(`'refs/heads/${branch}'`))
+            ? 0
+            : 2,
+          "",
+        );
+      }
       if (command.includes("echo current || echo other")) {
         return result(0, control.runtimeCurrent ? "current\n" : "other\n");
       }
@@ -182,9 +211,15 @@ const makeFakeBoat = (options: {
       if (command.includes("seq 1 120")) return result(control.serverStarts ? 0 : 1, "");
       if (command.includes("auth pairing create")) {
         if (options.pairingReached) {
-          return Deferred.succeed(options.pairingReached, undefined).pipe(
-            Effect.andThen(Effect.never),
-          );
+          const reached = Deferred.succeed(options.pairingReached, undefined);
+          return options.pairingRelease === undefined
+            ? reached.pipe(Effect.andThen(Effect.never))
+            : reached.pipe(
+                Effect.andThen(Deferred.await(options.pairingRelease)),
+                Effect.andThen(
+                  options.pairing === undefined ? result(1, "") : result(0, options.pairing),
+                ),
+              );
         }
         return options.pairing === undefined ? result(1, "") : result(0, options.pairing);
       }
@@ -245,20 +280,23 @@ class FakeMachineSocket {
   send(data: string) {
     const request = decodeRpcRequest(data);
     if (Option.isNone(request)) return;
-    this.machine.requests.push({ tag: request.value.tag, payload: request.value.payload });
-    queueMicrotask(() =>
-      this.emit({
-        type: "message",
-        data: JSON.stringify({
-          _tag: "Exit",
-          requestId: request.value.id,
-          exit: { _tag: "Success", value: {} },
-        }),
-      }),
-    );
+    const { id, tag, payload } = request.value;
+    this.machine.requests.push({ tag, payload });
+    const reply = this.machine.reply(tag, payload);
+    const message = (body: object) =>
+      queueMicrotask(() =>
+        this.emit({ type: "message", data: JSON.stringify({ requestId: id, ...body }) }),
+      );
+    if ("stream" in reply) {
+      message({ _tag: "Chunk", values: reply.stream });
+      message({ _tag: "Exit", exit: { _tag: "Success", value: null } });
+    } else {
+      message({ _tag: "Exit", exit: { _tag: "Success", value: reply.value } });
+    }
   }
 
   close() {
+    this.machine.closedSockets += 1;
     this.readyState = 3;
     this.emit({ type: "close" });
   }
@@ -1196,6 +1234,397 @@ describe("BoatMachines", () => {
       });
       assert.strictEqual(callsTo(boat.calls, "DELETE", `/sandboxes/${SANDBOX_ID}`).length, 1);
       assert.deepStrictEqual(boat.control.snapshots, []);
+    }).pipe(Effect.provide(layerEnvironment)),
+  );
+});
+
+const ProbeRpcs = RpcGroup.make(
+  Rpc.make(WS_METHODS.serverProbe, {
+    payload: Schema.Struct({}),
+    success: Schema.Struct({}),
+    error: EnvironmentAuthorizationError,
+  }),
+);
+const ORCHESTRATION_SCOPES = [AuthOrchestrationReadScope, AuthOrchestrationOperateScope] as const;
+
+const sessionCommands = (boat: FakeBoat) =>
+  boat.calls
+    .map((call) => String(call.body?.command ?? ""))
+    .filter((command) => command.includes("auth session issue"));
+
+/** A configured service with one running machine, as `delegate_task` finds it. */
+const makeServiceWithMachine = (boat: FakeBoat) =>
+  Effect.gen(function* () {
+    const service = yield* makeService(boat);
+    yield* service.configure({ apiKey: "boat_test_key" });
+    yield* service.spawn({});
+    return service;
+  });
+
+describe("BoatMachines.connect", () => {
+  it.effect("fails for a machine this server does not have, before calling Boat", () =>
+    Effect.gen(function* () {
+      const boat = makeFakeBoat({ pairing: PAIRING_OUTPUT });
+      const service = yield* makeService(boat);
+      yield* service.configure({ apiKey: "boat_test_key" });
+
+      const error = yield* Effect.scoped(
+        service.connect({
+          sandboxId: "bx_unknown",
+          scopes: ORCHESTRATION_SCOPES,
+          group: ProbeRpcs,
+        }),
+      ).pipe(Effect.flip);
+
+      assert.strictEqual(error.detail, "That Boat machine is not one of this server's.");
+      assert.strictEqual(boat.calls.length, 0);
+    }).pipe(Effect.provide(layerEnvironment)),
+  );
+
+  it.effect("says a deleted machine was deleted", () =>
+    Effect.gen(function* () {
+      const boat = makeFakeBoat({ pairing: PAIRING_OUTPUT });
+      const service = yield* makeServiceWithMachine(boat);
+      yield* service.machineAction({ sandboxId: SANDBOX_ID, action: "delete" });
+      const before = boat.calls.length;
+
+      const error = yield* Effect.scoped(
+        service.connect({ sandboxId: SANDBOX_ID, scopes: ORCHESTRATION_SCOPES, group: ProbeRpcs }),
+      ).pipe(Effect.flip);
+
+      assert.strictEqual(error.detail, "That Boat machine was deleted (It was deleted.).");
+      assert.strictEqual(boat.calls.length, before);
+    }).pipe(Effect.provide(layerEnvironment)),
+  );
+
+  it.effect("resumes a stopped machine and connects with only the scopes asked for", () =>
+    Effect.gen(function* () {
+      const boat = makeFakeBoat({ pairing: PAIRING_OUTPUT });
+      const service = yield* makeServiceWithMachine(boat);
+      yield* service.machineAction({ sandboxId: SANDBOX_ID, action: "stop" });
+
+      yield* Effect.gen(function* () {
+        const client = yield* service.connect({
+          sandboxId: SANDBOX_ID,
+          scopes: ORCHESTRATION_SCOPES,
+          group: ProbeRpcs,
+        });
+        yield* client[WS_METHODS.serverProbe]({});
+        // The connection lasts the scope, not the call.
+        assert.isBelow(boat.machine.closedSockets, boat.machine.sockets.length);
+      }).pipe(Effect.scoped);
+
+      assert.strictEqual((yield* service.current).machines[0]?.state, "running");
+      assert.strictEqual(callsTo(boat.calls, "POST", "/resume").length, 1);
+      const issued = sessionCommands(boat).filter((command) => command.includes("orchestration"));
+      assert.strictEqual(issued.length, 1);
+      assert.include(issued[0], "--scope orchestration:read --scope orchestration:operate ");
+      assert.notInclude(issued[0], "settings:write");
+      // The machine's GitHub login went with the resume; the last ticket and socket are ours.
+      assert.deepStrictEqual(boat.machine.tickets.at(-1), {
+        path: "/api/auth/websocket-ticket",
+        authorization: `Bearer ${MACHINE_ACCESS_TOKEN}`,
+      });
+      assert.deepStrictEqual(boat.machine.requests.at(-1), { tag: "server.probe", payload: {} });
+      assert.strictEqual(boat.machine.closedSockets, boat.machine.sockets.length);
+      // The token never reaches a command Boat records, or what this server saves.
+      assert.notInclude(JSON.stringify(boat.calls), MACHINE_ACCESS_TOKEN);
+      assert.notInclude(JSON.stringify(yield* service.current), MACHINE_ACCESS_TOKEN);
+    }).pipe(Effect.provide(layerEnvironment)),
+  );
+
+  it.effect("leaves a machine that is already serving T3 Code alone", () =>
+    Effect.gen(function* () {
+      const boat = makeFakeBoat({ pairing: PAIRING_OUTPUT });
+      const service = yield* makeServiceWithMachine(boat);
+      boat.control.t3Up = true;
+      const detachedBefore = boat.calls.filter((call) => call.body?.detached === true).length;
+
+      yield* Effect.gen(function* () {
+        const client = yield* service.connect({
+          sandboxId: SANDBOX_ID,
+          scopes: ORCHESTRATION_SCOPES,
+          group: ProbeRpcs,
+        });
+        yield* client[WS_METHODS.serverProbe]({});
+      }).pipe(Effect.scoped);
+
+      assert.strictEqual(callsTo(boat.calls, "POST", "/resume").length, 0);
+      assert.strictEqual(
+        boat.calls.filter((call) => call.body?.detached === true).length,
+        detachedBefore,
+      );
+      assert.deepStrictEqual(boat.machine.requests.at(-1), { tag: "server.probe", payload: {} });
+    }).pipe(Effect.provide(layerEnvironment)),
+  );
+
+  it.effect("resumes a machine Boat stopped on its own", () =>
+    Effect.gen(function* () {
+      const boat = makeFakeBoat({ pairing: PAIRING_OUTPUT });
+      const service = yield* makeServiceWithMachine(boat);
+      // This server has not looked yet: it still lists the machine as running.
+      boat.control.stopped.add(SANDBOX_ID);
+
+      yield* Effect.scoped(
+        service.connect({ sandboxId: SANDBOX_ID, scopes: ORCHESTRATION_SCOPES, group: ProbeRpcs }),
+      );
+
+      assert.strictEqual(callsTo(boat.calls, "POST", "/resume").length, 1);
+      assert.strictEqual((yield* service.current).machines[0]?.state, "running");
+    }).pipe(Effect.provide(layerEnvironment)),
+  );
+
+  it.effect("waits for a machine that is still starting", () =>
+    Effect.gen(function* () {
+      const pairingReached = yield* Deferred.make<void>();
+      const pairingRelease = yield* Deferred.make<void>();
+      const boat = makeFakeBoat({ pairing: PAIRING_OUTPUT, pairingReached, pairingRelease });
+      const service = yield* makeService(boat);
+      yield* service.configure({ apiKey: "boat_test_key" });
+      const spawning = yield* service.spawn({}).pipe(Effect.forkChild);
+      yield* Deferred.await(pairingReached);
+      assert.strictEqual((yield* service.current).machines[0]?.state, "starting");
+
+      const connecting = yield* Effect.scoped(
+        service.connect({ sandboxId: SANDBOX_ID, scopes: ORCHESTRATION_SCOPES, group: ProbeRpcs }),
+      ).pipe(Effect.forkChild);
+      yield* Deferred.succeed(pairingRelease, undefined);
+      yield* Fiber.join(spawning);
+      yield* Fiber.join(connecting);
+
+      assert.strictEqual((yield* service.current).machines[0]?.state, "running");
+      assert.strictEqual(callsTo(boat.calls, "POST", "/resume").length, 0);
+      assert.strictEqual(
+        sessionCommands(boat).filter((command) => command.includes("orchestration")).length,
+        1,
+      );
+    }).pipe(Effect.provide(layerEnvironment)),
+  );
+});
+
+const REMOTE_URL = "https://github.com/acme/widgets.git";
+const CHECKOUT = "/home/user/widgets";
+const MACHINE_PROJECT_ID = "machine-project-1";
+const NOW = "2026-10-27T00:00:00.000Z";
+
+const machineProject = (id: string, remoteUrl: string, workspaceRoot: string) => ({
+  id,
+  title: "widgets",
+  workspaceRoot,
+  repositoryIdentity: {
+    canonicalKey: "github.com/acme/widgets",
+    locator: { source: "git-remote", remoteName: "origin", remoteUrl },
+  },
+  defaultModelSelection: null,
+  scripts: [],
+  createdAt: NOW,
+  updatedAt: NOW,
+});
+
+const shellItems = (projects: ReadonlyArray<unknown>) => [
+  {
+    kind: "snapshot",
+    snapshot: {
+      schemaVersion: 1,
+      snapshotSequence: 0,
+      threads: [],
+      archivedThreads: [],
+      projects,
+    },
+  },
+];
+
+const cloneSnapshot = (projectId: string, phase: string, error: string | null = null) => ({
+  projectId,
+  remoteUrl: REMOTE_URL,
+  destinationPath: CHECKOUT,
+  repository: null,
+  phase,
+  stage: "checkout",
+  percent: null,
+  detail: null,
+  error,
+  startedAt: NOW,
+  endedAt: phase === "running" ? null : NOW,
+  sequence: 1,
+});
+
+const startedClone = (payload: unknown) => {
+  const { projectId } = payload as { projectId: string };
+  return {
+    projectId,
+    value: { projectId, cwd: CHECKOUT, remoteUrl: REMOTE_URL, repository: null },
+  };
+};
+
+describe("BoatMachines.ensureProject", () => {
+  it.effect("reuses the project the machine has for the repository", () =>
+    Effect.gen(function* () {
+      const boat = makeFakeBoat({ pairing: PAIRING_OUTPUT });
+      const service = yield* makeServiceWithMachine(boat);
+      boat.control.t3Up = true;
+      boat.control.originBranches = ["feat/x"];
+      // The same repository, spelled the way a user types it over SSH.
+      boat.machine.reply = () => ({
+        stream: shellItems([
+          machineProject(MACHINE_PROJECT_ID, "git@github.com:Acme/widgets.git", CHECKOUT),
+        ]),
+      });
+      const requestsBefore = boat.machine.requests.length;
+
+      const project = yield* service.ensureProject({
+        sandboxId: SANDBOX_ID,
+        remoteUrl: REMOTE_URL,
+        branch: "feat/x",
+      });
+
+      assert.deepStrictEqual(project, { projectId: MACHINE_PROJECT_ID, workspaceRoot: CHECKOUT });
+      assert.deepStrictEqual(
+        boat.machine.requests.slice(requestsBefore).map((request) => request.tag),
+        ["orchestration.subscribeShell"],
+      );
+      // A token that can read projects and clone, and nothing that runs agents.
+      const issued = sessionCommands(boat).at(-1) ?? "";
+      assert.include(issued, "--scope orchestration:read --scope source-control:write ");
+      assert.notInclude(issued, "orchestration:operate");
+      // The branch is looked up on origin itself and fetched, so the checkout sees its latest commit.
+      const sync = boat.calls
+        .map((call) => String(call.body?.command ?? ""))
+        .find((command) => command.includes("ls-remote"));
+      assert.include(
+        sync,
+        `git -C '${CHECKOUT}' ls-remote --exit-code --heads origin 'refs/heads/feat/x'`,
+      );
+      assert.include(
+        sync,
+        "fetch --quiet origin +'refs/heads/feat/x':'refs/remotes/origin/feat/x'",
+      );
+    }).pipe(Effect.provide(layerEnvironment)),
+  );
+
+  it.effect("clones the repository into the machine's home and waits for the clone", () =>
+    Effect.gen(function* () {
+      const boat = makeFakeBoat({ pairing: PAIRING_OUTPUT });
+      const service = yield* makeServiceWithMachine(boat);
+      boat.control.t3Up = true;
+      boat.control.originBranches = ["main"];
+      let startedId = "";
+      boat.machine.reply = (tag, payload) => {
+        if (tag === "projectClone.start") {
+          const started = startedClone(payload);
+          startedId = started.projectId;
+          return { value: started.value };
+        }
+        if (tag === "subscribeProjectClones") {
+          return {
+            stream: [[cloneSnapshot(startedId, "running")], [cloneSnapshot(startedId, "done")]],
+          };
+        }
+        return { stream: shellItems([]) };
+      };
+
+      const project = yield* service.ensureProject({
+        sandboxId: SANDBOX_ID,
+        remoteUrl: REMOTE_URL,
+        branch: "main",
+      });
+
+      const [start] = boat.machine.requests.filter(
+        (request) => request.tag === "projectClone.start",
+      );
+      assert.isDefined(start);
+      const { createdAt, ...startPayload } = start.payload as { createdAt: string };
+      assert.deepStrictEqual(startPayload, {
+        projectId: startedId,
+        title: "widgets",
+        remoteUrl: REMOTE_URL,
+        destinationPath: "~/widgets",
+      });
+      assert.isString(createdAt);
+      assert.deepStrictEqual(project, { projectId: startedId, workspaceRoot: CHECKOUT });
+      assert.match(startedId, /^[0-9a-f-]{36}$/);
+    }).pipe(Effect.provide(layerEnvironment)),
+  );
+
+  it.effect("reports why a clone failed", () =>
+    Effect.gen(function* () {
+      const boat = makeFakeBoat({ pairing: PAIRING_OUTPUT });
+      const service = yield* makeServiceWithMachine(boat);
+      boat.control.t3Up = true;
+      let startedId = "";
+      boat.machine.reply = (tag, payload) => {
+        if (tag === "projectClone.start") {
+          const started = startedClone(payload);
+          startedId = started.projectId;
+          return { value: started.value };
+        }
+        if (tag === "subscribeProjectClones") {
+          return { stream: [[cloneSnapshot(startedId, "failed", "Repository not found.")]] };
+        }
+        return { stream: shellItems([]) };
+      };
+
+      const error = yield* service
+        .ensureProject({ sandboxId: SANDBOX_ID, remoteUrl: REMOTE_URL, branch: "main" })
+        .pipe(Effect.flip);
+
+      assert.strictEqual(error.detail, "Repository not found.");
+    }).pipe(Effect.provide(layerEnvironment)),
+  );
+
+  it.effect("tells the agent to push a branch origin does not have", () =>
+    Effect.gen(function* () {
+      const boat = makeFakeBoat({ pairing: PAIRING_OUTPUT });
+      const service = yield* makeServiceWithMachine(boat);
+      boat.control.t3Up = true;
+      boat.control.originBranches = ["main"];
+      boat.machine.reply = () => ({
+        stream: shellItems([machineProject(MACHINE_PROJECT_ID, REMOTE_URL, CHECKOUT)]),
+      });
+
+      const error = yield* service
+        .ensureProject({ sandboxId: SANDBOX_ID, remoteUrl: REMOTE_URL, branch: "feat/local-only" })
+        .pipe(Effect.flip);
+
+      assert.include(error.detail, 'The branch "feat/local-only" is not on origin');
+      assert.include(error.detail, "git push -u origin feat/local-only");
+    }).pipe(Effect.provide(layerEnvironment)),
+  );
+
+  it.effect("clones once when two tasks start together on the same machine", () =>
+    Effect.gen(function* () {
+      const boat = makeFakeBoat({ pairing: PAIRING_OUTPUT });
+      const service = yield* makeServiceWithMachine(boat);
+      boat.control.t3Up = true;
+      boat.control.originBranches = ["main"];
+      // As on the machine: the project only names its repository once the clone is done.
+      const projects: unknown[] = [];
+      let startedId = "";
+      boat.machine.reply = (tag, payload) => {
+        if (tag === "projectClone.start") {
+          const started = startedClone(payload);
+          startedId = started.projectId;
+          return { value: started.value };
+        }
+        if (tag === "subscribeProjectClones") {
+          projects.push(machineProject(startedId, REMOTE_URL, CHECKOUT));
+          return { stream: [[cloneSnapshot(startedId, "done")]] };
+        }
+        return { stream: shellItems(projects) };
+      };
+      const input = { sandboxId: SANDBOX_ID, remoteUrl: REMOTE_URL, branch: "main" };
+
+      const [first, second] = yield* Effect.all(
+        [service.ensureProject(input), service.ensureProject(input)],
+        { concurrency: 2 },
+      );
+
+      assert.strictEqual(
+        boat.machine.requests.filter((request) => request.tag === "projectClone.start").length,
+        1,
+      );
+      assert.deepStrictEqual(first, second);
+      assert.strictEqual(first.projectId, startedId);
     }).pipe(Effect.provide(layerEnvironment)),
   );
 });
