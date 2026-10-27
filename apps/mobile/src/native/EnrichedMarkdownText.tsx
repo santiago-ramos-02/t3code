@@ -7,7 +7,7 @@ import {
 import {
   markdownForNativeRendering,
   markdownWithFileEmbeds,
-  markdownForNativeParsing,
+  markdownWithHtml,
   markdownWithInlineFileLinks,
   markdownWithTableBreaks,
 } from "../lib/markdownDocument";
@@ -165,7 +165,7 @@ export function MobileEnrichedMarkdownText(props: SelectableMarkdownTextProps) {
       };
     }
     const content = markdownWithInlineFileLinks(
-      markdownForNativeParsing(props.markdown),
+      markdownWithHtml(props.markdown),
       ENRICHED_INLINE_FILE_LINK_REGEX,
     );
     const files = markdownWithFileEmbeds(content, fileEmbedLabel);

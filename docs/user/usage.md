@@ -43,11 +43,6 @@ Use absolute paths or `~/` paths in the account's environment settings; relative
 depend on each project's working directory and cannot be reliably discovered by Usage. Accounts
 sharing a history directory count once.
 
-Agents on a Boat machine save their history on that machine. The environment that started it keeps a
-copy, updated every 15 minutes while the machine runs and before it stops or is deleted, so the
-machine's usage still counts in that environment after the machine is gone. While the machine is
-connected, its own, newer figures are used instead of the copy.
-
 When your app and server support different providers, usage totals may cover only the providers
 your app understands. Update the app to include newly supported providers.
 

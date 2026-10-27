@@ -2,7 +2,6 @@ import type { ScopedThreadRef } from "@t3tools/contracts";
 
 import ChatMarkdown from "~/components/ChatMarkdown";
 import { resolvePathLinkTarget } from "@t3tools/shared/fileLinks";
-import { maskMarkdownFrontmatter } from "@t3tools/shared/markdownFrontmatter";
 
 export function FileMarkdownPreview(props: {
   readonly cwd: string;
@@ -25,7 +24,7 @@ export function FileMarkdownPreview(props: {
 
   return (
     <ChatMarkdown
-      text={maskMarkdownFrontmatter(props.text)}
+      text={props.text}
       cwd={props.cwd}
       imageBaseDir={imageBaseDir}
       threadRef={props.threadRef}

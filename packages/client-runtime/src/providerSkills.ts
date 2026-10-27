@@ -132,61 +132,6 @@ export function resolveProviderSlashCommandsForCwd(
   return resolveProviderWorkspaceSnapshot(provider, cwd)?.slashCommands ?? provider.slashCommands;
 }
 
-export function resolveProviderModelsForCwd(
-  provider: ServerProvider,
-  cwd: string | null | undefined,
-): ServerProvider["models"] {
-  return resolveProviderWorkspaceSnapshot(provider, cwd)?.models ?? provider.models;
-}
-
-function withProjectModels(
-  provider: ServerProvider,
-  models: ServerProvider["models"],
-): ServerProvider {
-  if (provider.driver !== "pi" || !provider.installed || provider.status === "error") {
-    return { ...provider, models };
-  }
-  const upstreamCount = new Set(
-    models.flatMap((model) => (!model.isCustom && model.subProvider ? [model.subProvider] : [])),
-  ).size;
-  return {
-    ...provider,
-    models,
-    status: upstreamCount > 0 ? "ready" : "warning",
-    auth: { status: "unknown" },
-    message:
-      upstreamCount > 0
-        ? `${upstreamCount} model provider${upstreamCount === 1 ? "" : "s"} in this project.`
-        : "Pi found no available models in this project. Connect a model provider in Pi, then refresh status.",
-  };
-}
-
-export function resolveProviderForCwd(
-  provider: ServerProvider,
-  cwd: string | null | undefined,
-): ServerProvider {
-  const snapshot = resolveProviderWorkspaceSnapshot(provider, cwd);
-  const scoped = snapshot?.models ? withProjectModels(provider, snapshot.models) : provider;
-  const descriptors = snapshot?.optionDescriptors;
-  if (descriptors === undefined) return scoped;
-  const overriddenIds = new Set(descriptors.map((descriptor) => descriptor.id));
-  return {
-    ...scoped,
-    models: scoped.models.map((model) => ({
-      ...model,
-      capabilities: {
-        ...model.capabilities,
-        optionDescriptors: [
-          ...(model.capabilities?.optionDescriptors ?? []).filter(
-            (descriptor) => !overriddenIds.has(descriptor.id),
-          ),
-          ...descriptors,
-        ],
-      },
-    })),
-  };
-}
-
 const WORKSPACE_SNAPSHOT_RETRY_COOLDOWN_MS = 10_000;
 // A cwd that never scans, such as a deleted worktree, would otherwise retry forever.
 const WORKSPACE_SNAPSHOT_MAX_ATTEMPTS = 3;

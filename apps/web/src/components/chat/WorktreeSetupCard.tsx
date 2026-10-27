@@ -158,57 +158,6 @@ function SetupHeaderRow({ snapshot }: { snapshot: WorktreeSetupSnapshot }) {
   );
 }
 
-/** One line of a step list: what a worktree setup, or a machine start, is doing right now. */
-export function SetupStepRow({
-  id,
-  label,
-  status,
-  detail,
-  elapsed,
-}: {
-  id: string;
-  label: string;
-  status: WorktreeSetupStage["status"];
-  detail: string | null;
-  elapsed: ReactNode;
-}) {
-  const running = status === "running";
-  return (
-    <WorkLogRow
-      data-worktree-setup-stage={id}
-      data-worktree-setup-status={status}
-      icon={
-        <span className={cn("text-icon-muted", status === "pending" && "opacity-40")}>
-          <StageIcon status={status} />
-        </span>
-      }
-      label={
-        <span
-          ref={running ? observeVisibleAnimation : undefined}
-          className={cn("relative block truncate", stageRowClassName(status))}
-        >
-          {label}
-          {running ? <ShimmerOverlay>{label}</ShimmerOverlay> : null}
-        </span>
-      }
-      trailing={
-        <>
-          {detail ? (
-            <span className="min-w-0 truncate text-xs text-muted-foreground tabular-nums">
-              {detail}
-            </span>
-          ) : null}
-          {elapsed !== null ? (
-            <span className="shrink-0 text-xs text-muted-foreground tabular-nums empty:hidden">
-              {elapsed}
-            </span>
-          ) : null}
-        </>
-      }
-    />
-  );
-}
-
 function StageRow({
   stage,
   setupRunning,
@@ -222,29 +171,51 @@ function StageRow({
 }) {
   const label =
     stage.id === "setup-script" && scriptName ? scriptName : worktreeSetupStageLabel(stage.id);
-  const detail =
+  const running = stage.status === "running";
+  const trailing =
     stage.status === "pending"
       ? null
       : stage.status === "skipped"
         ? (stage.detail ?? "skipped")
-        : stage.id === "checkout" && stage.status === "running" && stage.percent !== null
+        : stage.id === "checkout" && running && stage.percent !== null
           ? `${stage.percent}%`
           : stage.detail;
   return (
-    <SetupStepRow
-      id={stage.id}
-      label={label}
-      status={stage.status}
-      detail={detail}
-      elapsed={
-        stage.status === "skipped" || stage.status === "pending" ? null : (
-          <Elapsed
-            startedAt={stage.startedAt}
-            // A stage interrupted by the setup ending stops with it.
-            endedAt={stage.endedAt ?? setupEndedAt}
-            live={setupRunning}
-          />
-        )
+    <WorkLogRow
+      data-worktree-setup-stage={stage.id}
+      data-worktree-setup-status={stage.status}
+      icon={
+        <span className={cn("text-icon-muted", stage.status === "pending" && "opacity-40")}>
+          <StageIcon status={stage.status} />
+        </span>
+      }
+      label={
+        <span
+          ref={running ? observeVisibleAnimation : undefined}
+          className={cn("relative block truncate", stageRowClassName(stage.status))}
+        >
+          {label}
+          {running ? <ShimmerOverlay>{label}</ShimmerOverlay> : null}
+        </span>
+      }
+      trailing={
+        <>
+          {trailing ? (
+            <span className="min-w-0 truncate text-xs text-muted-foreground tabular-nums">
+              {trailing}
+            </span>
+          ) : null}
+          {stage.status !== "skipped" && stage.status !== "pending" ? (
+            <span className="shrink-0 text-xs text-muted-foreground tabular-nums empty:hidden">
+              <Elapsed
+                startedAt={stage.startedAt}
+                // A stage interrupted by the setup ending stops with it.
+                endedAt={stage.endedAt ?? setupEndedAt}
+                live={setupRunning}
+              />
+            </span>
+          ) : null}
+        </>
       }
     />
   );

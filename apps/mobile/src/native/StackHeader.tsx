@@ -1,6 +1,6 @@
 import {
-  NavigationContext,
   NavigationRouteContext,
+  useNavigation,
   type ParamListBase,
 } from "@react-navigation/native";
 import type {
@@ -37,8 +37,7 @@ export type AppNativeStackNavigationOptions = Omit<
 };
 
 function useNativeStackNavigation(): NativeStackNavigationProp<ParamListBase> | null {
-  const navigation = use(NavigationContext);
-  return navigation ? (navigation as NativeStackNavigationProp<ParamListBase>) : null;
+  return useNavigation<NativeStackNavigationProp<ParamListBase>>();
 }
 
 function normalizeScreenOptions(

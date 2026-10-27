@@ -24,6 +24,4 @@ export interface ProviderMaintenanceCommandAction {
   readonly lockKey: string;
   /** Native updaters must use the instance's custom home (e.g. `CODEX_HOME`). */
   readonly env?: NodeJS.ProcessEnv;
-  /** Installs a provider that is missing, rather than updating one that is installed. */
-  readonly installs?: true;
 }

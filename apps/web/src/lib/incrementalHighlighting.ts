@@ -1,10 +1,11 @@
 import {
   renderTokenLines,
   type DiffsHighlighter,
-  type DiffsThemeNames,
   type ThemedToken,
   type TokensResult,
 } from "@pierre/diffs";
+
+import type { DiffThemeName } from "./diffRendering";
 
 function highlightedDocument(
   result: TokensResult,
@@ -49,7 +50,7 @@ export function highlightCodeToHast(
   highlighter: DiffsHighlighter,
   code: string,
   language: string,
-  theme: DiffsThemeNames,
+  theme: DiffThemeName,
 ) {
   return highlightedDocument(highlighter.codeToTokens(code, { lang: language, theme }));
 }
@@ -57,7 +58,7 @@ export function highlightCodeToHast(
 export function createIncrementalHighlightedDocument(
   highlighter: DiffsHighlighter,
   language: string,
-  theme: DiffsThemeNames,
+  theme: DiffThemeName,
 ) {
   const options = { lang: language, theme };
   let shell: TokensResult | undefined;

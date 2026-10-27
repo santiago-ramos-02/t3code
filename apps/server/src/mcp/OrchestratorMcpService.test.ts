@@ -55,18 +55,12 @@ import type { McpInvocationScope } from "./McpInvocationContext.ts";
 import { idleThreadProjection, liveThreadShell } from "./McpToolAccess.testkit.ts";
 import * as OrchestratorMcpService from "./OrchestratorMcpService.ts";
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
-import * as GentleAi from "../gentleAi/GentleAi.ts";
 
 const decodeTarget = Schema.decodeUnknownEffect(OrchestratorMcpTarget);
 
-const layerOrchestratorServiceWithoutGentleAi = OrchestratorMcpService.layer.pipe(
+const layerOrchestratorService = OrchestratorMcpService.layer.pipe(
   Layer.provide(Layer.mock(ThreadLaunchService.ThreadLaunchService)({})),
   Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
-);
-
-// Gentle AI is not installed unless a test sets it up.
-const layerOrchestratorService = layerOrchestratorServiceWithoutGentleAi.pipe(
-  Layer.provide(Layer.mock(GentleAi.GentleAi)({ current: Effect.succeed(GentleAi.NOT_INSTALLED) })),
 );
 
 describe("OrchestratorMcpService", () => {
@@ -1270,138 +1264,6 @@ describe("OrchestratorMcpService provider resolution", () => {
           ]);
         }).pipe(Effect.provide(layerOrchestratorService.pipe(Layer.provide(layerDependencies))));
       }),
-  );
-
-  it.effect("leaves delegation to Gentle AI on a Pi thread that runs it, unless turned off", () =>
-    Effect.gen(function* () {
-      const piInstanceId = ProviderInstanceId.make("pi");
-      const piSelection = (gentleAi: boolean | undefined) => ({
-        instanceId: piInstanceId,
-        model: "claude-bridge/claude-opus-5-5",
-        ...(gentleAi === undefined ? {} : { options: [{ id: "gentleAi", value: gentleAi }] }),
-      });
-      const run = (gentleAi: boolean | undefined) => {
-        const layerDependencies = Layer.mergeAll(
-          NodeServices.layer,
-          ServerSettings.layerTest(),
-          Layer.mock(ThreadManagementService.ThreadManagementService)({
-            getThreadRecords: () => Effect.succeed(parentProjection([], piSelection(gentleAi))),
-          }),
-          Layer.mock(ProviderRegistry.ProviderRegistry)({
-            getProviders: Effect.succeed([
-              {
-                ...providerSnapshot({
-                  instanceId: piInstanceId,
-                  driver: ProviderDriverKind.make("pi"),
-                  model: "claude-bridge/claude-opus-5-5",
-                }),
-                gentleAi: true,
-              },
-              providerSnapshot({
-                instanceId: codexInstanceId,
-                driver: ProviderDriverKind.make("codex"),
-                model: "gpt-6-luna",
-              }),
-            ]),
-          }),
-          adapterRegistryLayer([piInstanceId, codexInstanceId]),
-          Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),
-          Layer.mock(ProjectService.ProjectService)({}),
-          Layer.mock(SecretRequests.SecretRequests)({}),
-        );
-        return Effect.gen(function* () {
-          const service = yield* OrchestratorMcpService.OrchestratorMcpService;
-          const capabilities = yield* service.capabilities(scope);
-          // Only a refused delegation is checked: one that goes ahead starts a real child task.
-          const delegated =
-            gentleAi === false
-              ? null
-              : yield* service
-                  .delegateTask(scope, {
-                    task: "Wait for the e2e log.",
-                    target: { providerInstanceId: codexInstanceId, model: "gpt-6-luna" },
-                    mode: "async",
-                    clientRequestId: `delegate-gentle-${String(gentleAi)}`,
-                  })
-                  .pipe(Effect.flip);
-          return { capabilities, delegated };
-        }).pipe(Effect.provide(layerOrchestratorService.pipe(Layer.provide(layerDependencies))));
-      };
-
-      // Gentle AI is on unless the thread turns it off, so its subagents own delegated work.
-      for (const gentleAi of [undefined, true]) {
-        const { capabilities, delegated } = yield* run(gentleAi);
-        assert.equal(delegated?.code, "delegation_owned_by_gentle_ai");
-        assert.isFalse(capabilities.features.appOwnedSubagents);
-        assert.isTrue(capabilities.providers.every((provider) => !provider.canRunChildTask));
-      }
-
-      // With Gentle AI off, T3 Code delegates as usual.
-      const { capabilities } = yield* run(false);
-      assert.isTrue(capabilities.features.appOwnedSubagents);
-      assert.isTrue(capabilities.providers.every((provider) => provider.canRunChildTask));
-    }),
-  );
-
-  it.effect("leaves delegation to Gentle AI on any harness it set up", () =>
-    Effect.gen(function* () {
-      const claudeInstanceId = ProviderInstanceId.make("claudeAgent");
-      const claudeDriver = ProviderDriverKind.make("claudeAgent");
-      const layerDependencies = Layer.mergeAll(
-        NodeServices.layer,
-        ServerSettings.layerTest(),
-        Layer.mock(ThreadManagementService.ThreadManagementService)({
-          getThreadRecords: () =>
-            Effect.succeed(
-              parentProjection([], { instanceId: claudeInstanceId, model: "claude-opus-5-5" }),
-            ),
-          hasReceipt: () => Effect.succeed(false),
-        }),
-        Layer.mock(ProviderRegistry.ProviderRegistry)({
-          getProviders: Effect.succeed([
-            providerSnapshot({
-              instanceId: claudeInstanceId,
-              driver: claudeDriver,
-              model: "claude-opus-5-5",
-            }),
-            providerSnapshot({
-              instanceId: codexInstanceId,
-              driver: ProviderDriverKind.make("codex"),
-              model: "gpt-6-luna",
-            }),
-          ]),
-        }),
-        adapterRegistryLayer([claudeInstanceId, codexInstanceId]),
-        Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),
-        Layer.mock(ProjectService.ProjectService)({}),
-        Layer.mock(SecretRequests.SecretRequests)({}),
-        // Gentle AI set up Claude Code, which reports no flag of its own.
-        Layer.mock(GentleAi.GentleAi)({
-          current: Effect.succeed({
-            ...GentleAi.NOT_INSTALLED,
-            installed: true,
-            drivers: [claudeDriver],
-          }),
-        }),
-      );
-
-      yield* Effect.gen(function* () {
-        const service = yield* OrchestratorMcpService.OrchestratorMcpService;
-        const delegated = yield* service
-          .delegateTask(scope, {
-            task: "Review the diff.",
-            target: { providerInstanceId: codexInstanceId, model: "gpt-6-luna" },
-            mode: "async",
-            clientRequestId: "delegate-gentle-claude",
-          })
-          .pipe(Effect.flip);
-        assert.equal(delegated.code, "delegation_owned_by_gentle_ai");
-      }).pipe(
-        Effect.provide(
-          layerOrchestratorServiceWithoutGentleAi.pipe(Layer.provide(layerDependencies)),
-        ),
-      );
-    }),
   );
 
   describe("listed models", () => {

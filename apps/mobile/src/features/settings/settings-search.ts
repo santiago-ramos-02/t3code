@@ -38,8 +38,6 @@ const SETTINGS_SEARCH_TERMS = {
     "organization",
     "sidebar",
     "working section",
-    "new threads",
-    "last project",
   ],
   SettingsThreads: [
     "new threads",

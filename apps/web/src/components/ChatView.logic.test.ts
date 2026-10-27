@@ -45,6 +45,7 @@ import {
   rememberReadyThreadTimeline,
   resetHeldThreadTimeline,
   resolveThreadSwitchTimeline,
+  threadKeysShareEnvironment,
   timelineHasEphemeralPreviewUrls,
   createLocalDispatchSnapshot,
   deriveCommittedServerUserMessageIds,
@@ -370,18 +371,19 @@ describe("resolveThreadSwitchTimeline", () => {
         activeThreadKey: "env-1:thread-a",
         nextEntries: [],
       }),
-    ).toEqual(["a1", "a2"]);
+    ).toEqual({ entries: ["a1", "a2"], displayThreadKey: "env-1:thread-a" });
   });
 
-  it("does not paint the last-viewed thread for a destination with nothing remembered", () => {
-    rememberReadyThreadTimeline(held);
+  it("does not hold another environment's timeline across a jump", () => {
+    expect(threadKeysShareEnvironment("env-1:thread-a", "env-2:thread-b")).toBe(false);
     expect(
       resolveThreadSwitchTimeline({
         loading: true,
         activeThreadKey: "env-2:thread-b",
         nextEntries: [],
+        lastReady: held,
       }),
-    ).toEqual([]);
+    ).toEqual({ entries: [], displayThreadKey: "env-2:thread-b" });
   });
 
   it("does not remember a timeline that still has handoff blob previews", () => {

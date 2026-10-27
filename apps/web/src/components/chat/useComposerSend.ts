@@ -196,8 +196,6 @@ interface ComposerSendInput {
   readonly isRevertingCheckpoint: boolean;
   readonly threadDetailLoading: boolean;
   readonly activeEnvironmentUnavailable: boolean;
-  /** Resumes a stopped Boat machine; resolves true once it is connected. */
-  readonly wakeStoppedEnvironment: (() => Promise<boolean>) | null;
   readonly isSendBusy: boolean;
   readonly sendQueuesBehindSetup: boolean;
   readonly isDraftHeroState: boolean;
@@ -290,7 +288,6 @@ export function useComposerSend(input: ComposerSendInput) {
     isRevertingCheckpoint,
     threadDetailLoading,
     activeEnvironmentUnavailable,
-    wakeStoppedEnvironment,
     isSendBusy,
     sendQueuesBehindSetup,
     isDraftHeroState,
@@ -391,8 +388,6 @@ export function useComposerSend(input: ComposerSendInput) {
     respondingRequestIdsRef.current = respondingRequestIds;
   }, [pendingApprovals, respondingRequestIds]);
 
-  // The send that runs once a resumed machine connects reads that render's state, not this one's.
-  const latestSend = useRef<typeof onSend | null>(null);
   const onSend = async (
     e?: { preventDefault: () => void },
     dispatchMode: ComposerDispatchMode = "auto",
@@ -421,16 +416,6 @@ export function useComposerSend(input: ComposerSendInput) {
       return;
     }
 
-    if (activeEnvironmentUnavailable && wakeStoppedEnvironment) {
-      // Sending to a stopped Boat machine resumes it, and the message goes once it is connected.
-      // This comes before the checks below, which a disconnected thread fails without a word.
-      void wakeStoppedEnvironment().then((connected) => {
-        if (connected) {
-          void latestSend.current?.(undefined, dispatchMode, submissionIntent, directAnnotation);
-        }
-      });
-      return;
-    }
     const notifyDirectAnnotationAttached = () => {
       if (!directAnnotation) return;
       toastManager.add(
@@ -1451,8 +1436,5 @@ export function useComposerSend(input: ComposerSendInput) {
     }
   };
 
-  useLayoutEffect(() => {
-    latestSend.current = onSend;
-  });
   return { onSend };
 }

@@ -51,8 +51,8 @@ export function UpdateEverythingDialog({
 }: UpdateEverythingDialogProps) {
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
-      {/* Refocusing the trigger after a pointer close shows its focus ring and opens its tooltip. */}
-      <AlertDialogPopup finalFocus={(closeType) => closeType === "keyboard"}>
+      <AlertDialogPopup>
+        {}
         <UpdateEverythingDialogContent {...content} />
       </AlertDialogPopup>
     </AlertDialog>

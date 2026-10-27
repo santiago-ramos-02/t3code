@@ -52,7 +52,6 @@ import {
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import {
   ArrowLeftIcon,
-  BrainIcon,
   ChartNoAxesColumnIcon,
   CheckIcon,
   ChevronRightIcon,
@@ -113,7 +112,6 @@ import { isScratchProject } from "@t3tools/client-runtime/state/projects";
 import {
   useEnvironmentProviders,
   useEnvironments,
-  useMemoryEnvironments,
   usePrimaryEnvironmentId,
 } from "../state/environments";
 import { useProjects, useServerConfigs, useThreadShells, waitForProject } from "../state/entities";
@@ -418,7 +416,6 @@ function OpenCommandPaletteDialog(props: {
   const { environments } = useEnvironments();
   const desktopLocalBootstraps = useDesktopLocalBootstraps();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
-  const memorySupported = useMemoryEnvironments().length > 0;
   const availableSettingsSearchItems = useAvailableSettingsSearchItems();
   const { activeDraftThread, activeThread, defaultProjectRef, handleNewThread } =
     useHandleNewThread();
@@ -1495,20 +1492,6 @@ function OpenCommandPaletteDialog(props: {
       await navigate({ to: "/usage" });
     },
   });
-
-  if (memorySupported) {
-    actionItems.push({
-      kind: "action",
-      value: "action:memory",
-      searchTerms: ["memory", "engram", "remember", "brain", "learned", "obsidian"],
-      title: "Open memory",
-      icon: <BrainIcon className={ITEM_ICON_CLASS} />,
-      shortcutCommand: "memory.open",
-      run: async () => {
-        await navigate({ to: "/memory" });
-      },
-    });
-  }
 
   actionItems.push({
     kind: "action",

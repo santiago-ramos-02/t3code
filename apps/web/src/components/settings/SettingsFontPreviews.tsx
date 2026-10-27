@@ -43,7 +43,7 @@ export function PromptFontPreview() {
         skills={PREVIEW_SKILLS}
         disabled={false}
         placeholder={DEFAULT_COMPOSER_PLACEHOLDER}
-        className="max-h-42"
+        className="max-h-42 min-h-14"
         onChange={onChange}
         onPaste={noop}
       />

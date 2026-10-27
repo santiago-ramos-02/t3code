@@ -22,7 +22,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppText as Text } from "../../components/ui/AppText";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { NativePrimaryColumnContext } from "../../native/v5-workspace-context";
-import { useNativeColumnLayoutMetrics } from "../../native/native-layout-metrics";
 import { useWorkspaceState } from "../../state/workspace";
 import { useProjects } from "../../state/entities";
 import { environmentServerConfigsAtom } from "../../state/server";
@@ -97,10 +96,6 @@ export function PullRequestsScreen(
   const { environments } = useWorkspaceState();
   const configs = useAtomValue(environmentServerConfigsAtom);
   const insets = useSafeAreaInsets();
-  // UIKit insets the list by its column's safe area, which this context can report as 0.
-  const columnSafeBottom = useNativeColumnLayoutMetrics()?.safeArea.bottom;
-  const bottomSafeArea =
-    Platform.OS === "ios" ? (columnSafeBottom ?? insets.bottom) : insets.bottom;
   const listRef = useRef<LegendListRef>(null);
   const tab = workspace.state.tabs.pullRequests;
   const [initialScrollOffset] = useState(() => workspace.getScrollOffset("pullRequests"));
@@ -319,8 +314,8 @@ export function PullRequestsScreen(
         contentInsetStartAdjustment={Platform.OS === "ios" ? insets.top : 0}
         contentContainerStyle={{
           paddingBottom:
-            Math.max(bottomSafeArea, workspace.bottomClearance) -
-            (Platform.OS === "ios" ? bottomSafeArea : 0),
+            Math.max(insets.bottom, workspace.bottomClearance) -
+            (Platform.OS === "ios" ? insets.bottom : 0),
         }}
         onScroll={(event) => {
           workspace.recordScrollOffset(

@@ -6,6 +6,7 @@ import { resolveChatCanvasModel, type ChatCanvasStore } from "./canvasStore";
 import { selectThreadPanelOpen, useRightPanelStore } from "../../rightPanelStore";
 import { observeResize } from "../../lib/observeResize";
 import type { ScopedThreadRef } from "@t3tools/contracts";
+import { useClientSettings } from "~/hooks/useSettings";
 
 export function ChatCanvas({
   store,
@@ -71,12 +72,14 @@ export function ChatCanvas({
       ? false
       : selectThreadPanelOpen(state.threadPanelVisibilityByThreadKey, threadRef, "inline"),
   );
+  const centerBesideDetails = useClientSettings((s) => s.redesignEnabled);
   const model = resolveChatCanvasModel({
     measurements,
     detailsCardMeasurement,
     threadRef,
     preview,
     detailsCardInlineOpen,
+    centerBesideDetails,
   });
   const context = {
     container: model.container,

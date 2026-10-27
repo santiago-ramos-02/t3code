@@ -49,7 +49,6 @@ export interface RuntimeSubagent {
   readonly id: string;
   readonly kind: "subagent" | "subagent_batch" | "workflow" | "workflow_agent";
   readonly title: string;
-  /** The named agent it runs as, such as Gentle AI's odd-explorer. */
   readonly role: string | null;
   readonly model: string | null;
   readonly effort: string | null;
@@ -177,7 +176,6 @@ export function projectedSubagentsToRuntime(
   subagents: ReadonlyArray<{
     readonly id: string;
     readonly title: string | null;
-    readonly agentName?: string | undefined;
     readonly prompt: string;
     readonly model: string | null;
     readonly status: OrchestrationV2Subagent["status"];
@@ -202,7 +200,7 @@ export function projectedSubagentsToRuntime(
       title:
         subagent.title ??
         (subagent.prompt.length > 80 ? `${subagent.prompt.slice(0, 77)}...` : subagent.prompt),
-      role: subagent.agentName ?? null,
+      role: null,
       model: subagent.model,
       effort: null,
       status: subagent.status,
@@ -317,8 +315,6 @@ type ProjectedSubagent = Parameters<typeof projectedSubagentsToRuntime>[0][numbe
 export interface WorkflowOpening {
   readonly messageId: string;
   readonly script: string;
-  /** Claude's workflows open with the script they run; gentle-pi's with the request they carry out. */
-  readonly scriptKind: "script" | "request";
   readonly name: string | null;
   readonly description: string | null;
   readonly driver: OrchestrationV2Subagent["driver"] | null;
@@ -353,7 +349,6 @@ export function resolveWorkflowOpening(input: {
   return {
     messageId: first.id,
     script: first.text,
-    scriptKind: WORKFLOW_SCRIPT_START.test(first.text) ? "script" : "request",
     name: coordinator?.workflow?.name ?? null,
     description: coordinator?.title ?? null,
     driver: coordinator?.driver ?? null,

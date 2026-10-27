@@ -1,7 +1,5 @@
 import type { ToolLifecycleItemType } from "@t3tools/contracts";
 
-import { engramToolTitle } from "./engramTools.ts";
-
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -64,7 +62,7 @@ export function dynamicToolTitle(
     );
   }
   const skill = claudeSkillInvocation(toolName, input);
-  return skill === undefined ? engramToolTitle(toolName, input) : `Skill: ${skill.name}`;
+  return skill === undefined ? undefined : `Skill: ${skill.name}`;
 }
 
 function recordHasKeys(

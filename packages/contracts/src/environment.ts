@@ -80,9 +80,6 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
     }),
   ),
   pullRequests: Schema.optionalKey(Schema.Boolean),
-  /** Server reads Engram memory for the Memory page. Absent on servers from before it shipped, so
-      clients must not probe the memory APIs. */
-  memory: Schema.optionalKey(Schema.Boolean),
   pullRequestChecks: Schema.optionalKey(Schema.Boolean),
   /** Absent on older servers; serialize context as legacy text for them. */
   inlineMessageContext: Schema.optionalKey(Schema.Boolean),

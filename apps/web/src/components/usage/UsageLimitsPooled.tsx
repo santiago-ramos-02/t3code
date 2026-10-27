@@ -47,10 +47,6 @@ import {
   useResetCredit,
 } from "./UsageLimits";
 
-const PROVIDER_DISPLAY_ORDER = new Map(
-  providerClients.definitions.map((definition, index) => [definition.driverKind, index]),
-);
-
 function accountInitials(email: string): string {
   const [local = "", domain = ""] = email.split("@");
   return `${local[0] ?? ""}${domain[0] ?? ""}`.toUpperCase() || "?";
@@ -406,12 +402,15 @@ function SegmentTriggers({
               className="min-w-0 truncate font-medium text-foreground"
             />
           ) : null}
-          {/* A single-account bar repeats the headline percentage. */}
-          {showAccountName ? (
-            <span className="shrink-0 font-semibold text-foreground tabular-nums">
-              {remaining}%
-            </span>
-          ) : null}
+          <span
+            className={cn(
+              "shrink-0 font-semibold text-foreground tabular-nums",
+              // A single-account bar repeats the headline percentage.
+              !showAccountName && "redesign:hidden",
+            )}
+          >
+            {remaining}%
+          </span>
           {resetsIn || credits ? (
             <span className="ms-auto flex min-w-0 items-center gap-1.5 overflow-hidden rounded-sm bg-background/85 px-1.5 py-0.5 text-2xs whitespace-nowrap text-foreground tabular-nums">
               {resetsIn?.replace("resets in ", "↻ ") ?? ""}
@@ -615,12 +614,7 @@ export function UsageLimitsPooled({
 }) {
   const [segmentPopover] = useState(() => PopoverCreateHandle<SegmentPayload>());
   const segmentPopoverActions = useRef<PopoverPrimitive.Root.Actions | null>(null);
-  // Hub accounts arrive after native providers, but the sections follow Providers order.
-  const pools = collectLimitPools(collectLimitAccounts(presentations), now).toSorted(
-    (left, right) =>
-      (PROVIDER_DISPLAY_ORDER.get(left.driver) ?? Number.MAX_SAFE_INTEGER) -
-      (PROVIDER_DISPLAY_ORDER.get(right.driver) ?? Number.MAX_SAFE_INTEGER),
-  );
+  const pools = collectLimitPools(collectLimitAccounts(presentations), now);
   const notices = collectLimitNotices(presentations);
   const externalLinks = collectExternalUsageLinks(presentations);
   const cursorPromptAt =

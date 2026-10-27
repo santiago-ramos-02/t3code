@@ -153,7 +153,7 @@ function ThreadLineageGroup(props: {
             className={cn(
               THREAD_DETAILS_PANEL_CHEVRON_CLASS,
               "transition-transform",
-              !expanded && "-rotate-90",
+              !expanded && "rotate-180 redesign:-rotate-90",
             )}
           />
         </ThreadDetailsControl>
@@ -509,7 +509,6 @@ export function ThreadRelationshipsPanel(props: {
               const relationshipTooltip = agent ? (
                 <SubagentTooltipContent
                   title={threadTitle}
-                  agentName={agent.role ?? undefined}
                   model={agent.model}
                   providerInstanceId={agent.providerInstanceId}
                   origin={agent.origin}

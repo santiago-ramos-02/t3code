@@ -1,5 +1,4 @@
 import { Spinner } from "~/components/ui/spinner";
-import { RefreshIcon } from "~/components/ui/refresh-icon";
 
 import {
   AlertTriangleIcon,
@@ -38,6 +37,7 @@ import {
 } from "@t3tools/shared/model";
 import { cn } from "../../lib/utils";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
+import { useClientSettings } from "../../hooks/useSettings";
 import { useStableCallback } from "../../hooks/useStableCallback";
 import { normalizeProviderAccentColor } from "../../providerInstances";
 import { Badge } from "../ui/badge";
@@ -70,9 +70,9 @@ import { readCodexSetupMode } from "./CodexSetupSection.logic";
 import {
   getProviderVersionAdvisoryPresentation,
   PROVIDER_STATUS_STYLES,
-  getProviderReadyMeta,
+  getProviderStatusKey,
+  getProviderSummary,
   getProviderVersionLabel,
-  resolveProviderCardDisplay,
 } from "./providerStatus";
 
 const ENVIRONMENT_VARIABLE_NAME_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
@@ -570,8 +570,6 @@ interface ProviderInstanceCardProps {
   readonly headerAction?: ReactNode | undefined;
   readonly setup?: ReactNode;
   readonly runtime?: ReactNode;
-  /** Driver-specific sections, rendered after the shared Runtime, Environment, and Models sections. */
-  readonly integration?: ReactNode;
   readonly hiddenModels: ReadonlyArray<string>;
   readonly favoriteModels: ReadonlyArray<string>;
   readonly modelOrder: ReadonlyArray<string>;
@@ -585,19 +583,6 @@ interface ProviderInstanceCardProps {
   readonly onRunUpdate?: (() => void) | undefined;
   readonly onInstallRecommended?: (() => void) | undefined;
   readonly isUpdating?: boolean | undefined;
-  /**
-   * True while an explicit scoped status refresh is in flight for this
-   * instance. An enabled card with a stale or missing snapshot reads as
-   * Checking until the refresh lands.
-   */
-  readonly isChecking?: boolean | undefined;
-  /**
-   * Explicit scoped status refresh with model discovery for this
-   * instance. Rendered as an inline retry in the editor whenever the
-   * provider needs attention. Pass `undefined` (e.g. read-only views)
-   * to hide the control.
-   */
-  readonly onRefresh?: (() => void) | undefined;
   readonly onAcceptUrlAuth?: ((action: AcpRegistryUrlAuthAction) => void) | undefined;
   readonly environmentId?: EnvironmentId | undefined;
   readonly projectOverride?: ProjectOverrideControl | undefined;
@@ -630,7 +615,6 @@ export function ProviderInstanceCard({
   headerAction,
   setup,
   runtime,
-  integration,
   hiddenModels,
   favoriteModels,
   modelOrder,
@@ -641,32 +625,19 @@ export function ProviderInstanceCard({
   onRunUpdate,
   onInstallRecommended,
   isUpdating = false,
-  isChecking = false,
-  onRefresh,
   onAcceptUrlAuth,
   environmentId,
   acpProjects = EMPTY_ACP_PROJECTS,
   projectOverride,
 }: ProviderInstanceCardProps) {
   const enabled = projectOverride?.effectiveEnabled ?? resolveProviderInstanceEnabled(instance);
-  // The toggle reads persisted config while the snapshot arrives
-  // asynchronously: an enabled card with a stale disabled (or missing)
-  // snapshot is mid-check, never Disabled. See resolveProviderCardDisplay.
-  // `liveProvider.enabled` is machine-wide; a project override can turn it on.
-  const display = resolveProviderCardDisplay({
-    enabled,
-    provider: liveProvider && { ...liveProvider, enabled: true },
-    isChecking,
-    driver: String(instance.driver),
-  });
-  const statusKey = display.statusKey;
+  const effectiveProvider = liveProvider && { ...liveProvider, enabled };
   const compatibility = enabled ? liveProvider?.compatibilityAdvisory : undefined;
+  const statusKey = enabled ? getProviderStatusKey(effectiveProvider) : "disabled";
   const statusStyle = PROVIDER_STATUS_STYLES[statusKey];
-  const summary = { headline: display.headline, detail: display.detail };
-  // Ready providers name their detected version and model count next to the
-  // status line so a successful check is visibly complete, not just silent.
-  const readyMeta =
-    statusKey === "ready" && !isChecking ? getProviderReadyMeta(liveProvider) : null;
+  const summary = enabled
+    ? getProviderSummary(effectiveProvider)
+    : { headline: "Disabled", detail: null };
   const authEmail = liveProvider?.auth.email?.trim();
   const isAuthenticated = enabled && liveProvider?.auth.status === "authenticated";
   const authLabel =
@@ -704,6 +675,7 @@ export function ProviderInstanceCard({
   const displayName =
     instance.displayName?.trim() || driverOption?.label || String(instance.driver);
   const accentColor = normalizeProviderAccentColor(instance.accentColor);
+  const redesign = useClientSettings((settings) => settings.redesignEnabled);
   const { copyToClipboard } = useCopyToClipboard<{ providerName: string }>({
     onCopy: ({ providerName }) => {
       toastManager.add({
@@ -868,7 +840,6 @@ export function ProviderInstanceCard({
         {inlineStatusDetail ? (
           <span className="min-w-0 [overflow-wrap:anywhere]">· {inlineStatusDetail}</span>
         ) : null}
-        {readyMeta ? <span className="min-w-0 [overflow-wrap:anywhere]">· {readyMeta}</span> : null}
       </>
     ) : (
       <>
@@ -877,40 +848,8 @@ export function ProviderInstanceCard({
         {inlineStatusDetail ? (
           <span className="min-w-0 [overflow-wrap:anywhere]">· {inlineStatusDetail}</span>
         ) : null}
-        {readyMeta ? <span className="min-w-0 [overflow-wrap:anywhere]">· {readyMeta}</span> : null}
       </>
     );
-  // Inline retry for a check that is running or left the provider needing
-  // attention. Scoped to this instance so one slow probe never blocks the
-  // rest of the list; hidden in read-only views via `onRefresh`. Unavailable
-  // shadows have no live instance to refresh, so they never offer the button.
-  const isUnavailable = liveProvider?.availability === "unavailable";
-  const statusCheckRow =
-    enabled && !isUnavailable && onRefresh !== undefined && (isChecking || needsAttention) ? (
-      <SettingsRow
-        title="Status check"
-        description={
-          <span>
-            {isChecking
-              ? "Verifying installation, version, and models."
-              : (summary.detail ?? "Refresh to re-check installation and models.")}
-          </span>
-        }
-        control={
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={isChecking}
-            aria-busy={isChecking}
-            onClick={onRefresh}
-          >
-            <RefreshIcon refreshing={isChecking} />
-            {isChecking ? "Checking" : "Refresh status"}
-          </Button>
-        }
-      />
-    ) : null;
   const versionAdvisoryNode = versionAdvisory ? (
     <Popover>
       <Tooltip>
@@ -1029,7 +968,7 @@ export function ProviderInstanceCard({
         data-slot="settings-row"
         className={cn(
           "group flex min-h-18 items-center gap-3 px-3 py-3 transition-colors sm:px-4",
-          selected ? "bg-foreground/[0.06]" : "hover:bg-muted/25",
+          selected ? "bg-muted/45 redesign:bg-foreground/[0.06]" : "hover:bg-muted/25",
         )}
       >
         <div
@@ -1137,7 +1076,7 @@ export function ProviderInstanceCard({
     </div>
   );
 
-  // Provider status gets its own row instead of hanging under the name field.
+  // The New design gives provider status its own row instead of hanging it under the name field.
   const statusContent = (
     <>
       <ProviderStatusDiagnostic detail={statusDiagnostic}>
@@ -1197,9 +1136,10 @@ export function ProviderInstanceCard({
   return (
     <>
       <SettingsSection title={displayName} icon={titleIconNode} headerAction={editorHeaderAction}>
-        <SettingsRow title="Status" status={statusContent} />
+        {redesign ? <SettingsRow title="Status" status={statusContent} /> : null}
         <SettingsRow
           title="Display name"
+          {...(redesign ? {} : { status: statusContent })}
           control={
             <div
               inert={readOnly}
@@ -1227,7 +1167,6 @@ export function ProviderInstanceCard({
             </div>
           }
         />
-        {statusCheckRow}
       </SettingsSection>
 
       {setup || environmentFields.length > 0 ? (
@@ -1327,8 +1266,6 @@ export function ProviderInstanceCard({
           </div>
         </SettingsSection>
       ) : null}
-
-      {integration}
     </>
   );
 }

@@ -94,8 +94,6 @@ export const UsageSource = Schema.Struct({
   action: Schema.optionalKey(Schema.Literal("enableCursorKeychain")),
   /** Cached response during refresh; repeat with awaitRefresh for fresh data. */
   refreshing: Schema.optionalKey(Schema.Literal(true)),
-  /** When a stored copy of another machine's source was read; a fresher read of it wins. */
-  readAt: Schema.optionalKey(Schema.String),
 });
 export type UsageSource = typeof UsageSource.Type;
 

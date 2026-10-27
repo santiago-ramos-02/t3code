@@ -1,4 +1,3 @@
-import type { GentleOddThreadTrail } from "@t3tools/client-runtime/gentle-ai";
 import { useComposerTypingGuard } from "./useComposerTypingGuard";
 import { insertAttachmentReferencesForDraft } from "./composerAttachmentReferences";
 import { DESKTOP_PASTE_AS_TEXT_EVENT } from "../../lib/desktopPasteAsText";
@@ -32,7 +31,6 @@ import type {
   ThreadId,
 } from "@t3tools/contracts";
 import {
-  gentleAiEnabled,
   EnvironmentRequestInvalidError,
   AuthOrchestrationOperateScope,
   ProviderDriverKind,
@@ -40,7 +38,6 @@ import {
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
 } from "@t3tools/contracts";
 import type { EnvironmentConnectionPresentation } from "@t3tools/client-runtime/connection";
-import { resourcesForGentle } from "@t3tools/client-runtime/piGentleComposer";
 import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import * as Schema from "effect/Schema";
 import { isPasteAsTextShortcut } from "@t3tools/client-runtime/text-paste";
@@ -185,8 +182,6 @@ import {
   composerSuggestionOptionId,
 } from "./ComposerCommandMenu";
 import { ComposerPendingApprovalActions } from "./ComposerPendingApprovalActions";
-import { GentleComposerSlot } from "./GentleComposerActions";
-import { useWorkspacePiModels, useWorkspaceProviderStatuses } from "./useWorkspaceProviderStatuses";
 import {
   ComposerAttachButton,
   ComposerAttachmentFileList,
@@ -262,7 +257,6 @@ import {
   type ComposerDispatchMode,
 } from "@t3tools/client-runtime/state/composer-dispatch";
 import type { ContextWindowSnapshot } from "../../lib/contextWindow";
-import type { PromptCacheSnapshot } from "../../lib/promptCache";
 import {
   resolveProviderSkillsForCwd,
   resolveProviderSlashCommandsForCwd,
@@ -441,7 +435,6 @@ export interface ChatComposerProps {
   activeProjectId: ProjectId | null;
 
   activeContextWindow: ContextWindowSnapshot | null;
-  activePromptCache: PromptCacheSnapshot | null;
   compactThreadUnavailable: boolean;
   compactDisabled: boolean;
   compactDisabledReason: string | null;
@@ -451,10 +444,6 @@ export interface ChatComposerProps {
   keybindings: ResolvedKeybindingsConfig;
   terminalOpen: boolean;
   gitCwd: string | null;
-  /** Opens a new draft in this project for a Gentle AI step (see GentleComposerActions). */
-  onStartGentleThread: (prompt: string, modelSelection: ModelSelection) => void;
-  /** The thread's text so far, read when Gentle AI's feature menu opens. */
-  readGentleThreadTrail: () => GentleOddThreadTrail | null;
   pullRequestProjectId: ProjectId | null;
   pullRequestRepository: string | null;
   threadPullRequests: ReadonlyArray<ThreadPullRequestLink> | undefined;
@@ -512,7 +501,7 @@ export interface ChatComposerProps {
     model: string,
     options?: { focusComposer?: boolean },
   ) => void;
-  onOpenProviderSetup: (instanceId: ProviderInstanceId, projectCwd?: string) => void;
+  onOpenProviderSetup: (instanceId: ProviderInstanceId) => void;
   getModelDisabledReason: (instanceId: ProviderInstanceId, model: string) => string | null;
   toggleInteractionMode: () => void;
   handleRuntimeModeChange: (mode: RuntimeMode) => void;
@@ -582,7 +571,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     reportedModelSelection,
     activeProjectId,
     activeContextWindow,
-    activePromptCache,
     compactThreadUnavailable,
     compactDisabled,
     compactDisabledReason,
@@ -591,8 +579,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     keybindings,
     terminalOpen,
     gitCwd,
-    onStartGentleThread,
-    readGentleThreadTrail,
     pullRequestProjectId,
     pullRequestRepository,
     threadPullRequests,
@@ -925,7 +911,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     uploadsByImageId,
   ]);
 
-  const scopedProviderStatuses = useWorkspaceProviderStatuses(providerStatuses, gitCwd);
   const {
     providerInstanceEntries,
     selectedProviderEntry,
@@ -938,7 +923,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     selectedModel,
     composerProviderState,
   } = useComposerProviderModel({
-    providerStatuses: scopedProviderStatuses,
+    providerStatuses,
     settings,
     activeProjectId,
     threadRef: composerDraftTarget,
@@ -992,16 +977,16 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const isSendDisabled = sendDisabledReason !== null;
   const selectedProviderStatus = selectedProviderEntry?.snapshot ?? null;
   const compactCommandAvailable = providerSupportsManualCompaction(selectedProviderEntry);
+  const selectedProviderSkills = selectedProviderStatus
+    ? resolveProviderSkillsForCwd(selectedProviderStatus, gitCwd)
+    : NO_PROVIDER_SKILLS;
+  const selectedProviderSlashCommands = selectedProviderStatus
+    ? resolveProviderSlashCommandsForCwd(selectedProviderStatus, gitCwd)
+    : NO_PROVIDER_SLASH_COMMANDS;
   const refreshWorkspaceSnapshotOnTyping = useProviderWorkspaceSnapshotRefresh({
     environmentId,
     gitCwd,
     instanceId: selectedProviderEntry?.instanceId,
-  });
-  useWorkspacePiModels({
-    environmentId,
-    providers: providerStatuses,
-    cwd: gitCwd,
-    selectedInstanceId: selectedProviderEntry?.instanceId,
   });
 
   const selectedPromptEffort = composerProviderState.promptEffort;
@@ -1016,20 +1001,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     selectedModel,
     selectedModelOptionsForDispatch,
   );
-  // Gentle AI off hides its resources.
-  const selectedGentleEnabled = gentleAiEnabled(selectedModelSelection.options);
-  const selectedProviderSkills = selectedProviderStatus
-    ? resourcesForGentle(
-        resolveProviderSkillsForCwd(selectedProviderStatus, gitCwd),
-        selectedGentleEnabled,
-      )
-    : NO_PROVIDER_SKILLS;
-  const selectedProviderSlashCommands = selectedProviderStatus
-    ? resourcesForGentle(
-        resolveProviderSlashCommandsForCwd(selectedProviderStatus, gitCwd),
-        selectedGentleEnabled,
-      )
-    : NO_PROVIDER_SLASH_COMMANDS;
   const selectedModelForPicker = selectedModel;
   const modelOptionsByInstance = new Map<ProviderInstanceId, ReadonlyArray<AppModelOption>>();
   for (const entry of providerInstanceEntries) {
@@ -3492,36 +3463,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             </ComposerBanner.Attachment>
           ) : null}
         </ComposerBanner.Column>
-        <div className="ml-auto flex min-w-0 items-end gap-1">
-          <ComposerStashBadge
-            count={stashQueue.length}
-            menuOpen={isStashMenuOpen}
-            pulseKey={stashPulseKey}
-            onToggleMenu={toggleStashMenuStable}
-          />
-          <GentleComposerSlot
-            resetKey={`${routeKind}:${activeThreadId ?? draftId ?? "new"}:${activeThread?.latestRun?.runId ?? ""}:${activeThread?.latestRun?.completedAt ?? ""}:${selectedInstanceId}:${gitCwd}`}
-            gentleAi={selectedProviderStatus?.gentleAi === true}
-            cwd={gitCwd}
-            draftTarget={composerDraftTarget}
-            isDraft={_isLocalDraftThread}
-            multipleModels={multipleModelSelections !== null}
-            environmentId={environmentId}
-            pi={selectedProvider === "pi"}
-            modelSelection={selectedModelSelection}
-            models={selectedProviderModels}
-            modelLocked={providerCatalogPending || isSendBusy}
-            readThreadTrail={readGentleThreadTrail}
-            onStartThread={onStartGentleThread}
-            onWritePrompt={(request) => {
-              // Added after whatever is already written, never in place of it.
-              editPromptFromTraits((prompt) => {
-                const current = prompt.trimEnd();
-                return current === "" ? request : `${current}\n\n${request}`;
-              });
-            }}
-          />
-        </div>
+        <ComposerStashBadge
+          count={stashQueue.length}
+          menuOpen={isStashMenuOpen}
+          pulseKey={stashPulseKey}
+          onToggleMenu={toggleStashMenuStable}
+        />
       </ComposerBanner.Dock>
       <div className="relative">
         <ComposerSurface.Main
@@ -3711,7 +3658,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     className={cn(
                       showMobilePendingAnswerActions && "max-sm:pb-12",
                       isComposerResting &&
-                        "my-0 max-h-8 min-h-8 overflow-hidden py-0 whitespace-pre! leading-8",
+                        "my-0 max-h-8 min-h-8 redesign:min-h-8 overflow-hidden py-0 whitespace-pre! leading-8",
                     )}
                     placeholderClassName={cn(
                       isComposerResting &&
@@ -3832,8 +3779,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     activeContextWindow={
                       settings.contextWindowMeterEnabled ? activeContextWindow : null
                     }
-                    promptCache={isComposerResting ? null : activePromptCache}
-                    contextTokens={activeContextWindow?.usedTokens ?? null}
                     reserveContextWindowMeter={reserveContextWindowMeter}
                     activeThreadModelDisplayName={activeThreadModelDisplayName}
                     pendingAction={pendingPrimaryAction}

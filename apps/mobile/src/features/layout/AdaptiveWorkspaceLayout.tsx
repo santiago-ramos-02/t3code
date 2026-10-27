@@ -95,13 +95,9 @@ import {
   currentWorkspaceSelections,
   workspaceSelectionCheck,
 } from "../workspace/workspace-selection-store";
-import {
-  workspaceTabColumns,
-  workspaceTabNavigationState,
-} from "../workspace/workspace-tab-navigation";
+import { workspaceTabNavigationState } from "../workspace/workspace-tab-navigation";
 import type { WorkspaceTab } from "../workspace/workspace-tabs-state";
 import { workspaceRoutesOf } from "./workspace-overlay-routes";
-import { SettingsWorkspaceLayout } from "../settings/SettingsWorkspaceLayout";
 
 export { useAdaptiveWorkspaceLayout };
 
@@ -482,7 +478,7 @@ function AdaptiveWorkspaceLayoutContent(
       tab,
       currentWorkspaceSelections(),
       {
-        columns: workspaceTabColumns(Platform.OS, tab, options?.columns ?? layout.usesSplitView),
+        columns: Platform.OS === "ios" && (options?.columns ?? layout.usesSplitView),
         check: workspaceSelectionCheck,
         overlays,
       },
@@ -527,27 +523,24 @@ function AdaptiveWorkspaceLayoutContent(
         : undefined;
     const first = (value: string | string[] | undefined) =>
       Array.isArray(value) ? value[0] : value;
-    const environmentId = first(params?.environmentId);
-    const threadId = first(params?.threadId);
-    // The full index, not the sidebar list: subagent and archived threads are current threads too.
-    const projectId =
-      environmentId && threadId
-        ? appAtomRegistry
-            .get(
-              environmentThreadShells.environmentThreadIndexAtom(EnvironmentId.make(environmentId)),
-            )
-            .get(ThreadId.make(threadId))?.projectId
-        : undefined;
-    const preferences = appAtomRegistry.get(mobilePreferencesAtom);
-    const saved = AsyncResult.isSuccess(preferences) ? preferences.value : undefined;
+    const thread = appAtomRegistry
+      .get(environmentThreadShells.navigationThreadShellsAtom)
+      .find(
+        (candidate) =>
+          candidate.environmentId === first(params?.environmentId) &&
+          candidate.id === first(params?.threadId),
+      );
+    const draft = params?.draft;
+    const draftEnvironmentId = first(draft?.environmentId);
+    const draftProjectId = first(draft?.projectId);
+    const currentProject = thread
+      ? { environmentId: thread.environmentId, id: thread.projectId }
+      : projects.find(
+          (project) =>
+            project.environmentId === draftEnvironmentId && project.id === draftProjectId,
+        );
     handleSelectThreadRoute(
-      newTaskDestination({
-        projects,
-        requestId: uuidv4(),
-        useLastProject: saved?.useLastProjectForNewThreads,
-        currentProject: environmentId && projectId ? { environmentId, projectId } : undefined,
-        lastProject: saved?.lastThreadProject,
-      }),
+      newTaskDestination(layout.usesSplitView, projects, currentProject, uuidv4()),
     );
   };
 
@@ -912,9 +905,7 @@ function AdaptiveWorkspaceLayoutContent(
                         compactAndroidSettings ? { ...safeAreaInsets, bottom: 0 } : safeAreaInsets
                       }
                     >
-                      <View className="flex-1">
-                        <SettingsWorkspaceLayout>{props.children}</SettingsWorkspaceLayout>
-                      </View>
+                      <View className="flex-1">{props.children}</View>
                     </SafeAreaInsetsContext>
                     {compactAndroidSettings ? (
                       <AndroidWorkspaceNavigation onNewThread={handleStartNewTask} />

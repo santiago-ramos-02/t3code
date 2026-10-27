@@ -6,7 +6,7 @@ import {
   threadPullRequestKeyOf,
   visibleThreadPullRequests,
 } from "@t3tools/client-runtime/thread-pull-requests";
-import { ChevronDown, ChevronUp } from "lucide";
+import { ChevronDown, ChevronUp, Minus, Plus } from "lucide";
 import { useState, type ComponentProps, type MouseEvent as ReactMouseEvent } from "react";
 
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
@@ -17,6 +17,7 @@ import { threadEnvironment } from "~/state/threads";
 import { useAtomCommand } from "~/state/use-atom-command";
 
 import { MorphIcon } from "~/components/MorphIcon";
+import { useClientSettings } from "~/hooks/useSettings";
 import { linkedPullRequestSnapshotStatus, prStatusIndicator } from "../ThreadStatusIndicators";
 
 import { ThreadDetailsPrRow } from "./ThreadDetailsPrRow";
@@ -75,6 +76,8 @@ export function ThreadDetailsPrRows({
   onOpenLink: (event: ReactMouseEvent<HTMLElement>, url: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  // The plus already means "add" in this card (Add project script).
+  const redesign = useClientSettings((s) => s.redesignEnabled);
   const watch = useAtomCommand(threadEnvironment.watchPullRequest, { reportFailure: true });
   const stopWatching = (link: ThreadPullRequestLink | null) =>
     link?.watch === undefined
@@ -127,8 +130,7 @@ export function ThreadDetailsPrRows({
         <MorphIcon
           aria-hidden
           className="size-4 shrink-0"
-          // Chevrons, not plus and minus: the plus already means "add" in this card.
-          icon={expanded ? ChevronUp : ChevronDown}
+          icon={expanded ? (redesign ? ChevronUp : Minus) : redesign ? ChevronDown : Plus}
         />
         {expanded ? "Show less" : `Show ${rest.length} more`}
       </ThreadDetailsControl>

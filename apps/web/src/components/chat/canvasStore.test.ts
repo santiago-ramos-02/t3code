@@ -38,6 +38,7 @@ describe("chat canvas model", () => {
         threadRef,
         preview: null,
         detailsCardInlineOpen: true,
+        centerBesideDetails: false,
       }).detailsCardMode;
     expect(resolve(1400)).toBe("inline");
     expect(resolve(900)).toBe("popover");
@@ -51,6 +52,7 @@ describe("chat canvas model", () => {
         threadRef,
         preview: { ...preview, position: { x: 760, y: 150 }, lastInteraction: "drag" },
         detailsCardInlineOpen: true,
+        centerBesideDetails: false,
       });
     const model = resolve(400);
     expect(model.layout.overlapsDetailsCard).toBe(true);
@@ -64,6 +66,7 @@ describe("chat canvas model", () => {
       threadRef,
       preview: { ...preview, position: { x: 760, y: 150 }, lastInteraction: "drag" },
       detailsCardInlineOpen: true,
+      centerBesideDetails: false,
     });
     expect(model.layout.overlapsDetailsCard).toBe(false);
     expect(model.detailsCardMode).toBe("inline");

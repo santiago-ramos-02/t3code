@@ -197,7 +197,6 @@ const DeprecationNoticeType = Schema.Literal("deprecation.notice");
 const FilesPersistedType = Schema.Literal("files.persisted");
 const ToolDeniedType = Schema.Literal("tool.denied");
 const RuntimeWarningType = Schema.Literal("runtime.warning");
-const RuntimeNoticeType = Schema.Literal("runtime.notice");
 const RuntimeErrorType = Schema.Literal("runtime.error");
 
 const ProviderRuntimeEventBase = Schema.Struct({
@@ -544,8 +543,6 @@ const taskAgentLinkageFields = {
   runHandles: Schema.optional(TaskRunHandles),
   outputFile: Schema.optional(TrimmedNonEmptyStringSchema),
   agentPath: Schema.optional(TrimmedNonEmptyStringSchema),
-  /** Identifies subagent activity emitted by Gentle AI in Pi. */
-  taskSource: Schema.optional(Schema.Literal("gentle-pi")),
   /** Provider-synthesized child events belong in Agents, never the parent timeline. */
   timelineBypass: Schema.optional(Schema.Boolean),
 } as const;
@@ -579,14 +576,6 @@ const TaskProgressPayload = Schema.Struct({
   usage: Schema.optional(Schema.Unknown),
   typedUsage: Schema.optional(RuntimeTaskUsage),
   lastToolName: Schema.optional(TrimmedNonEmptyStringSchema),
-  recentThread: Schema.optional(
-    Schema.Array(
-      Schema.Union([
-        Schema.Struct({ kind: Schema.Literals(["text", "thinking", "note"]), text: Schema.String }),
-        Schema.Struct({ kind: Schema.Literal("tool"), name: Schema.String, output: Schema.String }),
-      ]),
-    ),
-  ),
   status: Schema.optional(RuntimeTaskStatus),
   error: Schema.optional(TrimmedNonEmptyStringSchema),
   ...taskAgentLinkageFields,
@@ -736,12 +725,6 @@ const RuntimeWarningPayload = Schema.Struct({
   detail: Schema.optional(Schema.Unknown),
 });
 export type RuntimeWarningPayload = typeof RuntimeWarningPayload.Type;
-
-/** Informational output a provider reports outside assistant text, such as a command's result. */
-const RuntimeNoticePayload = Schema.Struct({
-  message: TrimmedNonEmptyStringSchema,
-});
-export type RuntimeNoticePayload = typeof RuntimeNoticePayload.Type;
 
 const RuntimeErrorPayload = Schema.Struct({
   message: TrimmedNonEmptyStringSchema,
@@ -1104,13 +1087,6 @@ const ProviderRuntimeWarningEvent = Schema.Struct({
 });
 export type ProviderRuntimeWarningEvent = typeof ProviderRuntimeWarningEvent.Type;
 
-const ProviderRuntimeNoticeEvent = Schema.Struct({
-  ...ProviderRuntimeEventBase.fields,
-  type: RuntimeNoticeType,
-  payload: RuntimeNoticePayload,
-});
-export type ProviderRuntimeNoticeEvent = typeof ProviderRuntimeNoticeEvent.Type;
-
 const ProviderRuntimeErrorEvent = Schema.Struct({
   ...ProviderRuntimeEventBase.fields,
   type: RuntimeErrorType,
@@ -1167,7 +1143,6 @@ export const ProviderRuntimeEventV2 = Schema.Union([
   ProviderRuntimeFilesPersistedEvent,
   ProviderRuntimeToolDeniedEvent,
   ProviderRuntimeWarningEvent,
-  ProviderRuntimeNoticeEvent,
   ProviderRuntimeErrorEvent,
 ]);
 export type ProviderRuntimeEventV2 = typeof ProviderRuntimeEventV2.Type;

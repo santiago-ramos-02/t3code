@@ -144,7 +144,6 @@ export function CustomSnoozeSheet(props: Props) {
                 <Text style={titleTypography}>Custom snooze</Text>
                 <RNHostView matchContents={{ vertical: true }} modifiers={[fillMaxWidth()]}>
                   <SegmentedControl
-                    variant="card"
                     options={modes}
                     selected={mode}
                     onSelect={(value) => {
@@ -156,7 +155,6 @@ export function CustomSnoozeSheet(props: Props) {
                 {mode === "date" ? (
                   <RNHostView matchContents={{ vertical: true }} modifiers={[fillMaxWidth()]}>
                     <SegmentedControl
-                      variant="card"
                       options={[
                         {
                           value: "date",
@@ -232,12 +230,7 @@ export function CustomSnoozeSheet(props: Props) {
                     </FilledTonalIconButton>
                   </Row>
                   <RNHostView matchContents={{ vertical: true }} modifiers={[fillMaxWidth()]}>
-                    <SegmentedControl
-                      variant="card"
-                      options={units}
-                      selected={unit}
-                      onSelect={setUnit}
-                    />
+                    <SegmentedControl options={units} selected={unit} onSelect={setUnit} />
                   </RNHostView>
                 </Column>
               )}

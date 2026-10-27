@@ -6,15 +6,12 @@ import { isOrchestrationV2WorkActive } from "@t3tools/contracts";
 import { ArrowUpLeftIcon } from "lucide-react";
 
 import { tickTextContent } from "~/lib/tickTextContent";
-import { cn } from "~/lib/utils";
 import type { ProviderInstanceEntry } from "../../providerInstances";
 import { Button } from "../ui/button";
 import { ProviderInstanceIcon } from "./ProviderInstanceIcon";
 
 export function ProviderSubagentBar(props: {
   readonly provider: ProviderInstanceEntry | null;
-  /** The named agent it runs as, such as Gentle AI's `gentle-ai-worker`. */
-  readonly agentName: string | null;
   readonly showInstanceBadge: boolean;
   readonly modelLabel: string;
   readonly effortLabel: string | null;
@@ -23,12 +20,8 @@ export function ProviderSubagentBar(props: {
 }) {
   const { status } = props;
   const live = status !== null && isOrchestrationV2WorkActive(status.status);
-  const modelDescription = [
-    props.effortLabel === null ? props.modelLabel : `${props.modelLabel}, ${props.effortLabel}`,
-    props.agentName,
-  ]
-    .filter((part) => part !== null)
-    .join(" as ");
+  const modelDescription =
+    props.effortLabel === null ? props.modelLabel : `${props.modelLabel}, ${props.effortLabel}`;
   const announcement = formatProviderSubagentStatus(
     status === null ? null : { ...status, startedAt: null },
     0,
@@ -54,20 +47,9 @@ export function ProviderSubagentBar(props: {
               badgeClassName="right-[-0.125rem] bottom-[-0.125rem] h-3 min-w-3 px-0.5 text-5xs"
             />
           ) : null}
-          <span
-            className={cn(
-              "min-w-0 truncate",
-              props.agentName === null ? "font-medium text-foreground" : "text-muted-foreground",
-            )}
-          >
-            {props.modelLabel}
-          </span>
+          <span className="min-w-0 truncate font-medium text-foreground">{props.modelLabel}</span>
           {props.effortLabel === null ? null : (
             <span className="shrink-0 text-muted-foreground">{props.effortLabel}</span>
-          )}
-          {/* The agent's name never truncates; in a narrow column its model gives way instead. */}
-          {props.agentName === null ? null : (
-            <span className="shrink-0 font-medium text-foreground">{props.agentName}</span>
           )}
         </span>
         <span
