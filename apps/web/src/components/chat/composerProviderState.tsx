@@ -8,6 +8,7 @@ import {
   type ScopedThreadRef,
   type ServerProviderModel,
 } from "@t3tools/contracts";
+import type { EffortDisplay } from "@t3tools/contracts/settings";
 import {
   buildExplicitProviderOptionSelectionsFromDescriptors,
   getProviderOptionCurrentValue,
@@ -28,7 +29,7 @@ import {
   type PromptUltrathink,
 } from "./TraitsPicker";
 
-export type ComposerProviderStateInput = {
+type ComposerProviderStateInput = {
   provider: ProviderDriverKind;
   model: string;
   models: ReadonlyArray<ServerProviderModel>;
@@ -37,9 +38,9 @@ export type ComposerProviderStateInput = {
   planModeEnabled: boolean;
 };
 
-export type ComposerPromptInjectionState = "none" | "ultrathink";
+type ComposerPromptInjectionState = "none" | "ultrathink";
 
-export type ComposerProviderState = {
+type ComposerProviderState = {
   provider: ProviderDriverKind;
   promptEffort: string | null;
   modelOptionsForDispatch: ReadonlyArray<ProviderOptionSelection> | undefined;
@@ -64,6 +65,10 @@ type TraitsRenderInput = {
   hidden?: boolean;
   triggerClassName?: string;
   isComposerOwned?: boolean;
+  effortDisplay?: EffortDisplay;
+  extraMenuContent?: ReactNode;
+  extraMenuOwnsModeShortcut?: boolean;
+  extraMenuHint?: string;
 };
 
 export function getComposerPromptInjectionState(prompt: string): ComposerPromptInjectionState {
@@ -238,6 +243,10 @@ function renderTraitsControl(
     hidden,
     triggerClassName,
     isComposerOwned,
+    effortDisplay,
+    extraMenuContent,
+    extraMenuOwnsModeShortcut,
+    extraMenuHint,
   } = input;
   const hasTarget = threadRef !== undefined || draftId !== undefined;
   const { selections: resolvedModelOptions } = resolveComposerOptionSelections(
@@ -277,6 +286,10 @@ function renderTraitsControl(
       {...(hidden !== undefined ? { hidden } : {})}
       {...(triggerClassName !== undefined ? { triggerClassName } : {})}
       {...(isComposerOwned ? { isComposerOwned } : {})}
+      {...(effortDisplay ? { effortDisplay } : {})}
+      {...(extraMenuContent ? { extraMenuContent } : {})}
+      {...(extraMenuOwnsModeShortcut ? { extraMenuOwnsModeShortcut } : {})}
+      {...(extraMenuHint ? { extraMenuHint } : {})}
     />
   );
 }

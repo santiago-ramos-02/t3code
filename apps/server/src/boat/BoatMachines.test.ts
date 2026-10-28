@@ -375,6 +375,8 @@ const makeFakeGitHub = (token: string | null) =>
             source: "env",
             fingerprint: "fingerprint",
           }),
+    saved: () => Effect.succeedNone,
+    fingerprint: () => Effect.succeed("fingerprint"),
     invalidate: () => Effect.void,
   });
 

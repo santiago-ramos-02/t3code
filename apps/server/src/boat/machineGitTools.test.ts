@@ -113,6 +113,8 @@ describe("layer", () => {
                 source: saved.source,
                 fingerprint: "fp",
               }),
+        saved: () => Effect.succeedNone,
+        fingerprint: () => Effect.succeed("fp"),
         invalidate: () => Effect.void,
       });
       yield* Layer.build(MachineGitTools.layer).pipe(
