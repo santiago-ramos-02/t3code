@@ -214,7 +214,8 @@ jobs:
       matrix:
         include:
           - label: macOS arm64
-            runner: macos-15
+            # Hosted arm64 Macs often go unassigned for lack of capacity; Intel cross-builds arm64.
+            runner: macos-15-intel
             platform: mac
             target: dmg
             arch: arm64
@@ -282,6 +283,10 @@ jobs:
       - uses: ./.github/actions/setup-apt-mirrors
         if: matrix.platform == 'linux'
 
+      - name: Add macOS Rust targets
+        if: matrix.platform == 'mac'
+        shell: bash
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
       - name: Install Linux desktop build libraries
         if: matrix.platform == 'linux'
         shell: bash
