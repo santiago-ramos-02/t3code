@@ -3531,7 +3531,11 @@ export class MacPackagedAppMissingError extends Schema.TaggedError<MacPackagedAp
 }
 
 export const validateMacPackagedPayload = Effect.fn("desktopArtifact.validateMacPackagedPayload")(
-  function* (input: { readonly stageDistDir: string; readonly verbose?: boolean }) {
+  function* (input: {
+    readonly stageDistDir: string;
+    readonly targetArch?: typeof BuildArch.Type;
+    readonly verbose?: boolean;
+  }) {
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
     const asarPaths: string[] = [];
@@ -3548,8 +3552,16 @@ export const validateMacPackagedPayload = Effect.fn("desktopArtifact.validateMac
     if (asarPaths.length === 0) {
       return yield* new MacPackagedAppMissingError({ stageDistDir: input.stageDistDir });
     }
-    for (const asarPath of asarPaths) {
-      yield* verifyPackagedBundleIsSelfContained({ asarPath, verbose: input.verbose ?? false });
+    const hostArch = yield* HostProcess.Architecture;
+    // An Intel Mac cannot run an arm64 bundle; Apple silicon runs x64 through Rosetta.
+    if (hostArch === "x64" && input.targetArch === "arm64") {
+      yield* Effect.log(
+        "[desktop-artifact] Skipped the bundle self-check of an arm64 build on an x64 host.",
+      );
+    } else {
+      for (const asarPath of asarPaths) {
+        yield* verifyPackagedBundleIsSelfContained({ asarPath, verbose: input.verbose ?? false });
+      }
     }
     yield* Effect.log(
       `[desktop-artifact] Validated macOS payload (${String(asarPaths.length)} app bundle(s)).`,
@@ -4054,7 +4066,11 @@ const buildDesktopArtifactUnlocked = Effect.fn("buildDesktopArtifactUnlocked")(f
   }
   // x64 builds on arm64 runners; the arm64 check covers the shared JS bundle.
   if (options.platform === "mac" && options.arch === "arm64" && hostPlatform === "darwin") {
-    yield* validateMacPackagedPayload({ stageDistDir, verbose: options.verbose });
+    yield* validateMacPackagedPayload({
+      stageDistDir,
+      targetArch: options.arch,
+      verbose: options.verbose,
+    });
   }
 
   const stageEntries = yield* fs.readDirectory(stageDistDir);
