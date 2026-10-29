@@ -150,8 +150,12 @@ function SettingsRouteLayout() {
   return (
     <SettingsScopeProvider
       search={rawSearch}
-      // Providers and Gentle AI manage one environment's machine state.
-      singleEnvironment={pathname === "/settings/providers" || pathname === "/settings/gentle-ai"}
+      // Providers, secrets and Gentle AI manage one environment's machine state.
+      singleEnvironment={
+        pathname === "/settings/providers" ||
+        pathname === "/settings/secrets" ||
+        pathname === "/settings/gentle-ai"
+      }
       onChange={(next) => {
         // Send every axis so retain middleware recognizes "all" as an explicit target.
         void navigate({

@@ -35,6 +35,7 @@ import {
   makeAntigravityUserInputResponse,
   normalizeAntigravityToolCall,
 } from "../../provider/acp/AntigravityProtocol.ts";
+import { isAntigravitySignInRequiredError } from "../../provider/antigravityAuthSupport.ts";
 import {
   AcpProviderCapabilitiesV2,
   makeAcpAdapterV2,
@@ -243,6 +244,7 @@ export function makeAntigravityAcpAdapterFlavor(
     extractSubagentUpdate: extractAntigravitySubagentUpdate,
     supportsImagePrompts: true,
     supportsCompaction: true,
+    requiresSignIn: isAntigravitySignInRequiredError,
   };
 }
 
