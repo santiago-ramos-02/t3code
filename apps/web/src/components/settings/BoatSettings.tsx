@@ -45,7 +45,7 @@ function commandError(result: Parameters<typeof squashAtomCommandFailure>[0]): s
   return error instanceof Error ? error.message : "Boat could not do that.";
 }
 
-export function boatSizeSummary(size: BoatSize) {
+function boatSizeSummary(size: BoatSize) {
   const details = BOAT_SIZE_DETAILS[size];
   return [details.specs, details.hourlyPrice, details.note].filter(Boolean).join(" · ");
 }

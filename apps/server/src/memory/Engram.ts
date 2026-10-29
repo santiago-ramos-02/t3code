@@ -183,7 +183,7 @@ export function memorySnippet(content: string | null | undefined): string {
 }
 
 /** Where gentle-ai's installer puts the engram binary, after PATH. */
-export function engramInstallCandidates(
+function engramInstallCandidates(
   path: Path.Path,
   platform: NodeJS.Platform,
   environment: NodeJS.ProcessEnv,

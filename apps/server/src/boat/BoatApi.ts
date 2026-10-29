@@ -4,7 +4,7 @@ import { HttpClient, HttpClientRequest } from "effect/http";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
-export const BOAT_API_URL = "https://boat.dev/api/v1";
+const BOAT_API_URL = "https://boat.dev/api/v1";
 
 // Only the fields T3 Code reads; Boat's responses carry many more. Create and read both wrap the
 // sandbox in `sandbox` (docs.boat.dev/openapi/boat-v1.yaml).

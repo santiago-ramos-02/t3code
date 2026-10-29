@@ -128,7 +128,7 @@ export const BOAT_FREE_STOPPED_DAYS = 14;
 export const BOAT_SNAPSHOT_AFTER_MS = (BOAT_FREE_STOPPED_DAYS - 1) * DAY_MS;
 // How far ahead T3 Code warns that a machine's saved history will be freed.
 export const BOAT_SNAPSHOT_WARNING_MS = 3 * DAY_MS;
-export const BOAT_SNAPSHOT_PREFIX = "t3-boat-";
+const BOAT_SNAPSHOT_PREFIX = "t3-boat-";
 
 /** The worktree cleanup rule that deletes this machine now, if any, before keep-when applies. */
 export const boatCleanupRule = (

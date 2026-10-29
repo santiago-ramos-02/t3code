@@ -16,8 +16,6 @@ export interface GentleAiPlainFootprint {
   readonly rewritten: ReadonlyMap<string, string>;
 }
 
-export const EMPTY_FOOTPRINT: GentleAiPlainFootprint = { removed: new Set(), rewritten: new Map() };
-
 /** The key a footprint uses for a path: absolute, and case-folded where the filesystem is. */
 export function footprintKey(path: Path.Path, filePath: string, platform: NodeJS.Platform) {
   const resolved = path.resolve(filePath);

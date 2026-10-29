@@ -171,7 +171,3 @@ export function claudePhaseModelOptions<Model extends { readonly id: string }>(
 ): ReadonlyArray<Model> {
   return phaseId === "default" ? models.filter((model) => !model.id.startsWith("custom:")) : models;
 }
-
-export function formatOpenCodeModel(model: GentleAiOpenCodeModel): string {
-  return `${model.providerId}/${model.modelId}${model.effort ? ` · ${model.effort}` : ""}`;
-}

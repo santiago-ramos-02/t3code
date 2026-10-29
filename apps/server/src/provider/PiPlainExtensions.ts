@@ -1,7 +1,6 @@
 import { PI_GENTLE_PACKAGES } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { hostUserHome } from "../hostUserHome.ts";
-import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
@@ -21,11 +20,6 @@ const ExtensionPackage = Schema.Struct({
   pi: Schema.optional(Schema.Struct({ extensions: Schema.optional(Schema.Array(Schema.String)) })),
 });
 const decodePackage = Schema.decodeUnknownEffect(Schema.fromJsonString(ExtensionPackage));
-
-export class PiPlainExtensionError extends Data.TaggedError("PiPlainExtensionError")<{
-  readonly detail: string;
-  readonly cause?: unknown;
-}> {}
 
 function packagePath(source: string, settingsDir: string, path: Path.Path) {
   if (source.startsWith("npm:")) {
@@ -49,7 +43,7 @@ function packagePath(source: string, settingsDir: string, path: Path.Path) {
 }
 
 /** Pi's agent home: an unset or empty PI_CODING_AGENT_DIR falls back to ~/.pi/agent. */
-export function piAgentHome(environment: NodeJS.ProcessEnv, userHome: string, path: Path.Path) {
+function piAgentHome(environment: NodeJS.ProcessEnv, userHome: string, path: Path.Path) {
   return environment.PI_CODING_AGENT_DIR || path.join(userHome, ".pi", "agent");
 }
 

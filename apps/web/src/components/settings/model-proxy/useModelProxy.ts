@@ -11,7 +11,7 @@ import { useAtomCommand } from "../../../state/use-atom-command";
 
 type Method = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
-export function modelProxyErrorText(failure: unknown): string {
+function modelProxyErrorText(failure: unknown): string {
   return failure instanceof Error ? failure.message : "CLIProxyAPI could not do that.";
 }
 

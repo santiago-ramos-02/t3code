@@ -231,7 +231,7 @@ const modelKey = (providerId: string, modelId: string) => `${providerId}/${model
  * Picks one OpenCode model (searchable across providers) and its effort, or null for
  * gentle-ai's default. Used by phase rows and the "set all" control.
  */
-export function GentleAiOpenCodeModelPicker({
+function GentleAiOpenCodeModelPicker({
   label,
   providers,
   value,

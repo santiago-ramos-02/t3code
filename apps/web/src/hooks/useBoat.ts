@@ -65,7 +65,7 @@ export function boatMachineAt(
 }
 
 /** The host's Boat machine an environment runs on, or null when it is not one. */
-export function useBoatMachineFor(environment: EnvironmentPresentation | null): {
+function useBoatMachineFor(environment: EnvironmentPresentation | null): {
   readonly hostEnvironmentId: EnvironmentId | null;
   readonly machine: BoatMachine | null;
 } {

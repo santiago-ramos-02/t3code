@@ -262,7 +262,7 @@ const terminalSurface = (terminalId: string): RightPanelSurface => ({
   activeTerminalId: terminalId,
 });
 
-export function memorySurface(memory: {
+function memorySurface(memory: {
   readonly id: number;
   readonly title: string;
 }): Extract<RightPanelSurface, { kind: "memory" }> {

@@ -37,7 +37,7 @@ function stepName(
 }
 
 /** Readable names for pipeline steps such as `agent:claude-code` or `component:engram`. */
-export function gentleAiStepLabel(id: string, names: ReadonlyMap<string, string>): string {
+function gentleAiStepLabel(id: string, names: ReadonlyMap<string, string>): string {
   const [kind, rest] = id.includes(":")
     ? [id.slice(0, id.indexOf(":")), id.slice(id.indexOf(":") + 1)]
     : ["", id];

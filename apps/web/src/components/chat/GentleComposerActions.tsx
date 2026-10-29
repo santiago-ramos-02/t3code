@@ -70,7 +70,7 @@ import { useComposerDraftStore, type ComposerThreadTarget } from "../../composer
  * gentle-pi's profiles, which also move the thread onto the profile's orchestrator model; Claude
  * Code threads through a proxy switch Gentle AI's Claude Code profiles.
  */
-export function GentleComposerActions({
+function GentleComposerActions({
   environmentId,
   instanceId,
   pi,

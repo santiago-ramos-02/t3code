@@ -53,7 +53,7 @@ export function gentleAiInstallPath(
 }
 
 /** Whether a gentle-ai version is a build of this fork, such as 4.2.0-t3.d1dbfe0. */
-export function isForkGentleAiVersion(version: string): boolean {
+function isForkGentleAiVersion(version: string): boolean {
   return version.includes("-t3.");
 }
 

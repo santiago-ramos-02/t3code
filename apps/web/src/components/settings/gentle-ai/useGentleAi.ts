@@ -18,7 +18,7 @@ import { useEnvironmentQuery } from "../../../state/query";
 import { serverEnvironment } from "../../../state/server";
 import { useAtomCommand } from "../../../state/use-atom-command";
 
-export function gentleAiErrorText(failure: unknown): string {
+function gentleAiErrorText(failure: unknown): string {
   return failure instanceof Error ? failure.message : "Gentle AI could not complete that.";
 }
 

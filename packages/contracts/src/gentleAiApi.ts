@@ -683,7 +683,7 @@ const JOB_METHODS = [
 type Unlisted =
   | Exclude<GentleAiQueryMethod, (typeof QUERY_METHODS)[number]>
   | Exclude<GentleAiJobMethod, (typeof JOB_METHODS)[number]>;
-export const GENTLE_AI_METHODS_LISTED: [Unlisted] extends [never] ? true : Unlisted = true;
+const _gentleAiMethodsListed: [Unlisted] extends [never] ? true : Unlisted = true;
 
 export const GentleAiQueryMethodName = Schema.Literals(QUERY_METHODS);
 export const GentleAiJobMethodName = Schema.Literals(JOB_METHODS);

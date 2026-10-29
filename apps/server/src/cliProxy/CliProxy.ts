@@ -83,7 +83,7 @@ const attempt = <A>(detail: string, run: () => Promise<A>) =>
   });
 
 /** Where T3 Code keeps CLIProxyAPI on this system. */
-export function installDir(platform: NodeJS.Platform, environment: NodeJS.ProcessEnv): string {
+function installDir(platform: NodeJS.Platform, environment: NodeJS.ProcessEnv): string {
   if (platform === "win32") {
     return NodePath.join(
       environment.LOCALAPPDATA ?? NodePath.join(NodeOS.homedir(), "AppData", "Local"),

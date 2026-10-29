@@ -28,11 +28,11 @@ const watcherStopTimeoutMs = 1_500;
 // exit/error events must not surface as dev failures.
 const expectedWatcherExits = new WeakSet();
 
-export function resolveServerDir(desktopDir) {
+function resolveServerDir(desktopDir) {
   return NodePath.resolve(desktopDir, "../server");
 }
 
-export function resolveRepoRoot(desktopDir) {
+function resolveRepoRoot(desktopDir) {
   return NodePath.resolve(desktopDir, "../..");
 }
 

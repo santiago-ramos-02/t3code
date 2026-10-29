@@ -57,7 +57,7 @@ const SDD_PHASES = [
 ];
 
 /** Subagent names gentle-ai defines (agent files, and OpenCode agent keys). */
-export const GENTLE_AI_AGENTS: ReadonlySet<string> = new Set([
+const GENTLE_AI_AGENTS: ReadonlySet<string> = new Set([
   "gentleman",
   "gentle-orchestrator",
   "sdd-orchestrator",

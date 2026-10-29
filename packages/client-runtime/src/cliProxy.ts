@@ -344,7 +344,7 @@ const OWNER_LABELS: Readonly<Record<string, string>> = {
 };
 
 /** A provider name for a model's `owned_by`, for grouping the models the proxy serves. */
-export function cliProxyOwnerLabel(owner: string | null): string {
+function cliProxyOwnerLabel(owner: string | null): string {
   if (owner === null || owner.trim() === "") return "Other";
   return OWNER_LABELS[owner.toLowerCase()] ?? owner.charAt(0).toUpperCase() + owner.slice(1);
 }
