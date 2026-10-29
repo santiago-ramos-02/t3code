@@ -25,6 +25,7 @@ import { ThreadRelationshipsPanel } from "./ThreadRelationshipsControl";
 import { ThreadMemoryPanel } from "../memory/ThreadMemoryPanel";
 import { ThreadFeaturePanel } from "./ThreadFeaturePanel";
 import { ThreadServersPanel } from "./ThreadServersPanel";
+import { ThreadDetailsUsage, type ThreadDetailsUsageInput } from "./ThreadDetailsUsage";
 
 const GitActionsControl = memo(BaseGitActionsControl);
 
@@ -69,6 +70,8 @@ interface ThreadDetailsPanelProps extends Pick<
     input: NewProjectScriptInput,
   ) => Promise<ProjectScriptActionResult>;
   onDeleteProjectScript: (scriptId: string) => Promise<ProjectScriptActionResult>;
+  /** Set only while the Labs usage readout is on. */
+  usage?: ThreadDetailsUsageInput | undefined;
 }
 
 export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
@@ -209,6 +212,8 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
               threadId={props.threadId}
             />
           ) : null}
+
+          {props.usage ? <ThreadDetailsUsage {...props.usage} /> : null}
         </>
       )}
     </ThreadDetailsCard>
