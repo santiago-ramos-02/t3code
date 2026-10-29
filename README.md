@@ -54,6 +54,16 @@ curl -fsSL https://raw.githubusercontent.com/santiago-ramos-02/gentle-ai/main/sc
 
 Then open **Settings > Gentle AI** in T3 Code and set it up for the agents you use.
 
+#### Nix (nixpkgs)
+
+```bash
+nix profile add github:NixOS/nixpkgs/nixos-unstable#t3code
+```
+
+The package is maintained in [nixpkgs](https://github.com/NixOS/nixpkgs/tree/nixos-unstable/pkgs/by-name/t3/t3code)
+and includes the desktop app (`t3code-desktop`) and the `t3` command.
+See [Nix installation](./docs/user/install.md#nix-nixpkgs) for NixOS configuration and updates.
+
 ## Some notes
 
 We are very very early in this project. Expect bugs.
