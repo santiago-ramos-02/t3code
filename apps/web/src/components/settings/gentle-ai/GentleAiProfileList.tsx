@@ -157,7 +157,7 @@ export function GentleAiProfileList({
                     type="button"
                     aria-expanded={isOpen}
                     onClick={() => setOpen(isOpen ? null : profile.name)}
-                    className="flex min-w-0 items-center gap-1.5 rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="flex min-w-0 items-center gap-1.5 rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                   >
                     <ChevronRightIcon
                       aria-hidden

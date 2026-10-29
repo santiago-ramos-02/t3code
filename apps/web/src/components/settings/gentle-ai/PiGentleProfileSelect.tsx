@@ -52,6 +52,7 @@ export function usePiGentleProfiles({
   } | null>(null);
   const [switching, setSwitching] = useState(false);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- reads the Pi Gentle profiles from the server and drops a stale response on cleanup
   useEffect(() => {
     let live = true;
     void read({ environmentId, input: { instanceId } }).then((result) => {

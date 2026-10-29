@@ -85,6 +85,7 @@ import { environmentServerConfigsAtom } from "../../state/server";
 import { threadEnvironment } from "../../state/threads";
 import { runMobileComposerTransition } from "./draftHeroTransition";
 import { useClientSettingsHydrated, useEnvironmentSettings } from "../../hooks/useSettings";
+import { useStableCallback } from "../../hooks/useStableCallback";
 import { environmentPresentations } from "../../state/presentation";
 import {
   approvalRedirectNotice,
@@ -395,8 +396,8 @@ export function useComposerSend(input: ComposerSendInput) {
   }, [pendingApprovals, respondingRequestIds]);
 
   // The send that runs once a resumed machine connects reads that render's state, not this one's.
-  const latestSend = useRef<typeof onSend | null>(null);
-  const onSend = async (
+  const latestSend = useStableCallback(onSend);
+  async function onSend(
     e?: { preventDefault: () => void },
     dispatchMode: ComposerDispatchMode = "auto",
     submissionIntent: ComposerSubmissionIntent = "foreground",
@@ -404,7 +405,7 @@ export function useComposerSend(input: ComposerSendInput) {
       annotation: PreviewAnnotationPayload;
       image: ComposerImageAttachment | null;
     },
-  ) => {
+  ) {
     e?.preventDefault();
     // What the user pressed send on; uploads below can take a while, and a redirect must not
     // decline approvals for a draft that changed meanwhile.
@@ -429,7 +430,7 @@ export function useComposerSend(input: ComposerSendInput) {
       // This comes before the checks below, which a disconnected thread fails without a word.
       void wakeStoppedEnvironment().then((connected) => {
         if (connected) {
-          void latestSend.current?.(undefined, dispatchMode, submissionIntent, directAnnotation);
+          void latestSend(undefined, dispatchMode, submissionIntent, directAnnotation);
         }
       });
       return;
@@ -1458,10 +1459,7 @@ export function useComposerSend(input: ComposerSendInput) {
       );
       if (!sendQueuesBehindSetup) resetLocalDispatch();
     }
-  };
+  }
 
-  useLayoutEffect(() => {
-    latestSend.current = onSend;
-  });
   return { onSend };
 }

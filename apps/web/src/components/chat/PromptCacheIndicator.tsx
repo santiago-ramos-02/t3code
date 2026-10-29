@@ -29,7 +29,6 @@ const TONE_FILL: Record<PromptCacheTone, string> = {
   neutral: "bg-muted-foreground",
 };
 
-// The three parts of a turn's prompt, in the order the stacked bar draws them.
 const PARTS = [
   { key: "read", label: "Read", fill: "bg-success" },
   { key: "written", label: "Wrote", fill: "bg-warning" },
@@ -37,11 +36,10 @@ const PARTS = [
 ] as const;
 
 /**
- * The composer's prompt cache readout: a dot whose colour says whether the next message finds
- * the cache, how much of the last turn the cache served, and the time it has left. Hovering opens
- * what the readout cannot show: the exact countdown, what the next message gets, the last turn's
- * read, written and new tokens, why it rebuilt the cache when it did, and the recent turns.
- * Closed, the clock changes once a minute until its last five; open, every second.
+ * The composer's prompt cache readout: a dot whose colour says whether the next message finds the
+ * cache, how much of the last turn it served, and the time left. Hovering opens the exact
+ * countdown, what the next message gets, the last turn's tokens, and the recent turns. Closed,
+ * the clock changes once a minute until its last five; open, every second.
  */
 export function PromptCacheIndicator(props: {
   readonly cache: PromptCacheSnapshot;
@@ -56,6 +54,7 @@ export function PromptCacheIndicator(props: {
   const state = promptCacheState(cache, clock);
   const ticking = open && state.kind !== "working";
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- interval that re-reads the clock each second while the popover is open
   useEffect(() => {
     if (!ticking) return;
     const id = setInterval(() => setNowMs(Date.now()), 1_000);
@@ -64,6 +63,7 @@ export function PromptCacheIndicator(props: {
 
   const labelDelayMs = msUntilPromptCacheLabelChanges(state);
   const labelChangesAt = ticking || labelDelayMs === null ? null : clock + labelDelayMs;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- timer that re-reads the clock when the closed label next changes
   useEffect(() => {
     if (labelChangesAt === null) return;
     const id = setTimeout(() => setNowMs(Date.now()), Math.max(0, labelChangesAt - Date.now()));

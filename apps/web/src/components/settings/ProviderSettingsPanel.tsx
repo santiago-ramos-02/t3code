@@ -451,7 +451,6 @@ function ProviderSettingsPanelContent(target: ProviderSettingsTarget) {
           key={selectedEnvironment.environmentId}
           environment={selectedEnvironment}
           deviceTabs={deviceTabs}
-          projectCwd={target.projectCwd}
           targetInstanceId={
             target.environmentId === undefined ||
             selectedEnvironment.environmentId === target.environmentId
@@ -469,13 +468,11 @@ function RemoteSessionGatedProviderSettings({
   environment,
   deviceTabs,
   targetInstanceId,
-  projectCwd,
   projectIds,
 }: {
   readonly environment: EnvironmentPresentation;
   readonly deviceTabs?: ReactNode;
   readonly targetInstanceId?: ProviderInstanceId | undefined;
-  readonly projectCwd?: string | undefined;
   readonly projectIds: readonly ProjectId[];
 }) {
   const sessionState = useEnvironmentSessionState(environment.environmentId);
@@ -490,7 +487,6 @@ function RemoteSessionGatedProviderSettings({
       operateAccess={operateAccess}
       deviceTabs={deviceTabs}
       targetInstanceId={targetInstanceId}
-      projectCwd={projectCwd}
       projectIds={projectIds}
     />
   );
@@ -501,14 +497,12 @@ function AccessGatedProviderSettings({
   operateAccess,
   deviceTabs,
   targetInstanceId,
-  projectCwd,
   projectIds,
 }: {
   readonly environment: EnvironmentPresentation;
   readonly operateAccess: ProviderOperateAccess;
   readonly deviceTabs?: ReactNode;
   readonly targetInstanceId?: ProviderInstanceId | undefined;
-  readonly projectCwd?: string | undefined;
   readonly projectIds: readonly ProjectId[];
 }) {
   const access = classifyProviderEnvironmentAccess({
@@ -532,7 +526,6 @@ function AccessGatedProviderSettings({
       readOnly={access.kind === "read-only"}
       deviceTabs={deviceTabs}
       targetInstanceId={targetInstanceId}
-      projectCwd={projectCwd}
       projectIds={projectIds}
     />
   );
@@ -547,14 +540,12 @@ export function EnvironmentProviderSettings({
   readOnly = false,
   deviceTabs,
   targetInstanceId,
-  projectCwd,
   projectIds = NO_PROJECT_IDS,
 }: {
   readonly environmentId: EnvironmentId;
   readonly environmentLabel: string;
   readonly deviceTabs?: ReactNode;
   readonly targetInstanceId?: ProviderInstanceId | undefined;
-  readonly projectCwd?: string | undefined;
   readonly projectIds?: readonly ProjectId[];
   readonly readOnly?: boolean;
 }) {
@@ -585,17 +576,15 @@ export function EnvironmentProviderSettings({
     reportFailure: false,
   });
   const [isRefreshingProviders, setIsRefreshingProviders] = useState(false);
-  // Instances with an explicit scoped status refresh in flight, keyed by
-  // environment+instance so a stale completion for a previous environment
-  // can never mark the new card Checking. Local pending state only: the
-  // toggle persists settings and never probes, since the server
-  // re-discovers version and models on enable.
+  // Keyed by environment+instance so a stale completion for a previous
+  // environment can never mark the new card Checking.
   const [refreshingKeys, setRefreshingKeys] = useState<ReadonlySet<string>>(() => new Set());
   // Synchronous re-entry guard: a state updater runs after dispatch, so it
   // cannot dedupe a double invocation before the first dispatch lands.
   const refreshingKeysRef = useRef<Set<string>>(new Set());
   const mountedRef = useRef(true);
   const activeEnvironmentRef = useRef(environmentId);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- tracks mount lifetime so late refresh completions after unmount or environment change stay silent
   useEffect(() => {
     mountedRef.current = true;
     activeEnvironmentRef.current = environmentId;

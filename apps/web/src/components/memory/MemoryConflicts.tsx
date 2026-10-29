@@ -9,7 +9,7 @@ import type {
   MemoryVerdict,
 } from "@t3tools/contracts";
 import { CheckIcon, TriangleAlertIcon } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -100,14 +100,10 @@ export function MemoryConflictsButton(props: {
   const [open, setOpen] = useState(false);
   // Verdicts given here leave the list right away instead of waiting for the next read.
   const [judged, setJudged] = useState<ReadonlySet<string>>(() => new Set());
-  const conflicts = useMemo(
-    () => pendingConflicts(props.relations).filter((relation) => !judged.has(relation.syncId)),
-    [props.relations, judged],
+  const conflicts = pendingConflicts(props.relations).filter(
+    (relation) => !judged.has(relation.syncId),
   );
-  const bySyncId = useMemo(
-    () => new Map(props.observations.map((entry) => [entry.syncId, entry])),
-    [props.observations],
-  );
+  const bySyncId = new Map(props.observations.map((entry) => [entry.syncId, entry]));
   if (conflicts.length === 0 && !open) return null;
 
   const openMemory = (id: number) => {

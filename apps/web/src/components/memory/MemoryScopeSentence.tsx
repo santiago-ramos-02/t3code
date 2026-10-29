@@ -4,7 +4,6 @@ import {
   resolveEnvironmentMachineKind,
 } from "@t3tools/contracts";
 import { FolderIcon, LayersIcon } from "lucide-react";
-import { useMemo } from "react";
 
 import { useProjects } from "../../state/entities";
 import { useEnvironments } from "../../state/environments";
@@ -34,18 +33,13 @@ export function MemoryScopeSentence(props: {
   readonly onProjectChange: (project: string | null) => void;
 }) {
   const { environments: all } = useEnvironments();
-  const environments = useMemo(
-    () => all.filter((environment) => props.environmentIds.includes(environment.environmentId)),
-    [all, props.environmentIds],
+  const environments = all.filter((environment) =>
+    props.environmentIds.includes(environment.environmentId),
   );
   const t3Projects = useProjects();
-  const choices = useMemo(
-    () =>
-      memoryProjectChoices(
-        props.projects,
-        t3Projects.filter((project) => project.environmentId === props.environmentId),
-      ),
-    [props.projects, t3Projects, props.environmentId],
+  const choices = memoryProjectChoices(
+    props.projects,
+    t3Projects.filter((project) => project.environmentId === props.environmentId),
   );
   const selectedProject = choices.find((choice) => choice.name === props.project) ?? null;
   const selectedEnvironment =

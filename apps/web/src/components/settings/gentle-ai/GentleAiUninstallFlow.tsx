@@ -1,5 +1,5 @@
 import type { GentleAiUninstallMode } from "@t3tools/contracts";
-import { useMemo, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import { Button } from "../../ui/button";
 import { Checkbox } from "../../ui/checkbox";
@@ -69,7 +69,7 @@ function UninstallWizard({
   readonly projectNote: ReactNode;
   readonly title: string;
 }) {
-  const names = useMemo(() => gentleAiNames(status), [status]);
+  const names = gentleAiNames(status);
   const installedAgents = status.agents.filter((agent) => agent.installed).map((agent) => agent.id);
   const installedComponents = status.components
     .filter((component) => component.installed)

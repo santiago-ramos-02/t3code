@@ -193,7 +193,7 @@ import {
   composerSuggestionOptionId,
 } from "./ComposerCommandMenu";
 import { GentleComposerSlot } from "./GentleComposerActions";
-import { useWorkspacePiModels, useWorkspaceProviderStatuses } from "./useWorkspaceProviderStatuses";
+import { useWorkspacePiModels, workspaceProviderStatuses } from "./useWorkspaceProviderStatuses";
 import {
   ComposerAttachButton,
   ComposerAttachmentFileList,
@@ -876,7 +876,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     supportsAttachmentUploads,
   ]);
 
-  const scopedProviderStatuses = useWorkspaceProviderStatuses(providerStatuses, gitCwd);
+  const scopedProviderStatuses = workspaceProviderStatuses(providerStatuses, gitCwd);
   const {
     providerInstanceEntries,
     selectedProviderEntry,

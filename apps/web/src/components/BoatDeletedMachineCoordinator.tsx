@@ -17,6 +17,7 @@ export function BoatDeletedMachineCoordinator() {
   const removeEnvironment = useAtomCommand(environmentCatalog.remove, { reportFailure: false });
   const removing = useRef(new Set<EnvironmentId>());
   const deleted = status?.deleted;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- drops this client's connection-catalog pairing for each machine the host deleted, and toasts why
   useEffect(() => {
     for (const machine of deleted ?? []) {
       const paired = environments.find(

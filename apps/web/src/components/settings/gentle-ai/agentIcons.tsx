@@ -1,3 +1,4 @@
+/* oxlint-disable shadcn/no-raw-colors -- Third-party marks must retain their exact colors. */
 import type { Icon } from "../../Icons";
 import { cn } from "~/lib/utils";
 

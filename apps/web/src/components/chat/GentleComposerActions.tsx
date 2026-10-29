@@ -33,7 +33,7 @@ import {
   PlusIcon,
   RefreshCwIcon,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { useEnvironmentQuery } from "../../state/query";
 import { serverEnvironment } from "../../state/server";
@@ -133,18 +133,17 @@ function GentleComposerActions({
     { enabled: menuOpen && oddListed },
   );
   // Finished documents drop out; the ones this thread works on come first.
-  const oddMenu = useMemo(() => {
-    const features = oddFeatures.data?.features ?? [];
-    const trail = menuOpen ? readThreadTrail() : null;
-    const inThread =
-      trail === null
-        ? new Set<string>()
-        : gentleOddThreadFeaturePaths(
-            trail,
-            features.map((feature) => feature.path),
-          );
-    return gentleOddMenuFeatures(features, inThread);
-  }, [menuOpen, oddFeatures.data, readThreadTrail]);
+  const oddFeatureList = oddFeatures.data?.features ?? [];
+  const trail = menuOpen ? readThreadTrail() : null;
+  const oddMenu = gentleOddMenuFeatures(
+    oddFeatureList,
+    trail === null
+      ? new Set<string>()
+      : gentleOddThreadFeaturePaths(
+          trail,
+          oddFeatureList.map((feature) => feature.path),
+        ),
+  );
   // Claude Code profiles apply only to Claude Code going through a proxy, so only those
   // threads offer them.
   const instanceConfig = useEnvironmentSettings(
@@ -162,6 +161,7 @@ function GentleComposerActions({
   const { startJob } = useGentleAiJob(environmentId);
   const requestKey = `${environmentId}:${instanceId}:${cwd}:${refresh}`;
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- reads the server's Pi Gentle state over an RPC command (no query atom exists) and drops answers for a stale request key
   useEffect(() => {
     if (!pi) return;
     let current: string | null = requestKey;

@@ -1,6 +1,7 @@
 import { TriangleAlertIcon } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 
+import { observeResize } from "~/lib/observeResize";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import { MemoryFacts, memoryTimeLabel } from "./memoryParts";
 import {
@@ -50,24 +51,18 @@ export function MemoryBrainMap(props: {
   const [view, setView] = useState<"map" | "list">("map");
   // The layout depends only on which memories and links there are, so a refresh that changes
   // nothing keeps every dot where it was.
-  const shapeKey = useMemo(
-    () =>
-      [
-        graph.nodes.map((node) => node.id).join(","),
-        graph.edges.map((edge) => edge.id).join(","),
-        graph.threads.length,
-      ].join("|"),
-    [graph],
-  );
-  const layout = useMemo(() => layoutForShape(shapeKey, graph), [shapeKey, graph]);
-  const groups = useMemo(() => {
-    const counts = new Map<MemoryGroup, number>();
-    for (const node of graph.nodes) counts.set(node.group, (counts.get(node.group) ?? 0) + 1);
-    return GROUP_ORDER.filter((group) => (counts.get(group) ?? 0) > 0).map((group) => ({
-      group,
-      count: counts.get(group) ?? 0,
-    }));
-  }, [graph.nodes]);
+  const shapeKey = [
+    graph.nodes.map((node) => node.id).join(","),
+    graph.edges.map((edge) => edge.id).join(","),
+    graph.threads.length,
+  ].join("|");
+  const layout = layoutForShape(shapeKey, graph);
+  const counts = new Map<MemoryGroup, number>();
+  for (const node of graph.nodes) counts.set(node.group, (counts.get(node.group) ?? 0) + 1);
+  const groups = GROUP_ORDER.filter((group) => (counts.get(group) ?? 0) > 0).map((group) => ({
+    group,
+    count: counts.get(group) ?? 0,
+  }));
   const flagged = graph.nodes.some((node) => node.conflicted);
   const faded = graph.nodes.some((node) => node.superseded);
 
@@ -126,6 +121,15 @@ export function MemoryBrainMap(props: {
   );
 }
 
+function connectedIds(edges: MemoryGraph["edges"], focusId: string) {
+  const ids = new Set([focusId]);
+  for (const edge of edges) {
+    if (edge.source === focusId) ids.add(edge.target);
+    if (edge.target === focusId) ids.add(edge.source);
+  }
+  return ids;
+}
+
 function MemoryMapPlot(props: {
   readonly graph: MemoryGraph;
   readonly layout: MemoryLayout;
@@ -138,17 +142,16 @@ function MemoryMapPlot(props: {
   const plotRef = useRef<HTMLDivElement | null>(null);
   // The plot's width over its height, so the layout can spread to fill it.
   const [aspect, setAspect] = useState(0);
-  useEffect(() => {
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- observes the plot element's size before paint so the layout fits it
+  useLayoutEffect(() => {
     const plot = plotRef.current;
-    if (plot === null || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(([entry]) => {
-      const box = entry?.contentRect;
+    if (plot === null) return;
+    return observeResize(plot, (entries) => {
+      const box = entries.at(-1)?.contentRect;
       if (box && box.height > 0) setAspect(Math.round((box.width / box.height) * 20) / 20);
     });
-    observer.observe(plot);
-    return () => observer.disconnect();
   }, []);
-  const layout = useMemo(() => fitLayoutToAspect(props.layout, aspect), [props.layout, aspect]);
+  const layout = fitLayoutToAspect(props.layout, aspect);
   const [hover, setHover] = useState<{
     readonly node: MemoryGraphNode;
     readonly left: number;
@@ -160,15 +163,7 @@ function MemoryMapPlot(props: {
   const hoveredId = hover?.node.id ?? null;
   // Hovering looks around; with nothing hovered, the open memory keeps its neighbors lit.
   const focusId = hoveredId ?? selectedId;
-  const connected = useMemo(() => {
-    if (focusId === null) return null;
-    const ids = new Set([focusId]);
-    for (const edge of graph.edges) {
-      if (edge.source === focusId) ids.add(edge.target);
-      if (edge.target === focusId) ids.add(edge.source);
-    }
-    return ids;
-  }, [graph.edges, focusId]);
+  const connected = focusId === null ? null : connectedIds(graph.edges, focusId);
 
   const showTooltip = (node: MemoryGraphNode, target: Element) => {
     const plot = plotRef.current;

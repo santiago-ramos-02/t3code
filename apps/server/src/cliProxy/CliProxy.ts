@@ -1,11 +1,8 @@
 // @effect-diagnostics nodeBuiltinImport:off -- CLIProxyAPI runs as a detached program that outlives the server, which Effect's scoped ChildProcess cannot start, and its files live outside any project.
 /**
- * CLIProxyAPI on this environment: installing and updating it, running it, starting it with
- * the user's login, routing Claude Code through it, and passing management calls to it.
- *
- * T3 Code keeps CLIProxyAPI in one folder per system (see `installDir`): the program, its
- * `config.yaml`, its `auth` folder, and `management-key.secret`, the management key in plain
- * text, since the proxy stores only a hash of it in its config.
+ * CLIProxyAPI on this environment: installing, updating, running, and logging in to it, routing
+ * Claude Code through it, and passing management calls to it. `management-key.secret` holds the
+ * management key in plain text, since the proxy stores only a hash of it.
  *
  * @module cliProxy/CliProxy
  */

@@ -1,8 +1,7 @@
 /**
- * Fork-owned extension points of the OpenCode driver, which the server fills in for Gentle AI:
- * the session launch hook of the T3-started server, and the wrapper for OpenCode 2, whose one
- * shared server cannot drop gentle-ai per thread. The package cannot import the server, so the
- * server provides them as one optional service; without it the driver behaves as upstream's.
+ * Fork-owned extension points of the OpenCode driver, filled in by the server for Gentle AI. The
+ * package cannot import the server, so it provides them as one optional service; without it the
+ * driver behaves as upstream's. OpenCode 2's one shared server cannot drop gentle-ai per thread.
  *
  * @module provider-opencode/server/gentleHooks
  */

@@ -1,5 +1,4 @@
 import type { EnvironmentId, MemoryObservationDetail, MemoryOverview } from "@t3tools/contracts";
-import { useMemo } from "react";
 
 import { useEnvironmentQuery } from "../../state/query";
 import { serverEnvironment } from "../../state/server";
@@ -8,6 +7,29 @@ import { Skeleton } from "../ui/skeleton";
 import { MemoryVerdictButtons } from "./MemoryConflicts";
 import { isPendingRelation, memoryContentForDisplay, memoryRelationLabel } from "./memoryModel";
 import { MemoryLink } from "./memoryParts";
+
+function relationsOf(syncId: string, overview: MemoryOverview | null) {
+  const bySyncId = new Map((overview?.observations ?? []).map((entry) => [entry.syncId, entry]));
+  return (overview?.relations ?? []).flatMap((relation) => {
+    if (relation.relation === "not_conflict" || relation.judgmentStatus === "orphaned") return [];
+    const from =
+      relation.sourceId === syncId ? "source" : relation.targetId === syncId ? "target" : null;
+    if (from === null) return [];
+    const otherId = from === "source" ? relation.targetId : relation.sourceId;
+    return [
+      {
+        relation,
+        pending: isPendingRelation(relation),
+        label: memoryRelationLabel(
+          isPendingRelation(relation) ? "pending" : relation.relation,
+          from,
+        ),
+        title: from === "source" ? relation.targetTitle : relation.sourceTitle,
+        other: bySyncId.get(otherId) ?? null,
+      },
+    ];
+  });
+}
 
 /** One memory read in full, with the relations the overview knows for it. */
 export function useMemoryDetail(
@@ -21,33 +43,7 @@ export function useMemoryDetail(
       : serverEnvironment.memoryObservation({ environmentId, input: { id: memoryId } }),
   );
   const observation = detail.data?.observation ?? null;
-  const relations = useMemo(() => {
-    if (observation === null) return [];
-    const bySyncId = new Map((overview?.observations ?? []).map((entry) => [entry.syncId, entry]));
-    return (overview?.relations ?? []).flatMap((relation) => {
-      if (relation.relation === "not_conflict" || relation.judgmentStatus === "orphaned") return [];
-      const from =
-        relation.sourceId === observation.syncId
-          ? "source"
-          : relation.targetId === observation.syncId
-            ? "target"
-            : null;
-      if (from === null) return [];
-      const otherId = from === "source" ? relation.targetId : relation.sourceId;
-      return [
-        {
-          relation,
-          pending: isPendingRelation(relation),
-          label: memoryRelationLabel(
-            isPendingRelation(relation) ? "pending" : relation.relation,
-            from,
-          ),
-          title: from === "source" ? relation.targetTitle : relation.sourceTitle,
-          other: bySyncId.get(otherId) ?? null,
-        },
-      ];
-    });
-  }, [observation, overview]);
+  const relations = observation === null ? [] : relationsOf(observation.syncId, overview);
   return { detail, observation, relations };
 }
 

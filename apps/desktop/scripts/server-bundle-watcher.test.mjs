@@ -136,7 +136,7 @@ describe("server bundle watcher", () => {
     assert.deepEqual(unrelated.killCalls, []);
   });
 
-  it("reports watcher failure as an explicit dev error", async () => {
+  it("reports watcher failure as an explicit dev error", () => {
     const failures = [];
     const fakeChild = createFakeChild();
     startServerBundleWatcher({
@@ -149,13 +149,12 @@ describe("server bundle watcher", () => {
     });
 
     fakeChild.emit("error", new Error("spawn vp ENOENT"));
-    await new Promise((resolve) => setImmediate(resolve));
 
     assert.equal(failures.length, 1);
     assert.match(String(failures[0]?.message ?? failures[0]), /vp pack --watch/);
   });
 
-  it("treats an unexpected watcher exit as an explicit dev failure", async () => {
+  it("treats an unexpected watcher exit as an explicit dev failure", () => {
     const failures = [];
     const fakeChild = new NodeEvents.EventEmitter();
     fakeChild.killCalls = [];
@@ -170,7 +169,6 @@ describe("server bundle watcher", () => {
     });
 
     fakeChild.emit("exit", 1, null);
-    await new Promise((resolve) => setImmediate(resolve));
 
     assert.equal(failures.length, 1);
     assert.match(String(failures[0]?.message ?? failures[0]), /vp pack --watch/);
@@ -189,7 +187,6 @@ describe("server bundle watcher", () => {
     });
 
     await stopServerBundleWatcher(fakeChild);
-    await new Promise((resolve) => setImmediate(resolve));
 
     assert.deepEqual(failures, []);
   });

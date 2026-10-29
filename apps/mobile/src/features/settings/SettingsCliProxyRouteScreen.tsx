@@ -94,6 +94,7 @@ function CliProxyEnvironment(props: {
     [environmentId, management],
   );
   const manageable = status?.running === true && status.managementReady;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- reads the CLIProxyAPI credentials from the management API once it is ready
   useEffect(() => {
     if (manageable) readCredentials();
   }, [manageable, readCredentials]);

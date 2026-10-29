@@ -1,24 +1,10 @@
 #!/usr/bin/env node
 // @effect-diagnostics nodeBuiltinImport:off
 /**
- * Release smoke test for the built server bundle.
- *
- * Boots `apps/server/dist/bin.mjs` from a scratch T3 home (temp base, home,
- * and workspace) with a fake `pi` executable as the only provider, then
- * drives the same path a browser client takes:
- *
- * 1. `serve` from the exact bundle until `/.well-known/t3/environment` answers.
- * 2. `pair` from the exact bundle and parse the credential without logging it.
- * 3. POST `browser-session`, then POST `websocket-ticket`.
- * 4. Connect typed WebSocket RPC with `?wsTicket=` and poll `server.getConfig`
- *    until Pi reports driver pi, enabled, installed, ready, version 0.99.0,
- *    and not unavailable.
- *
- * The server is spawned with plain `node:child_process` in the same process
- * group (matching how a shell launches it). Cleanup always sends SIGTERM to
- * the captured server PID with a SIGKILL fallback to the same PID, then
- * removes the temp directory. Nothing here kills by pattern or touches live
- * state (`~/.t3`).
+ * Release smoke test for the built server bundle: boots `apps/server/dist/bin.mjs` from a scratch
+ * T3 home with a fake `pi` as the only provider and drives a browser client's path (`serve`,
+ * `pair`, `browser-session`, `websocket-ticket`, typed WebSocket RPC) until Pi reports ready.
+ * Cleanup kills only the captured server PID and never touches `~/.t3`.
  */
 import * as NodeChildProcess from "node:child_process";
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
@@ -126,11 +112,9 @@ const fakePiModelsJson = Schema.encodeSync(FakePiModelsJsonCodec)([...FAKE_PI_MO
 const fakePiVersionJson = Schema.encodeSync(FakePiVersionJsonCodec)(FAKE_PI_VERSION);
 
 /**
- * Build one correlated fake-Pi JSONL response line: `type: "response"` echoing
- * the request id and command with `success: true`. Pi requires the envelope
- * (`id`, `command`, `success`) to correlate; `data` carries the models and an
- * empty command list so both `get_available_models` and command inventory
- * decode.
+ * One fake-Pi JSONL response line. Pi requires the envelope (`id`, `command`, `success`) to
+ * correlate; `data` carries the models and an empty command list so both
+ * `get_available_models` and command inventory decode.
  */
 const FakePiResponseJsonCodec = Schema.fromJsonString(
   Schema.Struct({
@@ -247,12 +231,9 @@ export interface SmokeScratchDirs {
 }
 
 /**
- * Build an explicit minimal child env for the server/fake-Pi processes.
- *
- * Never spreads ambient `process.env`: only PATH-style executable resolution
- * (plus Windows SystemRoot/PATHEXT when present) is preserved, while home
- * and temp keys are pinned to the scratch dirs so ambient developer state
- * (including any ambient secrets/tokens) cannot leak into the child.
+ * Minimal child env for the server/fake-Pi processes. Never spreads ambient `process.env`: only
+ * PATH-style resolution is preserved, and home and temp keys are pinned to the scratch dirs so
+ * ambient developer state and secrets cannot leak into the child.
  */
 export function buildSmokeChildEnv(
   ambient: NodeJS.ProcessEnv,
@@ -417,28 +398,26 @@ export const spawnServer = (input: {
     ),
   );
 
-const waitForServerExit = (server: SpawnedServer): Effect.Effect<void> =>
-  Effect.gen(function* () {
-    const deadline = (yield* Clock.currentTimeMillis) + Duration.toMillis(SERVER_STOP_TIMEOUT);
-    while (isServerRunning(server) && (yield* Clock.currentTimeMillis) < deadline) {
-      yield* Effect.sleep(Duration.millis(100));
-    }
-  });
+const waitForServerExit = Effect.fn("smoke.waitForServerExit")(function* (server: SpawnedServer) {
+  const deadline = (yield* Clock.currentTimeMillis) + Duration.toMillis(SERVER_STOP_TIMEOUT);
+  while (isServerRunning(server) && (yield* Clock.currentTimeMillis) < deadline) {
+    yield* Effect.sleep(Duration.millis(100));
+  }
+});
 
-export const stopServer = (server: SpawnedServer): Effect.Effect<void> =>
-  Effect.gen(function* () {
+export const stopServer = Effect.fn("smoke.stopServer")(function* (server: SpawnedServer) {
+  yield* Effect.sync(() => {
+    server.child.kill("SIGTERM");
+  });
+  yield* waitForServerExit(server);
+  if (isServerRunning(server)) {
+    // Same captured PID, escalated: never a pattern kill.
     yield* Effect.sync(() => {
-      server.child.kill("SIGTERM");
+      server.child.kill("SIGKILL");
     });
     yield* waitForServerExit(server);
-    if (isServerRunning(server)) {
-      // Same captured PID, escalated: never a pattern kill.
-      yield* Effect.sync(() => {
-        server.child.kill("SIGKILL");
-      });
-      yield* waitForServerExit(server);
-    }
-  });
+  }
+});
 
 export const withAcquiredSmokeServer = <A, E>(input: {
   readonly acquire: Effect.Effect<SpawnedServer, E>;

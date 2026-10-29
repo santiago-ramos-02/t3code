@@ -264,12 +264,8 @@ async function shutdown(exitCode) {
   process.exit(exitCode);
 }
 
-// Rebuild the server bundle while Electron runs. The dev runner performs one
-// initial `t3#build`; without this watch, edits under `apps/server/src/**`
-// never rebuild `apps/server/dist/bin.mjs`, and the dist watcher below would
-// keep restarting Electron against a stale native backend. The dist watcher
-// already restarts Electron when `bin.mjs` changes, so the rebuild here
-// flows through to a restart.
+// The dev runner builds `t3#build` once; this watch rebuilds `apps/server/dist/bin.mjs` on
+// source edits, and the dist watcher below restarts Electron when it changes.
 serverBundleWatcher = startServerBundleWatcher({
   spawnImpl: NodeChildProcess.spawn,
   desktopDir,

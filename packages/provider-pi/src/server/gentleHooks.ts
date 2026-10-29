@@ -1,8 +1,7 @@
 /**
- * Fork-owned extension points of the Pi adapter, which the server fills in for Gentle AI: the
- * session launch hook, Claude Code's cache lifetime, and gentle-pi's subagents and todo list.
- * The package cannot import the server, so the server provides them as one optional service;
- * without it the adapter behaves as upstream's.
+ * Fork-owned extension points of the Pi adapter, filled in by the server for Gentle AI. The
+ * package cannot import the server, so it provides them as one optional service; without it the
+ * adapter behaves as upstream's.
  *
  * @module provider-pi/server/gentleHooks
  */

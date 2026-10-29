@@ -342,8 +342,6 @@ export function gentlePiProfileSummary(
   return [lead?.thinking ? `${leadName} ${lead.thinking}` : leadName, ...others].join(" · ");
 }
 
-// ---- Review ----------------------------------------------------------------------------------
-
 /** RDD is on unless the global switch was turned off; "" means it was never chosen. */
 export function gentleAiReviewGlobalEnabled(mode: GentleAiReviewMode): boolean {
   return mode.status.global !== "off";

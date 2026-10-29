@@ -1,19 +1,16 @@
 import { resolveProviderForCwd } from "@t3tools/client-runtime/providerSkills";
 import type { EnvironmentId, ProviderInstanceId, ServerProvider } from "@t3tools/contracts";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useRef } from "react";
 
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 
 /** The providers as they are in the composer's project. */
-export function useWorkspaceProviderStatuses(
+export function workspaceProviderStatuses(
   providers: ReadonlyArray<ServerProvider>,
   cwd: string | null,
 ) {
-  return useMemo(
-    () => providers.map((provider) => resolveProviderForCwd(provider, cwd)),
-    [cwd, providers],
-  );
+  return providers.map((provider) => resolveProviderForCwd(provider, cwd));
 }
 
 /**
@@ -36,6 +33,7 @@ export function useWorkspacePiModels({
     reportFailure: false,
   });
   const requested = useRef(new Set<string>());
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- asks the server to read each Pi instance's models for this project once
   useEffect(() => {
     if (!cwd) return;
     for (const provider of providers) {

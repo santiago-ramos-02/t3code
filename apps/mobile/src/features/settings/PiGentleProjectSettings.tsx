@@ -74,6 +74,7 @@ function PiGentleInstanceSettings(props: {
   const [pending, setPending] = useState(false);
   const [newName, setNewName] = useState("");
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- reads the Pi Gentle state from the server and drops a stale response on cleanup
   useEffect(() => {
     const requestKey = JSON.stringify([
       props.environmentId,

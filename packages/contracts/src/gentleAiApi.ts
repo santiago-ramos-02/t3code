@@ -4,11 +4,9 @@ import * as Schema from "effect/Schema";
 import { TrimmedNonEmptyString } from "./baseSchemas.ts";
 
 /**
- * The typed surface of `gentle-ai api`, the headless interface that lets T3 Code offer
- * everything Gentle AI's own TUI does. Each method names its params and result; the server
- * validates both against these, so a gentle-ai that answers differently fails loudly instead
- * of rendering wrong state. Ids stay plain strings: gentle-ai adds agents, components, and
- * presets over time, and clients show what it reports.
+ * The typed surface of `gentle-ai api`. The server validates params and results against these,
+ * so a gentle-ai that answers differently fails loudly. Ids stay plain strings: gentle-ai adds
+ * agents, components, and presets over time, and clients show what it reports.
  *
  * @module gentleAiApi
  */
@@ -16,8 +14,6 @@ import { TrimmedNonEmptyString } from "./baseSchemas.ts";
 const Id = Schema.String;
 const Ids = Schema.Array(Id);
 const Opt = Schema.optionalKey;
-
-// ---- Shared shapes ----------------------------------------------------------------------------
 
 /** What to install: gentle-ai's own `model.Selection`. */
 export const GentleAiSelection = Schema.Struct({
@@ -61,8 +57,6 @@ export type GentleAiModels = typeof GentleAiModels.Type;
 const Named = Schema.Struct({ id: Id, label: Id, description: Opt(Schema.String) });
 const Cwd = TrimmedNonEmptyString;
 const Files = Schema.Struct({ files: Ids, manualActions: Opt(Ids) });
-
-// ---- Status and planning ----------------------------------------------------------------------
 
 export const GentleAiApiStatus = Schema.Struct({
   version: Schema.String,
@@ -146,8 +140,6 @@ export const GentleAiPlan = Schema.Struct({
 });
 export type GentleAiPlan = typeof GentleAiPlan.Type;
 
-// ---- Install, sync, updates ------------------------------------------------------------------
-
 export const GentleAiBackgroundChoice = Schema.Literals(["auto", "on", "off"]);
 
 export const GentleAiInstallParams = Schema.Struct({
@@ -221,8 +213,6 @@ export const GentleAiUpgradeResult = Schema.Struct({
   syncPending: Schema.Boolean,
 });
 
-// ---- Models --------------------------------------------------------------------------
-
 export const GentleAiModelAgent = Schema.Literals(["claude-code", "codex", "kiro-ide", "opencode"]);
 export type GentleAiModelAgent = typeof GentleAiModelAgent.Type;
 
@@ -263,8 +253,6 @@ export const GentleAiModelConfig = Schema.Struct({
 });
 export type GentleAiModelConfig = typeof GentleAiModelConfig.Type;
 
-// ---- Claude Code profiles --------------------------------------------------------------------
-
 /** Claude Code's model slots, the names its orchestrator picks between per delegation. */
 export const GENTLE_AI_CLAUDE_SLOTS = ["fable", "opus", "sonnet", "haiku"] as const;
 export type GentleAiClaudeSlot = (typeof GENTLE_AI_CLAUDE_SLOTS)[number];
@@ -298,8 +286,6 @@ export const GentleAiModelsSetParams = Schema.Union([
   Schema.Struct({ agent: GentleAiModelAgent, preset: Id }),
   Schema.Struct({ agent: GentleAiModelAgent, models: GentleAiModels }),
 ]);
-
-// ---- Backups, plugins, tools, builder --------------------------------------------------------
 
 export const GentleAiBackup = Schema.Struct({
   id: Id,
@@ -372,8 +358,6 @@ export const GentleAiBuilderPreview = Schema.Struct({
   conflicts: Ids,
 });
 export type GentleAiBuilderPreview = typeof GentleAiBuilderPreview.Type;
-
-// ---- Review and uninstall --------------------------------------------------------------------
 
 /**
  * gentle-ai's own `gentle-ai.review-mode/v1` report, passed through unchanged. Mode values are
@@ -490,8 +474,6 @@ export const GentleAiDoctor = Schema.Struct({
   ),
 });
 export type GentleAiDoctor = typeof GentleAiDoctor.Type;
-
-// ---- The method table ------------------------------------------------------------------------
 
 const Empty = Schema.Struct({});
 
@@ -687,8 +669,6 @@ const _gentleAiMethodsListed: [Unlisted] extends [never] ? true : Unlisted = tru
 
 export const GentleAiQueryMethodName = Schema.Literals(QUERY_METHODS);
 export const GentleAiJobMethodName = Schema.Literals(JOB_METHODS);
-
-// ---- Jobs and the RPCs -----------------------------------------------------------------------
 
 export const GentleAiQueryInput = Schema.Struct({
   method: GentleAiQueryMethodName,

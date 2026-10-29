@@ -1,10 +1,11 @@
 import type { MemoryObservation, ScopedThreadRef } from "@t3tools/contracts";
 import { Link } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useState } from "react";
 
 import { useRightPanelStore } from "../../rightPanelStore";
 import { useProjects, useThreadShell, useThreadVisibleTurnItems } from "../../state/entities";
 import { useEnvironmentQuery } from "../../state/query";
+import { useDebouncedValue } from "../../state/queries";
 import { serverEnvironment } from "../../state/server";
 import { InlineButton } from "../ui/button";
 import { Input } from "../ui/input";
@@ -24,28 +25,23 @@ export function MemoriesPanel(props: { readonly threadRef: ScopedThreadRef }) {
   const thread = useThreadShell(props.threadRef);
   const projects = useProjects();
   const items = useThreadVisibleTurnItems(props.threadRef);
-  const saved = useMemo(() => threadSavedMemories(items), [items]);
+  const saved = threadSavedMemories(items);
   const overview = useEnvironmentQuery(
     serverEnvironment.memoryOverview({ environmentId, input: {} }),
   ).data;
   // The Engram project this thread's T3 project is, when one matches.
-  const projectName = useMemo(() => {
-    const project = projects.find(
-      (entry) => entry.environmentId === environmentId && entry.id === thread?.projectId,
-    );
-    if (!project || !overview) return null;
-    return (
-      memoryProjectChoices(overview.projects, [project]).find((choice) => choice.project !== null)
-        ?.name ?? null
-    );
-  }, [projects, environmentId, thread?.projectId, overview]);
-  const recent = useMemo(
-    () =>
-      (overview?.observations ?? [])
-        .filter((entry) => projectName !== null && entry.project === projectName)
-        .slice(0, RECENT),
-    [overview, projectName],
+  const project = projects.find(
+    (entry) => entry.environmentId === environmentId && entry.id === thread?.projectId,
   );
+  const projectName =
+    project && overview
+      ? (memoryProjectChoices(overview.projects, [project]).find(
+          (choice) => choice.project !== null,
+        )?.name ?? null)
+      : null;
+  const recent = (overview?.observations ?? [])
+    .filter((entry) => projectName !== null && entry.project === projectName)
+    .slice(0, RECENT);
 
   const open = (id: number, title: string) =>
     useRightPanelStore.getState().openMemory(props.threadRef, { id, title });
@@ -124,11 +120,7 @@ function MemoriesSearch(props: {
   readonly onOpen: (observation: MemoryObservation) => void;
 }) {
   const [text, setText] = useState("");
-  const [query, setQuery] = useState("");
-  useEffect(() => {
-    const timeout = window.setTimeout(() => setQuery(text.trim()), 250);
-    return () => window.clearTimeout(timeout);
-  }, [text]);
+  const query = useDebouncedValue(text.trim(), 250);
   const results = useEnvironmentQuery(
     query === ""
       ? null

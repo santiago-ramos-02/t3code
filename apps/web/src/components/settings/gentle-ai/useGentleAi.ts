@@ -12,7 +12,6 @@ import {
   type GentleAiResult,
 } from "@t3tools/contracts";
 import * as Option from "effect/Option";
-import { useCallback } from "react";
 
 import { useEnvironmentQuery } from "../../../state/query";
 import { serverEnvironment } from "../../../state/server";
@@ -53,18 +52,15 @@ export function useGentleAiJob(environmentId: EnvironmentId) {
   const running = job?.phase === "running";
 
   /** Starts a job: its id, or why the server refused it. */
-  const startJob = useCallback(
-    async <M extends GentleAiJobMethod>(
-      method: M,
-      params: GentleAiParams<M>,
-    ): Promise<{ readonly jobId: string } | { readonly error: string } | null> => {
-      const result = await start({ environmentId, input: { method, params } });
-      if (result._tag === "Success") return { jobId: result.value.id };
-      if (isAtomCommandInterrupted(result)) return null;
-      return { error: gentleAiErrorText(squashAtomCommandFailure(result)) };
-    },
-    [environmentId, start],
-  );
+  const startJob = async <M extends GentleAiJobMethod>(
+    method: M,
+    params: GentleAiParams<M>,
+  ): Promise<{ readonly jobId: string } | { readonly error: string } | null> => {
+    const result = await start({ environmentId, input: { method, params } });
+    if (result._tag === "Success") return { jobId: result.value.id };
+    if (isAtomCommandInterrupted(result)) return null;
+    return { error: gentleAiErrorText(squashAtomCommandFailure(result)) };
+  };
 
   return { job, running, startJob };
 }

@@ -6,13 +6,15 @@ import {
   ProviderSessionId,
   ThreadId,
 } from "@t3tools/contracts";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
 
 import { GentleAiFootprints } from "./GentleAiFootprints.ts";
 import { makePiGentleSession } from "./GentleAiSessions.ts";
 
 const PI = ProviderDriverKind.make("pi");
-const FORK_GENTLE_AI = process.platform === "win32" ? "C:\\bin\\gentle-ai.exe" : "/bin/gentle-ai";
+const FORK_GENTLE_AI =
+  HostProcess.Platform.defaultValue() === "win32" ? "C:\\bin\\gentle-ai.exe" : "/bin/gentle-ai";
 
 const input = () => ({
   threadId: ThreadId.make("thread-pi-gentle"),

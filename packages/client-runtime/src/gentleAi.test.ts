@@ -14,7 +14,6 @@ import {
   gentleAiProjectReview,
   gentleAiProjectReviewConsent,
   gentleAiReviewGlobalEnabled,
-  gentleAiReviewHistoryLabel,
   gentleAiReviewStoreSummary,
   gentleOddContinuePrompt,
   gentleOddFeatureSummary,

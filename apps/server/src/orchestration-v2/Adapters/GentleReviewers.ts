@@ -29,11 +29,9 @@ import {
 } from "@t3tools/provider-core/server/subagentProjection";
 
 /**
- * gentle-ai runs its reviewers in its own processes inside one `gentle-ai review` shell
- * command, so the provider reports only that command. With this variable set, gentle-ai
- * appends each reviewer's start and finish to the file as NDJSON (see gentle-ai's
- * internal/cli/review_provider_activity.go), and each reviewer becomes a subagent of the turn
- * that ran the command, like a native one.
+ * gentle-ai runs reviewers inside one `gentle-ai review` shell command, so the provider reports
+ * only that command. With this variable set, gentle-ai appends each reviewer's start and finish
+ * to the file as NDJSON (see gentle-ai's internal/cli/review_provider_activity.go).
  */
 export const GENTLE_REVIEWER_ACTIVITY_ENV = "GENTLE_AI_REVIEWER_ACTIVITY_FILE";
 

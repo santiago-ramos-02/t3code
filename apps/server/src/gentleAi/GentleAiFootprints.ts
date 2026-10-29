@@ -1,10 +1,8 @@
 /**
  * GentleAiFootprints — what gentle-ai added to each agent, asked from gentle-ai itself.
  *
- * A thread with Gentle AI off runs its agent on a plain mirror of the agent's config. With a
- * gentle-ai that answers `api footprint`, the mirror follows gentle-ai's own uninstall: the paths
- * it would remove and the shared files it would rewrite. Otherwise callers fall back to the
- * built-in lists in GentleAiFootprint.ts.
+ * With a gentle-ai that answers `api footprint`, a Gentle AI off mirror follows its own
+ * uninstall; otherwise callers fall back to the built-in lists in GentleAiFootprint.ts.
  *
  * @module gentleAi/GentleAiFootprints
  */
@@ -46,7 +44,7 @@ export class GentleAiFootprints extends Context.Service<
   }
 >()("t3/gentleAi/GentleAiFootprints") {}
 
-/** @public Service construction is part of the canonical Effect module API. */
+/** @public */
 export const make = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;

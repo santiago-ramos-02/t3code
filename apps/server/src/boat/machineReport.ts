@@ -8,10 +8,9 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
 /**
- * Reads what a machine's own T3 Code server knows from its database and checkouts. The host holds
- * no credential for that server, so it asks through Boat's command API instead. The `node` T3 Code
- * runs on has `node:sqlite`, and the database is opened read-only. With REPORT=checkouts it also
- * inspects every checkout the server knows, including those of deleted threads, since the
+ * Reads what a machine's own T3 Code server knows from its database and checkouts, through
+ * Boat's command API since the host holds no credential for that server. The database is opened
+ * read-only. REPORT=checkouts also inspects the checkouts of deleted threads, since the
  * machine's disk goes with it.
  */
 const REPORT_SCRIPT = String.raw`

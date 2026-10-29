@@ -18,7 +18,6 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import type { MenuAction } from "@react-native-menu/menu";
-import { useNavigation } from "@react-navigation/native";
 import { useEffect, useMemo, useState } from "react";
 import { Alert, View } from "react-native";
 
@@ -36,6 +35,7 @@ import {
 } from "../../state/use-composer-drafts";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { useGentleAiQuery } from "../settings/SettingsGentleAiRouteScreen";
+import { useSelectWorkspaceDetail } from "../workspace/useSelectWorkspaceDetail";
 import { GentleRoseIcon } from "./GentleRoseIcon";
 import { useGentleProfileMenu } from "./useGentleProfileMenu";
 
@@ -57,7 +57,7 @@ export function GentleComposerControls(props: {
   /** Whether the composer has room for it: expanded, and not dictating. */
   readonly shown: boolean;
 }) {
-  const navigation = useNavigation();
+  const selectDetail = useSelectWorkspaceDetail();
   const { themeVariables: materialTheme } = useAppearancePreferences();
   const { selectedProviderStatus } = props;
   const currentModelSelection = props.selectedThread.modelSelection;
@@ -106,6 +106,7 @@ export function GentleComposerControls(props: {
     );
   }, [gentleOdd.data, props.threadFeed]);
   const [gentleRefresh, setGentleRefresh] = useState(0);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- loads the Pi Gentle composer state from the server and drops a stale response on cleanup
   useEffect(() => {
     if (!isPiThread || props.connectionState !== "connected" || props.projectCwd === null) return;
     let current = true;
@@ -133,6 +134,7 @@ export function GentleComposerControls(props: {
     currentModelSelection.instanceId,
     isPiThread,
     gentleKey,
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Refresh and applied profile changes must reread the state.
     gentleRefresh,
     props.connectionState,
     props.environmentId,
@@ -168,7 +170,7 @@ export function GentleComposerControls(props: {
       },
     });
     setComposerDraftText(draftKey, prompt);
-    navigation.navigate("Thread", { draft: { draftId: draftKey } });
+    selectDetail({ name: "Thread", params: { draft: { draftId: draftKey } } });
   };
   const gentleProfiles = useGentleProfileMenu({
     environmentId: props.environmentId,

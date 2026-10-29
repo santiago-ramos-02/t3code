@@ -1,6 +1,6 @@
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { Link } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 
@@ -35,7 +35,7 @@ export function ThreadMemoryPanel(props: {
   const reads = useMemoryEnvironments().some(
     (environment) => environment.environmentId === props.environmentId,
   );
-  const memories = useMemo(() => threadSavedMemories(items), [items]);
+  const memories = threadSavedMemories(items);
   const openMemory = (id: number | undefined, title: string) => {
     if (id === undefined) return;
     useRightPanelStore

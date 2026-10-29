@@ -1,11 +1,12 @@
 import { EnvironmentId, type MemoryObservation, type MemoryOverview } from "@t3tools/contracts";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { isElectron } from "../../env";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
 import { useMemoryEnvironments, usePrimaryEnvironmentId } from "../../state/environments";
 import { useEnvironmentQuery } from "../../state/query";
+import { useDebouncedValue } from "../../state/queries";
 import { serverEnvironment } from "../../state/server";
 import { Button, InlineButton } from "../ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../ui/empty";
@@ -64,6 +65,7 @@ export function MemoryPage() {
     void navigate({ search: ({ memory: _memory, ...previous }) => previous, replace: true });
 
   const { refresh } = overview;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- interval that re-reads Engram while the page is open and visible
   useEffect(() => {
     if (environmentId === null) return;
     const interval = window.setInterval(() => {
@@ -74,10 +76,7 @@ export function MemoryPage() {
 
   const data = overview.data;
   const running = data?.status.state === "running";
-  const relations = useMemo(
-    () => (data ? relationsInProject(data.observations, data.relations, projectName) : []),
-    [data, projectName],
-  );
+  const relations = data ? relationsInProject(data.observations, data.relations, projectName) : [];
 
   const topbar = (
     <div className="flex w-full min-w-0 items-center gap-3 py-2">
@@ -233,27 +232,17 @@ function MemoryContent(props: {
   readonly onOpenMemory: (id: number) => void;
 }) {
   const { overview, project } = props;
-  const observations = useMemo(
-    () =>
-      project === null
-        ? overview.observations
-        : overview.observations.filter((entry) => entry.project === project),
-    [overview.observations, project],
-  );
+  const observations =
+    project === null
+      ? overview.observations
+      : overview.observations.filter((entry) => entry.project === project);
   // Sessions that saved nothing and left no summary, such as short subagent runs, say nothing.
-  const sessions = useMemo(
-    () =>
-      overview.sessions.filter(
-        (entry) =>
-          (project === null || entry.project === project) &&
-          (entry.summary !== null || entry.observationCount > 0),
-      ),
-    [overview.sessions, project],
+  const sessions = overview.sessions.filter(
+    (entry) =>
+      (project === null || entry.project === project) &&
+      (entry.summary !== null || entry.observationCount > 0),
   );
-  const graph = useMemo(
-    () => buildMemoryGraph(overview.observations, overview.relations, project, MAP_LIMIT),
-    [overview.observations, overview.relations, project],
-  );
+  const graph = buildMemoryGraph(overview.observations, overview.relations, project, MAP_LIMIT);
 
   if (overview.observations.length === 0) {
     return (
@@ -332,12 +321,8 @@ function MemorySearch(props: {
   readonly onOpenMemory: (id: number) => void;
 }) {
   const [text, setText] = useState(props.initialQuery);
-  const [query, setQuery] = useState(props.initialQuery.trim());
+  const query = useDebouncedValue(text.trim(), 250);
   const [type, setType] = useState<string>(ALL);
-  useEffect(() => {
-    const timeout = window.setTimeout(() => setQuery(text.trim()), 250);
-    return () => window.clearTimeout(timeout);
-  }, [text]);
   const results = useEnvironmentQuery(
     query === ""
       ? null
@@ -350,13 +335,9 @@ function MemorySearch(props: {
           },
         }),
   );
-  const newest = useMemo(
-    () =>
-      props.newest
-        .filter((entry) => (type === ALL ? entry.type !== "session_summary" : entry.type === type))
-        .slice(0, LIST_LIMIT),
-    [props.newest, type],
-  );
+  const newest = props.newest
+    .filter((entry) => (type === ALL ? entry.type !== "session_summary" : entry.type === type))
+    .slice(0, LIST_LIMIT);
 
   return (
     <section className="flex min-w-0 flex-col gap-3">

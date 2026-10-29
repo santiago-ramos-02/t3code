@@ -5,8 +5,6 @@
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
-// ---- Accounts ----------------------------------------------------------------------------------
-
 const Signals = Schema.Record(Schema.String, Schema.String);
 const Quota = Schema.Struct({ observed_at: Schema.optionalKey(Schema.String), signals: Signals });
 
@@ -135,8 +133,6 @@ export const CLI_PROXY_SIGN_IN_PROVIDERS = [
   { id: "devin", label: "Devin" },
 ] as const;
 
-// ---- Models ------------------------------------------------------------------------------------
-
 const ModelList = Schema.Struct({
   data: Schema.Array(
     Schema.Struct({
@@ -172,8 +168,6 @@ export function cliProxyModels(
         .sort((left, right) => left.label.localeCompare(right.label)),
   });
 }
-
-// ---- Providers and pools -----------------------------------------------------------------------
 
 export interface CliProxyGroupModel {
   readonly name: string;
@@ -330,8 +324,6 @@ export function cliProxyModelLabels(
   }
   return labels;
 }
-
-// ---- Presentation ------------------------------------------------------------------------------
 
 const OWNER_LABELS: Readonly<Record<string, string>> = {
   anthropic: "Claude",

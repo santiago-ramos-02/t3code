@@ -1,10 +1,8 @@
 /**
  * GentleAi — the Gentle AI ecosystem on this environment, independent of any provider.
  *
- * Gentle AI installs into each coding agent's own configuration, and its `gentle-ai` binary
- * records which agents it set up in `~/.gentle-ai/state.json`. This service finds that binary,
- * reads what gentle-ai records, and runs the ecosystem commands that work the same for every
- * agent. Providers learn from it whether Gentle AI is set up for their agent.
+ * Finds the `gentle-ai` binary, reads which agents it set up from `~/.gentle-ai/state.json`, and
+ * runs the commands shared by every agent. Providers ask it whether their agent is set up.
  *
  * @module gentleAi/GentleAi
  */
@@ -237,7 +235,7 @@ export function withGentleAi<P extends GentleAiProvider>(
   );
 }
 
-/** @public Service construction is part of the canonical Effect module API. */
+/** @public */
 export const make = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;

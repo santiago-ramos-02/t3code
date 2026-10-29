@@ -6,7 +6,7 @@ import type {
   GentleAiParams,
 } from "@t3tools/contracts";
 import { ChevronRightIcon } from "lucide-react";
-import { useMemo, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import { Button } from "../../ui/button";
 import { Skeleton } from "../../ui/skeleton";
@@ -51,11 +51,9 @@ export interface GentleAiSectionProps {
 }
 
 /**
- * Gentle AI's GUI, for a gentle-ai with the headless API, run on the environment so it works
- * the same from any client. It is ordered by how often each thing changes: whether Gentle AI is
- * current, the agents it is set up in and the models they run, the review (or, with a project
- * chosen at the top of Settings, everything set for that project), and then everything set
- * once, folded away under More.
+ * Gentle AI's GUI, run on the environment so it works the same from any client. Ordered by how
+ * often each thing changes: whether it is current, its agents and models, the review (or, with a
+ * project chosen, everything set for that project), then everything set once, under More.
  */
 export function GentleAiSettingsPage({
   environmentId,
@@ -89,13 +87,9 @@ export function GentleAiSettingsPage({
   const status = useGentleAiQuery(environmentId, "status", {});
   const { job, running, startJob } = useGentleAiJob(environmentId);
   const [error, setError] = useState<string | null>(null);
-  const names = useMemo(() => {
-    const entries = new Map<string, string>();
-    for (const agent of status.data?.agents ?? []) entries.set(agent.id, agent.name);
-    for (const component of status.data?.components ?? [])
-      entries.set(component.id, component.name);
-    return entries;
-  }, [status.data]);
+  const names = new Map<string, string>();
+  for (const agent of status.data?.agents ?? []) names.set(agent.id, agent.name);
+  for (const component of status.data?.components ?? []) names.set(component.id, component.name);
 
   // The server answers this from what it read at startup, so it is rarely missing for long.
   if (status.data === null) {

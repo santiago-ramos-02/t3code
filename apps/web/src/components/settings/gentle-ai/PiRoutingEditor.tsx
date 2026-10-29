@@ -81,6 +81,11 @@ const KNOWN_ROLES: ReadonlySet<string> = new Set(
  * One gentle-pi profile as a table: the model and effort each role runs. Every change saves
  * at once through `onChange`, like the rest of Pi's settings.
  */
+function withoutRole(routing: PiGentleRouting, role: string): PiGentleRouting {
+  const { [role]: _removed, ...rest } = routing;
+  return rest;
+}
+
 export function PiRoutingEditor({
   routing,
   models,
@@ -105,14 +110,7 @@ export function PiRoutingEditor({
       models={models}
       disabled={disabled}
       onChange={(entry) => set(role, entry)}
-      onRemove={
-        removable
-          ? () => {
-              const { [role]: _removed, ...rest } = routing;
-              onChange(rest);
-            }
-          : null
-      }
+      onRemove={removable ? () => onChange(withoutRole(routing, role)) : null}
     />
   );
   const newRole = adding?.trim() ?? "";

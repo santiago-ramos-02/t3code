@@ -7,7 +7,7 @@ import {
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import * as DateTime from "effect/DateTime";
 import { FileTextIcon } from "lucide-react";
-import { useEffect, useMemo } from "react";
+import { useEffect } from "react";
 
 import { cn } from "../../lib/utils";
 import { useRightPanelStore } from "../../rightPanelStore";
@@ -32,10 +32,7 @@ export function ThreadFeaturePanel(props: {
   readonly threadId: ThreadId;
   readonly cwd: string | null;
 }) {
-  const threadRef = useMemo(
-    () => scopeThreadRef(props.environmentId, props.threadId),
-    [props.environmentId, props.threadId],
-  );
+  const threadRef = scopeThreadRef(props.environmentId, props.threadId);
   const listed =
     useEnvironmentQuery(
       serverEnvironment.gentleAiStatus({ environmentId: props.environmentId, input: {} }),
@@ -51,15 +48,15 @@ export function ThreadFeaturePanel(props: {
   // An agent touching a document, as when it checks a task off, is when its progress changes.
   const touches = gentleOddFeatureRecordCount({ messages: [], records: items ?? [] });
   const { refresh } = features;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- refetches the server's feature query when the agent touches a document
   useEffect(() => {
     if (touches > 0) refresh();
   }, [refresh, touches]);
   // The thread's messages and its main agent's work, oldest first. A subagent's work may read
   // other documents than the one the agent works on.
-  const entries = useMemo(() => {
-    if (!projection) return [];
+  const entries: Array<unknown> = [];
+  if (projection) {
     const records = gentleOddMainAgentRecords(items ?? [], projection.nodes);
-    const merged: Array<unknown> = [];
     let next = 0;
     for (const message of projection.messages) {
       const at = DateTime.toEpochMillis(message.createdAt);
@@ -71,22 +68,19 @@ export function ThreadFeaturePanel(props: {
         ) {
           break;
         }
-        merged.push(record);
+        entries.push(record);
         next += 1;
       }
-      merged.push(message.text);
+      entries.push(message.text);
     }
-    merged.push(...records.slice(next));
-    return merged;
-  }, [projection, items]);
-  const feature = useMemo(() => {
-    const all = features.data?.features ?? [];
-    const path = gentleOddCurrentFeaturePath(
-      entries,
-      all.map((entry) => entry.path),
-    );
-    return all.find((entry) => entry.path === path) ?? null;
-  }, [entries, features.data]);
+    entries.push(...records.slice(next));
+  }
+  const allFeatures = features.data?.features ?? [];
+  const currentPath = gentleOddCurrentFeaturePath(
+    entries,
+    allFeatures.map((entry) => entry.path),
+  );
+  const feature = allFeatures.find((entry) => entry.path === currentPath) ?? null;
   if (feature === null) return null;
 
   return (

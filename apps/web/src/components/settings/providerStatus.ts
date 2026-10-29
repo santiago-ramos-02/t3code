@@ -51,10 +51,8 @@ export function formatProviderModelCount(modelCount: number): string {
 
 /**
  * Concise `version · model count` meta for a ready provider, e.g.
- * `v0.86.1 · 1 model`. Returns `null` when the provider is not ready or
- * neither the version nor a discovered model count is known. Non-ready
- * states keep their own actionable copy; the version chip in the card
- * header already covers them.
+ * `v0.86.1 · 1 model`. Null when not ready or nothing is known; non-ready
+ * states keep their own copy.
  */
 export function getProviderReadyMeta(provider: ServerProvider | undefined): string | null {
   if (!provider || provider.status !== "ready") return null;
@@ -74,22 +72,9 @@ export const PI_PRE_PROBE_MESSAGE = "Pi version has not been checked yet.";
 /**
  * Resolve what a provider instance card shows for its status line.
  *
- * The toggle reads the persisted instance config while the snapshot arrives
- * asynchronously, so the two can disagree: an enabled config with a stale
- * `disabled` snapshot (or no snapshot yet) is a provider whose probe has
- * not run since it was enabled, not a disabled provider. Those cases read
- * as Checking, never as stale Disabled. An enabled config with an
- * `unavailable` snapshot is a failed instance, not a pending check, so it
- * reads as Unavailable with the bounded server reason even while a refresh
- * is in flight. A disabled config reads as Disabled immediately, regardless
- * of any cached snapshot.
- *
- * Zero discovered models on an otherwise ready, installed Pi provider reads
- * as attention-worthy rather than Available: model discovery ran and found
- * nothing. Other drivers keep their server summary so existing rows do not
- * change meaning. Unauthenticated providers keep their sign-in copy even
- * when their model list is empty, since signing in is the more actionable
- * step.
+ * Config and snapshot arrive separately: an enabled config with a stale or
+ * missing snapshot is Checking, never Disabled; `unavailable` stays
+ * Unavailable while refreshing; a disabled config is always Disabled.
  */
 export function resolveProviderCardDisplay(input: {
   readonly enabled: boolean;

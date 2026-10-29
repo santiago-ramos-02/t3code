@@ -133,12 +133,9 @@ export const make = Effect.gen(function* () {
     );
   });
 
-  // Strong identity of the packaged backend entry (apps/server/dist/bin.mjs).
-  // The marker binds to this instead of the app version alone, so a rebuilt
-  // backend shipped under an unchanged version invalidates the stale tree.
-  // Only this file is hashed: walking the whole asar on every ensure would
-  // regress fallback preflight, and the entry is the artifact the WSL backend
-  // executes first.
+  // The marker binds to the backend entry's hash, not the app version alone, so a rebuilt
+  // backend under an unchanged version invalidates the stale tree. Only the entry is hashed:
+  // walking the whole asar on every ensure would regress fallback preflight.
   const currentServerIdentity = Effect.gen(function* () {
     const bytes = yield* fs.readFile(backendEntryPath);
     return `sha256-${NodeCrypto.createHash("sha256").update(bytes).digest("hex")}`;

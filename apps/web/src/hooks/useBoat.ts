@@ -107,21 +107,21 @@ export function useBoatMachineWake(
     if (!machine || !hostEnvironmentId || !environment) return false;
     setWaking(true);
     setError(null);
-    try {
-      await wakeBoatMachine({
-        hostEnvironmentId,
-        environmentId: environment.environmentId,
-        sandboxId: machine.sandboxId,
-      });
-      return true;
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "The Boat machine did not resume.");
-      return false;
-    } finally {
-      setWaking(false);
-    }
+    const failure = await wakeBoatMachine({
+      hostEnvironmentId,
+      environmentId: environment.environmentId,
+      sandboxId: machine.sandboxId,
+    }).then(
+      () => null,
+      (cause: unknown) =>
+        cause instanceof Error ? cause.message : "The Boat machine did not resume.",
+    );
+    setWaking(false);
+    setError(failure);
+    return failure === null;
   });
   const openedThreadKey = useRef<string | null>(null);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- resumes the remote Boat machine once when its thread is opened
   useEffect(() => {
     if (threadKey === null || machine === null || openedThreadKey.current === threadKey) return;
     openedThreadKey.current = threadKey;

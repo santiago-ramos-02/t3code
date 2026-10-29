@@ -1,8 +1,7 @@
 /**
- * Launching an agent with Gentle AI off. Each agent reads gentle-ai's footprint from its own
- * config home, so a thread with Gentle AI off gets a plain mirror of that home for the life of
- * its session: shared state (credentials, sessions, history) stays linked to the real home,
- * while gentle-ai's files are left out and the files it edits are filtered copies.
+ * Launching an agent with Gentle AI off: the thread gets a plain mirror of the agent's config
+ * home for its session. Shared state (credentials, sessions, history) stays linked to the real
+ * home; gentle-ai's files are left out and the files it edits are filtered copies.
  *
  * @module gentleAi/GentleAiOff
  */
@@ -573,11 +572,10 @@ export const materializeAntigravityPlainHome = Effect.fn("materializeAntigravity
 );
 
 /**
- * The environment a Cursor agent runs with when Gentle AI is off. Cursor has no config
- * directory setting, so the agent gets a mirror of the user's home as HOME: every entry is
- * linked back, and the folders Cursor reads gentle-ai's footprint from are filtered. Cursor's
- * sign-in lives outside HOME on Windows (%APPDATA%) and Linux (XDG config, pinned here); on macOS
- * it is in the login keychain under HOME, so Gentle AI cannot be turned off there.
+ * The environment a Cursor agent runs with when Gentle AI is off. Cursor has no config directory
+ * setting, so HOME is a mirror of the user's home with the footprint folders filtered. Its
+ * sign-in is outside HOME on Windows and Linux (XDG config, pinned here), but in the macOS login
+ * keychain under HOME, so Gentle AI cannot be turned off there.
  */
 export const cursorGentleOffEnvironment = Effect.fn("cursorGentleOffEnvironment")(
   function* (input: {

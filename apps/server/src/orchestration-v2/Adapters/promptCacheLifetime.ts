@@ -28,11 +28,10 @@ export function openAiCacheTtlSeconds(model: string) {
 const CLAUDE_BRIDGE_PROVIDER = "claude-bridge";
 
 /**
- * How long the cache a Pi model call wrote lives. Pi reports how much of a write went to Claude's
- * 1 hour cache (`cacheWrite1h`) when its provider says. pi-claude-bridge does not pass that split
- * on, so its calls take the lifetime Claude Code last reported for the same login. Otherwise only
- * OpenAI's fixed lifetime is known. Undefined when none says, and for a reporting call that wrote
- * nothing, whose cache keeps the lifetime an earlier write gave it.
+ * How long the cache a Pi model call wrote lives. pi-claude-bridge does not report the 1 hour
+ * split (`cacheWrite1h`), so its calls take the lifetime Claude Code last reported for the same
+ * login. Undefined when none says, and for a reporting call that wrote nothing, whose cache
+ * keeps the lifetime an earlier write gave it.
  */
 export function piCallCacheTtlSeconds(
   usage: { readonly cacheWrite: number | undefined; readonly cacheWrite1h: number | undefined },

@@ -1,5 +1,5 @@
 import type { GentleAiResult } from "@t3tools/contracts";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 
 import { Button } from "../../ui/button";
 import { Label } from "../../ui/label";
@@ -55,7 +55,7 @@ function BuilderWizard({
 }) {
   const { job, startJob } = useGentleAiJob(environmentId);
   const resumed = job?.method === "builder.generate" ? job.id : null;
-  const names = useMemo(() => gentleAiNames(status), [status]);
+  const names = gentleAiNames(status);
   const [step, setStep] = useState(resumed === null ? 0 : 2);
   const [engineChoice, setEngineChoice] = useState<string | null>(null);
   const [prompt, setPrompt] = useState("");

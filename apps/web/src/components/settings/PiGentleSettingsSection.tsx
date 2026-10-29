@@ -149,6 +149,7 @@ function usePiGentle({
   const requestKey = `${stateKey}:${refreshKey}:${retry}`;
   // A re-read (after a Gentle AI job, or Retry) skips the server's kept answer.
   const reread = refreshKey > 0 || retry > 0;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- reads the Pi Gentle state from the server and drops a stale response on cleanup
   useEffect(() => {
     let liveRequest: string | null = requestKey;
     void read({
@@ -187,18 +188,14 @@ function usePiGentle({
             : "profiles";
     setPending(action.type);
     setErrorState(null);
-    try {
-      const result = await update({ environmentId, input: { instanceId, action } });
-      if (result._tag === "Success") {
-        setLoaded({ key: stateKey, state: result.value });
-        return true;
-      } else if (!isAtomCommandInterrupted(result)) {
-        setErrorState({ key: stateKey, text: errorText(squashAtomCommandFailure(result)), area });
-      }
-    } catch (cause) {
-      setErrorState({ key: stateKey, text: errorText(cause), area });
-    } finally {
-      setPending(null);
+    const result = await update({ environmentId, input: { instanceId, action } });
+    setPending(null);
+    if (result._tag === "Success") {
+      setLoaded({ key: stateKey, state: result.value });
+      return true;
+    }
+    if (!isAtomCommandInterrupted(result)) {
+      setErrorState({ key: stateKey, text: errorText(squashAtomCommandFailure(result)), area });
     }
     return false;
   }

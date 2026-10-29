@@ -3,7 +3,7 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { useEnvironmentQuery } from "../../../state/query";
 import { serverEnvironment } from "../../../state/server";
@@ -45,38 +45,32 @@ export function useModelProxy(environmentId: EnvironmentId) {
   });
 
   /** Runs an action; the error text, or null when it worked. */
-  const act = useCallback(
-    async (action: CliProxyAction): Promise<string | null> => {
-      const result = await runAction({ environmentId, input: { action } });
-      if (result._tag === "Success" || isAtomCommandInterrupted(result)) return null;
-      return modelProxyErrorText(squashAtomCommandFailure(result));
-    },
-    [environmentId, runAction],
-  );
+  const act = async (action: CliProxyAction): Promise<string | null> => {
+    const result = await runAction({ environmentId, input: { action } });
+    if (result._tag === "Success" || isAtomCommandInterrupted(result)) return null;
+    return modelProxyErrorText(squashAtomCommandFailure(result));
+  };
 
   /** One management call; its data, or the error text. */
-  const manage = useCallback(
-    async (
-      method: Method,
-      path: string,
-      body?: unknown,
-    ): Promise<{ readonly data: unknown } | { readonly error: string }> => {
-      const result = await runManagement({
-        environmentId,
-        input: { method, path, ...(body === undefined ? {} : { body }) },
-      });
-      if (result._tag !== "Success") {
-        return {
-          error: isAtomCommandInterrupted(result)
-            ? "Interrupted."
-            : modelProxyErrorText(squashAtomCommandFailure(result)),
-        };
-      }
-      const { status: code, data } = result.value;
-      return code >= 200 && code < 300 ? { data } : { error: managementFailure(code, data) };
-    },
-    [environmentId, runManagement],
-  );
+  const manage = async (
+    method: Method,
+    path: string,
+    body?: unknown,
+  ): Promise<{ readonly data: unknown } | { readonly error: string }> => {
+    const result = await runManagement({
+      environmentId,
+      input: { method, path, ...(body === undefined ? {} : { body }) },
+    });
+    if (result._tag !== "Success") {
+      return {
+        error: isAtomCommandInterrupted(result)
+          ? "Interrupted."
+          : modelProxyErrorText(squashAtomCommandFailure(result)),
+      };
+    }
+    const { status: code, data } = result.value;
+    return code >= 200 && code < 300 ? { data } : { error: managementFailure(code, data) };
+  };
 
   return { status, act, manage };
 }
@@ -93,6 +87,7 @@ export function useManaged(manage: ModelProxyManage, path: string | null) {
   // Each reload is a new request; the answer shown stays until the new one arrives.
   const [generation, setGeneration] = useState(0);
   const requestKey = path === null ? null : `${generation} ${path}`;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- loads a management GET from the proxy and drops a stale answer on cleanup
   useEffect(() => {
     if (requestKey === null) return;
     const separator = requestKey.indexOf(" ");
@@ -115,7 +110,7 @@ export function useManaged(manage: ModelProxyManage, path: string | null) {
     data: current.data,
     error: current.error,
     loading: path !== null && state.path !== path,
-    reload: useCallback(() => setGeneration((value) => value + 1), []),
+    reload: () => setGeneration((value) => value + 1),
   };
 }
 
@@ -127,6 +122,7 @@ export function useManagedAll(manage: ModelProxyManage, paths: ReadonlyArray<str
     readonly key: string;
     readonly data: ReadonlyArray<unknown>;
   }>({ key: "", data: [] });
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- loads several management GETs from the proxy and drops stale answers on cleanup
   useEffect(() => {
     let live = true;
     void Promise.all(key.split(" ").map((path) => manage("GET", path))).then((results) => {

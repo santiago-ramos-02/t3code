@@ -3,21 +3,10 @@ import * as NodePath from "node:path";
 // Standalone dev script: spawns the runner's own Node, no Effect runtime here.
 const currentNodeExecutable = process.execPath;
 
-// Desktop native dev rebuilds the server bundle while Electron runs. The dev
-// runner performs one initial `t3#build`; without a watcher, edits under
-// `apps/server/src/**` never rebuild `apps/server/dist/bin.mjs`, so the
-// running native backend goes stale while renderer HMR moves on.
-//
-// The watcher runs Vite+ through the current Node executable and the
-// repo-local `node_modules/vite-plus/bin/vp` script, never a PATH-resolved
-// `vp` (which may not exist for the spawned dev-electron process). There is
-// intentionally no Windows fallback (no `.cmd`/`.exe` suffix, no `wsl.exe`
-// bridging, no `shell: true`).
-//
-// The child env carries SERVER_BUNDLE_WATCH_ENV_VAR so the server config can
-// disable `pack.clean` for this process only: dev-electron holds a directory
-// watcher on `apps/server/dist`, and a watch-mode clean would remove that
-// directory out from under it.
+// Runs the repo-local `node_modules/vite-plus/bin/vp` through the current Node, never a
+// PATH-resolved `vp`, which may not exist for the spawned dev-electron process. No Windows
+// fallback on purpose. SERVER_BUNDLE_WATCH_ENV_VAR in the child env makes the server config skip
+// `pack.clean`, since dev-electron watches `apps/server/dist`.
 export const SERVER_BUNDLE_WATCH_ENV_VAR = "T3CODE_SERVER_BUNDLE_WATCH";
 export const SERVER_BUNDLE_WATCH_ENV_VALUE = "1";
 export const SERVER_BUNDLE_WATCH_ARGS = Object.freeze(["pack", "--watch"]);

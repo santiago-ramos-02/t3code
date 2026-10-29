@@ -1,9 +1,7 @@
 /**
- * The Gentle AI Claude Code profile T3 Code applies itself. gentle-ai, told T3 Code is its
- * host, leaves ~/.claude alone and writes the applied profile's slot models and guide to
- * ~/.gentle-ai/claude-host.json. T3 Code gives them only to Claude Code sessions that go
- * through a proxy (ANTHROPIC_BASE_URL set), since only a proxy serves other providers'
- * models; Claude Code reaching Anthropic directly keeps its own models.
+ * The Gentle AI Claude Code profile T3 Code applies itself: the slot models and guide from
+ * ~/.gentle-ai/claude-host.json go only to sessions behind a proxy (ANTHROPIC_BASE_URL set),
+ * since only a proxy serves other providers' models.
  *
  * @module gentleAi/ClaudeGentleProfile
  */

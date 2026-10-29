@@ -1,5 +1,5 @@
 import type { MemoryObservation } from "@t3tools/contracts";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 
 import { memoryActivity } from "./memoryModel";
 
@@ -16,10 +16,7 @@ export function MemoryActivity(props: {
   readonly observations: ReadonlyArray<MemoryObservation>;
   readonly now: number;
 }) {
-  const days = useMemo(
-    () => memoryActivity(props.observations, DAYS, props.now),
-    [props.observations, props.now],
-  );
+  const days = memoryActivity(props.observations, DAYS, props.now);
   const [hovered, setHovered] = useState<number | null>(null);
   const max = Math.max(1, ...days.map((day) => day.count));
   const total = days.reduce((sum, day) => sum + day.count, 0);

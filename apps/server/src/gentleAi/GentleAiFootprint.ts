@@ -1,12 +1,7 @@
 /**
- * What gentle-ai writes into each agent's configuration, and how to read that configuration
- * without it. A thread with Gentle AI off runs its agent on the user's own configuration minus
- * this footprint.
- *
- * A gentle-ai that answers `api footprint` reports this itself, by simulating its own uninstall
- * (see GentleAiFootprints.ts), and that answer wins. These built-in rules are the fallback for
- * older releases: they follow gentle-ai v3.7's uninstall, which recognises its files from asset
- * names, markdown markers, and hook commands, and go stale as gentle-ai changes.
+ * What gentle-ai writes into each agent's configuration. A gentle-ai that answers
+ * `api footprint` wins (see GentleAiFootprints.ts); these built-in rules are the fallback for
+ * older releases, following gentle-ai v3.7's uninstall, and go stale as gentle-ai changes.
  *
  * @module gentleAi/GentleAiFootprint
  */

@@ -50,8 +50,6 @@ export function gentleAiNames(status: GentleAiApiStatus): ReadonlyMap<string, st
   ]);
 }
 
-// ---- Community tools -------------------------------------------------------------------------
-
 /** One line of a community tool's state: CLI presence, then which detected agents it is wired into. */
 export function gentleAiToolSummary(
   tool: GentleAiTools["tools"][number],
@@ -96,8 +94,6 @@ export function gentleAiToolInstalled(tool: GentleAiTools["tools"][number]): boo
       ))
   );
 }
-
-// ---- Uninstall -------------------------------------------------------------------------------
 
 export const GENTLE_AI_UNINSTALL_MODES = [
   {

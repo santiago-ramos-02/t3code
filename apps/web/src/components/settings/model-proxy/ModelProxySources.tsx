@@ -79,7 +79,7 @@ function UsageMeter({ usage }: { readonly usage: CliProxyUsageWindow }) {
             role="img"
             tabIndex={0}
             aria-label={`${usage.label}: ${usage.usedPercent}% used${resets ? `. ${resets}` : ""}`}
-            className="inline-flex cursor-default items-center gap-1.5 rounded-sm text-muted-foreground text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="inline-flex cursor-default items-center gap-1.5 rounded-sm text-muted-foreground text-xs outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
           />
         }
       >
@@ -360,6 +360,7 @@ function AddAccount({
   const [callback, setCallback] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const live = useRef(true);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- tracks unmount so a late management answer does not touch state after the form closes
   useEffect(
     () => () => {
       live.current = false;
@@ -368,6 +369,7 @@ function AddAccount({
   );
 
   // Poll the login until the proxy reports it finished.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- polls the proxy's OAuth status until the sign-in finishes and stops the timer on cleanup
   useEffect(() => {
     if (session === null) return;
     let stopped = false;

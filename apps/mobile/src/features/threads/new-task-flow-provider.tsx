@@ -398,6 +398,7 @@ export function NewTaskFlowProvider(
     reportFailure: false,
   });
   const requestedWorkspaceModels = useRef(new Set<string>());
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- asks the server to probe Pi models for the selected workspace, once per environment, instance and cwd
   useEffect(() => {
     if (!selectedProject?.workspaceRoot) return;
     for (const provider of selectedEnvironmentServerConfig?.providers ?? []) {

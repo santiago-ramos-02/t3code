@@ -28,12 +28,8 @@ if (!TELEMETRY_CHANNELS.includes(telemetryChannel)) {
   );
 }
 
-// Desktop native dev (`apps/desktop/scripts/dev-electron.mjs`) rebuilds this
-// bundle in watch mode while holding a directory watcher on `dist` (it
-// restarts Electron when `bin.mjs` changes). A watch-mode clean would remove
-// `dist` out from under that watcher, so the watcher child sets this flag
-// and the config disables `pack.clean` only for that flagged process.
-// Ordinary builds keep cleaning enabled.
+// dev-electron.mjs watches `dist` while the watcher child rebuilds this bundle; a watch-mode
+// clean would remove `dist` under that watcher, so the flagged process alone skips `pack.clean`.
 export const SERVER_BUNDLE_WATCH_ENV_VAR = "T3CODE_SERVER_BUNDLE_WATCH";
 export const SERVER_BUNDLE_WATCH_ENV_VALUE = "1";
 

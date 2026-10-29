@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 
 import { Button, InlineButton } from "../../ui/button";
 import { Checkbox } from "../../ui/checkbox";
@@ -256,7 +256,7 @@ function ToolRows({
   cwd,
 }: GentleAiSectionProps & { readonly cwd: string }) {
   const tools = useGentleAiQuery(environmentId, "tools.list", { cwd });
-  const names = useMemo(() => gentleAiNames(status), [status]);
+  const names = gentleAiNames(status);
   if (tools.error)
     return <SettingsRow title="Community tools unavailable" description={tools.error} />;
   if (tools.data === null)

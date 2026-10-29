@@ -143,14 +143,10 @@ interface GentleWorkflowState<Turn extends PiGentleTurn> {
 }
 
 /**
- * gentle-pi's part of the Pi adapter. gentle-pi runs subagents as their own Pi processes and
- * reports them through its `gentle-agents` widget; each one becomes a native subagent with a
- * read-only child thread, like Claude's and Codex's. Background ones can finish after their
- * turn, when gentle-pi wakes the parent agent itself: the adapter hands that run to a
- * continuation run, which this names after the subagent that finished.
- *
- * The Pi adapter lives in @t3tools/provider-pi and calls these hooks (see its gentleHooks.ts),
- * so the fork's change to that upstream file stays a few lines.
+ * gentle-pi's part of the Pi adapter: its `gentle-agents` widget subagents become native
+ * subagents with read-only child threads. Background ones can finish after their turn, when
+ * gentle-pi wakes the parent itself; the continuation run is named after that subagent.
+ * Called from @t3tools/provider-pi (see its gentleHooks.ts) to keep the fork's change there small.
  */
 export function makePiGentle<Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>): PiGentle<Turn> {
   const { driver, idAllocator, emit } = deps;

@@ -201,11 +201,9 @@ const folderName = (workspaceRoot: string) =>
   workspaceRoot.split(/[\\/]/).findLast((part) => part !== "") ?? "";
 
 /**
- * Engram's projects that hold memories, each with the T3 project it belongs to when one matches,
- * so pickers can show T3's icon. Engram names a project after its git remote's repository, else
- * its folder. A T3 project whose folder or title is that name is the project itself and lends its
- * title; one that only shares the repository, such as a subfolder of it, lends just its icon, so
- * the choice keeps Engram's name.
+ * Engram's projects that hold memories, each with the T3 project it belongs to when one matches.
+ * Engram names a project after its git remote's repository, else its folder. A T3 project with
+ * that folder or title lends its title; one that only shares the repository lends just its icon.
  */
 export function memoryProjectChoices<P extends MemoryProjectCandidate>(
   engramProjects: ReadonlyArray<MemoryProject>,
