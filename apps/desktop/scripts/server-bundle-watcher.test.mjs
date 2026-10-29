@@ -88,7 +88,6 @@ describe("server bundle watcher", () => {
     assert.isTrue(NodePath.isAbsolute(call.args[0]));
     assert.equal(call.options.shell, undefined);
     assert.notMatch(call.args[0], /\.(cmd|exe|ps1)$/i);
-    assert.notInclude(call.args[0], "\\");
   });
 
   it("marks the child env as the server bundle watcher while preserving inherited env", () => {

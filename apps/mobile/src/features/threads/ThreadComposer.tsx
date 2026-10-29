@@ -66,6 +66,7 @@ import {
   useComposerDraft,
 } from "../../state/use-composer-drafts";
 import { appAtomRegistry } from "../../state/atom-registry";
+import { updateThreadDraftModelSelection } from "../../state/use-thread-composer-state";
 import type { ComposerDocumentAttachment } from "../../lib/composerContext";
 import { useProject, useThreadShells } from "../../state/entities";
 import { useMentionableEnvironments } from "../../state/environments";
@@ -880,7 +881,13 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
           projectCwd={props.projectCwd}
           connectionState={props.connectionState}
           selectedProviderStatus={selectedProviderStatus}
-          onUpdateModelSelection={props.onUpdateModelSelection}
+          onUpdateModelSelection={(selection) =>
+            updateThreadDraftModelSelection(
+              composerOwnerKey,
+              selection,
+              props.serverConfig?.providers ?? [],
+            )
+          }
           shown={isExpanded && !voiceInput.isBusy}
         />
 

@@ -117,24 +117,17 @@ function PiGentleInstanceSettings(props: {
     setError(null);
     // Install and update act on the whole Pi, not this checkout.
     const request = action.type === "install" ? action : { ...action, cwd: props.workspaceRoot };
-    try {
-      const result = await update({
-        environmentId: props.environmentId,
-        input: { instanceId, action: request },
-      });
-      if (result._tag === "Success") {
-        setState(result.value);
-        if (action.type === "create") setNewName("");
-      } else if (!isAtomCommandInterrupted(result)) {
-        const failure = squashAtomCommandFailure(result);
-        setError(
-          failure instanceof Error ? failure.message : "Could not update Gentle AI settings.",
-        );
-      }
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not update Gentle AI settings.");
-    } finally {
-      setPending(false);
+    const result = await update({
+      environmentId: props.environmentId,
+      input: { instanceId, action: request },
+    });
+    setPending(false);
+    if (result._tag === "Success") {
+      setState(result.value);
+      if (action.type === "create") setNewName("");
+    } else if (!isAtomCommandInterrupted(result)) {
+      const failure = squashAtomCommandFailure(result);
+      setError(failure instanceof Error ? failure.message : "Could not update Gentle AI settings.");
     }
   }
 
