@@ -1,4 +1,3 @@
-import { isWorkspaceImagePreviewPath } from "@t3tools/shared/filePreview";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { AgentScope } from "@t3tools/shared/AgentScope";
 import { getModelSelectionStringOptionValue } from "@t3tools/shared/model";
@@ -1130,16 +1129,6 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
             return;
           }
         }
-        // read returns an image as a base64 block the stored text output drops,
-        // so clients preview the file it viewed instead.
-        const readPath = toolName === "read" ? recordString(args, "path") : undefined;
-        const viewedImagePath =
-          readPath !== undefined &&
-          readPath.length <= 4096 &&
-          !/[\r\n]/.test(readPath) &&
-          isWorkspaceImagePreviewPath(readPath)
-            ? readPath
-            : undefined;
         const output = piToolOutput(resultRecord, toolName);
         yield* emit({
           type: "turn_item.updated",
@@ -1150,7 +1139,6 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
             type: "dynamic_tool",
             ...mcpToolPresentation({ toolName }),
             toolName,
-            ...(viewedImagePath === undefined ? {} : { viewedImagePath }),
             input: args ?? {},
             ...(output === undefined ? {} : { output }),
           },
