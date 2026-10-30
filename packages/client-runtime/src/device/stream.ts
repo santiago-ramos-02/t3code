@@ -836,10 +836,9 @@ export function createDeviceStreamClient(
 
   /**
    * serve-sim can be locked to WebRTC (EAS Simulator always is), and then
-   * refuses AVCC and MJPEG; serve-emu advertises WebRTC the same way. An
-   * unreadable answer keeps the default path.
+   * refuses AVCC and MJPEG. An unreadable answer keeps the AVCC path.
    */
-  const probeWebRtc = async (): Promise<WebRtcSettings | null> => {
+  const probeIosTransport = async (): Promise<WebRtcSettings | null> => {
     const probe = new AbortController();
     const timeout = setTimeout(() => probe.abort(), TRANSPORT_PROBE_TIMEOUT_MS);
     try {
@@ -859,9 +858,6 @@ export function createDeviceStreamClient(
     }
   };
 
-  const webRtcUrl = (action: "offer" | "close") =>
-    httpUrl(avcc ? `/helper/${device}/webrtc/${action}` : `/webrtc/${action}?device=${device}`);
-
   const closePeer = () => {
     const current = peer;
     if (!current) return;
@@ -869,8 +865,8 @@ export function createDeviceStreamClient(
     current.connection.close();
     current.video.srcObject = null;
     current.video.remove();
-    // Releases the capture session; best effort because the page may be unloading.
-    void fetch(webRtcUrl("close"), {
+    // Releases serve-sim's capture session; best effort because the page may be unloading.
+    void fetch(httpUrl(`/helper/${device}/webrtc/close`), {
       method: "POST",
       keepalive: true,
       headers: { "content-type": "application/json" },
@@ -879,7 +875,7 @@ export function createDeviceStreamClient(
     }).catch(() => {});
   };
 
-  const readWebRtc = async (settings: WebRtcSettings) => {
+  const readIosWebRtc = async (settings: WebRtcSettings) => {
     const lifecycle = generation;
     const feedGeneration = ++videoGeneration;
     closePeer();
@@ -924,7 +920,7 @@ export function createDeviceStreamClient(
       if (!isCurrent()) return;
       closePeer();
       connecting(detail);
-      scheduleRetry("video", () => void readWebRtc(settings));
+      scheduleRetry("video", () => void readIosWebRtc(settings));
     };
     const presentFrame = () => {
       if (!isCurrent()) {
@@ -992,7 +988,7 @@ export function createDeviceStreamClient(
         iceGatheringDeadlineMs = Math.min(iceGatheringDeadlineMs * 2, ICE_GATHERING_MAX_TIMEOUT_MS);
         return retry("Device stream found no network candidates yet. Retrying…");
       }
-      const response = await fetch(webRtcUrl("offer"), {
+      const response = await fetch(httpUrl(`/helper/${device}/webrtc/offer`), {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -1027,7 +1023,8 @@ export function createDeviceStreamClient(
   const switchToWebRtc = async (failure: string, locked: boolean) => {
     const session = generation;
     if (typeof RTCPeerConnection === "undefined") return fail(failure);
-    const settings = (await probeWebRtc()) ?? (locked ? { transport: "webrtc" as const } : null);
+    const settings =
+      (await probeIosTransport()) ?? (locked ? { transport: "webrtc" as const } : null);
     if (stopped || generation !== session) return;
     if (!settings) return fail(failure);
     if (mjpeg) {
@@ -1039,7 +1036,7 @@ export function createDeviceStreamClient(
     // MJPEG may have shown frames already: say the stream is connecting again
     // rather than leave a blank canvas until the first WebRTC frame.
     connecting("Switching to WebRTC.");
-    void readWebRtc(settings);
+    void readIosWebRtc(settings);
   };
 
   const startDuoVideo = (panels: DuoPanelSinks) => {
@@ -1164,21 +1161,18 @@ export function createDeviceStreamClient(
     ws.onerror = () => ws.close();
   };
 
-  /** `inputOnly` keeps a socket for input beside a WebRTC feed, so its reconnects leave video alone. */
-  const connectAndroid = (inputOnly = false) => {
+  const connectAndroid = () => {
     if (stopped) return;
-    const ws = new WebSocket(
-      wsUrl(`/ws?device=${device}&${inputOnly ? "video=0" : "frame-meta=1"}`),
-    );
+    const ws = new WebSocket(wsUrl(`/ws?device=${device}&frame-meta=1`));
     ws.binaryType = "arraybuffer";
     socket = ws;
     ws.onopen = () => {
       if (stopped || socket !== ws) return;
-      if (!inputOnly) connecting();
+      connecting();
       events.onInputConnected(true);
     };
     ws.onmessage = (event) => {
-      if (stopped || socket !== ws || inputOnly) return;
+      if (stopped || socket !== ws) return;
       if (typeof event.data === "string") {
         // The encoder restarts at a new size when the device rotates; the
         // next keyframe carries a fresh SPS, so the decoder is rebuilt from it.
@@ -1230,27 +1224,11 @@ export function createDeviceStreamClient(
         (event.code === 1006 && access.query.wsTicket)
       )
         return handleUnauthorized();
-      if (!inputOnly) {
-        configuring = false;
-        connecting(event.reason || undefined);
-      }
-      // A full socket re-probes, so one failed /api read does not pin SEMU on a WebRTC host.
-      scheduleRetry("input", () => (inputOnly ? connectAndroid(true) : void startAndroid()));
+      configuring = false;
+      connecting(event.reason || undefined);
+      scheduleRetry("input", connectAndroid);
     };
     ws.onerror = () => ws.close();
-  };
-
-  const startAndroid = async () => {
-    const session = generation;
-    const settings = await probeWebRtc();
-    if (stopped || generation !== session) return;
-    if (settings) {
-      if (typeof RTCPeerConnection === "undefined")
-        return fail("This browser cannot receive the device's WebRTC stream.");
-      if (!target.videoOnly) connectAndroid(true);
-      void readWebRtc(settings);
-    } else if (useWebCodecs) connectAndroid();
-    else fail("This browser cannot decode the Android stream (WebCodecs unavailable).");
   };
 
   const start = () => {
@@ -1269,7 +1247,11 @@ export function createDeviceStreamClient(
       if (!target.videoOnly) void connectIosInput();
       if (useWebCodecs) void readIosVideo();
       else fallBackToMjpeg();
-    } else void startAndroid();
+    } else if (useWebCodecs) {
+      connectAndroid();
+    } else {
+      fail("This browser cannot decode the Android stream (WebCodecs unavailable).");
+    }
   };
 
   const stop = () => {

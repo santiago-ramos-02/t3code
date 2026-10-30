@@ -367,7 +367,7 @@ export const make = Effect.gen(function* BrowserSessionMake() {
           Effect.tryPromise({
             try: () =>
               browserSession.clearStorageData({
-                storages: ["cookies", "localstorage", "indexdb", "serviceworkers", "cachestorage"],
+                storages: ["cookies", "localstorage", "indexdb", "serviceworkers"],
               }),
             catch: (cause) =>
               new BrowserSessionStorageClearError({

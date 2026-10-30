@@ -49,30 +49,17 @@ const make = Effect.gen(function* () {
   const doctorTargetsThisDatabase =
     path.resolve(config.dbPath) ===
     path.resolve(config.baseDir, "userdata", path.basename(config.dbPath));
-  // Only VACUUM changes these, and doctor refuses to VACUUM while a server has the database open.
-  let layout: { readonly pageSize: number; readonly incrementalVacuum: boolean } | undefined;
-  const readLayout = Effect.suspend(() =>
-    layout !== undefined
-      ? Effect.succeed(layout)
-      : Effect.gen(function* () {
-          const size = yield* sql<{ readonly page_size: number }>`PRAGMA page_size`;
-          const mode = yield* sql<{ readonly auto_vacuum: number }>`PRAGMA auto_vacuum`;
-          layout = {
-            pageSize: size[0]?.page_size ?? 0,
-            incrementalVacuum: mode[0]?.auto_vacuum === 2,
-          };
-          return layout;
-        }),
-  );
   const publishStatus = Effect.gen(function* () {
     if (!doctorTargetsThisDatabase) return;
-    const { pageSize, incrementalVacuum } = yield* readLayout;
     const pages = yield* sql<{ readonly page_count: number }>`PRAGMA page_count`;
     const free = yield* sql<{ readonly freelist_count: number }>`PRAGMA freelist_count`;
+    const size = yield* sql<{ readonly page_size: number }>`PRAGMA page_size`;
+    const mode = yield* sql<{ readonly auto_vacuum: number }>`PRAGMA auto_vacuum`;
+    const pageSize = size[0]?.page_size ?? 0;
     const next: DatabaseStorageStatus = {
       databaseBytes: (pages[0]?.page_count ?? 0) * pageSize,
       reclaimableBytes: (free[0]?.freelist_count ?? 0) * pageSize,
-      incrementalVacuumEnabled: incrementalVacuum,
+      incrementalVacuumEnabled: mode[0]?.auto_vacuum === 2,
       compactCommand,
     };
     // Every set reaches each open Storage page; most passes change nothing.
@@ -84,7 +71,8 @@ const make = Effect.gen(function* () {
   );
 
   const reclaim = Effect.gen(function* () {
-    if (!(yield* readLayout).incrementalVacuum) return;
+    const mode = yield* sql<{ readonly auto_vacuum: number }>`PRAGMA auto_vacuum`;
+    if (mode[0]?.auto_vacuum !== 2) return;
     // The driver steps once per statement; incremental_vacuum frees one page per step. Yield between pages.
     for (let page = 0; page < RECLAIM_PAGES_PER_PASS; page++) {
       const free = yield* sql<{ readonly freelist_count: number }>`PRAGMA freelist_count`;

@@ -12,10 +12,7 @@ import {
   isLearned,
 } from "@t3tools/client-runtime/connection";
 import { type EnvironmentId, sessionGrantsScope } from "@t3tools/contracts";
-import {
-  AUTH_SCOPE_OPTIONS,
-  sessionPermissionsUnavailableMessage,
-} from "@t3tools/shared/authScopeOptions";
+import { AUTH_SCOPE_OPTIONS } from "@t3tools/shared/authScopeOptions";
 import { AsyncResult } from "effect/reactivity";
 import * as Option from "effect/Option";
 import { useState } from "react";
@@ -166,14 +163,8 @@ export function EnvironmentRoutesSection({
             </>
           ) : (
             <Text className="text-sm text-foreground-muted">
-              {sessionPermissionsUnavailableMessage({
-                connected: activeRouteId !== null,
-                failed: sessionResult._tag === "Failure",
-                rejected:
-                  sessionResult._tag !== "Failure" &&
-                  !sessionResult.waiting &&
-                  session?.authenticated === false,
-              })}
+              Permissions not checked. Connect to this environment to view this session’s
+              permissions.
             </Text>
           )}
         </View>

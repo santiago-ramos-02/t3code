@@ -85,7 +85,6 @@ import { environmentServerConfigsAtom } from "../../state/server";
 import { threadEnvironment } from "../../state/threads";
 import { runMobileComposerTransition } from "./draftHeroTransition";
 import { useClientSettingsHydrated, useEnvironmentSettings } from "../../hooks/useSettings";
-import { useStableCallback } from "../../hooks/useStableCallback";
 import { environmentPresentations } from "../../state/presentation";
 import {
   approvalRedirectNotice,
@@ -197,8 +196,6 @@ interface ComposerSendInput {
   readonly isRevertingCheckpoint: boolean;
   readonly threadDetailLoading: boolean;
   readonly activeEnvironmentUnavailable: boolean;
-  /** Resumes a stopped Boat machine; resolves true once it is connected. */
-  readonly wakeStoppedEnvironment: (() => Promise<boolean>) | null;
   readonly isSendBusy: boolean;
   readonly sendQueuesBehindSetup: boolean;
   readonly isDraftHeroState: boolean;
@@ -290,7 +287,6 @@ export function useComposerSend(input: ComposerSendInput) {
     isRevertingCheckpoint,
     threadDetailLoading,
     activeEnvironmentUnavailable,
-    wakeStoppedEnvironment,
     isSendBusy,
     sendQueuesBehindSetup,
     isDraftHeroState,
@@ -395,9 +391,7 @@ export function useComposerSend(input: ComposerSendInput) {
     respondingRequestIdsRef.current = respondingRequestIds;
   }, [pendingApprovals, respondingRequestIds]);
 
-  // The send that runs once a resumed machine connects reads that render's state, not this one's.
-  const latestSend = useStableCallback(onSend);
-  async function onSend(
+  const onSend = async (
     e?: { preventDefault: () => void },
     dispatchMode: ComposerDispatchMode = "auto",
     submissionIntent: ComposerSubmissionIntent = "foreground",
@@ -405,7 +399,7 @@ export function useComposerSend(input: ComposerSendInput) {
       annotation: PreviewAnnotationPayload;
       image: ComposerImageAttachment | null;
     },
-  ) {
+  ) => {
     e?.preventDefault();
     // What the user pressed send on; uploads below can take a while, and a redirect must not
     // decline approvals for a draft that changed meanwhile.
@@ -425,16 +419,6 @@ export function useComposerSend(input: ComposerSendInput) {
       return;
     }
 
-    if (activeEnvironmentUnavailable && wakeStoppedEnvironment) {
-      // Sending to a stopped Boat machine resumes it, and the message goes once it is connected.
-      // This comes before the checks below, which a disconnected thread fails without a word.
-      void wakeStoppedEnvironment().then((connected) => {
-        if (connected) {
-          void latestSend(undefined, dispatchMode, submissionIntent, directAnnotation);
-        }
-      });
-      return;
-    }
     const notifyDirectAnnotationAttached = () => {
       if (!directAnnotation) return;
       toastManager.add(
@@ -1459,7 +1443,7 @@ export function useComposerSend(input: ComposerSendInput) {
       );
       if (!sendQueuesBehindSetup) resetLocalDispatch();
     }
-  }
+  };
 
   return { onSend };
 }

@@ -3,21 +3,18 @@ import {
   type NavigationProp,
   type ParamListBase,
 } from "@react-navigation/native";
-import { AsyncResult } from "effect/reactivity";
-import { act, useLayoutEffect } from "react";
+import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vite-plus/test";
 
 const mocks = vi.hoisted(() => ({
-  enabled: true,
-  generate: vi.fn(),
   query: {
-    data: null as { run: { _tag: "Running" | "Completed" | "Failed" } | null } | null,
+    data: null as { run: { _tag: "Running" | "Completed" } } | null,
     isPending: false,
     refresh: vi.fn<() => void>(),
   },
   otherQuery: {
-    data: null as { run: { _tag: "Running" | "Completed" | "Failed" } | null } | null,
+    data: null as { run: { _tag: "Running" | "Completed" } } | null,
     isPending: false,
     refresh: vi.fn<() => void>(),
   },
@@ -36,8 +33,7 @@ vi.mock("@react-navigation/native", async () => {
   return { NavigationContext, useFocusEffect };
 });
 vi.mock("@effect/atom-react", () => ({
-  useAtomValue: (atom: unknown) =>
-    atom === "settings" ? { reviewGuidesEnabled: mocks.enabled } : true,
+  useAtomValue: (atom: unknown) => (atom === "settings" ? { reviewGuidesEnabled: true } : true),
 }));
 vi.mock("../../../state/server", () => ({
   serverEnvironment: { settingsValueAtom: () => "settings" },
@@ -52,7 +48,7 @@ vi.mock("../../../state/pull-requests", () => ({
 vi.mock("../../../state/query", () => ({
   useEnvironmentQuery: (number: number) => ({ ...(number === 1 ? mocks.query : mocks.otherQuery) }),
 }));
-vi.mock("../../../state/use-atom-command", () => ({ useAtomCommand: () => mocks.generate }));
+vi.mock("../../../state/use-atom-command", () => ({ useAtomCommand: () => vi.fn() }));
 vi.mock("../usePullRequestConnected", () => ({ usePullRequestConnected: () => true }));
 vi.mock("../usePullRequestDiff", () => ({
   pullRequestTarget: (params: unknown) => params,
@@ -82,8 +78,6 @@ function createNavigation() {
 
 function setup() {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-  mocks.enabled = true;
-  mocks.generate = vi.fn().mockResolvedValue(AsyncResult.success(undefined));
   mocks.query = { data: null, isPending: false, refresh: vi.fn() };
   mocks.otherQuery = { data: null, isPending: false, refresh: vi.fn() };
   const root = createRoot(document.createElement("div"));
@@ -94,34 +88,19 @@ function setup() {
     repository: "repo",
     number: 1,
   };
-  let current: ReturnType<typeof useReviewGuide>;
-  function Probe({
-    number,
-    environmentId,
-    visible,
-  }: {
-    number: number;
-    environmentId: string;
-    visible?: boolean;
-  }) {
-    const state = useReviewGuide({ ...params, number, environmentId }, visible);
-    useLayoutEffect(() => {
-      current = state;
-    });
+  function Probe({ number, environmentId }: { number: number; environmentId: string }) {
+    useReviewGuide({ ...params, number, environmentId });
     return null;
   }
   return {
-    render(number = 1, environmentId = params.environmentId, visible?: boolean) {
+    render(number = 1, environmentId = params.environmentId) {
       act(() =>
         root.render(
           <NavigationContext.Provider value={navigation.value}>
-            <Probe number={number} environmentId={environmentId} visible={visible} />
+            <Probe number={number} environmentId={environmentId} />
           </NavigationContext.Provider>,
         ),
       );
-    },
-    get current() {
-      return current;
     },
     focus: navigation.focus,
     [Symbol.dispose]() {
@@ -207,96 +186,5 @@ it("retires the old environment's polling on target change and clears polling on
   act(() => vi.advanceTimersByTime(10_000));
   expect(mocks.query.refresh).toHaveBeenCalledTimes(1);
   expect(mocks.otherQuery.refresh).toHaveBeenCalledTimes(2);
-  expect(vi.getTimerCount()).toBe(0);
-});
-
-it("suspends only manual refresh while hidden, including focus and target changes", () => {
-  vi.useFakeTimers();
-  using _timers = { [Symbol.dispose]: () => vi.useRealTimers() };
-  {
-    using screen = setup();
-    mocks.query.data = { run: { _tag: "Running" } };
-    mocks.otherQuery.data = { run: { _tag: "Running" } };
-    screen.render();
-    const cached = screen.current.data;
-    screen.render(1, "environment", false);
-    act(() => vi.advanceTimersByTime(60_000));
-    expect(mocks.query.refresh).toHaveBeenCalledTimes(1);
-    expect(screen.current.data).toBe(cached);
-    screen.render();
-    expect(mocks.query.refresh).toHaveBeenCalledTimes(2);
-    act(() => vi.advanceTimersByTime(5_000));
-    expect(mocks.query.refresh).toHaveBeenCalledTimes(3);
-    screen.render(1, "environment", false);
-    screen.focus(false);
-    screen.focus(true);
-    expect(mocks.query.refresh).toHaveBeenCalledTimes(3);
-
-    screen.render(2, "other-environment", false);
-    act(() => vi.advanceTimersByTime(5_000));
-    expect(mocks.otherQuery.refresh).not.toHaveBeenCalled();
-    screen.focus(false);
-    screen.render(2, "other-environment", true);
-    expect(mocks.otherQuery.refresh).not.toHaveBeenCalled();
-    screen.focus(true);
-    expect(mocks.otherQuery.refresh).toHaveBeenCalledTimes(1);
-    act(() => vi.advanceTimersByTime(5_000));
-    expect(mocks.otherQuery.refresh).toHaveBeenCalledTimes(2);
-    expect(mocks.query.refresh).toHaveBeenCalledTimes(3);
-  }
-  expect(vi.getTimerCount()).toBe(0);
-});
-
-it("keeps disabled, completed and failed guides idle and refreshes once on reveal", () => {
-  vi.useFakeTimers();
-  using _timers = { [Symbol.dispose]: () => vi.useRealTimers() };
-  using screen = setup();
-  mocks.enabled = false;
-  screen.render();
-  act(() => vi.advanceTimersByTime(5_000));
-  expect(mocks.query.refresh).not.toHaveBeenCalled();
-  mocks.enabled = true;
-  mocks.query.data = { run: null };
-  screen.render();
-  expect(mocks.query.refresh).toHaveBeenCalledTimes(1);
-  act(() => vi.advanceTimersByTime(10_000));
-  expect(mocks.query.refresh).toHaveBeenCalledTimes(1);
-  screen.render(1, "environment", false);
-  mocks.query.data = { run: { _tag: "Failed" } };
-  screen.render(1, "environment", false);
-  expect(mocks.query.refresh).toHaveBeenCalledTimes(1);
-  screen.render();
-  expect(mocks.query.refresh).toHaveBeenCalledTimes(2);
-  act(() => vi.advanceTimersByTime(10_000));
-  expect(mocks.query.refresh).toHaveBeenCalledTimes(2);
-  expect(vi.getTimerCount()).toBe(0);
-});
-
-it("leaves generation running when hidden and accepts its completion without a refresh", async () => {
-  vi.useFakeTimers();
-  using _timers = { [Symbol.dispose]: () => vi.useRealTimers() };
-  using screen = setup();
-  const generated = Promise.withResolvers<ReturnType<typeof AsyncResult.success<void>>>();
-  mocks.generate.mockReturnValue(generated.promise);
-  screen.render();
-  let writing: Promise<void>;
-  act(() => {
-    writing = screen.current.write();
-  });
-  expect(screen.current.running).toBe(true);
-  screen.render(1, "environment", false);
-  const beforeHidden = mocks.query.refresh.mock.calls.length;
-  act(() => vi.advanceTimersByTime(60_000));
-  expect(mocks.query.refresh).toHaveBeenCalledTimes(beforeHidden);
-  expect(mocks.generate).toHaveBeenCalledTimes(1);
-  expect(screen.current.running).toBe(true);
-  await act(async () => {
-    generated.resolve(AsyncResult.success(undefined));
-    await writing;
-  });
-  expect(screen.current.running).toBe(false);
-  expect(mocks.query.refresh).toHaveBeenCalledTimes(beforeHidden);
-  screen.render();
-  expect(mocks.query.refresh).toHaveBeenCalledTimes(beforeHidden + 1);
   expect(vi.getTimerCount()).toBe(0);
 });

@@ -118,12 +118,7 @@ function makeRegistry(input: {
         kind: provider.kind,
         label: provider.kind,
         installHint: "unused",
-        probeAuth: Effect.succeed({
-          status: "unknown",
-          account: Option.none(),
-          host: Option.none(),
-          detail: Option.none(),
-        }),
+        probeAuth: Effect.die("unused"),
       },
     })),
   ).pipe(
@@ -443,30 +438,5 @@ it.effect("asks again once Settings change", () =>
     yield* PubSub.publish(changes, DEFAULT_SERVER_SETTINGS);
     yield* Deferred.await(handled);
     assert.strictEqual((yield* resolveUnknown(registry, "c")).provider.kind, "github");
-  }),
-);
-
-it.effect("answers discovery without waiting on a hosting API that stalls", () =>
-  Effect.gen(function* () {
-    const registry = yield* makeRegistry({
-      remotes: [],
-      discovery: [
-        claimingCli("gitlab"),
-        {
-          type: "api",
-          kind: kind("bitbucket"),
-          label: "Bitbucket",
-          installHint: "unused",
-          probeAuth: Effect.never,
-        },
-      ],
-    });
-    const discovering = yield* registry.discover.pipe(Effect.forkChild);
-    yield* TestClock.adjust("3 seconds");
-    const items = yield* Fiber.join(discovering);
-    const bitbucket = items.find((item) => item.kind === "bitbucket");
-    assert.strictEqual(bitbucket?.status, "available");
-    assert.strictEqual(bitbucket?.auth.status, "unknown");
-    assert.strictEqual(items.find((item) => item.kind === "gitlab")?.status, "available");
   }),
 );

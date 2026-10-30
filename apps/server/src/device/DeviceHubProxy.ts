@@ -27,17 +27,14 @@ const ALLOWED_PATHS: ReadonlyArray<RegExp> = [
   /^\/vendor\/serve-sim\/helper\/[^/]+\/panel\/(1|3)\/stream\.avcc$/,
   /^\/vendor\/serve-sim\/helper\/[^/]+\/webrtc\/(offer|close)$/,
   /^\/vendor\/serve-sim\/appstate$/,
-  /^\/vendor\/serve-emu\/api$/,
   /^\/vendor\/serve-emu\/api\/(devices|screenshot|stream-mode|stream-settings|accessibility|fold)$/,
   /^\/vendor\/serve-emu\/health$/,
 ];
 
-// Paths that take methods besides GET; one missing from ALLOWED_PATHS takes no GET.
 const MUTABLE_PATHS: ReadonlyArray<RegExp> = [
   /^\/vendor\/serve-sim\/api\/screenshot$/,
   // WebRTC signalling: opening and closing a view of the stream, so read scope.
   /^\/vendor\/serve-sim\/helper\/[^/]+\/webrtc\/(offer|close)$/,
-  /^\/vendor\/serve-emu\/webrtc\/(offer|close)$/,
   /^\/vendor\/serve-emu\/api\/(screenshot|stream-mode|stream-settings)$/,
   /^\/vendor\/serve-emu\/api\/fold$/,
 ];
@@ -181,15 +178,14 @@ const handler = Effect.gen(function* () {
   }
   const hubPath = url.value.pathname.slice(DeviceService.DEVICE_HUB_ROUTE_PREFIX.length) || "/";
   const upgrade = isWebSocketUpgrade(request);
-  const matches = (paths: ReadonlyArray<RegExp>) => paths.some((pattern) => pattern.test(hubPath));
-  const allowed = upgrade
-    ? matches(ALLOWED_WS_PATHS)
-    : matches(ALLOWED_PATHS) || matches(MUTABLE_PATHS);
+  const allowed = (upgrade ? ALLOWED_WS_PATHS : ALLOWED_PATHS).some((pattern) =>
+    pattern.test(hubPath),
+  );
   if (!allowed) {
     return HttpServerResponse.text("Not Found", { status: 404 });
   }
   const readOnly = request.method === "GET" || request.method === "HEAD";
-  if (!upgrade && !matches(readOnly ? ALLOWED_PATHS : MUTABLE_PATHS)) {
+  if (!upgrade && !readOnly && !MUTABLE_PATHS.some((pattern) => pattern.test(hubPath))) {
     return HttpServerResponse.text("Method Not Allowed", { status: 405 });
   }
   const controlsDevice =

@@ -2599,45 +2599,7 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
     }),
   );
 
-  it.effect("uses an explicit project's provider settings for generated commit text", () =>
-    Effect.gen(function* () {
-      const repoDir = yield* makeTempDir("t3code-git-manager-");
-      yield* initRepo(repoDir);
-      NodeFS.writeFileSync(NodePath.join(repoDir, "README.md"), "hello\nproject\n");
-      const projectId = ProjectId.make("project:git-action-settings");
-      const disabledInstanceId = DEFAULT_SERVER_SETTINGS.textGenerationModelSelection.instanceId;
-      let generatedModelSelection:
-        | TextGeneration.CommitMessageGenerationInput["modelSelection"]
-        | undefined;
-
-      const { manager } = yield* makeManager({
-        serverSettings: {
-          projectSettingsOverrides: {
-            [projectId]: {
-              providerInstances: { [disabledInstanceId]: { enabled: false } },
-            },
-          },
-        },
-        textGeneration: {
-          generateCommitMessage: (input) => {
-            generatedModelSelection = input.modelSelection;
-            return Effect.succeed({ subject: "Use the project writer", body: "" });
-          },
-        },
-      });
-
-      yield* manager.runStackedAction({
-        actionId: "test-project-action-settings",
-        cwd: repoDir,
-        action: "commit",
-        projectId,
-      });
-
-      expect(generatedModelSelection?.instanceId).toBe(ProviderInstanceId.make("claudeAgent"));
-    }),
-  );
-
-  it.effect("prefers a V2-native thread's project settings over an explicit project", () =>
+  it.effect("applies a V2-native thread's project settings to generated commit text", () =>
     Effect.gen(function* () {
       const repoDir = yield* makeTempDir("t3code-git-manager-");
       yield* initRepo(repoDir);
@@ -2724,7 +2686,6 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
         cwd: repoDir,
         action: "commit",
         threadId,
-        projectId: ProjectId.make("project:other"),
       });
 
       expect(generatedModelSelection).toEqual(projectModel);
@@ -3945,7 +3906,7 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
     return { repoDir, manager, providerCalls, firstCommit, pullHead };
   });
 
-  it.effect.each(["switch", "create-and-switch", "feature-branch", "commit"] as const)(
+  it.effect.each(["switch", "create-and-switch", "feature-branch"] as const)(
     "local PR checkout excludes a concurrent %s from a nested project with an alternate root",
     (operation) =>
       Effect.gen(function* () {
@@ -3995,7 +3956,7 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
               ...manager,
               runStackedAction: (input, options) =>
                 Effect.sync(() => {
-                  events.push(input.featureBranch ? "feature-branch" : "commit");
+                  events.push("feature-branch");
                   NodeFS.writeFileSync(
                     NodePath.join(repoDir, "second-client.txt"),
                     "second client\n",
@@ -4032,9 +3993,9 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
                 })
               : workflows[1]!.runStackedAction({
                   cwd: nestedCwd,
-                  actionId: `second-client-${operation}`,
+                  actionId: "second-client-feature-branch",
                   action: "commit",
-                  featureBranch: operation === "feature-branch",
+                  featureBranch: true,
                   commitMessage: "Second client commit",
                 }),
           { startImmediately: true },
@@ -4047,16 +4008,15 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
         expect(events).toEqual([operation]);
         expect(prepared).toMatchObject({ branch: "feature/pr-safe", isOnPullRequestHead: true });
         expect((yield* runGit(repoDir, ["rev-parse", "main"])).stdout.trim()).toBe(mainCommit);
-        const pullBranch = operation === "commit" ? "feature/pr-safe^" : "feature/pr-safe";
-        expect((yield* runGit(repoDir, ["rev-parse", pullBranch])).stdout.trim()).toBe(pullHead);
+        expect((yield* runGit(repoDir, ["rev-parse", "feature/pr-safe"])).stdout.trim()).toBe(
+          pullHead,
+        );
         expect((yield* runGit(repoDir, ["branch", "--show-current"])).stdout.trim()).toBe(
           operation === "switch"
             ? "main"
-            : operation === "commit"
-              ? "feature/pr-safe"
-              : "branch" in switched
-                ? switched.branch.name
-                : "second-client",
+            : "branch" in switched
+              ? switched.branch.name
+              : "second-client",
         );
         if ("commit" in switched) {
           expect(switched.commit.status).toBe("created");

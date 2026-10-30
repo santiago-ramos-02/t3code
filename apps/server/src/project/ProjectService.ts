@@ -457,13 +457,15 @@ export const make = Effect.gen(function* () {
   ) {
     const { projectId } = input;
     const snapshot = yield* threadProjections
-      .getShellSnapshot({ projectId })
+      .getShellSnapshot()
       .pipe(
         Effect.mapError(
           (cause) => new ProjectOperationError({ operation: "list-threads", projectId, cause }),
         ),
       );
-    const projectThreads = [...snapshot.threads, ...snapshot.archivedThreads];
+    const projectThreads = [...snapshot.threads, ...snapshot.archivedThreads].filter(
+      (thread) => thread.projectId === projectId,
+    );
     if (projectThreads.length > 0 && input.force !== true) {
       return yield* new ProjectNotEmptyError({ projectId });
     }

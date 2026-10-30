@@ -1,5 +1,4 @@
 import { CodexSettings, ProviderDriverKind } from "@t3tools/contracts";
-import { makeCodexGentleOffSession } from "../../gentleAi/GentleAiSessions.ts";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -11,7 +10,6 @@ import { ChildProcessSpawner } from "effect/process";
 import type * as CodexUsageHistory from "../../usage/CodexUsageHistory.ts";
 import { makeCodexTextGeneration } from "../../textGeneration/CodexTextGeneration.ts";
 import * as ProviderLatestVersions from "@t3tools/provider-core/server/ProviderLatestVersions";
-import { makeGentleReviewers } from "../../orchestration-v2/Adapters/GentleReviewers.ts";
 import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 import * as ServerConfig from "../../config.ts";
 import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
@@ -39,6 +37,7 @@ import {
   enrichProviderSnapshotWithVersionAdvisory,
   makeCachedProviderMaintenanceResolution,
   makePackageManagedProviderMaintenanceResolver,
+  normalizeCommandPath,
   resolveProviderMaintenanceCapabilitiesEffect,
 } from "@t3tools/provider-core/server/maintenanceResolver";
 import {
@@ -61,36 +60,20 @@ import * as HostProcess from "@t3tools/shared/HostProcess";
 const decodeCodexSettings = Schema.decodeSync(CodexSettings);
 
 const DRIVER_KIND = ProviderDriverKind.make("codex");
-const CODEX_STANDALONE_HOME_PATTERN = /^(.*)\/packages\/standalone\//is;
-
-function codexStandaloneHome(commandPath: string): string | null {
-  // Slash replacement preserves indices; Unicode lowercasing can change the path length.
-  const match = CODEX_STANDALONE_HOME_PATTERN.exec(commandPath.replaceAll("\\", "/"));
-  if (!match) {
-    return null;
-  }
-  const home = match[1]!;
-  // Keep root separators: `C:` is drive-relative, and an empty home is not `/`.
-  const isRoot = home === "" || /^[a-z]:$/i.test(home);
-  return commandPath.slice(0, home.length + (isRoot ? 1 : 0));
+function isCodexStandaloneCommandPath(commandPath: string): boolean {
+  return normalizeCommandPath(commandPath).includes("/packages/standalone/");
 }
 
-// Standalone updates locate their install through CODEX_HOME. Account and auth-overlay
-// homes can share an executable, so only the updater uses the executable's owning home.
+/** `codex update` owns the shared home's standalone tree; auth-overlay homes do not carry it. */
 function makeCodexMaintenanceResolver(sharedHomePath: string) {
   return makePackageManagedProviderMaintenanceResolver({
     provider: DRIVER_KIND,
     npmPackageName: "@openai/codex",
     nativeUpdate: {
       args: ["update"],
-      isCommandPath: (commandPath) => codexStandaloneHome(commandPath) !== null,
+      isCommandPath: isCodexStandaloneCommandPath,
       requiresCommandPath: true,
-      env: (context) => ({
-        CODEX_HOME:
-          codexStandaloneHome(context.realCommandPath) ??
-          codexStandaloneHome(context.resolvedCommandPath) ??
-          sharedHomePath,
-      }),
+      env: { CODEX_HOME: sharedHomePath },
     },
   });
 }
@@ -201,11 +184,7 @@ export const CodexDriver: ProviderDriver<
         enabled,
         config,
       },
-      {
-        onUsageLimits: (update) => snapshot.applyUsageLimits(update),
-        prepareSession: yield* makeCodexGentleOffSession(DRIVER_KIND),
-        gentleReviewers: yield* makeGentleReviewers,
-      },
+      { onUsageLimits: (update) => snapshot.applyUsageLimits(update) },
     ).pipe(
       Effect.mapError(
         (cause) =>

@@ -80,9 +80,6 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
     }),
   ),
   pullRequests: Schema.optionalKey(Schema.Boolean),
-  /** Server reads Engram memory for the Memory page. Absent on servers from before it shipped, so
-      clients must not probe the memory APIs. */
-  memory: Schema.optionalKey(Schema.Boolean),
   pullRequestChecks: Schema.optionalKey(Schema.Boolean),
   /** Every protocol-2 server sends this; older mobile builds still read it. */
   inlineMessageContext: Schema.optionalKey(Schema.Boolean),
@@ -102,8 +99,6 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   /** Hide the switch when absent; older servers silently drop per-project provider patches. */
   projectProviderInstanceOverrides: Schema.optionalKey(Schema.Boolean),
   threadSnooze: Schema.optionalKey(Schema.Boolean),
-  /** Serves `orchestration.forceStopThread`; hide Force stop where it is absent. */
-  threadForceStop: Schema.optionalKey(Schema.Boolean),
   /** Every protocol-2 server sends this; older mobile builds still read it. */
   environmentThemes: Schema.optionalKey(Schema.Boolean),
   usageLimitSources: Schema.optionalKey(Schema.Boolean),

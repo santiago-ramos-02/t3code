@@ -711,7 +711,10 @@ export function deriveTimelineEntriesFromVisibleTurnItems(
       continue;
     }
 
-    const mcpApp = item.type === "dynamic_tool" ? mcpAppFromToolItem(item) : undefined;
+    const mcpApp =
+      item.type === "dynamic_tool" && item.status === "completed"
+        ? mcpAppFromToolItem(item)
+        : undefined;
     if (mcpApp !== undefined) {
       entries.push({
         id: item.id,

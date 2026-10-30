@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import { GuestMessageId } from "@t3tools/contracts";
-import { ATTACHMENT_ONLY_BOOTSTRAP_PROMPT } from "@t3tools/shared/composerContextReferences";
 
 import { resolveUserMessagePresentation } from "./userMessage.ts";
 
@@ -16,19 +15,6 @@ describe("resolveUserMessagePresentation", () => {
     ]) {
       expect(resolveUserMessagePresentation({ ...message, text: legacyText })).toEqual({
         text: legacyText,
-        attribution: null,
-        scheduledTaskId: undefined,
-      });
-    }
-  });
-
-  it("hides the prompt that stands in for an attachment-only message", () => {
-    for (const text of [
-      ATTACHMENT_ONLY_BOOTSTRAP_PROMPT,
-      `Ultrathink:\n${ATTACHMENT_ONLY_BOOTSTRAP_PROMPT}`,
-    ]) {
-      expect(resolveUserMessagePresentation({ role: "user", text })).toEqual({
-        text: "",
         attribution: null,
         scheduledTaskId: undefined,
       });

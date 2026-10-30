@@ -49,52 +49,6 @@ import {
   ProviderSetupError,
   ProviderSetupInput,
 } from "./providerSetup.ts";
-import {
-  PiGentleActionInput,
-  PiGentleComposerReadInput,
-  PiGentleComposerState,
-  PiGentleReadInput,
-  PiGentleState,
-} from "./piGentle.ts";
-import {
-  GentleAiJob,
-  GentleAiJobInput,
-  GentleAiQueryInput,
-  GentleAiQueryResult,
-} from "./gentleAiApi.ts";
-import {
-  GentleAiActionInput,
-  GentleAiActionResult,
-  GentleAiError,
-  GentleAiStatus,
-} from "./gentleAi.ts";
-import {
-  CliProxyActionInput,
-  CliProxyError,
-  CliProxyManagementInput,
-  CliProxyManagementResult,
-  CliProxyStatus,
-} from "./cliProxy.ts";
-import {
-  BoatConfigureInput,
-  BoatError,
-  BoatMachineActionInput,
-  BoatSpawnInput,
-  BoatSpawnResult,
-  BoatStatus,
-} from "./boat.ts";
-import {
-  MemoryError,
-  MemoryHealth,
-  MemoryJudgeInput,
-  MemoryObservationDetail,
-  MemoryObservationInput,
-  MemoryObsidianExportInput,
-  MemoryObsidianExportResult,
-  MemoryOverview,
-  MemorySearchInput,
-  MemorySearchResult,
-} from "./memory.ts";
 
 import {
   AcpRegistryAcceptUrlAuthInput,
@@ -195,8 +149,6 @@ import {
   VcsStatusStreamEvent,
 } from "./git.ts";
 import {
-  ReviewBranchCommitsInput,
-  ReviewBranchCommitsResult,
   ReviewDiffFileContentsInput,
   ReviewDiffFileContentsResult,
   ReviewDiffPreviewError,
@@ -268,7 +220,6 @@ import {
   ORCHESTRATION_V2_WS_METHODS,
   OrchestrationGetWorkflowScriptError,
   OrchestrationV2StopWorkflowError,
-  OrchestrationV2ForceStopThreadError,
   OrchestrationV2DispatchCommandError,
   OrchestrationV2GetShellSnapshotError,
   OrchestrationV2CommandOutputError,
@@ -489,28 +440,6 @@ export const WS_METHODS = {
   providerInstallCancel: "provider.install.cancel",
   providerInstallSubscribe: "provider.install.subscribe",
   providerInstallRemove: "provider.install.remove",
-  providerPiGentleRead: "provider.piGentle.read",
-  providerPiGentleComposerRead: "provider.piGentle.composerRead",
-  providerPiGentleAction: "provider.piGentle.action",
-  gentleAiRead: "gentleAi.read",
-  gentleAiAction: "gentleAi.action",
-  gentleAiQuery: "gentleAi.query",
-  gentleAiStartJob: "gentleAi.startJob",
-  gentleAiSubscribeJob: "gentleAi.subscribeJob",
-  gentleAiSubscribeStatus: "gentleAi.subscribeStatus",
-  cliProxySubscribeStatus: "cliProxy.subscribeStatus",
-  cliProxyAction: "cliProxy.action",
-  cliProxyManagement: "cliProxy.management",
-  boatSubscribeStatus: "boat.subscribeStatus",
-  boatConfigure: "boat.configure",
-  boatSpawn: "boat.spawn",
-  boatMachineAction: "boat.machineAction",
-  memoryOverview: "memory.overview",
-  memorySearch: "memory.search",
-  memoryObservation: "memory.observation",
-  memoryHealth: "memory.health",
-  memoryJudge: "memory.judge",
-  memoryExportObsidian: "memory.exportObsidian",
 
   vcsPull: "vcs.pull",
   vcsRefreshStatus: "vcs.refreshStatus",
@@ -525,7 +454,6 @@ export const WS_METHODS = {
   gitResolvePullRequest: "git.resolvePullRequest",
   gitPreparePullRequestThread: "git.preparePullRequestThread",
 
-  reviewGetBranchCommits: "review.getBranchCommits",
   reviewGetDiffPreview: "review.getDiffPreview",
   reviewGetDiffFileContents: "review.getDiffFileContents",
 
@@ -705,8 +633,6 @@ export const WsServerRefreshProvidersRpc = Rpc.make(WS_METHODS.serverRefreshProv
     fresh: Schema.optional(Schema.Boolean),
     /** Bypass model caches; explicit rediscovery may open sessions, background refreshes must not. */
     refreshModels: Schema.optional(Schema.Boolean),
-    /** Read secret references again; unlocking a vault can prompt on the host, so only explicit user refreshes ask. */
-    reloadSecrets: Schema.optional(Schema.Boolean),
     /**
      * Reply without snapshots, or with only the requested instance's cwd snapshot. Snapshots then
      * reach the client only through these replies, so another client's scan shows on its next
@@ -724,152 +650,6 @@ const WsServerUpdateProviderRpc = Rpc.make(WS_METHODS.serverUpdateProvider, {
   payload: ServerProviderUpdateInput,
   success: ServerProviderUpdatedPayload,
   error: Schema.Union([ServerProviderUpdateError, EnvironmentAuthorizationError]),
-});
-
-const WsProviderPiGentleReadRpc = Rpc.make(WS_METHODS.providerPiGentleRead, {
-  payload: PiGentleReadInput,
-  success: PiGentleState,
-  error: Schema.Union([ProviderSetupError, EnvironmentAuthorizationError]),
-});
-
-const WsProviderPiGentleComposerReadRpc = Rpc.make(WS_METHODS.providerPiGentleComposerRead, {
-  payload: PiGentleComposerReadInput,
-  success: PiGentleComposerState,
-  error: Schema.Union([ProviderSetupError, EnvironmentAuthorizationError]),
-});
-
-const WsProviderPiGentleActionRpc = Rpc.make(WS_METHODS.providerPiGentleAction, {
-  payload: PiGentleActionInput,
-  success: PiGentleState,
-  error: Schema.Union([ProviderSetupError, EnvironmentAuthorizationError]),
-});
-
-const WsGentleAiReadRpc = Rpc.make(WS_METHODS.gentleAiRead, {
-  payload: Schema.Struct({}),
-  success: GentleAiStatus,
-  error: EnvironmentAuthorizationError,
-});
-
-const WsGentleAiQueryRpc = Rpc.make(WS_METHODS.gentleAiQuery, {
-  payload: GentleAiQueryInput,
-  success: GentleAiQueryResult,
-  error: Schema.Union([GentleAiError, EnvironmentAuthorizationError]),
-});
-
-// Starting fails while another Gentle AI job runs; the job itself streams from subscribeJob.
-const WsGentleAiStartJobRpc = Rpc.make(WS_METHODS.gentleAiStartJob, {
-  payload: GentleAiJobInput,
-  success: GentleAiJob,
-  error: Schema.Union([GentleAiError, EnvironmentAuthorizationError]),
-});
-
-// Gentle AI on the environment now, then every change.
-const WsGentleAiSubscribeStatusRpc = Rpc.make(WS_METHODS.gentleAiSubscribeStatus, {
-  payload: Schema.Struct({}),
-  success: GentleAiStatus,
-  error: EnvironmentAuthorizationError,
-  stream: true,
-});
-
-// The environment's current or most recent job, then every change; null before the first.
-const WsGentleAiSubscribeJobRpc = Rpc.make(WS_METHODS.gentleAiSubscribeJob, {
-  payload: Schema.Struct({}),
-  success: Schema.NullOr(GentleAiJob),
-  error: EnvironmentAuthorizationError,
-  stream: true,
-});
-
-// CLIProxyAPI on the environment now, then every change.
-const WsCliProxySubscribeStatusRpc = Rpc.make(WS_METHODS.cliProxySubscribeStatus, {
-  payload: Schema.Struct({}),
-  success: CliProxyStatus,
-  error: EnvironmentAuthorizationError,
-  stream: true,
-});
-
-const WsCliProxyActionRpc = Rpc.make(WS_METHODS.cliProxyAction, {
-  payload: CliProxyActionInput,
-  success: CliProxyStatus,
-  error: Schema.Union([CliProxyError, EnvironmentAuthorizationError]),
-});
-
-const WsCliProxyManagementRpc = Rpc.make(WS_METHODS.cliProxyManagement, {
-  payload: CliProxyManagementInput,
-  success: CliProxyManagementResult,
-  error: Schema.Union([CliProxyError, EnvironmentAuthorizationError]),
-});
-
-// Boat machines the environment starts: its Boat setup now, then every change.
-const WsBoatSubscribeStatusRpc = Rpc.make(WS_METHODS.boatSubscribeStatus, {
-  payload: Schema.Struct({}),
-  success: BoatStatus,
-  error: EnvironmentAuthorizationError,
-  stream: true,
-});
-
-const BoatRpcError = Schema.Union([BoatError, EnvironmentAuthorizationError]);
-
-const WsBoatConfigureRpc = Rpc.make(WS_METHODS.boatConfigure, {
-  payload: BoatConfigureInput,
-  success: BoatStatus,
-  error: BoatRpcError,
-});
-
-const WsBoatSpawnRpc = Rpc.make(WS_METHODS.boatSpawn, {
-  payload: BoatSpawnInput,
-  success: BoatSpawnResult,
-  error: BoatRpcError,
-});
-
-const WsBoatMachineActionRpc = Rpc.make(WS_METHODS.boatMachineAction, {
-  payload: BoatMachineActionInput,
-  success: BoatStatus,
-  error: BoatRpcError,
-});
-
-// Memory: what the environment's agents learned, read from Engram by the server.
-const MemoryRpcError = Schema.Union([MemoryError, EnvironmentAuthorizationError]);
-
-const WsMemoryOverviewRpc = Rpc.make(WS_METHODS.memoryOverview, {
-  payload: Schema.Struct({}),
-  success: MemoryOverview,
-  error: MemoryRpcError,
-});
-
-const WsMemorySearchRpc = Rpc.make(WS_METHODS.memorySearch, {
-  payload: MemorySearchInput,
-  success: MemorySearchResult,
-  error: MemoryRpcError,
-});
-
-const WsMemoryObservationRpc = Rpc.make(WS_METHODS.memoryObservation, {
-  payload: MemoryObservationInput,
-  success: MemoryObservationDetail,
-  error: MemoryRpcError,
-});
-
-const WsMemoryHealthRpc = Rpc.make(WS_METHODS.memoryHealth, {
-  payload: Schema.Struct({}),
-  success: MemoryHealth,
-  error: MemoryRpcError,
-});
-
-const WsMemoryJudgeRpc = Rpc.make(WS_METHODS.memoryJudge, {
-  payload: MemoryJudgeInput,
-  success: Schema.Struct({}),
-  error: MemoryRpcError,
-});
-
-const WsMemoryExportObsidianRpc = Rpc.make(WS_METHODS.memoryExportObsidian, {
-  payload: MemoryObsidianExportInput,
-  success: MemoryObsidianExportResult,
-  error: MemoryRpcError,
-});
-
-const WsGentleAiActionRpc = Rpc.make(WS_METHODS.gentleAiAction, {
-  payload: GentleAiActionInput,
-  success: GentleAiActionResult,
-  error: Schema.Union([GentleAiError, EnvironmentAuthorizationError]),
 });
 
 const ProviderSetupRpcError = Schema.Union([ProviderSetupError, EnvironmentAuthorizationError]);
@@ -1717,12 +1497,6 @@ const WsVcsInitRpc = Rpc.make(WS_METHODS.vcsInit, {
   error: Schema.Union([VcsError, EnvironmentAuthorizationError]),
 });
 
-const WsReviewGetBranchCommitsRpc = Rpc.make(WS_METHODS.reviewGetBranchCommits, {
-  payload: ReviewBranchCommitsInput,
-  success: ReviewBranchCommitsResult,
-  error: Schema.Union([ReviewDiffPreviewError, EnvironmentAuthorizationError]),
-});
-
 const WsReviewGetDiffPreviewRpc = Rpc.make(WS_METHODS.reviewGetDiffPreview, {
   payload: ReviewDiffPreviewInput,
   success: ReviewDiffPreviewResult,
@@ -1996,12 +1770,6 @@ const WsOrchestrationV2StopWorkflowRpc = Rpc.make(ORCHESTRATION_V2_WS_METHODS.st
   error: Schema.Union([OrchestrationV2StopWorkflowError, EnvironmentAuthorizationError]),
 });
 
-const WsOrchestrationV2ForceStopThreadRpc = Rpc.make(ORCHESTRATION_V2_WS_METHODS.forceStopThread, {
-  payload: OrchestrationV2RpcSchemas.forceStopThread.input,
-  success: OrchestrationV2RpcSchemas.forceStopThread.output,
-  error: Schema.Union([OrchestrationV2ForceStopThreadError, EnvironmentAuthorizationError]),
-});
-
 const WsOrchestrationV2GetWorkflowScriptRpc = Rpc.make(
   ORCHESTRATION_V2_WS_METHODS.getWorkflowScript,
   {
@@ -2164,7 +1932,7 @@ export class RpcScopeAuthorization extends RpcMiddleware.Service<RpcScopeAuthori
   { error: EnvironmentAuthorizationError },
 ) {}
 
-export const CoreWsRpcGroup = RpcGroup.make(
+export const WsRpcGroup = RpcGroup.make(
   WsGuestShareCreateRpc,
   WsServerProbeRpc,
   WsServerGetConfigRpc,
@@ -2315,7 +2083,6 @@ export const CoreWsRpcGroup = RpcGroup.make(
   WsVcsCreateRefRpc,
   WsVcsSwitchRefRpc,
   WsVcsInitRpc,
-  WsReviewGetBranchCommitsRpc,
   WsReviewGetDiffPreviewRpc,
   WsReviewGetDiffFileContentsRpc,
   WsTerminalOpenRpc,
@@ -2355,7 +2122,6 @@ export const CoreWsRpcGroup = RpcGroup.make(
   WsOrchestrationV2DispatchCommandRpc,
   WsOrchestrationV2GetWorkflowScriptRpc,
   WsOrchestrationV2StopWorkflowRpc,
-  WsOrchestrationV2ForceStopThreadRpc,
   WsOrchestrationV2GetTurnItemRpc,
   WsOrchestrationV2GetTurnDiffRpc,
   WsOrchestrationV2GetFullThreadDiffRpc,
@@ -2372,35 +2138,3 @@ export const CoreWsRpcGroup = RpcGroup.make(
   WsOrchestrationV2SubscribeThreadRpc,
   WsOrchestrationV2SubscribeCommandOutputRpc,
 ).middleware(RpcScopeAuthorization);
-
-/**
- * The fork's RPCs. They live in their own group so the server can implement
- * them in a separate handler layer: one handler object for every RPC exceeds
- * TypeScript's instantiation depth.
- */
-export const ForkWsRpcGroup = RpcGroup.make(
-  WsProviderPiGentleReadRpc,
-  WsProviderPiGentleComposerReadRpc,
-  WsProviderPiGentleActionRpc,
-  WsGentleAiReadRpc,
-  WsGentleAiActionRpc,
-  WsCliProxySubscribeStatusRpc,
-  WsCliProxyActionRpc,
-  WsCliProxyManagementRpc,
-  WsMemoryOverviewRpc,
-  WsMemorySearchRpc,
-  WsMemoryObservationRpc,
-  WsMemoryHealthRpc,
-  WsMemoryJudgeRpc,
-  WsMemoryExportObsidianRpc,
-  WsGentleAiQueryRpc,
-  WsGentleAiStartJobRpc,
-  WsGentleAiSubscribeJobRpc,
-  WsGentleAiSubscribeStatusRpc,
-  WsBoatSubscribeStatusRpc,
-  WsBoatConfigureRpc,
-  WsBoatSpawnRpc,
-  WsBoatMachineActionRpc,
-).middleware(RpcScopeAuthorization);
-
-export const WsRpcGroup = CoreWsRpcGroup.merge(ForkWsRpcGroup);

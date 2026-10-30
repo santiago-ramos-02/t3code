@@ -3,14 +3,6 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./gentle-ai": {
-      "types": "./src/gentleAi.ts",
-      "default": "./src/gentleAi.ts"
-    },
-    "./cli-proxy": {
-      "types": "./src/cliProxy.ts",
-      "default": "./src/cliProxy.ts"
-    },
     "./zip/bounded-zip": {
       "types": "./src/zip/boundedZip.ts",
       "default": "./src/zip/boundedZip.ts"
@@ -131,14 +123,6 @@
       "types": "./src/providerSkills.ts",
       "default": "./src/providerSkills.ts"
     },
-    "./piGentleComposer": {
-      "types": "./src/piGentleComposer.ts",
-      "default": "./src/piGentleComposer.ts"
-    },
-    "./gentleRose": {
-      "types": "./src/gentleRose.ts",
-      "default": "./src/gentleRose.ts"
-    },
     "./providerUpdateRequiredModels": {
       "types": "./src/providerUpdateRequiredModels.ts",
       "default": "./src/providerUpdateRequiredModels.ts"
@@ -219,10 +203,6 @@
       "types": "./src/state/orchestration.ts",
       "default": "./src/state/orchestration.ts"
     },
-    "./state/thread-history-merge": {
-      "types": "./src/state/threadHistoryMerge.ts",
-      "default": "./src/state/threadHistoryMerge.ts"
-    },
     "./state/orchestration-v2-projection": {
       "types": "./src/state/orchestrationV2Projection.ts",
       "default": "./src/state/orchestrationV2Projection.ts"
@@ -258,10 +238,6 @@
     "./state/provider-instance-display": {
       "types": "./src/state/providerInstanceDisplay.ts",
       "default": "./src/state/providerInstanceDisplay.ts"
-    },
-    "./state/final-assistant-messages": {
-      "types": "./src/state/finalAssistantMessages.ts",
-      "default": "./src/state/finalAssistantMessages.ts"
     },
     "./state/pull-requests": {
       "types": "./src/state/pullRequests.ts",
@@ -438,10 +414,6 @@
     "./thread-reference": {
       "types": "./src/threadReference.ts",
       "default": "./src/threadReference.ts"
-    },
-    "./pull-request-project-filter": {
-      "types": "./src/pullRequestProjectFilter.ts",
-      "default": "./src/pullRequestProjectFilter.ts"
     },
     "./thread-pull-request-compatibility": {
       "types": "./src/threadPullRequestCompatibility.ts",

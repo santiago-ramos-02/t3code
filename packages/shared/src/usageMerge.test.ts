@@ -208,43 +208,6 @@ describe("mergeUsage", () => {
     }
   });
 
-  it("lets a live read beat another server's stored copy, and the copy count once the machine is gone", () => {
-    const boat = { provider: "claude" as const, hostId: "boat", homePath: "/root/.claude" };
-    const pc = { provider: "claude" as const, hostId: "pc", homePath: "C:/Users/me/.claude" };
-    // The PC's summary is newest, but its copy of the Boat source was read an hour earlier.
-    const pcSummary = summary(
-      [
-        bucket({ costUsd: 1, sourcePath: pc.homePath }),
-        bucket({ costUsd: 3, records: 1, sourcePath: boat.homePath }),
-      ],
-      [pc, boat],
-    );
-    const withCopy: UsageSummary = {
-      ...pcSummary,
-      readAt: "2026-08-07T02:00:00.000Z",
-      sources: pcSummary.sources.map((source) =>
-        source.fingerprint.hostId === "boat"
-          ? { ...source, readAt: "2026-08-07T00:30:00.000Z" }
-          : source,
-      ),
-    };
-    const live = environment("boat", {
-      ...summary([bucket({ costUsd: 5, sourcePath: boat.homePath })], [boat]),
-      readAt: "2026-08-07T01:00:00.000Z",
-    });
-    const host = environment("pc", withCopy);
-
-    for (const ordered of [
-      [host, live],
-      [live, host],
-    ]) {
-      const merged = mergeUsage(ordered, USAGE_CONTRACT_VERSION);
-      expect(merged.costUsd).toBe(6);
-      expect(merged.duplicateSources).toEqual([]);
-    }
-    expect(mergeUsage([host], USAGE_CONTRACT_VERSION).costUsd).toBe(4);
-  });
-
   it("prefers a complete scan over a newer partial scan of the same directory", () => {
     const source = { provider: "claude" as const, hostId: "mac", homePath: "/home/theo/.claude" };
     const incomplete = summary([bucket({ costUsd: 4, records: 2 })], [source]);

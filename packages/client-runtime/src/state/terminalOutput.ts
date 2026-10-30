@@ -286,14 +286,9 @@ export function readTerminalOutputUpdate(
     return { type: "reset", data: terminalOutputText(output), cursor: nextCursor };
   }
 
-  // Appends and compaction preserve offset order, so unread chunks form a suffix.
-  let firstUnread = output.chunks.length;
-  while (firstUnread > 0) {
-    const chunk = output.chunks[firstUnread - 1]!;
-    if (!(chunk.startOffset + chunk.data.length > cursor.offset)) break;
-    firstUnread -= 1;
-  }
-  const appended = output.chunks.slice(firstUnread);
+  const appended = output.chunks.filter(
+    (chunk) => chunk.startOffset + chunk.data.length > cursor.offset,
+  );
   if (appended.length === 0) {
     return { type: "none", cursor: nextCursor };
   }

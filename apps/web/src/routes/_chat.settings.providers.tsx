@@ -20,7 +20,6 @@ function SettingsProvidersRoute() {
     <ProviderSettingsPanel
       environmentId={environment.environmentId}
       {...(target.instanceId ? { instanceId: target.instanceId } : {})}
-      {...(target.projectCwd ? { projectCwd: target.projectCwd } : {})}
       projectIds={
         scope.kind === "project" || scope.kind === "checkout"
           ? scope.members
@@ -40,9 +39,6 @@ export const Route = createFileRoute("/_chat/settings/providers")({
       : {}),
     ...(typeof raw.instanceId === "string" && raw.instanceId.trim()
       ? { instanceId: ProviderInstanceId.make(raw.instanceId) }
-      : {}),
-    ...(typeof raw.projectCwd === "string" && raw.projectCwd.trim()
-      ? { projectCwd: raw.projectCwd }
       : {}),
   }),
   component: SettingsProvidersRoute,

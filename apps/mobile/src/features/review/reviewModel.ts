@@ -1,9 +1,6 @@
 import { parsePatchFiles } from "@pierre/diffs/utils/parsePatchFiles";
 import type { ChangeTypes, FileDiffMetadata } from "@pierre/diffs/types";
-import {
-  checkpointFileTotals,
-  type ThreadCheckpointSummary,
-} from "@t3tools/client-runtime/state/thread-checkpoints";
+import type { ThreadCheckpointSummary } from "@t3tools/client-runtime/state/thread-checkpoints";
 import type { ReviewDiffPreviewSource } from "@t3tools/contracts";
 import { quoteGitPatchPath } from "@t3tools/shared/gitPatchPath";
 import * as Arr from "effect/Array";
@@ -110,7 +107,7 @@ function checkpointTitle(checkpoint: ThreadCheckpointSummary): string {
 }
 
 function checkpointSubtitle(checkpoint: ThreadCheckpointSummary): string {
-  const fileCount = checkpointFileTotals(checkpoint).count;
+  const fileCount = checkpoint.files.length;
   if (checkpoint.status !== "ready") {
     return `Diff ${checkpoint.status}`;
   }
@@ -534,22 +531,17 @@ export function buildReviewSectionItems(input: {
     },
   );
 
-  const gitItems = input.gitSections
-    .filter(
-      (section): section is typeof section & { kind: ReviewSectionKind } =>
-        section.kind !== "commit",
-    )
-    .map<ReviewSectionItem>((section) => ({
-      id: `git:${section.kind}`,
-      kind: section.kind,
-      title: section.title,
-      subtitle: gitSubtitle(section),
-      diff: section.diff,
-      source: section,
-      ...(section.files ? { files: section.files } : {}),
-      truncated: section.truncated,
-      isLoading: false,
-    }));
+  const gitItems = input.gitSections.map<ReviewSectionItem>((section) => ({
+    id: `git:${section.kind}`,
+    kind: section.kind,
+    title: section.title,
+    subtitle: gitSubtitle(section),
+    diff: section.diff,
+    source: section,
+    ...(section.files ? { files: section.files } : {}),
+    truncated: section.truncated,
+    isLoading: false,
+  }));
   const hasChangesItem = gitItems.some((item) => item.id === CHANGES_SECTION_ID);
   const visibleGitItems =
     input.loadingGitSections && !hasChangesItem

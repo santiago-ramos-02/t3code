@@ -1596,16 +1596,6 @@ function renderFeedEntry(
       const visibleAttachments = attachments.filter(
         (attachment) => isImageAttachment(attachment) || !inlineAttachmentIds.has(attachment.id),
       );
-      // Images sent without words show as images, not as a bubble around them.
-      const mediaOnly =
-        foldRowId === null &&
-        presentation.attribution !== "guest" &&
-        presentation.text.trim() === "" &&
-        visibleAttachments.length + (entry.pendingMessage?.attachments.length ?? 0) > 0 &&
-        visibleAttachments.every(isImageAttachment) &&
-        (entry.pendingMessage?.attachments ?? []).every(
-          (attachment) => attachment.type === "image",
-        );
       return (
         <Animated.View
           className="mb-5 items-end"
@@ -1622,13 +1612,13 @@ function renderFeedEntry(
           <View
             className="min-w-0 rounded-[20px]"
             style={{
-              backgroundColor: mediaOnly ? undefined : userBubbleColor,
+              backgroundColor: userBubbleColor,
               maxWidth: props.duoColumns ? "85%" : props.userBubbleMaxWidth,
               ...(!bubbleBodyVisible
                 ? null
                 : hasReviewCommentContext
                   ? { width: props.reviewCommentBubbleWidth }
-                  : hasWideBlock || foldExpanded || (mediaOnly && visibleAttachments.length > 0)
+                  : hasWideBlock || foldExpanded
                     ? { width: props.duoColumns ? "85%" : props.userBubbleMaxWidth }
                     : null),
             }}
@@ -1650,13 +1640,7 @@ function renderFeedEntry(
               />
             ) : null}
             {bubbleBodyVisible ? (
-              <View
-                className={cn(
-                  "gap-2",
-                  !mediaOnly && "px-3.5 pb-2.5",
-                  !mediaOnly && foldRowId === null && "pt-2.5",
-                )}
-              >
+              <View className={cn("gap-2 px-3.5 pb-2.5", foldRowId === null && "pt-2.5")}>
                 {entry.pendingMessage?.attachments.map((attachment) =>
                   attachment.type === "image" && attachment.uploadedAttachmentId ? (
                     <MessageAttachmentImage
@@ -1665,11 +1649,7 @@ function renderFeedEntry(
                       attachmentId={attachment.uploadedAttachmentId}
                       name={attachment.name}
                       mimeType={attachment.mimeType}
-                      className={
-                        mediaOnly
-                          ? "h-[140px] w-[180px] rounded-[20px]"
-                          : "h-[140px] w-[180px] rounded-[14px]"
-                      }
+                      className="h-[140px] w-[180px] rounded-[14px]"
                       onPressPreview={props.onPressPreview}
                     />
                   ) : attachment.type === "image" ? (
@@ -1688,7 +1668,7 @@ function renderFeedEntry(
                     >
                       <Image
                         source={{ uri: attachment.previewUri }}
-                        style={{ width: 180, height: 140, borderRadius: mediaOnly ? 20 : 14 }}
+                        style={{ width: 180, height: 140, borderRadius: 14 }}
                       />
                     </Pressable>
                   ) : (
@@ -1709,10 +1689,7 @@ function renderFeedEntry(
                           className={
                             inlineAttachmentIds.size
                               ? "h-24 w-24 rounded-[14px] bg-user-bubble-foreground/15"
-                              : mediaOnly
-                                ? // Matches the bubble's corners; native borders sit inside, so the edge adds no size.
-                                  "aspect-[1.3] w-full rounded-[20px] border border-border bg-user-bubble-foreground/15"
-                                : "aspect-[1.3] w-full rounded-[14px] bg-user-bubble-foreground/15"
+                              : "aspect-[1.3] w-full rounded-[14px] bg-user-bubble-foreground/15"
                           }
                           onPressPreview={props.onPressPreview}
                         />
@@ -1730,7 +1707,7 @@ function renderFeedEntry(
                     })}
                   </View>
                 ) : null}
-                {presentation.text.trim().length > 0 ? (
+                {message.text.trim().length > 0 ? (
                   <MarkdownImageAvailableWidthContext
                     value={props.userBubbleMaxWidth - USER_BUBBLE_HORIZONTAL_PADDING * 2}
                   >

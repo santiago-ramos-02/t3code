@@ -40,7 +40,7 @@ import {
   OrchestrationV2ProviderThread,
   ProjectId,
   ProviderInstanceId,
-  type ResolvedProviderInstanceEnvironment,
+  type ProviderInstanceEnvironment,
   ProviderDriverKind,
   type ProviderReplayTranscript,
   type ProviderApprovalDecision,
@@ -84,7 +84,6 @@ import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderS
 import { PreviewControlsToolkit } from "../../mcp/toolkits/previewControls/tools.ts";
 import { HtmlToolkit } from "../../mcp/toolkits/html/tools.ts";
 import { EnvironmentToolkit } from "../../mcp/toolkits/environment/tools.ts";
-import { BoatToolkit } from "../../mcp/toolkits/boat/tools.ts";
 import { ProjectToolkit } from "../../mcp/toolkits/project/tools.ts";
 import { WorktreeToolkit } from "../../mcp/toolkits/worktree/tools.ts";
 import { ThreadToolkit } from "../../mcp/toolkits/thread/tools.ts";
@@ -237,21 +236,6 @@ function makeClaudeTestTurnInput(input: {
 
 describe("ClaudeAdapterV2 runtime query policy", () => {
   it.each([
-    "-- --thinking-display omitted",
-    "--thinking-display summarized -- --thinking-display omitted",
-  ])("does not treat operands after -- as SDK flags: %s", (launchArgs) => {
-    const options = ClaudeAdapterV2.makeClaudeQueryOptions({
-      modelSelection: CLAUDE_TEST_MODEL_SELECTION,
-      nativeThreadId: "thinking-thread",
-      resume: false,
-      cwd: "/workspace",
-      settings: { ...DEFAULT_CLAUDE_SETTINGS, launchArgs },
-    });
-    assert.deepEqual(options.thinking, { type: "adaptive", display: "summarized" });
-    assert.equal(options.extraArgs?.["thinking-display"], "summarized");
-  });
-
-  it.each([
     ["--permission-mode acceptEdits", "acceptEdits"],
     ["--dangerously-skip-permissions", "bypassPermissions"],
     ["--dangerously-skip-permissions --permission-mode plan", "plan"],
@@ -267,28 +251,6 @@ describe("ClaudeAdapterV2 runtime query policy", () => {
     assert.equal(options.permissionMode, expected);
     assert.isUndefined(options.extraArgs?.["permission-mode"]);
     assert.isUndefined(options.extraArgs?.["dangerously-skip-permissions"]);
-  });
-
-  it("passes every --add-dir launch directory to Claude", () => {
-    const options = ClaudeAdapterV2.makeClaudeQueryOptions({
-      modelSelection: CLAUDE_TEST_MODEL_SELECTION,
-      nativeThreadId: "native-add-dir",
-      resume: false,
-      cwd: "/workspace",
-      attachmentsDir: "/attachments",
-      settings: {
-        ...AUTO_COMPACT_CLAUDE_SETTINGS,
-        launchArgs: "--add-dir ../apps ../lib --verbose --add-dir=/shared",
-      },
-    });
-    assert.deepEqual(options.additionalDirectories, [
-      "/workspace",
-      "/attachments",
-      "../apps",
-      "../lib",
-      "/shared",
-    ]);
-    assert.isUndefined(options.extraArgs?.["add-dir"]);
   });
 
   it("gives delegated children Claude's subagent prompt cache TTL", () => {
@@ -498,45 +460,6 @@ describe("ClaudeAdapterV2 runtime query policy", () => {
   });
 });
 
-describe("ClaudeAdapterV2 session launch", () => {
-  it("loads a Gentle AI off launch beside T3 Code's own MCP server", () => {
-    const options = ClaudeAdapterV2.makeClaudeQueryOptions({
-      modelSelection: CLAUDE_TEST_MODEL_SELECTION,
-      nativeThreadId: "gentle-off-thread",
-      resume: false,
-      cwd: "/workspace",
-      mcpServers: { "t3-code": { type: "http", url: "http://127.0.0.1:1/mcp" } },
-      launch: {
-        settingSources: ["project", "local"],
-        appendSystemPrompt: "# User instructions\n\nPrefer small diffs.",
-        strictMcpConfig: true,
-        mcpServers: { own: { command: "own-mcp" } },
-      },
-    });
-    assert.deepEqual(options.settingSources, ["project", "local"]);
-    assert.isTrue(options.strictMcpConfig);
-    assert.deepEqual(Object.keys(options.mcpServers ?? {}), ["own", "t3-code"]);
-    const append = options.systemPrompt;
-    assert.isTrue(
-      typeof append === "object" &&
-        append !== null &&
-        "append" in append &&
-        String(append.append).endsWith("# User instructions\n\nPrefer small diffs."),
-    );
-  });
-
-  it("keeps every settings source without a launch", () => {
-    const options = ClaudeAdapterV2.makeClaudeQueryOptions({
-      modelSelection: CLAUDE_TEST_MODEL_SELECTION,
-      nativeThreadId: "plain-thread",
-      resume: false,
-      cwd: "/workspace",
-    });
-    assert.isUndefined(options.settingSources);
-    assert.isUndefined(options.strictMcpConfig);
-  });
-});
-
 describe("ClaudeAdapterV2 MCP query overrides", () => {
   const T3_MCP_SERVERS = {
     "t3-code": {
@@ -613,7 +536,6 @@ describe("ClaudeAdapterV2 MCP query overrides", () => {
       ...Object.values(WorktreeToolkit.tools),
       ...Object.values(ProjectToolkit.tools),
       ...Object.values(EnvironmentToolkit.tools),
-      ...Object.values(BoatToolkit.tools),
       ...Object.values(PreviewControlsToolkit.tools),
       ...Object.values(HtmlToolkit.tools),
     ]
@@ -1230,7 +1152,7 @@ describe("ClaudeAdapterV2 approval cancellation", () => {
 
 const captureSdkExecutablePaths = Effect.fn("captureSdkExecutablePaths")(function* (
   binaryPath: string,
-  environment: ResolvedProviderInstanceEnvironment = [],
+  environment: ProviderInstanceEnvironment = [],
 ) {
   const executablePaths: Array<string | undefined> = [];
   const taskToolEnvironment: Array<string | undefined> = [];
@@ -9192,172 +9114,6 @@ describe("ClaudeAdapterV2 background wake turns", () => {
         if (terminal?.status !== "failed") return;
         assert.equal(terminal.threadDisposition, "reusable");
         assert.include(terminal.failure.message, "never started a turn");
-      }).pipe(
-        Effect.provide(
-          Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
-        ),
-      ),
-    ),
-  );
-
-  // regression: #17531 a mod that holds a tool behind a focused pane must fail the turn, not hang it
-  it.effect.each([
-    { case: "fails a turn whose mod requests focus for a pane T3 cannot show", focus: true },
-    { case: "keeps a turn running beside a passive mod pane", focus: false },
-  ] as const)("$case", ({ focus }) =>
-    Effect.scoped(
-      Effect.gen(function* () {
-        const closed = yield* Deferred.make<void>();
-        const harness = yield* makeWakeHarnessWithOptions({
-          close: () => Deferred.succeed(closed, undefined),
-        });
-        const now = yield* DateTime.now;
-        yield* harness.runtime.startTurn(
-          makeClaudeTestTurnInput({
-            threadId: harness.threadId,
-            providerThread: harness.providerThread,
-            now,
-            attemptId: RunAttemptId.make("attempt-claude-mod-pane-focus"),
-            text: "Run rm -r build",
-            attachments: [],
-          }),
-        );
-        // Captured from Claude 2.1.303 with the blast-radius mod holding a Bash
-        // call: the mod waits for keyboard input in its pane and nothing else
-        // arrives until it gives up.
-        yield* Queue.offer(
-          harness.sdkMessages,
-          claudeSdkFrame({
-            type: "system",
-            subtype: "ui_panes",
-            panes: [
-              { id: "blast-radius", title: "Blast Radius", plugin: "blast-radius", rows: 10 },
-            ],
-            shown_id: "blast-radius",
-            focused_id: null,
-            focus_requested_id: focus ? "blast-radius" : null,
-            uuid: "00000000-0000-4000-8000-000000000795",
-            session_id: WAKE_NATIVE_SESSION,
-          }),
-        );
-        yield* Queue.offer(
-          harness.sdkMessages,
-          claudeSdkFrame({
-            type: "system",
-            subtype: "ui_invalidate",
-            event: "ui.render",
-            uuid: "00000000-0000-4000-8000-000000000796",
-            session_id: WAKE_NATIVE_SESSION,
-          }),
-        );
-        // Frames are handled in order, so a later notice proves the pane frame
-        // was handled without the turn ending.
-        yield* Queue.offer(
-          harness.sdkMessages,
-          claudeSdkFrame({
-            type: "system",
-            subtype: "informational",
-            content: "Processing barrier.",
-            level: "warning",
-            uuid: "00000000-0000-4000-8000-000000000797",
-            session_id: WAKE_NATIVE_SESSION,
-          }),
-        );
-        yield* harness.until(
-          () =>
-            harness.terminalEvents().length > 0 ||
-            harness.events.some(
-              (event) =>
-                event.type === "turn_item.updated" && event.turnItem.type === "system_notice",
-            ),
-        );
-        const [terminal] = harness.terminalEvents();
-        if (!focus) {
-          assert.equal(terminal, undefined);
-          return;
-        }
-        assert.equal(terminal?.status, "failed");
-        if (terminal?.status !== "failed") return;
-        assert.include(terminal.failure.message, "blast-radius");
-        // The held tool call is abandoned by closing the query, never answered.
-        yield* Deferred.await(closed);
-      }).pipe(
-        Effect.provide(
-          Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
-        ),
-      ),
-    ),
-  );
-
-  // regression: #17531 a follow-up sent while the failed mod turn's process closes gets a new process
-  it.effect("runs a follow-up in a fresh query while the mod-blocked query is closing", () =>
-    Effect.scoped(
-      Effect.gen(function* () {
-        const releaseClose = yield* Deferred.make<void>();
-        const replacementClosedOld = yield* Deferred.make<void>();
-        let oldCloses = 0;
-        const harness = yield* makeWakeHarnessWithOptions({
-          // The held CLI never answers an interrupt; closure must not need one.
-          interrupt: Effect.never,
-          close: (sdkMessages) =>
-            Effect.suspend(() =>
-              ++oldCloses === 2 ? Deferred.succeed(replacementClosedOld, undefined) : Effect.void,
-            ).pipe(
-              Effect.andThen(Deferred.await(releaseClose)),
-              Effect.andThen(Queue.shutdown(sdkMessages)),
-            ),
-          freshQueueOnReopen: true,
-        });
-        // Added after the harness so it runs first: a failed assertion must not
-        // leave teardown waiting on the held close.
-        yield* Effect.addFinalizer(() => Deferred.succeed(releaseClose, undefined));
-        const now = yield* DateTime.now;
-        const turnInput = makeClaudeTestTurnInput({
-          threadId: harness.threadId,
-          providerThread: harness.providerThread,
-          now,
-          attemptId: RunAttemptId.make("attempt-claude-mod-pane-blocked"),
-          text: "Run rm -r build",
-          attachments: [],
-        });
-        yield* harness.runtime.startTurn(turnInput);
-        yield* Queue.offer(
-          harness.sdkMessages,
-          claudeSdkFrame({
-            type: "system",
-            subtype: "ui_panes",
-            panes: [
-              { id: "blast-radius", title: "Blast Radius", plugin: "blast-radius", rows: 10 },
-            ],
-            shown_id: "blast-radius",
-            focused_id: null,
-            focus_requested_id: "blast-radius",
-            uuid: "00000000-0000-4000-8000-000000000798",
-            session_id: WAKE_NATIVE_SESSION,
-          }),
-        );
-        assert.equal((yield* Queue.take(harness.terminalReceipts)).status, "failed");
-
-        const followUp = yield* harness.runtime
-          .startTurn({
-            ...turnInput,
-            attemptId: RunAttemptId.make("attempt-claude-after-mod-pane"),
-            providerTurnOrdinal: 2,
-          })
-          .pipe(Effect.forkScoped);
-        // Reusing the closing process would offer the prompt to it instead.
-        yield* Effect.raceFirst(
-          Deferred.await(replacementClosedOld),
-          harness.until(() => harness.offeredMessages.length >= 2),
-        );
-        assert.isTrue(yield* Deferred.isDone(replacementClosedOld));
-        yield* Deferred.succeed(releaseClose, undefined);
-        yield* Fiber.join(followUp);
-        assert.equal(harness.processQueues.length, 2);
-        yield* harness.offerAndWait(
-          makeResultFrame({ uuid: "after-mod-pane-result", result: "Done." }),
-        );
-        assert.equal((yield* Queue.take(harness.terminalReceipts)).status, "completed");
       }).pipe(
         Effect.provide(
           Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),

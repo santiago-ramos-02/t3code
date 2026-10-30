@@ -21,8 +21,6 @@ const RIGHT_PANEL_KINDS = [
   "terminal",
   "pull-request",
   "pull-requests",
-  "memory",
-  "memories",
 ] as const;
 export type RightPanelKind = (typeof RIGHT_PANEL_KINDS)[number];
 
@@ -76,11 +74,7 @@ export type RightPanelSurface =
       url?: string;
       detailTab?: PullRequestDetailTab;
     }
-  | { id: "pull-requests"; kind: "pull-requests" }
-  /** One Engram memory on the thread's environment, opened from the thread; several can be open. */
-  | { id: `memory:${number}`; kind: "memory"; memoryId: number; title: string }
-  /** The memories the thread saved and its project keeps, one singleton tab beside `memory` tabs. */
-  | { id: "memories"; kind: "memories" };
+  | { id: "pull-requests"; kind: "pull-requests" };
 
 const RIGHT_PANEL_STORAGE_KEY = "t3code:right-panel-state:v2";
 const RIGHT_PANEL_STORAGE_VERSION = 14;
@@ -115,7 +109,6 @@ interface RightPanelStoreState {
   userActionRevisionByThreadKey: Record<string, number>;
   closeRevisionByThreadKey: Record<string, number>;
   getUserActionRevision: (ref: ScopedThreadRef) => number;
-  markUserAction: (ref: ScopedThreadRef) => number;
   /** Refused if the user chose a panel after expectedUserActionRevision was read. */
   openProactive: (
     ref: ScopedThreadRef,
@@ -127,13 +120,9 @@ interface RightPanelStoreState {
   ) => boolean;
   open: (
     ref: ScopedThreadRef,
-    kind: Exclude<RightPanelKind, "file" | "terminal" | "pull-request" | "memory">,
+    kind: Exclude<RightPanelKind, "file" | "terminal" | "pull-request">,
   ) => void;
   openDevice: (ref: ScopedThreadRef, target: DeviceTabTarget, automatic?: boolean) => void;
-  openMemory: (
-    ref: ScopedThreadRef,
-    memory: { readonly id: number; readonly title: string },
-  ) => void;
   renameDevice: (ref: ScopedThreadRef, surfaceId: string, title: string) => void;
   openBrowser: (ref: ScopedThreadRef, tabId: string | null) => void;
   openFile: (ref: ScopedThreadRef, relativePath: string, line?: number) => void;
@@ -190,7 +179,7 @@ interface RightPanelStoreState {
   toggleVisibility: (ref: ScopedThreadRef) => void;
   toggle: (
     ref: ScopedThreadRef,
-    kind: Exclude<RightPanelKind, "file" | "terminal" | "pull-request" | "memory">,
+    kind: Exclude<RightPanelKind, "file" | "terminal" | "pull-request">,
   ) => void;
   setThreadPanelOpen: (
     ref: ScopedThreadRef,
@@ -213,7 +202,7 @@ const DEFAULT_THREAD_PANEL_VISIBILITY: ThreadPanelVisibility = {
 };
 
 const singletonSurface = (
-  kind: Exclude<RightPanelKind, "file" | "preview" | "terminal" | "pull-request" | "memory">,
+  kind: Exclude<RightPanelKind, "file" | "preview" | "terminal" | "pull-request">,
 ): RightPanelSurface => {
   switch (kind) {
     case "diff":
@@ -222,8 +211,6 @@ const singletonSurface = (
       return { id: "files", kind };
     case "pull-requests":
       return { id: "pull-requests", kind };
-    case "memories":
-      return { id: "memories", kind };
     case "device":
       return { id: "device", kind };
   }
@@ -262,13 +249,6 @@ const terminalSurface = (terminalId: string): RightPanelSurface => ({
   terminalIds: [terminalId],
   activeTerminalId: terminalId,
 });
-
-function memorySurface(memory: {
-  readonly id: number;
-  readonly title: string;
-}): Extract<RightPanelSurface, { kind: "memory" }> {
-  return { id: `memory:${memory.id}`, kind: "memory", memoryId: memory.id, title: memory.title };
-}
 
 export type PullRequestSurface = Extract<RightPanelSurface, { kind: "pull-request" }>;
 
@@ -511,14 +491,6 @@ export function migratePersistedRightPanelState(persistedState: unknown): {
                         }),
                       ];
                     }
-                    if (surface.kind === "memory") {
-                      return typeof surface.memoryId === "number" &&
-                        Number.isSafeInteger(surface.memoryId) &&
-                        surface.memoryId > 0 &&
-                        typeof surface.title === "string"
-                        ? [memorySurface({ id: surface.memoryId, title: surface.title })]
-                        : [];
-                    }
                     if (surface.kind !== "terminal") return [surface];
                     if (
                       !("resourceId" in surface) ||
@@ -626,16 +598,6 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
       closeRevisionByThreadKey: {},
       getUserActionRevision: (ref) =>
         get().userActionRevisionByThreadKey[scopedThreadKey(ref)] ?? 0,
-      markUserAction: (ref) => {
-        const revision = get().getUserActionRevision(ref) + 1;
-        set((state) => ({
-          userActionRevisionByThreadKey: {
-            ...state.userActionRevisionByThreadKey,
-            [scopedThreadKey(ref)]: revision,
-          },
-        }));
-        return revision;
-      },
       openProactive: (ref, request, expectedUserActionRevision, activateExisting = false) => {
         let opened = false;
         set((state) => {
@@ -745,18 +707,6 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
                   ),
                 }
               : next;
-          }),
-        ),
-      openMemory: (ref, memory) =>
-        set((state) =>
-          userAction(state, scopedThreadKey(ref), (current) => {
-            const surface = memorySurface(memory);
-            const next = upsertSurface(current, surface);
-            // Reopening keeps the tab and takes the latest title.
-            return {
-              ...next,
-              surfaces: next.surfaces.map((entry) => (entry.id === surface.id ? surface : entry)),
-            };
           }),
         ),
       setPullRequestDetailTab: (ref, surfaceId, detailTab) =>

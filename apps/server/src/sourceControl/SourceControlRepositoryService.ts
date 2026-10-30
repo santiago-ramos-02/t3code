@@ -2,9 +2,7 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import * as Path from "effect/Path";
-import * as Redacted from "effect/Redacted";
 import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
 
@@ -27,7 +25,6 @@ import {
 import * as ServerConfig from "../config.ts";
 import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
 import * as SourceControlRateLimit from "@t3tools/source-control-core/server/SourceControlRateLimit";
-import * as GitHubCredentials from "@t3tools/source-control-github/server/GitHubCredentials";
 import {
   parseGitCloneProgressLine,
   type GitCloneProgressLine,
@@ -85,36 +82,6 @@ const CLONE_ENV = {
   LC_ALL: "C",
 } satisfies NodeJS.ProcessEnv;
 
-const GITHUB_HOST = "github.com";
-
-/**
- * Git's environment for signing in to GitHub over HTTPS with this server's token. The token goes
- * through the environment only: a URL, argument, or git config file would show it to `ps`, logs,
- * and the remote recorded for the checkout.
- */
-function githubLoginEnv(token: Redacted.Redacted<string>): NodeJS.ProcessEnv {
-  return {
-    GIT_CONFIG_COUNT: "1",
-    GIT_CONFIG_KEY_0: `http.https://${GITHUB_HOST}/.extraheader`,
-    GIT_CONFIG_VALUE_0: `AUTHORIZATION: basic ${btoa(`x-access-token:${Redacted.value(token)}`)}`,
-  };
-}
-
-/** True for a GitHub HTTPS URL that names no login of its own. */
-function isPlainGithubHttpsUrl(cloneUrl: string): boolean {
-  try {
-    const url = new URL(cloneUrl);
-    return (
-      url.protocol === "https:" &&
-      url.hostname === GITHUB_HOST &&
-      url.username.length === 0 &&
-      url.password.length === 0
-    );
-  } catch {
-    return false;
-  }
-}
-
 function mapRepositoryError(operation: string, provider: SourceControlProviderKind) {
   return Effect.mapError((cause: unknown) =>
     isSourceControlRepositoryError(cause)
@@ -143,7 +110,7 @@ function toRepositoryInfo(
   };
 }
 
-// Redact credentials from client clone snapshots; git still receives the credentials.
+// Redact credentials from client clone snapshots; git still receives the original URL.
 function redactRemoteUrl(remoteUrl: string): string {
   try {
     const url = new URL(remoteUrl);
@@ -161,16 +128,10 @@ function redactRemoteUrl(remoteUrl: string): string {
 }
 
 // Userinfo can contain @; remove through the last one before the host boundary.
-const URL_WITH_USERINFO = /\b([a-z][a-z0-9+.-]*:\/\/)[^\s/?#]+@/gi;
-// Git leaves quotes inside query tokens unescaped; consume through the closing quote.
-const QUOTED_URL_QUERY = /(['"])([a-z][a-z0-9+.-]*:\/\/[^\s?]*)\?.*\1(?=[\s:]|$)/gi;
-const URL_QUERY = /\b([a-z][a-z0-9+.-]*:\/\/[^\s?]*)\?[^\s]*/gi;
+const URL_WITH_USERINFO = /\b([a-z][a-z0-9+.-]*:\/\/)[^\s/]+@/gi;
 
 function redactUrlCredentials(text: string): string {
-  return text
-    .replace(QUOTED_URL_QUERY, "$1$2$1")
-    .replace(URL_QUERY, "$1")
-    .replace(URL_WITH_USERINFO, "$1");
+  return text.replace(URL_WITH_USERINFO, "$1");
 }
 
 // The remote already exists after push failure; advise fixing access and pushing.
@@ -209,9 +170,6 @@ function httpsFallbackUrl(
   return cloneUrlForProtocol(prepared.cloneUrl, "https");
 }
 
-const isAuthenticationFailure = (error: SourceControlRepositoryError) =>
-  isGitCommandError(error.cause) && error.cause.reason === "authentication_failed";
-
 const isSshRejection = (error: SourceControlRepositoryError) =>
   isGitCommandError(error.cause) &&
   (error.cause.reason === "authentication_failed" || error.cause.reason === "host_key_unverified");
@@ -236,7 +194,6 @@ export const make = Effect.gen(function* () {
   const git = yield* GitVcsDriver.GitVcsDriver;
   const path = yield* Path.Path;
   const providers = yield* SourceControlProviderRegistry.SourceControlProviderRegistry;
-  const githubCredentials = yield* GitHubCredentials.GitHubCredentials;
 
   const ensureConcreteProvider = (input: {
     readonly operation: string;
@@ -368,7 +325,6 @@ export const make = Effect.gen(function* () {
     destinationPath: string,
     cloneUrl: string,
     options?: SourceControlCloneOptions,
-    login?: NodeJS.ProcessEnv,
   ) {
     const onProgress = options?.onProgress;
     // Git mixes progress and diagnostics on stderr; retain non-progress tail lines for failure details.
@@ -384,19 +340,17 @@ export const make = Effect.gen(function* () {
         if (stderrTail.length > 4) stderrTail.shift();
       });
     };
-    // Git misreads @ in a pathless URL's query as userinfo and echoes its suffix as the host.
-    const normalizedCloneUrl = cloneUrl.replace(/^([a-z][a-z0-9+.-]*:\/\/[^/?#]+)\?/i, "$1/?");
     yield* git
       .execute({
         operation: "SourceControlRepositoryService.cloneRepository",
         cwd: path.dirname(destinationPath),
-        args: ["clone", "--progress", "--", normalizedCloneUrl, path.basename(destinationPath)],
+        args: ["clone", "--progress", "--", cloneUrl, path.basename(destinationPath)],
         timeoutMs: options?.timeoutMs === undefined ? CLONE_TIMEOUT_MS : options.timeoutMs,
         // Buffered output is unused and progress can be huge; cap it while retaining line callbacks.
         maxOutputBytes: 256 * 1024,
         appendTruncationMarker: true,
         keepLineCallbacksAfterTruncation: true,
-        env: { ...CLONE_ENV, ...login },
+        env: CLONE_ENV,
         progress: { onStderrLine },
       })
       .pipe(
@@ -415,38 +369,13 @@ export const make = Effect.gen(function* () {
       );
   });
 
-  // A clone that needs no login never sends one: the token is for a repository GitHub refused
-  // anonymously, such as a private one on a machine with no git credential helper.
-  const runCloneWithLogin = (
-    input: SourceControlCloneRepositoryInput,
-    destinationPath: string,
-    cloneUrl: string,
-    options?: SourceControlCloneOptions,
-  ) =>
-    runClone(input, destinationPath, cloneUrl, options).pipe(
-      Effect.catchIf(
-        (error) => isAuthenticationFailure(error) && isPlainGithubHttpsUrl(cloneUrl),
-        (error) =>
-          githubCredentials.get(GITHUB_HOST).pipe(
-            Effect.option,
-            Effect.flatMap(
-              Option.match({
-                onNone: () => Effect.fail(error),
-                onSome: ({ token }) =>
-                  runClone(input, destinationPath, cloneUrl, options, githubLoginEnv(token)),
-              }),
-            ),
-          ),
-      ),
-    );
-
   const cloneRepository = Effect.fn("SourceControlRepositoryService.cloneRepository")(function* (
     input: SourceControlCloneRepositoryInput,
     options?: SourceControlCloneOptions,
   ) {
     const prepared = yield* prepareClone(input);
     const httpsUrl = httpsFallbackUrl(input, prepared);
-    const remoteUrl = yield* runCloneWithLogin(
+    const remoteUrl = yield* runClone(
       input,
       prepared.destinationPath,
       prepared.cloneUrl,
@@ -457,7 +386,7 @@ export const make = Effect.gen(function* () {
       Effect.catch((sshError) =>
         httpsUrl === null || !isSshRejection(sshError)
           ? Effect.fail(sshError)
-          : runCloneWithLogin(input, prepared.destinationPath, httpsUrl, options).pipe(
+          : runClone(input, prepared.destinationPath, httpsUrl, options).pipe(
               Effect.as(redactRemoteUrl(httpsUrl)),
               Effect.mapError(
                 (httpsError) =>

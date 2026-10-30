@@ -6,7 +6,7 @@ import type {
   AcpRegistryOperationError,
   AcpRegistrySetProviderInput,
   ProviderDriverKind,
-  ResolvedProviderInstanceEnvironment,
+  ProviderInstanceEnvironment,
   ProviderInstanceId,
   ServerProvider,
   ServerProviderWorkspaceSnapshot,
@@ -31,13 +31,8 @@ export interface ProviderDriverMetadata {
 
 export type ProviderWorkspaceSnapshot = ServerProvider &
   Pick<ServerProviderWorkspaceSnapshot, "slashCommandsPending" | "optionDescriptors">;
-/**
- * Fields the server adds to its provider instances, which it declares by augmenting this
- * interface (the fork's gentle-pi settings, see apps/server PiGentleSettings.ts).
- */
-export interface ProviderInstanceExtensions {}
 
-export interface ProviderInstance extends ProviderInstanceExtensions {
+export interface ProviderInstance {
   readonly instanceId: ProviderInstanceId;
   readonly driverKind: ProviderDriverKind;
   readonly continuationIdentity: ProviderContinuationIdentity;
@@ -101,7 +96,7 @@ export interface ProviderDriverCreateInput<Config> {
   readonly instanceId: ProviderInstanceId;
   readonly displayName: string | undefined;
   readonly accentColor?: string | undefined;
-  readonly environment: ResolvedProviderInstanceEnvironment;
+  readonly environment: ProviderInstanceEnvironment;
   readonly enabled: boolean;
   readonly config: Config;
 }

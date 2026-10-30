@@ -22,8 +22,6 @@ import { OpenInPicker } from "./OpenInPicker";
 import { ThreadDetailsSection } from "./ThreadDetailsSection";
 import { ThreadAutomationsPanel } from "./ThreadAutomationsPanel";
 import { ThreadRelationshipsPanel } from "./ThreadRelationshipsControl";
-import { ThreadMemoryPanel } from "../memory/ThreadMemoryPanel";
-import { ThreadFeaturePanel } from "./ThreadFeaturePanel";
 import { ThreadServersPanel } from "./ThreadServersPanel";
 import { ThreadDetailsUsage, type ThreadDetailsUsageInput } from "./ThreadDetailsUsage";
 import { ThreadDetailsItemsMenuItems } from "./ThreadDetailsItemsMenu";
@@ -245,18 +243,6 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                   environmentId={props.environmentId}
                   threadId={props.threadId}
                 />
-              ) : null}
-
-              {density === "full" && !props.draftId && visible.feature ? (
-                <ThreadFeaturePanel
-                  environmentId={props.environmentId}
-                  threadId={props.threadId}
-                  cwd={props.gitCwd}
-                />
-              ) : null}
-
-              {density === "full" && !props.draftId && visible.memory ? (
-                <ThreadMemoryPanel environmentId={props.environmentId} threadId={props.threadId} />
               ) : null}
 
               {density === "full" && !props.draftId && visible.lineage ? (

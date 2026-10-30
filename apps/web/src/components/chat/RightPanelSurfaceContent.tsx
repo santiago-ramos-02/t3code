@@ -17,8 +17,6 @@ import {
   PersistentThreadTerminalPanel,
   type PersistentThreadTerminalPanelProps,
 } from "../PersistentThreadTerminals";
-import { MemoriesPanel } from "../memory/MemoriesPanel";
-import { MemoryPanel } from "../memory/MemoryPanel";
 import { pullRequestPanelContext } from "../pullRequest/pullRequestDetail.logic";
 import { PullRequestDetailPanel } from "../pullRequest/PullRequestDetailPanel";
 import { PullRequestDetailGhost } from "../pullRequest/PullRequestGhosts";
@@ -167,17 +165,6 @@ export function RightPanelSurfaceContent(props: {
     }
     case "pull-requests":
       return <ThreadPullRequestsPanel threadRef={threadRef} />;
-    case "memories":
-      return <MemoriesPanel threadRef={threadRef} />;
-    case "memory":
-      return (
-        <MemoryPanel
-          key={surface.id}
-          threadRef={threadRef}
-          memoryId={surface.memoryId}
-          title={surface.title}
-        />
-      );
     case "device":
       return (
         <Suspense fallback={null}>

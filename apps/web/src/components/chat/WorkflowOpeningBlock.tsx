@@ -96,7 +96,7 @@ export function WorkflowOpeningBlock(props: {
       {opening.group && opening.group.unphasedMembers.length > 0 ? (
         <ul className="m-0 list-none p-0">{opening.group.unphasedMembers.map(memberRow)}</ul>
       ) : null}
-      <WorkflowScript script={opening.script} kind={opening.scriptKind} />
+      <WorkflowScript script={opening.script} />
     </section>
   );
 }
@@ -199,10 +199,7 @@ function WorkflowMemberRow(props: {
   );
 }
 
-function WorkflowScript(props: {
-  readonly script: string;
-  readonly kind: WorkflowOpening["scriptKind"];
-}) {
+function WorkflowScript(props: { readonly script: string }) {
   const [expanded, setExpanded] = useState(false);
   const revealRef = findRevealRef(() => setExpanded(true));
   const canFold = shouldCollapseUserMessage(props.script);
@@ -220,10 +217,7 @@ function WorkflowScript(props: {
             : undefined
         }
       >
-        <ChatMarkdown
-          text={props.kind === "script" ? scriptMarkdown(props.script) : props.script}
-          cwd={undefined}
-        />
+        <ChatMarkdown text={scriptMarkdown(props.script)} cwd={undefined} />
       </div>
       {canFold ? (
         <div className="-ms-1">
@@ -235,7 +229,7 @@ function WorkflowScript(props: {
             data-scroll-anchor-ignore
             onClick={() => setExpanded((value) => !value)}
           >
-            {expanded ? "Show less" : `Show full ${props.kind}`}
+            {expanded ? "Show less" : "Show full script"}
           </Button>
         </div>
       ) : null}

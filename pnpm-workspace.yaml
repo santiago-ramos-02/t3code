@@ -97,11 +97,6 @@ catalog:
   remark-rehype: 11.1.2
   unified: 11.0.5
 
-# Preserve the mobile catalog used by the fork's mobile manifest.
-catalogs:
-  mobile:
-    "@legendapp/list": 3.3.5
-
 minimumReleaseAgeExclude:
   - alchemy@2.0.0-beta.84
   - "@alchemy.run/acme@2.0.0-beta.84"

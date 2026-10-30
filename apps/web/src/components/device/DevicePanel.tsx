@@ -238,7 +238,7 @@ export function DevicePanel(props: {
               environmentId={environmentId}
               device={activeDevice}
               hostLabel={activeHost?.label ?? "Device host"}
-              hostKind={activeHost?.kind}
+              simlock={activeHost?.kind === "simlock"}
               hostDiagnostics={
                 diagnostics.find(({ hostId }) => hostId === activeDevice.hostId)?.detail
               }

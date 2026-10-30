@@ -5,7 +5,7 @@ desktop, web, or mobile app. Set up the machine where the agents will work first
 
 ## Requirements
 
-You need an installed and configured provider before starting a thread. You can
+You need an installed, authenticated provider before starting a thread. You can
 launch T3 Code and configure providers afterwards.
 
 ## Command line
@@ -164,7 +164,6 @@ computer.
 | Cursor      | Install [Cursor CLI](https://cursor.com/cli), then run `agent login`.                                                                                     |
 | Grok Build  | Install [Grok Build CLI](https://x.ai/cli), then run `grok login`.                                                                                        |
 | OpenCode    | Install [OpenCode](https://opencode.ai), then run `opencode auth login`.                                                                                  |
-| Pi          | Install Pi 0.86.1+ on the environment and use its existing local configuration.                                                                           |
 | Antigravity | Install and sign in with Google from T3 Code's provider settings.                                                                                         |
 | Pi          | Install [Pi](./providers-pi.md#set-up-pi) with Node.js 22.19 or newer, then run `pi` and `/login`.                                                        |
 | Muse Code   | Install [Muse Code](https://dev.meta.ai/docs/muse-code) on the server, run `muse login`, then enable it in Settings → Providers.                          |

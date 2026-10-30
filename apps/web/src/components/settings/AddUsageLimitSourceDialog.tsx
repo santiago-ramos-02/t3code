@@ -1,4 +1,4 @@
-import type { EnvironmentId, UnifiedSettings } from "@t3tools/contracts";
+import { type EnvironmentId, UsageLimitSourceId } from "@t3tools/contracts";
 import { useState } from "react";
 
 import { useUpdateEnvironmentSettings } from "../../hooks/useSettings";
@@ -13,9 +13,20 @@ import {
   DialogTitle,
 } from "../ui/dialog";
 import { Input } from "../ui/input";
-import { sourceIdFromUrl } from "./AddUsageLimitSourceDialog.logic";
 import { SecretInput } from "./SecretInput";
 import { Label } from "../ui/label";
+
+function sourceIdFromUrl(url: string): UsageLimitSourceId {
+  let host = url;
+  try {
+    host = new URL(url).host;
+  } catch {}
+  const slug = host
+    .toLowerCase()
+    .replace(/[^a-z0-9.-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return UsageLimitSourceId.make(`cliproxy-${slug || "hub"}`);
+}
 
 /** Send the management key once to server secret storage; settings retain only a redaction marker. */
 export function AddUsageLimitSourceDialog({
@@ -23,13 +34,11 @@ export function AddUsageLimitSourceDialog({
   onOpenChange,
   environmentId,
   environmentLabel,
-  sources,
 }: {
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
   readonly environmentId: EnvironmentId;
   readonly environmentLabel: string;
-  readonly sources: UnifiedSettings["usageLimitSources"];
 }) {
   const updateSettings = useUpdateEnvironmentSettings(environmentId);
   const [label, setLabel] = useState("");
@@ -46,7 +55,7 @@ export function AddUsageLimitSourceDialog({
 
   const save = () => {
     if (!canSave) return;
-    const id = sourceIdFromUrl(trimmedUrl, sources);
+    const id = sourceIdFromUrl(trimmedUrl);
     updateSettings({
       usageLimitSources: {
         [id]: {

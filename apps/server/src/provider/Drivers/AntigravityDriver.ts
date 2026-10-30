@@ -65,10 +65,6 @@ import {
 } from "@t3tools/provider-core/server/driver";
 import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment";
 import { withInstanceIdentity } from "@t3tools/provider-core/server/instanceIdentity";
-import {
-  gentleAiOffDirectory,
-  materializeAntigravityPlainHome,
-} from "../../gentleAi/GentleAiOff.ts";
 import { discoverAntigravitySkills, resolveAntigravityUserHome } from "./AntigravitySkills.ts";
 
 const DRIVER = ProviderDriverKind.make("antigravity");
@@ -128,9 +124,8 @@ export const AntigravityDriver: ProviderDriver<
     };
     const authConfigIssue = antigravityAuthConfigIssue(auth);
     const processEnvironment = yield* mergeProviderInstanceEnvironment(environment);
-    const hostPlatform = yield* HostProcess.Platform;
     const userHome = resolveAntigravityUserHome(
-      hostPlatform,
+      yield* HostProcess.Platform,
       processEnvironment,
       yield* HostProcess.HomeDirectory,
     );
@@ -176,9 +171,7 @@ export const AntigravityDriver: ProviderDriver<
       );
 
     const makeRuntime = Effect.fn("AntigravityDriver.makeRuntime")(function* (
-      input: Omit<AntigravityAcpRuntimeInput, "spawn" | "childProcessSpawner"> & {
-        readonly gentleAiOff?: boolean;
-      },
+      input: Omit<AntigravityAcpRuntimeInput, "spawn" | "childProcessSpawner">,
     ): Effect.fn.Return<
       AcpSessionRuntime.AcpSessionRuntime["Service"],
       AcpError | ProviderSetupError,
@@ -247,43 +240,13 @@ export const AntigravityDriver: ProviderDriver<
               ),
             ),
       );
-      // With Gentle AI off, the thread runs on a plain mirror of the profile that lives as long
-      // as the runtime: the same sign-in, without gentle-ai's skills.
-      const runProfile = input.gentleAiOff
-        ? {
-            ...profile,
-            geminiHome: yield* Effect.gen(function* () {
-              const target = yield* gentleAiOffDirectory("antigravity");
-              yield* materializeAntigravityPlainHome({
-                source: profile.geminiHome,
-                target,
-                platform: hostPlatform,
-              });
-              return target;
-            }).pipe(
-              Effect.provideService(Crypto.Crypto, crypto),
-              Effect.provideService(FileSystem.FileSystem, fileSystem),
-              Effect.provideService(Path.Path, path),
-              Effect.mapError(
-                (cause) =>
-                  new ProviderSetupError({
-                    instanceId,
-                    operation: "start",
-                    detail: "Antigravity could not start with Gentle AI off.",
-                    cause,
-                  }),
-              ),
-            ),
-          }
-        : profile;
-      const { gentleAiOff: _gentleAiOff, ...runtimeInput } = input;
       const runtime = yield* makeAntigravityAcpRuntime({
-        ...runtimeInput,
+        ...input,
         authMethod: auth.authMethod,
         childProcessSpawner: spawner,
         spawn: buildAntigravityAcpSpawnInput({
           installation: executable,
-          profile: runProfile,
+          profile,
           cwd: input.cwd,
           baseEnv: processEnvironment,
           auth,

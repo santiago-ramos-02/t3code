@@ -87,9 +87,7 @@ export interface PackageManagedProviderMaintenanceDefinition {
     readonly isCommandPath?: (commandPath: string) => boolean;
     /** The updater cannot detect installs outside `isCommandPath`, so leave those manual-only. */
     readonly requiresCommandPath?: boolean;
-    readonly env?:
-      | NodeJS.ProcessEnv
-      | ((context: ProviderMaintenanceResolutionContext) => NodeJS.ProcessEnv);
+    readonly env?: NodeJS.ProcessEnv;
   } | null;
 }
 
@@ -125,8 +123,6 @@ export function makeProviderMaintenanceCapabilities(input: {
   readonly platform?: NodeJS.Platform;
   readonly env?: NodeJS.ProcessEnv;
   readonly latestVersion?: string | null;
-  /** The command installs a missing provider (see ProviderMaintenanceCommandAction.installs). */
-  readonly installs?: boolean;
   readonly lookupLatestVersion?: Effect.Effect<string | null>;
 }): ProviderMaintenanceCapabilities {
   const platform = input.platform ?? HostProcess.Platform.defaultValue();
@@ -144,7 +140,6 @@ export function makeProviderMaintenanceCapabilities(input: {
           args: input.updateArgs,
           lockKey: input.updateLockKey,
           ...(input.env ? { env: input.env } : {}),
-          ...(input.installs ? { installs: true as const } : {}),
         };
   return {
     provider: input.provider,
@@ -428,15 +423,10 @@ export const resolvePackageManagedProviderMaintenance = Effect.fn(
   definition: PackageManagedProviderMaintenanceDefinition,
   context: ProviderMaintenanceResolutionContext | null,
 ) {
-  // Not found: a global npm install puts it on the PATH npm's global bin is on.
   if (!context) {
-    return makeProviderMaintenanceCapabilities({
+    return makeManualOnlyProviderMaintenanceCapabilities({
       provider: definition.provider,
       packageName: definition.npmPackageName,
-      updateExecutable: "npm",
-      updateArgs: ["install", "-g", `${definition.npmPackageName}@latest`],
-      updateLockKey: "npm-global:install",
-      installs: true,
     });
   }
   const manual = makeManualOnlyProviderMaintenanceCapabilities({
@@ -456,7 +446,6 @@ export const resolvePackageManagedProviderMaintenance = Effect.fn(
   }
 
   const nativeUpdate = definition.nativeUpdate;
-  const nativeEnv = nativeUpdate?.env;
   const native = nativeUpdate
     ? makeProviderMaintenanceCapabilities({
         provider: definition.provider,
@@ -465,9 +454,7 @@ export const resolvePackageManagedProviderMaintenance = Effect.fn(
         updateArgs: nativeUpdate.args,
         updateLockKey: `${definition.provider}-native`,
         platform: context.platform,
-        ...(nativeEnv
-          ? { env: typeof nativeEnv === "function" ? nativeEnv(context) : nativeEnv }
-          : {}),
+        ...(nativeUpdate.env ? { env: nativeUpdate.env } : {}),
       })
     : manual;
   // A native-looking launcher can still delegate to a mise-owned install.
@@ -830,9 +817,7 @@ export function createProviderVersionAdvisory(input: {
   };
 }
 
-export const fetchNpmLatestVersion = Effect.fn("fetchNpmLatestVersion")(function* (
-  packageName: string,
-) {
+const fetchNpmLatestVersion = Effect.fn("fetchNpmLatestVersion")(function* (packageName: string) {
   const client = yield* HttpClient.HttpClient;
   const request = HttpClientRequest.get(
     `https://registry.npmjs.org/${encodeURIComponent(packageName)}/latest`,

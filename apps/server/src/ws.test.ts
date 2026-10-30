@@ -93,7 +93,6 @@ import * as DatabaseStorage from "./persistence/DatabaseStorage.ts";
 import * as TerminalManager from "./terminal/Manager.ts";
 import * as ThreadLaunchService from "./orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadSearch from "./orchestration-v2/ThreadSearch.ts";
-import * as GentleAi from "./gentleAi/GentleAi.ts";
 import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
 import * as UsageService from "./usage/UsageService.ts";
 import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
@@ -413,23 +412,12 @@ it.effect("shell snapshots omit idle children and older settled threads only on 
         Effect.flatMap((stream) => stream.pipe(Stream.take(1), Stream.runCollect)),
         Effect.map(([item]) => (item?.kind === "snapshot" ? item.snapshot : null)),
         Effect.provideService(ThreadManagement.ThreadManagementService, {
-          listActiveShellIndex: () =>
-            Effect.succeed(
-              threads.map((thread) => ({
-                ...thread,
-                pinnedAt: null,
-                snoozedUntil: null,
-                mayBeLive: thread.activityRunStatus !== null,
-              })),
-            ),
-          readShellSnapshot: (options?: { readonly threadIds?: ReadonlyArray<string> }) =>
+          readShellSnapshot: () =>
             Effect.succeed(
               Effect.succeed({
                 schemaVersion: 1,
                 snapshotSequence: 0,
-                threads: threads.filter(
-                  (thread) => options?.threadIds?.includes(thread.id) ?? true,
-                ),
+                threads,
                 archivedThreads: [],
               }),
             ),
@@ -598,10 +586,6 @@ it.effect(
           streamChanges: Stream.never,
         }),
         Layer.mock(UsageLimitSources.UsageLimitSources)({ streamChanges: Stream.make([]) }),
-        Layer.mock(GentleAi.GentleAi)({
-          current: Effect.succeed(GentleAi.NOT_INSTALLED),
-          streamChanges: Stream.never,
-        }),
         Layer.mock(RemoteOpenTargets.RemoteOpenTargets)({
           resolveTargets: () => Effect.succeed([]),
         }),
@@ -778,10 +762,6 @@ it.effect("on-demand clients get provider config without workspace snapshots", (
       Layer.mock(UsageLimitSources.UsageLimitSources)({
         current: Effect.succeed([]),
         streamChanges: Stream.make([]),
-      }),
-      Layer.mock(GentleAi.GentleAi)({
-        current: Effect.succeed(GentleAi.NOT_INSTALLED),
-        streamChanges: Stream.concat(Stream.make(GentleAi.NOT_INSTALLED), Stream.never),
       }),
       Layer.mock(RemoteOpenTargets.RemoteOpenTargets)({
         resolveTargets: () => Effect.succeed([]),

@@ -13,7 +13,6 @@ import { useState } from "react";
 import { Pressable, View } from "react-native";
 
 import { AppText as Text } from "../../components/ui/AppText";
-import { cn } from "../../lib/cn";
 import { environmentThreadDetails } from "../../state/threads";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { useMarkdownCodeHighlight } from "./markdownCodeHighlightState";
@@ -139,16 +138,13 @@ export function ThreadWorkflowOpening(props: {
             ))
           : null}
         {canListMembers ? unphased.map(renderMember) : null}
-        <WorkflowScript script={opening.script} kind={opening.scriptKind} />
+        <WorkflowScript script={opening.script} />
       </View>
     </WorkLogBlock>
   );
 }
 
-function WorkflowScript(props: {
-  readonly script: string;
-  readonly kind: WorkflowOpeningValue["scriptKind"];
-}) {
+function WorkflowScript(props: { readonly script: string }) {
   const [expanded, setExpanded] = useState(false);
   const { themeAppearance } = useAppearancePreferences();
   const script = props.script.trimEnd();
@@ -156,7 +152,7 @@ function WorkflowScript(props: {
     code: script,
     language: "javascript",
     theme: themeAppearance,
-    enabled: props.kind === "script",
+    enabled: true,
   });
   const lineCount = script.split("\n").length;
   const canFold = lineCount > FOLDED_SCRIPT_LINES;
@@ -181,13 +177,7 @@ function WorkflowScript(props: {
   return (
     <View className="gap-1">
       <View className="rounded-lg bg-subtle px-3 py-2.5">
-        <Text
-          selectable
-          className={cn(
-            "leading-normal text-foreground",
-            props.kind === "script" ? "font-mono text-2xs" : "text-xs",
-          )}
-        >
+        <Text selectable className="font-mono text-2xs leading-normal text-foreground">
           {highlighted ?? script.split("\n").slice(0, shownLines).join("\n")}
         </Text>
       </View>
@@ -199,7 +189,7 @@ function WorkflowScript(props: {
           className="self-start py-1 active:opacity-70"
         >
           <Text className="font-t3-medium text-xs text-foreground-muted">
-            {expanded ? "Show less" : `Show full ${props.kind}`}
+            {expanded ? "Show less" : "Show full script"}
           </Text>
         </Pressable>
       ) : null}

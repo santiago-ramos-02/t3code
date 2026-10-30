@@ -176,8 +176,13 @@ it.effect.each([
                 }),
         }),
         Layer.mock(ThreadManagement.ThreadManagementService)({
-          countThreads: () => Effect.succeed(0),
-          listActiveShellIndex: () => Effect.succeed([]),
+          getShellSnapshot: () =>
+            Effect.succeed({
+              threads: [],
+              archivedThreads: [],
+              schemaVersion: 1,
+              snapshotSequence: 0,
+            }),
         }),
         Layer.mock(ThreadLaunch.ThreadLaunchService)({
           launch: (input) => {

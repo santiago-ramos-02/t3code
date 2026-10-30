@@ -36,7 +36,7 @@ import * as Arr from "effect/Array";
 import * as Duration from "effect/Duration";
 import * as Result from "effect/Result";
 import { PlusIcon } from "lucide-react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 
 import { isDesktopLocalConnectionTarget } from "../../connection/desktopLocal";
 import {
@@ -96,11 +96,8 @@ import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { AddProviderInstanceDialog } from "./AddProviderInstanceDialog";
-import { PiModelProvidersSection } from "./PiModelProvidersSection";
-import { PiSetupSection, piSetupSteps } from "./PiSetupSection";
 import { ExpandableText } from "./ExpandableText";
 import { ProviderInstanceCard } from "./ProviderInstanceCard";
-import { useSecretSources } from "./SecretSourceInput";
 import { UsageProviderSettings } from "./UsageProviderSettings";
 import { ProviderSetupSection, readAntigravityAuthMethod } from "./ProviderSetupSection";
 import { ProviderAuthenticationSection } from "./ProviderAuthenticationSection";
@@ -288,7 +285,6 @@ function EnvironmentUnavailablePlaceholder({
 interface ProviderSettingsTarget {
   readonly environmentId?: EnvironmentId;
   readonly instanceId?: ProviderInstanceId;
-  readonly projectCwd?: string;
   readonly scoped?: boolean;
   readonly environmentIds?: readonly EnvironmentId[];
   readonly projectIds?: readonly ProjectId[];
@@ -298,7 +294,7 @@ export function ProviderSettingsPanel(target: ProviderSettingsTarget) {
   return (
     <SettingsPageContainer className="@container/providers gap-8">
       <ProviderSettingsPanelContent
-        key={`${target.environmentId ?? ""}:${target.instanceId ?? ""}:${target.projectCwd ?? ""}`}
+        key={`${target.environmentId ?? ""}:${target.instanceId ?? ""}`}
         {...target}
       />
     </SettingsPageContainer>
@@ -577,22 +573,6 @@ export function EnvironmentProviderSettings({
     reportFailure: false,
   });
   const [isRefreshingProviders, setIsRefreshingProviders] = useState(false);
-  // Keyed by environment+instance so a stale completion for a previous
-  // environment can never mark the new card Checking.
-  const [refreshingKeys, setRefreshingKeys] = useState<ReadonlySet<string>>(() => new Set());
-  // Synchronous re-entry guard: a state updater runs after dispatch, so it
-  // cannot dedupe a double invocation before the first dispatch lands.
-  const refreshingKeysRef = useRef<Set<string>>(new Set());
-  const mountedRef = useRef(true);
-  const activeEnvironmentRef = useRef(environmentId);
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- tracks mount lifetime so late refresh completions after unmount or environment change stay silent
-  useEffect(() => {
-    mountedRef.current = true;
-    activeEnvironmentRef.current = environmentId;
-    return () => {
-      mountedRef.current = false;
-    };
-  }, [environmentId]);
   const [isAddInstanceDialogOpen, setIsAddInstanceDialogOpen] = useState(false);
   const [selectedInstanceId, setSelectedInstanceId] = useState<ProviderInstanceId | null>(
     targetInstanceId ?? null,
@@ -655,7 +635,7 @@ export function EnvironmentProviderSettings({
     void (async () => {
       const result = await refreshServerProviders({
         environmentId,
-        input: { refreshModels: true, reloadSecrets: true },
+        input: { refreshModels: true },
       });
       refreshingRef.current = false;
       setIsRefreshingProviders(false);
@@ -668,50 +648,6 @@ export function EnvironmentProviderSettings({
       }
     })();
   };
-
-  /**
-   * Explicit scoped status refresh for one instance, with model discovery.
-   * Tracks local pending state only; failures surface a bounded toast
-   * because the card retry would otherwise fail silently. Interruptions
-   * stay silent so navigation never reports an error.
-   */
-  const refreshInstance = useStableCallback((instanceId: ProviderInstanceId) => {
-    const key = `${environmentId}:${instanceId}`;
-    if (refreshingKeysRef.current.has(key)) return;
-    refreshingKeysRef.current.add(key);
-    setRefreshingKeys((previous) => (previous.has(key) ? previous : new Set(previous).add(key)));
-    void (async () => {
-      const result = await refreshServerProviders({
-        environmentId,
-        input: { instanceId, refreshModels: true },
-      });
-      refreshingKeysRef.current.delete(key);
-      // Suppress late publication after unmount or environment change:
-      // the old environment must not clear new state, toast, or mark a
-      // new card Checking.
-      if (!mountedRef.current || activeEnvironmentRef.current !== environmentId) return;
-      setRefreshingKeys((previous) => {
-        if (!previous.has(key)) return previous;
-        const next = new Set(previous);
-        next.delete(key);
-        return next;
-      });
-      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-        console.warn("Failed to refresh provider instance", {
-          operation: "refresh-provider-instance",
-          environmentId,
-          ...safeErrorLogAttributes(squashAtomCommandFailure(result)),
-        });
-        toastManager.add(
-          stackedThreadToast({
-            type: "error",
-            title: "Could not refresh provider status",
-            description: "The provider status check could not be completed.",
-          }),
-        );
-      }
-    })();
-  });
 
   const runProviderUpdate = useStableCallback(
     async (
@@ -736,14 +672,10 @@ export function EnvironmentProviderSettings({
       });
       if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
         const error = squashAtomCommandFailure(result);
-        // A missing provider runs the same pipeline as an install.
-        const installed = serverProviders.find(
-          (provider) => provider.instanceId === candidate.instanceId,
-        )?.installed;
         toastManager.add(
           stackedThreadToast({
             type: "error",
-            title: `Could not ${installed === false ? "install" : "update"} ${PROVIDER_DISPLAY_NAMES[candidate.driver] ?? candidate.driver}`,
+            title: `Could not update ${PROVIDER_DISPLAY_NAMES[candidate.driver] ?? candidate.driver}`,
             description:
               error instanceof Error
                 ? error.message
@@ -966,7 +898,6 @@ export function EnvironmentProviderSettings({
   const stableToggleModelFavorite = useStableCallback(toggleModelFavorite);
   const actions: ProviderInstanceRowActions = {
     acceptUrlAuthentication,
-    refreshInstance,
     runProviderUpdate,
     updateInstance,
     enableInstance,
@@ -1000,7 +931,6 @@ export function EnvironmentProviderSettings({
         canWriteSettings={canWriteSettings}
         liveProvider={serverProviders.find((candidate) => candidate.instanceId === row.instanceId)}
         isUpdateDispatching={updatingProviderInstanceIds.has(row.instanceId)}
-        isChecking={refreshingKeys.has(`${environmentId}:${row.instanceId}`)}
         showProjectOverride={showProjectOverride}
         projectOverrideValue={
           showProjectOverride
@@ -1243,7 +1173,6 @@ interface ProviderInstanceRowActions {
     instanceId: ProviderInstanceId,
     action: AcpRegistryUrlAuthAction,
   ) => void;
-  readonly refreshInstance: (instanceId: ProviderInstanceId) => void;
   readonly runProviderUpdate: (
     candidate: Pick<ProviderSettingsUpdateCandidate, "driver" | "instanceId">,
     targetVersion?: string,
@@ -1288,7 +1217,6 @@ function ProviderInstanceRow({
   canWriteSettings,
   liveProvider,
   isUpdateDispatching,
-  isChecking,
   showProjectOverride,
   projectOverrideValue,
   projectOverrideEffectiveEnabled,
@@ -1309,7 +1237,6 @@ function ProviderInstanceRow({
   readonly canWriteSettings: boolean;
   readonly liveProvider: ServerProvider | undefined;
   readonly isUpdateDispatching: boolean;
-  readonly isChecking: boolean;
   readonly showProjectOverride: boolean;
   readonly projectOverrideValue: boolean | undefined;
   readonly projectOverrideEffectiveEnabled: boolean;
@@ -1320,7 +1247,6 @@ function ProviderInstanceRow({
   readonly actions: ProviderInstanceRowActions;
 }) {
   const allProjects = useProjects();
-  const secretSources = useSecretSources(environmentId);
   const acpProjects =
     mode === "editor" && liveProvider?.driver === "acpRegistry"
       ? allProjects.filter((project) => project.environmentId === environmentId)
@@ -1359,7 +1285,6 @@ function ProviderInstanceRow({
   return (
     <ProviderInstanceCard
       environmentId={environmentId}
-      secretSources={secretSources}
       acpProjects={acpProjects}
       projectOverride={projectOverride}
       onAcceptUrlAuth={
@@ -1439,25 +1364,9 @@ function ProviderInstanceRow({
             title="Cursor account"
             description="Using CURSOR_API_KEY. Remove it from this provider's environment to use browser sign-in."
           />
-        ) : mode === "editor" && driver === "pi" && piSetupSteps(liveProvider).length > 0 ? (
-          <PiSetupSection
-            steps={piSetupSteps(liveProvider)}
-            provider={liveProvider}
-            installing={isInstanceUpdateRunning}
-            onInstall={() => void actions.runProviderUpdate({ driver, instanceId })}
-          />
-        ) : null
-      }
-      integration={
-        mode === "editor" && driver === "pi" ? (
-          <PiModelProvidersSection provider={liveProvider} />
         ) : null
       }
       onUpdate={(next) => actions.updateInstance(instanceId, instance, next)}
-      isChecking={isChecking}
-      onRefresh={
-        mode === "editor" && !readOnly ? () => actions.refreshInstance(instanceId) : undefined
-      }
       onDelete={
         mode === "editor" && !isDefault
           ? () => actions.deleteInstance(instanceId, instance)

@@ -8,7 +8,6 @@ import {
   type ServerProvider,
 } from "@t3tools/contracts";
 import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
-import { sessionPermissionsUnavailableMessage } from "@t3tools/shared/authScopeOptions";
 import * as Cause from "effect/Cause";
 import * as Exit from "effect/Exit";
 import { AsyncResult } from "effect/reactivity";
@@ -33,7 +32,6 @@ import { SettingsScreen } from "./components/SettingsScreen";
 import { SettingsSection } from "./components/SettingsSection";
 import {
   canMaintainEnvironment,
-  canInstallEnvironmentProvider,
   canUpdateEnvironmentProvider,
   supportsEnvironmentUpdate,
 } from "./environment-maintenance";
@@ -148,12 +146,11 @@ function EnvironmentDetail({ environmentId }: { readonly environmentId: Environm
     );
   }
 
-  // Installing a missing provider runs the same server pipeline as updating one.
   function requestProviderUpdate(provider: ServerProvider) {
     if (
       busy ||
       !readEnvironmentScope(environmentId, AuthProvidersManageScope) ||
-      !(canUpdateEnvironmentProvider(provider) || canInstallEnvironmentProvider(provider))
+      !canUpdateEnvironmentProvider(provider)
     )
       return;
     void run(provider.instanceId, async () => {
@@ -211,14 +208,11 @@ function EnvironmentDetail({ environmentId }: { readonly environmentId: Environm
               </Text>
             ) : !allowed ? (
               <Text className="px-2 text-sm text-foreground-muted">
-                {AsyncResult.isFailure(sessionResult) || session === null || !session.authenticated
-                  ? sessionPermissionsUnavailableMessage({
-                      connected,
-                      failed: AsyncResult.isFailure(sessionResult),
-                      rejected:
-                        !AsyncResult.isFailure(sessionResult) && session?.authenticated === false,
-                    })
-                  : "This connection does not have permission to manage the environment."}
+                {AsyncResult.isFailure(sessionResult)
+                  ? "Could not verify your permissions. Reconnect to try again."
+                  : session === null
+                    ? "Checking permissions…"
+                    : "This connection does not have permission to manage the environment."}
               </Text>
             ) : null}
             {error ? (
@@ -296,10 +290,7 @@ function EnvironmentDetail({ environmentId }: { readonly environmentId: Environm
                       void run("refresh", async () => {
                         if (!readEnvironmentScope(environmentId, AuthOrchestrationReadScope))
                           return;
-                        const result = await refreshProviders({
-                          environmentId,
-                          input: { reloadSecrets: true },
-                        });
+                        const result = await refreshProviders({ environmentId, input: {} });
                         if (AsyncResult.isFailure(result)) throw squashAtomCommandFailure(result);
                         setNotice("Provider status refreshed.");
                       });
@@ -334,7 +325,7 @@ function EnvironmentDetail({ environmentId }: { readonly environmentId: Environm
                               }
                             >
                               {provider.updateState.message ??
-                                `${provider.installed ? "Update" : "Install"} ${provider.updateState.status}`}
+                                `Update ${provider.updateState.status}`}
                             </Text>
                           ) : null}
                           {provider.compatibilityAdvisory?.message ? (
@@ -359,14 +350,6 @@ function EnvironmentDetail({ environmentId }: { readonly environmentId: Environm
                             icon="arrow.up.circle"
                             label={`Update ${provider.displayName ?? provider.driver}`}
                             disabled={busy || !canManageProviders}
-                            loading={pending === provider.instanceId}
-                            onPress={() => requestProviderUpdate(provider)}
-                          />
-                        ) : canInstallEnvironmentProvider(provider) ? (
-                          <SettingsActionRow
-                            icon="arrow.down.circle"
-                            label={`Install ${provider.displayName ?? "Pi"}`}
-                            disabled={disabled}
                             loading={pending === provider.instanceId}
                             onPress={() => requestProviderUpdate(provider)}
                           />

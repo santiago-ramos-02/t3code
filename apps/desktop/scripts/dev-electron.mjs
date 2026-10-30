@@ -8,7 +8,6 @@ import {
   resolveDevProtocolClient,
   resolveElectronLaunchCommand,
 } from "./electron-launcher.mjs";
-import { startServerBundleWatcher, stopServerBundleWatcher } from "./server-bundle-watcher.mjs";
 import { waitForResources } from "./wait-for-resources.mjs";
 
 const devServerUrl = process.env.VITE_DEV_SERVER_URL?.trim();
@@ -78,7 +77,6 @@ if (devProtocolClient) {
 let shuttingDown = false;
 let restartTimer = null;
 let currentApp = null;
-let serverBundleWatcher = null;
 let restartQueue = Promise.resolve();
 const expectedExits = new WeakSet();
 const watchers = [];
@@ -250,10 +248,6 @@ async function shutdown(exitCode) {
     watcher.close();
   }
 
-  // Stop only the captured bundle watcher child; never pattern-kill by name.
-  await stopServerBundleWatcher(serverBundleWatcher);
-  serverBundleWatcher = null;
-
   await stopApp();
   killChildTree("TERM");
   await new Promise((resolve) => {
@@ -263,18 +257,6 @@ async function shutdown(exitCode) {
 
   process.exit(exitCode);
 }
-
-// The dev runner builds `t3#build` once; this watch rebuilds `apps/server/dist/bin.mjs` on
-// source edits, and the dist watcher below restarts Electron when it changes.
-serverBundleWatcher = startServerBundleWatcher({
-  spawnImpl: NodeChildProcess.spawn,
-  desktopDir,
-  env: process.env,
-  onFailure: (error) => {
-    console.error(`[desktop-dev] ${error.message}`);
-    void shutdown(1);
-  },
-});
 
 startWatchers();
 cleanupStaleDevApps();

@@ -1,5 +1,4 @@
 import { workspaceAreaProps } from "../lib/workspaceFocus";
-import type { GentleOddThreadTrail } from "@t3tools/client-runtime/gentle-ai";
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
 import { resolveNewThreadModelSelection } from "@t3tools/shared/usageLimits";
 import { queuedRunEditBlockedReason } from "@t3tools/client-runtime/queued-run-edit";
@@ -37,7 +36,6 @@ import { resolveDraftHeroState } from "./ChatView.logic";
 import { useQueuedRunEdit } from "./chat/useQueuedRunEdit";
 import { recallCheckoutIsRepo, rememberCheckoutIsRepo } from "./ChatView.logic";
 import { useLogicalProjectEnvironments } from "../hooks/useLogicalProjectEnvironments";
-import { useBoatMachineWake } from "../hooks/useBoat";
 import { useStableCallback } from "../hooks/useStableCallback";
 import { useProjectScriptEditing } from "./chat/useProjectScriptEditing";
 import { RightPanelSurfaceContent } from "./chat/RightPanelSurfaceContent";
@@ -241,7 +239,6 @@ import {
   useEnvironment,
   useEnvironmentProviders,
   useEnvironments,
-  useMemoryEnvironments,
   usePrimaryEnvironment,
 } from "../state/environments";
 import {
@@ -309,7 +306,7 @@ import { useThreadLinkedPullRequest } from "./pullRequest/useThreadLinkedPullReq
 import { useProactivePanels } from "../hooks/useProactivePanels";
 import { useIncrementalTimelineEntries } from "../hooks/useIncrementalTimelineEntries";
 import { useRightPanelSurfaceClose } from "../hooks/useRightPanelSurfaceClose";
-import { ComposerBannerStack, type ComposerBannerStackItem } from "./chat/ComposerBannerStack";
+import type { ComposerBannerStackItem } from "./chat/ComposerBannerStack";
 import { modelFallbackBannerItem } from "./chat/ComposerUsageLimits";
 import { ComposerSurface } from "./chat/ComposerSurface";
 import { resolveThreadSyncPhase } from "../threadSync";
@@ -322,7 +319,6 @@ import {
   deriveLatestContextWindowSnapshot,
   latestProviderTurnTokenUsage,
 } from "../lib/contextWindow";
-import { derivePromptCache } from "../lib/promptCache";
 import {
   MOBILE_COMPOSER_VIEW_TRANSITION_NAME,
   MOBILE_DRAFT_HEADLINE_VIEW_TRANSITION_NAME,
@@ -531,17 +527,6 @@ export default function ChatView(props: ChatViewProps) {
     activeProviderThread,
   );
   const serverVisibleTurnItems = useQuietThreadVisibleTurnItems(routeThreadDetailRef);
-  // Gentle AI's feature menu reads which documents this thread works on only when it opens, so
-  // the thread is handed over by reference instead of re-rendering the menu on every delta.
-  const gentleThreadTrailRef = useRef<GentleOddThreadTrail | null>(null);
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- publishes the committed thread trail to a ref the Gentle AI feature menu reads when it opens
-  useEffect(() => {
-    gentleThreadTrailRef.current =
-      serverProjection === null
-        ? null
-        : { messages: serverProjection.messages, records: serverVisibleTurnItems ?? [] };
-  }, [serverProjection, serverVisibleTurnItems]);
-  const readGentleThreadTrail = useStableCallback(() => gentleThreadTrailRef.current);
   const serverThreadHistory = useThreadHistory(routeThreadDetailRef);
   const threadHistoryControls = (() => {
     if (routeThreadDetailRef === null || !shouldShowLoadEarlierControl(serverThreadHistory)) {
@@ -1025,12 +1010,7 @@ export default function ChatView(props: ChatViewProps) {
   useLayoutEffect(() => {
     const explicitThreadRef = explicitDiffOpenRef.current;
     explicitDiffOpenRef.current = null;
-    if (
-      diffOpen &&
-      activeThreadRef &&
-      explicitThreadRef !== activeThreadRef &&
-      !useDiffPanelStore.getState().consumeKeepSelectionOnOpen(activeThreadRef)
-    ) {
+    if (diffOpen && activeThreadRef && explicitThreadRef !== activeThreadRef) {
       useDiffPanelStore.getState().selectGitScope(activeThreadRef, "branch");
     }
   }, [activeThreadRef, diffOpen]);
@@ -1110,25 +1090,6 @@ export default function ChatView(props: ChatViewProps) {
     startNewThreadForProject(activeProjectRef, handleNewThread);
   };
   const handleNewThreadInActiveProjectStable = useStableCallback(handleNewThreadInActiveProject);
-  // Hands a Gentle AI step, such as continuing a feature document, to a fresh draft in this
-  // project: the same selection with Gentle on and the prompt written but not sent, so the user
-  // still picks the model and reviews the ask.
-  const startGentleThread = async (prompt: string, modelSelection: ModelSelection) => {
-    if (!activeProjectRef) return;
-    const created = await handleNewThread(activeProjectRef);
-    if (!created) return;
-    const store = useComposerDraftStore.getState();
-    store.setModelSelection(created.draftId, modelSelection, {
-      explicit: true,
-      replaceOptions: true,
-    });
-    store.setPrompt(created.draftId, prompt);
-  };
-  const startGentleThreadStable = useStableCallback(
-    (prompt: string, modelSelection: ModelSelection) => {
-      void startGentleThread(prompt, modelSelection);
-    },
-  );
   const projectGroupingSettings = selectProjectGroupingSettings(settings);
   const activeDraftLogicalProjectKey =
     !isServerThread && activeProject
@@ -1184,7 +1145,6 @@ export default function ChatView(props: ChatViewProps) {
   const activeEnvironmentUnavailable =
     activeEnvironment !== null && activeEnvironment.connection.phase !== "connected";
   const activeEnvironmentUnavailableLabel = activeEnvironment?.label ?? null;
-  const boatWake = useBoatMachineWake(activeEnvironment, activeThreadKey);
   const activeEnvironmentUnavailableState = (() => {
     if (!activeEnvironmentUnavailable || !activeEnvironmentUnavailableLabel || !activeEnvironment) {
       return null;
@@ -1291,7 +1251,6 @@ export default function ChatView(props: ChatViewProps) {
     : EMPTY_AUTO_UPDATE_ENVIRONMENTS;
   const systemComposerBannerItems = useSystemComposerBanners({
     activeEnvironment,
-    boatWake,
     activeEnvironmentUnavailable,
     activeEnvironmentUnavailableState,
     activeThreadEnvironmentId: activeThread?.environmentId ?? null,
@@ -1475,15 +1434,6 @@ export default function ChatView(props: ChatViewProps) {
     activeThreadLiveTokenUsage,
     activeProviderThread,
   );
-  const activePromptCache =
-    serverProjection === null
-      ? null
-      : derivePromptCache({
-          providerTurns: serverProjection.providerTurns,
-          providerThreadId: serverProjection.thread.activeProviderThreadId,
-          attempts: serverProjection.attempts,
-          runs: serverProjection.runs,
-        });
   const pendingBackgroundTasks = deriveThreadPendingBackgroundTasks(serverProjection);
   const activeWorkStartedAt =
     deriveActiveWorkStartedAt(activeActivityRun, activeRuntime, localDispatchStartedAt) ??
@@ -1983,12 +1933,6 @@ export default function ChatView(props: ChatViewProps) {
   const visiblePullRequestCount = visiblePullRequests.length;
   const pullRequestsSurfaceAvailable =
     isServerThread && supportsThreadPullRequests && visiblePullRequestCount > 0;
-  const memoryEnvironments = useMemoryEnvironments();
-  const memoriesSurfaceAvailable =
-    isServerThread &&
-    memoryEnvironments.some(
-      (environment) => environment.environmentId === activeThreadRef?.environmentId,
-    );
   const { state: deviceState, loaded: deviceStateLoaded } = useDeviceState(
     activeThreadRef?.environmentId ?? null,
   );
@@ -2362,7 +2306,6 @@ export default function ChatView(props: ChatViewProps) {
     addFilesSurfaceStable,
     addPullRequestSurfaceStable,
     addPullRequestsSurfaceStable,
-    addMemoriesSurfaceStable,
     closePreviewPanelStable,
     copyRightPanelFilePathStable,
     createBrowserSurface,
@@ -2396,7 +2339,6 @@ export default function ChatView(props: ChatViewProps) {
     rightPanelMaximized,
     supportsPullRequests,
     pullRequestsSurfaceAvailable,
-    memoriesSurfaceAvailable,
     gitCwd,
     activeProjectCwd,
     explicitDiffOpenRef,
@@ -2407,8 +2349,7 @@ export default function ChatView(props: ChatViewProps) {
   const {
     acknowledgeActiveThreadWoke,
     activeBranchMismatchKey,
-    attentionNow,
-    workNow,
+    backgroundWorkNow,
     childInputNow,
     goalNow,
     handleSwitchCheckoutToThread,
@@ -2695,11 +2636,6 @@ export default function ChatView(props: ChatViewProps) {
     : EMPTY_PROVIDER_SKILLS;
   const threadFindEnabled = isServerThread && serverConfig?.threadFind === true;
   const isThreadFindActive = useThreadFindOpen(activeThreadRef, threadFindEnabled);
-  const openThreadFindStable = useStableCallback((threadRef: ScopedThreadRef) => {
-    if (threadFindEnabled && scopedThreadKey(threadRef) === activeThreadKey) {
-      openThreadFind(activeThreadKey);
-    }
-  });
 
   useChatShortcuts({
     enabled: activeThreadId !== null && !backgroundThread,
@@ -2889,7 +2825,6 @@ export default function ChatView(props: ChatViewProps) {
     isRevertingCheckpoint,
     threadDetailLoading,
     activeEnvironmentUnavailable,
-    wakeStoppedEnvironment: boatWake?.wake ?? null,
     isSendBusy,
     sendQueuesBehindSetup,
     isDraftHeroState,
@@ -3053,7 +2988,10 @@ export default function ChatView(props: ChatViewProps) {
   const onExpandTimelineImageStable = useStableCallback(onExpandTimelineImage);
   const shownThreadSyncPhase = activeEnvironmentUnavailable ? null : delayedThreadSyncPhase;
   const hasThreadNow =
-    attentionNow !== null || workNow !== null || goalNow !== null || shownThreadSyncPhase !== null;
+    childInputNow !== null ||
+    backgroundWorkNow !== null ||
+    goalNow !== null ||
+    shownThreadSyncPhase !== null;
   const queuedRunCount = serverProjection ? getUserQueuedThreadRuns(serverProjection).length : 0;
   // The queue control is mounted for every server thread but joins the footer only while it shows
   // something, by its own rule: an optimistic message stops counting once the server has it.
@@ -3092,8 +3030,8 @@ export default function ChatView(props: ChatViewProps) {
         )}
         <ThreadNow
           key={routeThreadKey}
-          attention={attentionNow}
-          work={workNow}
+          attention={childInputNow}
+          work={backgroundWorkNow}
           syncPhase={shownThreadSyncPhase}
           goal={goalNow}
         />
@@ -3303,7 +3241,6 @@ export default function ChatView(props: ChatViewProps) {
             {...(activeDraftLogicalProjectKey
               ? { onOpenProjectSettings: handleOpenDraftProjectSettingsStable }
               : {})}
-            {...(threadFindEnabled ? { onFindInThread: openThreadFindStable } : {})}
           />
         </header>
 
@@ -3508,7 +3445,6 @@ export default function ChatView(props: ChatViewProps) {
                           {showProviderSubagentBar ? (
                             <ProviderSubagentBar
                               provider={selectedProviderEntry ?? null}
-                              agentName={activeThread?.lineage.agentName ?? null}
                               showInstanceBadge={
                                 selectedProviderEntry !== undefined &&
                                 shouldShowInstanceBadge(
@@ -3524,7 +3460,6 @@ export default function ChatView(props: ChatViewProps) {
                           ) : null}
                           {!composerMounted ? null : (
                             <ChatComposer
-                              isLocalDraftThread={isLocalDraftThread}
                               canOperateThread={canOperateThread}
                               reportedModelSelection={reportedModelSelection}
                               multipleModelSelections={multipleModelSelections}
@@ -3546,8 +3481,6 @@ export default function ChatView(props: ChatViewProps) {
                               activeThreadId={activeThreadId}
                               activeThread={activeThread}
                               activeThreadShell={activeThreadShell}
-                              onStartGentleThread={startGentleThreadStable}
-                              readGentleThreadTrail={readGentleThreadTrail}
                               promptHistoryMessages={timelineMessages}
                               forceExpandedOnMobile={
                                 forceExpandedMobileComposer && isDraftHeroState
@@ -3583,7 +3516,7 @@ export default function ChatView(props: ChatViewProps) {
                                             : projectCloneSendBlockReason
                               }
                               isPreparingWorktree={isPreparingWorktree && !sendQueuesBehindSetup}
-                              bannerItems={isDraftHeroState ? [] : composerBannerItems}
+                              bannerItems={composerBannerItems}
                               resumeCompactionTokens={resumeCompactionTokens}
                               keepFullHistory={keepFullHistory}
                               onToggleKeepFullHistory={toggleKeepFullHistoryStable}
@@ -3622,7 +3555,6 @@ export default function ChatView(props: ChatViewProps) {
                               activeThreadModelSelection={activeThread?.modelSelection}
                               activeProjectId={activeProject?.id ?? null}
                               activeContextWindow={activeContextWindow}
-                              activePromptCache={activePromptCache}
                               compactThreadUnavailable={compactThreadUnavailable}
                               compactDisabled={compactDisabled}
                               compactDisabledReason={compactDisabledReason}
@@ -3750,12 +3682,6 @@ export default function ChatView(props: ChatViewProps) {
                           )}
                         </div>
                       </div>
-                      {isDraftHeroState && composerBannerItems.length > 0 ? (
-                        // Out of flow, like the headline, so a notice never moves the centered composer.
-                        <div className="absolute inset-x-0 top-full flex flex-col gap-1 pt-4">
-                          <ComposerBannerStack items={composerBannerItems} detached />
-                        </div>
-                      ) : null}
                     </ComposerSurface.Shell>
                     <div
                       aria-hidden
@@ -3924,7 +3850,6 @@ export default function ChatView(props: ChatViewProps) {
           onAddFiles={addFilesSurfaceStable}
           onAddPullRequest={addPullRequestSurfaceStable}
           onAddPullRequests={addPullRequestsSurfaceStable}
-          onAddMemories={addMemoriesSurfaceStable}
           onAddDevice={addDeviceSurfaceStable}
           browserAvailable={canOperatePreview && browserAvailable}
           terminalAvailable={activeProject !== null && canOperateTerminal}
@@ -3932,7 +3857,6 @@ export default function ChatView(props: ChatViewProps) {
           filesAvailable={activeProject !== null}
           pullRequestAvailable={pullRequestSurfaceAvailable}
           pullRequestsAvailable={pullRequestsSurfaceAvailable}
-          memoriesAvailable={memoriesSurfaceAvailable}
           deviceAvailable={activeThreadRef !== null}
         >
           {rightPanelContent}

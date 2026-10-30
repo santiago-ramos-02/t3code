@@ -271,9 +271,6 @@ function useSettingsIndexSections(): SettingsListSection[] {
         ),
         serverPage("SettingsEnvironmentSourceControl", "arrow.triangle.branch", "Source control"),
         serverPage("SettingsWorktrees", "square.on.square", "Worktrees"),
-        // Gentle AI's screen installs it where it is missing, so it is always listed.
-        serverPage("SettingsGentleAi", "slider.horizontal.3", "Gentle AI"),
-        serverPage("SettingsCliProxy", "arrow.triangle.branch", "CLIProxyAPI"),
       ],
     },
     {

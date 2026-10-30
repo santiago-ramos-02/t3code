@@ -377,10 +377,12 @@ export const make = Effect.gen(function* () {
     runStackedAction: Effect.fn("GitWorkflowService.runStackedAction")(function (input, options) {
       return ensureGit("GitWorkflowService.runStackedAction", input.cwd).pipe(
         Effect.flatMap((handle) =>
-          withCheckoutLease(
-            handle.repository.rootPath,
-            gitManager.runStackedAction(input, options),
-          ),
+          input.featureBranch
+            ? withCheckoutLease(
+                handle.repository.rootPath,
+                gitManager.runStackedAction(input, options),
+              )
+            : gitManager.runStackedAction(input, options),
         ),
       );
     }),

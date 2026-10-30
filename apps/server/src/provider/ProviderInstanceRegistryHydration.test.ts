@@ -11,7 +11,6 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { describe, expect, it } from "vite-plus/test";
 
-import { BUILT_IN_DRIVERS } from "./builtInDrivers.ts";
 import * as ServerConfig from "../config.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 import {
@@ -91,51 +90,6 @@ describe("deriveProviderInstanceConfigMap", () => {
     const merged = deriveProviderInstanceConfigMap(settings);
 
     expect(merged[instanceId]).toBe(settings.providerInstances[instanceId]);
-  });
-});
-
-describe("Pi provider instance hydration", () => {
-  it("registers Pi as a built-in multi-instance driver", () => {
-    const driver = BUILT_IN_DRIVERS.find((candidate) => candidate.driverKind === "pi");
-
-    expect(driver).toBeDefined();
-    expect(driver?.metadata).toMatchObject({
-      displayName: "Pi",
-      supportsMultipleInstances: true,
-    });
-    expect(driver?.defaultConfig()).toEqual({
-      enabled: false,
-      binaryPath: "pi",
-      launchArgs: "",
-      customModels: [],
-    });
-  });
-
-  it("hydrates the default Pi instance without a settings entry", () => {
-    const configMap = deriveProviderInstanceConfigMap(DEFAULT_SERVER_SETTINGS);
-    const pi = configMap[ProviderInstanceId.make("pi")];
-
-    expect(pi).toEqual({ driver: "pi" });
-  });
-
-  it("keeps an explicit Pi instance instead of replacing it with the legacy mirror", () => {
-    const piId = ProviderInstanceId.make("pi");
-    const configMap = deriveProviderInstanceConfigMap({
-      ...DEFAULT_SERVER_SETTINGS,
-      providerInstances: {
-        [piId]: {
-          driver: ProviderDriverKind.make("pi"),
-          enabled: true,
-          config: { binaryPath: "/custom/pi" },
-        },
-      },
-    });
-
-    expect(configMap[piId]).toEqual({
-      driver: "pi",
-      enabled: true,
-      config: { binaryPath: "/custom/pi" },
-    });
   });
 });
 

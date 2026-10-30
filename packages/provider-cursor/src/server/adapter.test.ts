@@ -3,7 +3,6 @@ import { assert, describe, it } from "@effect/vitest";
 import type { InteractionUpdate } from "@cursor/sdk";
 import {
   EnvironmentId,
-  GENTLE_AI_OPTION_ID,
   MessageId,
   NodeId,
   ProjectId,
@@ -1632,22 +1631,6 @@ describe("CursorAdapterV2", () => {
         sandboxEnabled: true,
       },
     );
-  });
-
-  it("skips the user and plugin layers for a thread with Gentle AI off", () => {
-    // gentle-ai installs its Cursor rules, skills, and MCP servers there.
-    const options = makeCursorAgentOptions({
-      modelSelection: {
-        instanceId: ProviderInstanceId.make("cursor"),
-        model: "composer-2.5",
-        options: [{ id: GENTLE_AI_OPTION_ID, value: false }],
-      },
-      runtimePolicy: { runtimeMode: "full-access", interactionMode: "default", cwd: "/workspace" },
-      threadId: ThreadId.make("thread-cursor-gentle-off"),
-      mcpSession: undefined,
-      platform: "linux",
-    });
-    assert.deepEqual(options.local?.settingSources, ["project", "team", "mdm"]);
   });
 
   it("injects thread-scoped MCP credentials without logging them", () => {

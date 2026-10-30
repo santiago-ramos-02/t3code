@@ -11,7 +11,6 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as WelcomeRouteImport } from './routes/welcome'
 import { Route as PairRouteImport } from './routes/pair'
-import { Route as MemoryRouteImport } from './routes/memory'
 import { Route as GuestRouteImport } from './routes/guest'
 import { Route as ConnectAgentRouteImport } from './routes/connect-agent'
 import { Route as ConnectRouteImport } from './routes/connect'
@@ -27,7 +26,6 @@ import { Route as ChatSettingsThreadsRouteImport } from './routes/_chat.settings
 import { Route as ChatSettingsStorageRouteImport } from './routes/_chat.settings.storage'
 import { Route as ChatSettingsSourceControlRouteImport } from './routes/_chat.settings.source-control'
 import { Route as ChatSettingsSnapShotRouteImport } from './routes/_chat.settings.snap-shot'
-import { Route as ChatSettingsSecretsRouteImport } from './routes/_chat.settings.secrets'
 import { Route as ChatSettingsScheduledTasksRouteImport } from './routes/_chat.settings.scheduled-tasks'
 import { Route as ChatSettingsProvidersRouteImport } from './routes/_chat.settings.providers'
 import { Route as ChatSettingsProjectsRouteImport } from './routes/_chat.settings.projects'
@@ -36,13 +34,11 @@ import { Route as ChatSettingsMaintenanceRouteImport } from './routes/_chat.sett
 import { Route as ChatSettingsLabsRouteImport } from './routes/_chat.settings.labs'
 import { Route as ChatSettingsKeybindingsRouteImport } from './routes/_chat.settings.keybindings'
 import { Route as ChatSettingsIntegrationsRouteImport } from './routes/_chat.settings.integrations'
-import { Route as ChatSettingsGentleAiRouteImport } from './routes/_chat.settings.gentle-ai'
 import { Route as ChatSettingsGeneralRouteImport } from './routes/_chat.settings.general'
 import { Route as ChatSettingsDiffsRouteImport } from './routes/_chat.settings.diffs'
 import { Route as ChatSettingsDiagnosticsRouteImport } from './routes/_chat.settings.diagnostics'
 import { Route as ChatSettingsDevicesRouteImport } from './routes/_chat.settings.devices'
 import { Route as ChatSettingsConnectionsRouteImport } from './routes/_chat.settings.connections'
-import { Route as ChatSettingsCliProxyRouteImport } from './routes/_chat.settings.cli-proxy'
 import { Route as ChatSettingsChatRouteImport } from './routes/_chat.settings.chat'
 import { Route as ChatSettingsBrowserRouteImport } from './routes/_chat.settings.browser'
 import { Route as ChatSettingsBetaRouteImport } from './routes/_chat.settings.beta'
@@ -61,11 +57,6 @@ const WelcomeRoute = WelcomeRouteImport.update({
 const PairRoute = PairRouteImport.update({
   id: '/pair',
   path: '/pair',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const MemoryRoute = MemoryRouteImport.update({
-  id: '/memory',
-  path: '/memory',
   getParentRoute: () => rootRouteImport,
 } as any)
 const GuestRoute = GuestRouteImport.update({
@@ -143,11 +134,6 @@ const ChatSettingsSnapShotRoute = ChatSettingsSnapShotRouteImport.update({
   path: '/snap-shot',
   getParentRoute: () => ChatSettingsRoute,
 } as any)
-const ChatSettingsSecretsRoute = ChatSettingsSecretsRouteImport.update({
-  id: '/secrets',
-  path: '/secrets',
-  getParentRoute: () => ChatSettingsRoute,
-} as any)
 const ChatSettingsScheduledTasksRoute =
   ChatSettingsScheduledTasksRouteImport.update({
     id: '/scheduled-tasks',
@@ -191,11 +177,6 @@ const ChatSettingsIntegrationsRoute =
     path: '/integrations',
     getParentRoute: () => ChatSettingsRoute,
   } as any)
-const ChatSettingsGentleAiRoute = ChatSettingsGentleAiRouteImport.update({
-  id: '/gentle-ai',
-  path: '/gentle-ai',
-  getParentRoute: () => ChatSettingsRoute,
-} as any)
 const ChatSettingsGeneralRoute = ChatSettingsGeneralRouteImport.update({
   id: '/general',
   path: '/general',
@@ -219,11 +200,6 @@ const ChatSettingsDevicesRoute = ChatSettingsDevicesRouteImport.update({
 const ChatSettingsConnectionsRoute = ChatSettingsConnectionsRouteImport.update({
   id: '/connections',
   path: '/connections',
-  getParentRoute: () => ChatSettingsRoute,
-} as any)
-const ChatSettingsCliProxyRoute = ChatSettingsCliProxyRouteImport.update({
-  id: '/cli-proxy',
-  path: '/cli-proxy',
   getParentRoute: () => ChatSettingsRoute,
 } as any)
 const ChatSettingsChatRoute = ChatSettingsChatRouteImport.update({
@@ -278,7 +254,6 @@ export interface FileRoutesByFullPath {
   '/connect': typeof ConnectRoute
   '/connect-agent': typeof ConnectAgentRoute
   '/guest': typeof GuestRoute
-  '/memory': typeof MemoryRoute
   '/pair': typeof PairRoute
   '/welcome': typeof WelcomeRoute
   '/new': typeof ChatNewRoute
@@ -295,13 +270,11 @@ export interface FileRoutesByFullPath {
   '/settings/beta': typeof ChatSettingsBetaRoute
   '/settings/browser': typeof ChatSettingsBrowserRoute
   '/settings/chat': typeof ChatSettingsChatRoute
-  '/settings/cli-proxy': typeof ChatSettingsCliProxyRoute
   '/settings/connections': typeof ChatSettingsConnectionsRoute
   '/settings/devices': typeof ChatSettingsDevicesRoute
   '/settings/diagnostics': typeof ChatSettingsDiagnosticsRoute
   '/settings/diffs': typeof ChatSettingsDiffsRoute
   '/settings/general': typeof ChatSettingsGeneralRoute
-  '/settings/gentle-ai': typeof ChatSettingsGentleAiRoute
   '/settings/integrations': typeof ChatSettingsIntegrationsRoute
   '/settings/keybindings': typeof ChatSettingsKeybindingsRoute
   '/settings/labs': typeof ChatSettingsLabsRoute
@@ -310,7 +283,6 @@ export interface FileRoutesByFullPath {
   '/settings/projects': typeof ChatSettingsProjectsRoute
   '/settings/providers': typeof ChatSettingsProvidersRoute
   '/settings/scheduled-tasks': typeof ChatSettingsScheduledTasksRoute
-  '/settings/secrets': typeof ChatSettingsSecretsRoute
   '/settings/snap-shot': typeof ChatSettingsSnapShotRoute
   '/settings/source-control': typeof ChatSettingsSourceControlRoute
   '/settings/storage': typeof ChatSettingsStorageRoute
@@ -321,7 +293,6 @@ export interface FileRoutesByTo {
   '/connect': typeof ConnectRoute
   '/connect-agent': typeof ConnectAgentRoute
   '/guest': typeof GuestRoute
-  '/memory': typeof MemoryRoute
   '/pair': typeof PairRoute
   '/welcome': typeof WelcomeRoute
   '/new': typeof ChatNewRoute
@@ -339,13 +310,11 @@ export interface FileRoutesByTo {
   '/settings/beta': typeof ChatSettingsBetaRoute
   '/settings/browser': typeof ChatSettingsBrowserRoute
   '/settings/chat': typeof ChatSettingsChatRoute
-  '/settings/cli-proxy': typeof ChatSettingsCliProxyRoute
   '/settings/connections': typeof ChatSettingsConnectionsRoute
   '/settings/devices': typeof ChatSettingsDevicesRoute
   '/settings/diagnostics': typeof ChatSettingsDiagnosticsRoute
   '/settings/diffs': typeof ChatSettingsDiffsRoute
   '/settings/general': typeof ChatSettingsGeneralRoute
-  '/settings/gentle-ai': typeof ChatSettingsGentleAiRoute
   '/settings/integrations': typeof ChatSettingsIntegrationsRoute
   '/settings/keybindings': typeof ChatSettingsKeybindingsRoute
   '/settings/labs': typeof ChatSettingsLabsRoute
@@ -354,7 +323,6 @@ export interface FileRoutesByTo {
   '/settings/projects': typeof ChatSettingsProjectsRoute
   '/settings/providers': typeof ChatSettingsProvidersRoute
   '/settings/scheduled-tasks': typeof ChatSettingsScheduledTasksRoute
-  '/settings/secrets': typeof ChatSettingsSecretsRoute
   '/settings/snap-shot': typeof ChatSettingsSnapShotRoute
   '/settings/source-control': typeof ChatSettingsSourceControlRoute
   '/settings/storage': typeof ChatSettingsStorageRoute
@@ -367,7 +335,6 @@ export interface FileRoutesById {
   '/connect': typeof ConnectRoute
   '/connect-agent': typeof ConnectAgentRoute
   '/guest': typeof GuestRoute
-  '/memory': typeof MemoryRoute
   '/pair': typeof PairRoute
   '/welcome': typeof WelcomeRoute
   '/_chat/new': typeof ChatNewRoute
@@ -385,13 +352,11 @@ export interface FileRoutesById {
   '/_chat/settings/beta': typeof ChatSettingsBetaRoute
   '/_chat/settings/browser': typeof ChatSettingsBrowserRoute
   '/_chat/settings/chat': typeof ChatSettingsChatRoute
-  '/_chat/settings/cli-proxy': typeof ChatSettingsCliProxyRoute
   '/_chat/settings/connections': typeof ChatSettingsConnectionsRoute
   '/_chat/settings/devices': typeof ChatSettingsDevicesRoute
   '/_chat/settings/diagnostics': typeof ChatSettingsDiagnosticsRoute
   '/_chat/settings/diffs': typeof ChatSettingsDiffsRoute
   '/_chat/settings/general': typeof ChatSettingsGeneralRoute
-  '/_chat/settings/gentle-ai': typeof ChatSettingsGentleAiRoute
   '/_chat/settings/integrations': typeof ChatSettingsIntegrationsRoute
   '/_chat/settings/keybindings': typeof ChatSettingsKeybindingsRoute
   '/_chat/settings/labs': typeof ChatSettingsLabsRoute
@@ -400,7 +365,6 @@ export interface FileRoutesById {
   '/_chat/settings/projects': typeof ChatSettingsProjectsRoute
   '/_chat/settings/providers': typeof ChatSettingsProvidersRoute
   '/_chat/settings/scheduled-tasks': typeof ChatSettingsScheduledTasksRoute
-  '/_chat/settings/secrets': typeof ChatSettingsSecretsRoute
   '/_chat/settings/snap-shot': typeof ChatSettingsSnapShotRoute
   '/_chat/settings/source-control': typeof ChatSettingsSourceControlRoute
   '/_chat/settings/storage': typeof ChatSettingsStorageRoute
@@ -414,7 +378,6 @@ export interface FileRouteTypes {
     | '/connect'
     | '/connect-agent'
     | '/guest'
-    | '/memory'
     | '/pair'
     | '/welcome'
     | '/new'
@@ -431,13 +394,11 @@ export interface FileRouteTypes {
     | '/settings/beta'
     | '/settings/browser'
     | '/settings/chat'
-    | '/settings/cli-proxy'
     | '/settings/connections'
     | '/settings/devices'
     | '/settings/diagnostics'
     | '/settings/diffs'
     | '/settings/general'
-    | '/settings/gentle-ai'
     | '/settings/integrations'
     | '/settings/keybindings'
     | '/settings/labs'
@@ -446,7 +407,6 @@ export interface FileRouteTypes {
     | '/settings/projects'
     | '/settings/providers'
     | '/settings/scheduled-tasks'
-    | '/settings/secrets'
     | '/settings/snap-shot'
     | '/settings/source-control'
     | '/settings/storage'
@@ -457,7 +417,6 @@ export interface FileRouteTypes {
     | '/connect'
     | '/connect-agent'
     | '/guest'
-    | '/memory'
     | '/pair'
     | '/welcome'
     | '/new'
@@ -475,13 +434,11 @@ export interface FileRouteTypes {
     | '/settings/beta'
     | '/settings/browser'
     | '/settings/chat'
-    | '/settings/cli-proxy'
     | '/settings/connections'
     | '/settings/devices'
     | '/settings/diagnostics'
     | '/settings/diffs'
     | '/settings/general'
-    | '/settings/gentle-ai'
     | '/settings/integrations'
     | '/settings/keybindings'
     | '/settings/labs'
@@ -490,7 +447,6 @@ export interface FileRouteTypes {
     | '/settings/projects'
     | '/settings/providers'
     | '/settings/scheduled-tasks'
-    | '/settings/secrets'
     | '/settings/snap-shot'
     | '/settings/source-control'
     | '/settings/storage'
@@ -502,7 +458,6 @@ export interface FileRouteTypes {
     | '/connect'
     | '/connect-agent'
     | '/guest'
-    | '/memory'
     | '/pair'
     | '/welcome'
     | '/_chat/new'
@@ -520,13 +475,11 @@ export interface FileRouteTypes {
     | '/_chat/settings/beta'
     | '/_chat/settings/browser'
     | '/_chat/settings/chat'
-    | '/_chat/settings/cli-proxy'
     | '/_chat/settings/connections'
     | '/_chat/settings/devices'
     | '/_chat/settings/diagnostics'
     | '/_chat/settings/diffs'
     | '/_chat/settings/general'
-    | '/_chat/settings/gentle-ai'
     | '/_chat/settings/integrations'
     | '/_chat/settings/keybindings'
     | '/_chat/settings/labs'
@@ -535,7 +488,6 @@ export interface FileRouteTypes {
     | '/_chat/settings/projects'
     | '/_chat/settings/providers'
     | '/_chat/settings/scheduled-tasks'
-    | '/_chat/settings/secrets'
     | '/_chat/settings/snap-shot'
     | '/_chat/settings/source-control'
     | '/_chat/settings/storage'
@@ -548,7 +500,6 @@ export interface RootRouteChildren {
   ConnectRoute: typeof ConnectRoute
   ConnectAgentRoute: typeof ConnectAgentRoute
   GuestRoute: typeof GuestRoute
-  MemoryRoute: typeof MemoryRoute
   PairRoute: typeof PairRoute
   WelcomeRoute: typeof WelcomeRoute
   ProjectsProjectKeyRoute: typeof ProjectsProjectKeyRoute
@@ -568,13 +519,6 @@ declare module '@tanstack/react-router' {
       path: '/pair'
       fullPath: '/pair'
       preLoaderRoute: typeof PairRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/memory': {
-      id: '/memory'
-      path: '/memory'
-      fullPath: '/memory'
-      preLoaderRoute: typeof MemoryRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/guest': {
@@ -682,13 +626,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatSettingsSnapShotRouteImport
       parentRoute: typeof ChatSettingsRoute
     }
-    '/_chat/settings/secrets': {
-      id: '/_chat/settings/secrets'
-      path: '/secrets'
-      fullPath: '/settings/secrets'
-      preLoaderRoute: typeof ChatSettingsSecretsRouteImport
-      parentRoute: typeof ChatSettingsRoute
-    }
     '/_chat/settings/scheduled-tasks': {
       id: '/_chat/settings/scheduled-tasks'
       path: '/scheduled-tasks'
@@ -745,13 +682,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatSettingsIntegrationsRouteImport
       parentRoute: typeof ChatSettingsRoute
     }
-    '/_chat/settings/gentle-ai': {
-      id: '/_chat/settings/gentle-ai'
-      path: '/gentle-ai'
-      fullPath: '/settings/gentle-ai'
-      preLoaderRoute: typeof ChatSettingsGentleAiRouteImport
-      parentRoute: typeof ChatSettingsRoute
-    }
     '/_chat/settings/general': {
       id: '/_chat/settings/general'
       path: '/general'
@@ -785,13 +715,6 @@ declare module '@tanstack/react-router' {
       path: '/connections'
       fullPath: '/settings/connections'
       preLoaderRoute: typeof ChatSettingsConnectionsRouteImport
-      parentRoute: typeof ChatSettingsRoute
-    }
-    '/_chat/settings/cli-proxy': {
-      id: '/_chat/settings/cli-proxy'
-      path: '/cli-proxy'
-      fullPath: '/settings/cli-proxy'
-      preLoaderRoute: typeof ChatSettingsCliProxyRouteImport
       parentRoute: typeof ChatSettingsRoute
     }
     '/_chat/settings/chat': {
@@ -868,13 +791,11 @@ interface ChatSettingsRouteChildren {
   ChatSettingsBetaRoute: typeof ChatSettingsBetaRoute
   ChatSettingsBrowserRoute: typeof ChatSettingsBrowserRoute
   ChatSettingsChatRoute: typeof ChatSettingsChatRoute
-  ChatSettingsCliProxyRoute: typeof ChatSettingsCliProxyRoute
   ChatSettingsConnectionsRoute: typeof ChatSettingsConnectionsRoute
   ChatSettingsDevicesRoute: typeof ChatSettingsDevicesRoute
   ChatSettingsDiagnosticsRoute: typeof ChatSettingsDiagnosticsRoute
   ChatSettingsDiffsRoute: typeof ChatSettingsDiffsRoute
   ChatSettingsGeneralRoute: typeof ChatSettingsGeneralRoute
-  ChatSettingsGentleAiRoute: typeof ChatSettingsGentleAiRoute
   ChatSettingsIntegrationsRoute: typeof ChatSettingsIntegrationsRoute
   ChatSettingsKeybindingsRoute: typeof ChatSettingsKeybindingsRoute
   ChatSettingsLabsRoute: typeof ChatSettingsLabsRoute
@@ -883,7 +804,6 @@ interface ChatSettingsRouteChildren {
   ChatSettingsProjectsRoute: typeof ChatSettingsProjectsRoute
   ChatSettingsProvidersRoute: typeof ChatSettingsProvidersRoute
   ChatSettingsScheduledTasksRoute: typeof ChatSettingsScheduledTasksRoute
-  ChatSettingsSecretsRoute: typeof ChatSettingsSecretsRoute
   ChatSettingsSnapShotRoute: typeof ChatSettingsSnapShotRoute
   ChatSettingsSourceControlRoute: typeof ChatSettingsSourceControlRoute
   ChatSettingsStorageRoute: typeof ChatSettingsStorageRoute
@@ -899,13 +819,11 @@ const ChatSettingsRouteChildren: ChatSettingsRouteChildren = {
   ChatSettingsBetaRoute: ChatSettingsBetaRoute,
   ChatSettingsBrowserRoute: ChatSettingsBrowserRoute,
   ChatSettingsChatRoute: ChatSettingsChatRoute,
-  ChatSettingsCliProxyRoute: ChatSettingsCliProxyRoute,
   ChatSettingsConnectionsRoute: ChatSettingsConnectionsRoute,
   ChatSettingsDevicesRoute: ChatSettingsDevicesRoute,
   ChatSettingsDiagnosticsRoute: ChatSettingsDiagnosticsRoute,
   ChatSettingsDiffsRoute: ChatSettingsDiffsRoute,
   ChatSettingsGeneralRoute: ChatSettingsGeneralRoute,
-  ChatSettingsGentleAiRoute: ChatSettingsGentleAiRoute,
   ChatSettingsIntegrationsRoute: ChatSettingsIntegrationsRoute,
   ChatSettingsKeybindingsRoute: ChatSettingsKeybindingsRoute,
   ChatSettingsLabsRoute: ChatSettingsLabsRoute,
@@ -914,7 +832,6 @@ const ChatSettingsRouteChildren: ChatSettingsRouteChildren = {
   ChatSettingsProjectsRoute: ChatSettingsProjectsRoute,
   ChatSettingsProvidersRoute: ChatSettingsProvidersRoute,
   ChatSettingsScheduledTasksRoute: ChatSettingsScheduledTasksRoute,
-  ChatSettingsSecretsRoute: ChatSettingsSecretsRoute,
   ChatSettingsSnapShotRoute: ChatSettingsSnapShotRoute,
   ChatSettingsSourceControlRoute: ChatSettingsSourceControlRoute,
   ChatSettingsStorageRoute: ChatSettingsStorageRoute,
@@ -953,7 +870,6 @@ const rootRouteChildren: RootRouteChildren = {
   ConnectRoute: ConnectRoute,
   ConnectAgentRoute: ConnectAgentRoute,
   GuestRoute: GuestRoute,
-  MemoryRoute: MemoryRoute,
   PairRoute: PairRoute,
   WelcomeRoute: WelcomeRoute,
   ProjectsProjectKeyRoute: ProjectsProjectKeyRoute,

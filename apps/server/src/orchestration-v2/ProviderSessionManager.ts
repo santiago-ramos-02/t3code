@@ -50,26 +50,17 @@ import * as CommandOutputHub from "./CommandOutputHub.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ProviderEventIngestor from "./ProviderEventIngestor.ts";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
-import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
 
 const DEFAULT_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 const DEFAULT_MAX_IDLE_PIN_MS = 4 * 60 * 60 * 1000;
 const RELEASE_SCOPE_CLOSE_TIMEOUT_MS = 30 * 1000;
-/** Past adapters' own 10 s stop fallbacks, so they settle first when the provider answers at all. */
-export const PROVIDER_INTERRUPT_TIMEOUT_MS = 15 * 1000;
 
 const busyTurnPrefix = (providerThreadId: ProviderThreadId) => `${providerThreadId}#`;
 const busyTurnKey = (providerThreadId: ProviderThreadId, runOrdinal: number) =>
   `${busyTurnPrefix(providerThreadId)}${runOrdinal}`;
 const UNLOAD_THREAD_TIMEOUT_MS = 10 * 1000;
-const WORKING_RUN_STATUSES: ReadonlySet<string> = new Set([
-  "preparing",
-  "starting",
-  "running",
-  "waiting",
-]);
 
 export const ProviderSessionReleaseReason = Schema.Literals([
   "idle_timeout",
@@ -178,15 +169,6 @@ export interface ProviderSessionManagerV2Shape {
   readonly closeInstance: (
     instanceId: ProviderInstanceId,
   ) => Effect.Effect<void, ProviderSessionManagerV2Error>;
-  /**
-   * Closes every live runtime of one provider instance unless one is running a turn or background
-   * work, so its files can change under it. Closes none when one is busy. Closed sessions reopen
-   * on their next turn.
-   */
-  readonly closeIdleInstance: (input: {
-    readonly instanceId: ProviderInstanceId;
-    readonly detail: string;
-  }) => Effect.Effect<"closed" | "busy", ProviderSessionManagerV2Error>;
   readonly release: (input: {
     readonly providerSessionId: ProviderSessionId;
     readonly reason: ProviderSessionReleaseReason;
@@ -198,25 +180,6 @@ export interface ProviderSessionManagerV2Shape {
     readonly detail?: string;
     readonly revokeMcpCredential?: boolean;
   }) => Effect.Effect<void, ProviderSessionManagerV2Error>;
-  /**
-   * Releases the session unless, at the moment of removal, a turn of a provider thread outside
-   * `ownProviderThreadIds` is busy on it. Checked atomically with turn starts. Succeeds with
-   * whether it was released.
-   */
-  readonly releaseUnlessBusy: (input: {
-    readonly providerSessionId: ProviderSessionId;
-    readonly ownProviderThreadIds: ReadonlyArray<ProviderThreadId>;
-    readonly reason: ProviderSessionReleaseReason;
-    readonly detail?: string;
-  }) => Effect.Effect<boolean, ProviderSessionManagerV2Error>;
-  /**
-   * Other threads with a run or background work on this session's shared process; empty when
-   * it serves one thread.
-   */
-  readonly otherWorkingThreads: (input: {
-    readonly providerSessionId: ProviderSessionId;
-    readonly threadId: ThreadId;
-  }) => Effect.Effect<ReadonlyArray<ThreadId>>;
 }
 
 export class ProviderSessionManagerV2 extends Context.Service<
@@ -931,7 +894,6 @@ export const layerWithOptions = (
         function* (input: {
           readonly providerSessionId: ProviderSessionId;
           readonly onlyIfIdleGeneration?: number;
-          readonly keepIfBusyOtherThan?: ReadonlyArray<ProviderThreadId>;
         }): Effect.fn.Return<readonly [Option.Option<LiveSessionEntry>, DateTime.Utc]> {
           const key = sessionKey(input.providerSessionId);
           const candidate = (yield* Ref.get(sessions)).get(key);
@@ -948,15 +910,6 @@ export const layerWithOptions = (
                 input.onlyIfIdleGeneration !== undefined &&
                 (existing.busyTurns.size > 0 ||
                   existing.idleGeneration !== input.onlyIfIdleGeneration)
-              ) {
-                return ["kept", current] as const;
-              }
-              const own = input.keepIfBusyOtherThan;
-              if (
-                own !== undefined &&
-                [...existing.busyTurns].some(
-                  (turnKey) => !own.some((id) => turnKey.startsWith(busyTurnPrefix(id))),
-                )
               ) {
                 return ["kept", current] as const;
               }
@@ -1018,7 +971,6 @@ export const layerWithOptions = (
         readonly detachedThreadId?: ThreadId;
         readonly cancelIdleFiber?: boolean;
         readonly onlyIfIdleGeneration?: number;
-        readonly keepIfBusyOtherThan?: ReadonlyArray<ProviderThreadId>;
         readonly gracefulSubscribers?: boolean;
       }) =>
         Effect.acquireUseRelease(
@@ -1193,55 +1145,6 @@ export const layerWithOptions = (
           );
         },
       );
-
-      const instanceEntries = (instanceId: ProviderInstanceId) =>
-        Ref.get(sessions).pipe(
-          Effect.map((current) =>
-            [...current.values()].filter((entry) => entry.runtime.instanceId === instanceId),
-          ),
-        );
-
-      // Busy with a turn, or with background work such as subagents, as idle release checks.
-      const isBusy = (entry: LiveSessionEntry) =>
-        entry.busyTurns.size > 0
-          ? Effect.succeed(true)
-          : (entry.runtime.hasPendingBackgroundWork ?? Effect.succeed(false)).pipe(
-              Effect.catchCause(() => Effect.succeed(false)),
-            );
-
-      const releaseInstanceEntries = Effect.fn("ProviderSessionManager.releaseInstanceEntries")(
-        function* (
-          entries: ReadonlyArray<LiveSessionEntry>,
-          detail: string,
-          options?: { readonly onlyIfIdle: boolean },
-        ) {
-          const outcomes = yield* Effect.forEach(
-            entries,
-            (entry) =>
-              releaseEntry({
-                providerSessionId: entry.runtime.providerSessionId,
-                reason: "manual_shutdown",
-                detail,
-                ...(options?.onlyIfIdle === true
-                  ? { onlyIfIdleGeneration: entry.idleGeneration }
-                  : {}),
-              }).pipe(Effect.exit),
-            { concurrency: "unbounded" },
-          );
-          const failure = outcomes.find(Exit.isFailure);
-          if (failure !== undefined && Exit.isFailure(failure)) {
-            return yield* Effect.failCause(failure.cause);
-          }
-        },
-      );
-
-      const instanceCloseError = (instanceId: ProviderInstanceId) => (cause: unknown) =>
-        new ProviderSessionCloseError({
-          providerSessionId: ProviderSessionId.make(
-            `provider-session:provider-instance:${instanceId}`,
-          ),
-          cause,
-        });
 
       const withActivityError = <A, E, R>(
         providerSessionId: ProviderSessionId,
@@ -1476,21 +1379,15 @@ export const layerWithOptions = (
             .pipe(Effect.ensuring(Effect.sync(dropReservation)));
         });
 
-      // Marks only the entry this runtime belongs to: a released or replaced session must not
-      // gain a busy turn that never ends. Succeeds with whether the turn was marked.
-      const markBusy = (
-        providerSessionId: ProviderSessionId,
-        turnKey: string,
-        runtime: ProviderAdapter.ProviderAdapterV2SessionRuntime,
-      ) =>
+      const markBusy = (providerSessionId: ProviderSessionId, turnKey: string) =>
         withActivityError(
           providerSessionId,
           Effect.gen(function* () {
             const key = sessionKey(providerSessionId);
-            const marked = yield* Ref.modify(sessions, (current) => {
+            const idleFiber = yield* Ref.modify(sessions, (current) => {
               const entry = current.get(key);
-              if (entry === undefined || entry.runtime !== runtime) {
-                return [undefined, current] as const;
+              if (entry === undefined) {
+                return [null, current] as const;
               }
               const updated = new Map(current);
               updated.set(key, {
@@ -1499,11 +1396,9 @@ export const layerWithOptions = (
                 idleFiber: null,
                 pinnedSinceMs: null,
               });
-              return [{ idleFiber: entry.idleFiber }, updated] as const;
+              return [entry.idleFiber, updated] as const;
             });
-            if (marked === undefined) return false;
-            yield* cancelIdleFiber(marked.idleFiber);
-            return true;
+            yield* cancelIdleFiber(idleFiber);
           }),
         );
 
@@ -1889,31 +1784,11 @@ export const layerWithOptions = (
               ),
               Effect.andThen(
                 Effect.acquireUseRelease(
-                  markBusy(
+                  observeActivity(
                     providerSessionId,
-                    busyTurnKey(input.providerThread.id, input.runOrdinal),
-                    runtime,
-                  ).pipe(
-                    Effect.catchCause((cause) =>
-                      Effect.logWarning("orchestration-v2.driver-session.activity-failed", {
-                        providerSessionId,
-                        cause,
-                      }).pipe(Effect.as(true)),
-                    ),
-                    // A release between attach and markBusy leaves nothing to mark: fail the
-                    // start instead of running it on a runtime being torn down.
-                    Effect.flatMap((marked) =>
-                      marked
-                        ? Effect.void
-                        : Effect.fail(
-                            new ProviderAdapter.ProviderAdapterTurnStartError({
-                              driver: runtime.driver,
-                              threadId: input.threadId,
-                              providerThreadId: input.providerThread.id,
-                              runId: input.runId,
-                              cause: "The provider session was released while the turn started.",
-                            }),
-                          ),
+                    markBusy(
+                      providerSessionId,
+                      busyTurnKey(input.providerThread.id, input.runOrdinal),
                     ),
                   ),
                   () =>
@@ -1932,26 +1807,9 @@ export const layerWithOptions = (
             observeActivity(providerSessionId, touchActivity(providerSessionId)).pipe(
               Effect.andThen(runtime.steerTurn(input).pipe(turnMetrics("steer"))),
             ),
-          // A provider starved of memory can stop answering, so no caller may wait on it unbounded.
           interruptTurn: (input) =>
             observeActivity(providerSessionId, touchActivity(providerSessionId)).pipe(
-              Effect.andThen(
-                runtime.interruptTurn(input).pipe(
-                  Effect.timeoutOrElse({
-                    duration: PROVIDER_INTERRUPT_TIMEOUT_MS,
-                    orElse: () =>
-                      Effect.fail(
-                        new ProviderAdapter.ProviderAdapterInterruptTimeoutError({
-                          driver: runtime.driver,
-                          providerThreadId: input.providerThread.id,
-                          providerTurnId: input.providerTurnId,
-                          timeoutMs: PROVIDER_INTERRUPT_TIMEOUT_MS,
-                        }),
-                      ),
-                  }),
-                  turnMetrics("interrupt"),
-                ),
-              ),
+              Effect.andThen(runtime.interruptTurn(input).pipe(turnMetrics("interrupt"))),
             ),
           respondToRuntimeRequest: (input) =>
             observeActivity(providerSessionId, touchActivity(providerSessionId)).pipe(
@@ -2129,16 +1987,10 @@ export const layerWithOptions = (
                 cause,
               });
               yield* Ref.set(entry.eventSubscribers, new Map());
-              // lastError is the thread banner, so it gets the same bounded
-              // message as a failed turn; the raw cause survives only in the log.
-              yield* Effect.logWarning("orchestration-v2.provider-session-runtime-failed", {
-                providerSessionId: entry.runtime.providerSessionId,
-                cause,
-              });
               yield* releaseEntry({
                 providerSessionId: entry.runtime.providerSessionId,
                 reason: "runtime_error",
-                detail: makeProviderFailure({ cause }).message,
+                detail: Cause.pretty(cause),
               }).pipe(logReleaseFailure(entry.runtime.providerSessionId));
             }),
           ),
@@ -2385,61 +2237,38 @@ export const layerWithOptions = (
           ),
         closeInstance: Effect.fn("ProviderSessionManager.closeInstance")(
           function* (instanceId) {
-            yield* releaseInstanceEntries(
-              yield* instanceEntries(instanceId),
-              `Provider instance ${instanceId} logged out.`,
+            const active = [...(yield* Ref.get(sessions)).values()].filter(
+              (entry) => entry.runtime.instanceId === instanceId,
             );
-          },
-          (effect, instanceId) => effect.pipe(Effect.mapError(instanceCloseError(instanceId))),
-        ),
-        closeIdleInstance: Effect.fn("ProviderSessionManager.closeIdleInstance")(
-          function* (input) {
-            const entries = yield* instanceEntries(input.instanceId);
-            const busy = yield* Effect.forEach(entries, isBusy).pipe(
-              Effect.map((states) => states.includes(true)),
+            const outcomes = yield* Effect.forEach(
+              active,
+              (entry) =>
+                releaseEntry({
+                  providerSessionId: entry.runtime.providerSessionId,
+                  reason: "manual_shutdown",
+                  detail: `Provider instance ${instanceId} logged out.`,
+                }).pipe(Effect.exit),
+              { concurrency: "unbounded" },
             );
-            if (busy) return "busy" as const;
-            // A turn that starts after the check keeps its session.
-            yield* releaseInstanceEntries(entries, input.detail, { onlyIfIdle: true });
-            return "closed" as const;
+            const failure = outcomes.find(Exit.isFailure);
+            if (failure !== undefined && Exit.isFailure(failure)) {
+              return yield* Effect.failCause(failure.cause);
+            }
           },
-          (effect, input) => effect.pipe(Effect.mapError(instanceCloseError(input.instanceId))),
+          (effect, instanceId) =>
+            effect.pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProviderSessionCloseError({
+                    providerSessionId: ProviderSessionId.make(
+                      `provider-session:provider-instance:${instanceId}`,
+                    ),
+                    cause,
+                  }),
+              ),
+            ),
         ),
         release: releaseEntry,
-        releaseUnlessBusy: Effect.fn("ProviderSessionManager.releaseUnlessBusy")(function* (input) {
-          const key = sessionKey(input.providerSessionId);
-          const before = (yield* Ref.get(sessions)).get(key);
-          yield* releaseEntry({
-            providerSessionId: input.providerSessionId,
-            reason: input.reason,
-            ...(input.detail === undefined ? {} : { detail: input.detail }),
-            keepIfBusyOtherThan: input.ownProviderThreadIds,
-          });
-          // Identity, not presence: open can install a replacement under the same id meanwhile.
-          return before !== undefined && (yield* Ref.get(sessions)).get(key) !== before;
-        }),
-        otherWorkingThreads: Effect.fn("ProviderSessionManager.otherWorkingThreads")(
-          function* (input) {
-            const entry = (yield* Ref.get(sessions)).get(sessionKey(input.providerSessionId));
-            if (entry === undefined || !entry.supportsMultipleProviderThreads) return [];
-            return yield* Effect.filter(
-              [...entry.attachedThreadIds].filter((threadId) => threadId !== input.threadId),
-              (threadId) =>
-                // Runs, not the shell's activeRunId: the shell omits silent runs such as idle
-                // compaction. Background work outlives its run and still needs the process.
-                Effect.zipWith(
-                  projectionStore.getThreadRecords(threadId, ["runs"]),
-                  projectionStore.getThreadShell(threadId),
-                  ({ runs }, shell) =>
-                    runs.some((run) => WORKING_RUN_STATUSES.has(run.status)) ||
-                    (shell?.pendingBackgroundTasks?.length ?? 0) > 0,
-                ).pipe(
-                  // An unreadable thread may still be working; never kill it unseen.
-                  Effect.orElseSucceed(() => true),
-                ),
-            );
-          },
-        ),
         detach: Effect.fn("ProviderSessionManager.detach")(
           function* (input) {
             const key = sessionKey(input.providerSessionId);

@@ -20,7 +20,6 @@ import {
   TrimmedString,
 } from "./baseSchemas.ts";
 import { UsageLimitSourceId } from "./usageLimitSourceId.ts";
-import { SecretProviderId, SecretProviderSlug } from "./secretReference.ts";
 import { EnvironmentMachineKind, ThreadEnvMode, WorktreeSubmodules } from "./environment.ts";
 import { KeybindingShortcut } from "./keybindings.ts";
 import {
@@ -860,26 +859,6 @@ export const UsageLimitSourceConfig = Schema.Struct({
 });
 export type UsageLimitSourceConfig = typeof UsageLimitSourceConfig.Type;
 
-export const SecretProviderKind = SecretProviderSlug.pipe(Schema.brand("SecretProviderKind"));
-export type SecretProviderKind = typeof SecretProviderKind.Type;
-
-export const SecretProviderLabel = TrimmedNonEmptyString.check(Schema.isMaxLength(64));
-
-/** Kinds decode their own config; unknown-kind envelopes round-trip verbatim across versions. */
-export const SecretProviderConfig = Schema.Struct({
-  kind: SecretProviderKind,
-  label: TrimmedNonEmptyString,
-  config: Schema.optionalKey(Schema.Unknown),
-});
-export type SecretProviderConfig = typeof SecretProviderConfig.Type;
-
-// Limits that may change later are enforced on writes only, never on the stored envelope. The
-// server also checks the kind and its config against the secret providers it has loaded.
-const SecretProviderConfigWrite = Schema.Struct({
-  ...SecretProviderConfig.fields,
-  label: SecretProviderLabel,
-});
-
 export const SourceControlHostSettings = Schema.Record(Schema.String, Schema.Unknown);
 export type SourceControlHostSettings = typeof SourceControlHostSettings.Type;
 
@@ -1088,16 +1067,6 @@ export const ProjectSettingsOverrides = Schema.Struct({
 } satisfies Record<ProjectScopedServerSettingKey | "providerInstances", unknown>);
 export type ProjectSettingsOverrides = typeof ProjectSettingsOverrides.Type;
 
-// Whole-entry writers must round-trip unknown keys; keep the type closed to catch misspellings.
-export const keepUnknownOverrideKeys = <Entry extends Schema.Struct<Schema.Struct.Fields>>(
-  entry: Entry,
-): Schema.Codec<
-  Entry["Type"],
-  Entry["Encoded"],
-  Entry["DecodingServices"],
-  Entry["EncodingServices"]
-> => Schema.StructWithRest(entry, [Schema.Record(Schema.String, Schema.Unknown)]);
-
 /** True if null stores an override; otherwise null removes it. */
 export function isNullableProjectSettingsOverride(key: ProjectScopedServerSettingKey): boolean {
   return NULLABLE_PROJECT_SETTINGS_OVERRIDES.has(key);
@@ -1196,8 +1165,6 @@ export const ServerSettings = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed("paragraph" as const)),
   ),
   enableProviderUpdateChecks: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
-  // The gentle-ai binary to run. Empty finds one on PATH, then the copy gentle-pi bundles.
-  gentleAiBinaryPath: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
   continueThreadsAfterServerUpdate: Schema.Boolean.pipe(
     Schema.withDecodingDefault(Effect.succeed(true)),
   ),
@@ -1226,10 +1193,9 @@ export const ServerSettings = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_RUNTIME_MODE)),
   ),
 
-  projectSettingsOverrides: Schema.Record(
-    ProjectId,
-    keepUnknownOverrideKeys(ProjectSettingsOverrides),
-  ).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  projectSettingsOverrides: Schema.Record(ProjectId, ProjectSettingsOverrides).pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
+  ),
   /** Fold once so restarts cannot undo later UI resets. */
   projectSettingsFolded: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
 
@@ -1345,9 +1311,6 @@ export const ServerSettings = Schema.Struct({
   ),
   // User-chosen ids preserve rows across edits; undecodable entries round-trip untouched.
   usageLimitSources: Schema.Record(UsageLimitSourceId, UsageLimitSourceConfig).pipe(
-    Schema.withDecodingDefault(Effect.succeed({})),
-  ),
-  secretProviders: Schema.Record(SecretProviderId, SecretProviderConfig).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
   cursorKeychainUsageEnabled: Schema.Boolean.pipe(
@@ -1479,7 +1442,6 @@ export const ServerSettingsOperation = Schema.Literals([
   "remove-secret",
   "remove-stale-secret",
   "write-secret",
-  "write-secret-provider",
   "write-file",
   "prepare-directory",
 ]);
@@ -1570,7 +1532,6 @@ export const ServerSettingsPatch = Schema.Struct({
   worktreesDirectory: Schema.optionalKey(TrimmedString),
   responseStreamingMode: Schema.optionalKey(ResponseStreamingMode),
   enableProviderUpdateChecks: Schema.optionalKey(Schema.Boolean),
-  gentleAiBinaryPath: Schema.optionalKey(TrimmedString),
   continueThreadsAfterServerUpdate: Schema.optionalKey(Schema.Boolean),
   enableAgentBrowserAccess: Schema.optionalKey(Schema.Boolean),
   projectAgentBrowserAccessOverrides: Schema.optionalKey(
@@ -1592,12 +1553,10 @@ export const ServerSettingsPatch = Schema.Struct({
     Schema.Record(
       ProjectId,
       Schema.NullOr(
-        keepUnknownOverrideKeys(
-          Schema.Struct({
-            ...ProjectSettingsOverrides.fields,
-            sourceControlWritingStyle: Schema.optionalKey(SourceControlWritingStyleSettings),
-          }),
-        ),
+        Schema.Struct({
+          ...ProjectSettingsOverrides.fields,
+          sourceControlWritingStyle: Schema.optionalKey(SourceControlWritingStyleSettings),
+        }),
       ),
     ),
   ),
@@ -1667,9 +1626,6 @@ export const ServerSettingsPatch = Schema.Struct({
   usageLimitSources: Schema.optionalKey(
     Schema.Record(UsageLimitSourceId, Schema.NullOr(UsageLimitSourceConfig)),
   ),
-  secretProviders: Schema.optionalKey(
-    Schema.Record(SecretProviderId, Schema.NullOr(SecretProviderConfigWrite)),
-  ),
   cursorKeychainUsageEnabled: Schema.optionalKey(Schema.Boolean),
 
   usagePriceOverrides: Schema.optionalKey(
@@ -1689,12 +1645,7 @@ export function requiredScopesForServerSettingsPatch(
   let changesSettings = false;
   for (const [key, value] of Object.entries(patch)) {
     if (value === undefined) continue;
-    if (
-      key === "providers" ||
-      key === "providerInstances" ||
-      key === "usageLimitSources" ||
-      key === "secretProviders"
-    ) {
+    if (key === "providers" || key === "providerInstances" || key === "usageLimitSources") {
       changesProviders = true;
     } else {
       changesSettings = true;

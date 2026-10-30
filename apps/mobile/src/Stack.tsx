@@ -116,8 +116,6 @@ import {
   ScheduledTaskBranchPickerRouteScreen,
 } from "./features/settings/ScheduledTaskPickerScreens";
 import { SettingsKeyboardRouteScreen } from "./features/settings/SettingsKeyboardRouteScreen";
-import { SettingsGentleAiRouteScreen } from "./features/settings/SettingsGentleAiRouteScreen";
-import { SettingsCliProxyRouteScreen } from "./features/settings/SettingsCliProxyRouteScreen";
 import { SettingsLegalRouteScreen } from "./features/settings/SettingsLegalRouteScreen";
 import { SettingsMicrophoneRouteScreen } from "./features/settings/SettingsMicrophoneRouteScreen";
 import {
@@ -293,16 +291,6 @@ const SETTINGS_SCREENS = {
     screen: SettingsEnvironmentMaintenanceRouteScreen,
     linking: "settings/maintenance",
     options: { ...SETTINGS_PAGE_OPTIONS, title: "Maintenance" },
-  }),
-  SettingsGentleAi: createNativeStackScreen({
-    screen: SettingsGentleAiRouteScreen,
-    linking: "settings/gentle-ai",
-    options: { ...SETTINGS_PAGE_OPTIONS, title: "Gentle AI" },
-  }),
-  SettingsCliProxy: createNativeStackScreen({
-    screen: SettingsCliProxyRouteScreen,
-    linking: "settings/cli-proxy",
-    options: { ...SETTINGS_PAGE_OPTIONS, title: "CLIProxyAPI" },
   }),
   SettingsNotifications: createNativeStackScreen({
     screen: SettingsNotificationsRouteScreen,

@@ -11,66 +11,10 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import {
   createProviderWorkspaceSnapshotRefreshAtomFamily,
   getProviderSkillsForSlashMenu,
-  resolveProviderForCwd,
-  resolveProviderModelsForCwd,
   hasCompleteProviderWorkspaceSnapshot,
   resolveProviderSkillsForCwd,
   resolveProviderSlashCommandsForCwd,
 } from "./providerSkills.ts";
-
-it("uses project models only in the matching workspace", () => {
-  const globalModel = {
-    slug: "openai/global",
-    name: "Global",
-    isCustom: false,
-    capabilities: null,
-  } as const;
-  const projectModel = {
-    slug: "local/project",
-    name: "Project",
-    isCustom: false,
-    capabilities: null,
-  } as const;
-  const scoped = {
-    ...provider,
-    models: [globalModel],
-    workspaceSnapshots: [{ ...provider.workspaceSnapshots[0]!, models: [projectModel] }],
-  } satisfies ServerProvider;
-
-  expect(resolveProviderModelsForCwd(scoped, "/workspace/project-a")).toEqual([projectModel]);
-  expect(resolveProviderModelsForCwd(scoped, "/workspace/project-b")).toEqual([globalModel]);
-  expect(resolveProviderForCwd(scoped, "/workspace/project-a").models).toEqual([projectModel]);
-});
-
-it("marks Pi ready when only a project extension has available models", () => {
-  const scoped = {
-    ...provider,
-    driver: ProviderDriverKind.make("pi"),
-    status: "warning",
-    auth: { status: "unknown" },
-    models: [],
-    workspaceSnapshots: [
-      {
-        ...provider.workspaceSnapshots[0]!,
-        models: [
-          {
-            slug: "local/project",
-            name: "Project",
-            subProvider: "local",
-            isCustom: false,
-            capabilities: null,
-          },
-        ],
-      },
-    ],
-  } satisfies ServerProvider;
-
-  expect(resolveProviderForCwd(scoped, "/workspace/project-a")).toMatchObject({
-    status: "ready",
-    auth: { status: "unknown" },
-  });
-  expect(resolveProviderForCwd(scoped, "/workspace/project-b").status).toBe("warning");
-});
 
 const provider = {
   instanceId: ProviderInstanceId.make("codex"),
@@ -252,63 +196,6 @@ describe("provider workspace snapshot refresh atom", () => {
     await vi.advanceTimersByTimeAsync(0);
     registry.refresh(atom);
     expect(run).toHaveBeenCalledTimes(1);
-    unmount();
-  });
-
-  it.each(["already expired", "expires during discovery"])(
-    "retries an unchanged catalog that %s after the short cooldown",
-    async (expiry) => {
-      const start = Date.parse("2026-01-01T00:05:00.000Z");
-      vi.useFakeTimers({ now: expiry === "expires during discovery" ? start - 1 : start });
-      const stale = withSnapshot("2026-01-01T00:00:00.000Z");
-      const { registry, atom, responses, run, unmount } = setup(
-        expiry === "expires during discovery"
-          ? withSnapshot("2026-01-01T00:00:00.000Z", true)
-          : stale,
-        [
-          () => {
-            if (expiry === "expires during discovery") vi.setSystemTime(start + 1);
-            return stale;
-          },
-        ],
-      );
-      await vi.advanceTimersByTimeAsync(0);
-      await vi.advanceTimersByTimeAsync(9_999);
-      registry.refresh(atom);
-      expect(run).toHaveBeenCalledTimes(1);
-      responses.push(() => withSnapshot("2026-01-01T00:05:10.000Z"));
-      await vi.advanceTimersByTimeAsync(1);
-      registry.refresh(atom);
-      expect(run).toHaveBeenCalledTimes(2);
-      unmount();
-    },
-  );
-
-  it("keeps the TTL guard for a newly scanned catalog when the client clock is ahead", async () => {
-    vi.useFakeTimers({ now: Date.parse("2026-01-01T01:00:00.000Z") });
-    const { registry, atom, run, unmount } = setup(withSnapshot("2026-01-01T00:00:00.000Z"), [
-      () => withSnapshot("2026-01-01T00:01:00.000Z"),
-    ]);
-    await vi.advanceTimersByTimeAsync(10_000);
-    registry.refresh(atom);
-    expect(run).toHaveBeenCalledTimes(1);
-    unmount();
-  });
-
-  it("bounds retries when discovery repeatedly returns the same expired catalog", async () => {
-    vi.useFakeTimers({ now: Date.parse("2026-01-01T00:05:00.000Z") });
-    const stale = withSnapshot("2026-01-01T00:00:00.000Z");
-    const { registry, atom, run, unmount } = setup(stale, [() => stale, () => stale, () => stale]);
-    await vi.advanceTimersByTimeAsync(0);
-    await vi.advanceTimersByTimeAsync(10_000);
-    registry.refresh(atom);
-    await vi.advanceTimersByTimeAsync(0);
-    await vi.advanceTimersByTimeAsync(10_000);
-    registry.refresh(atom);
-    await vi.advanceTimersByTimeAsync(0);
-    await vi.advanceTimersByTimeAsync(10_000);
-    registry.refresh(atom);
-    expect(run).toHaveBeenCalledTimes(3);
     unmount();
   });
 

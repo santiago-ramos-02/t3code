@@ -9,7 +9,6 @@ import {
 import { makeThreadRequestsResolvedAnnouncer } from "@t3tools/client-runtime/state/thread-requests";
 import { useLayoutEffect, useRef, type ComponentProps } from "react";
 import { expect, it, vi } from "vite-plus/test";
-import { userEvent } from "vite-plus/test/browser";
 
 vi.mock(import("../ChatMarkdown"), async (importOriginal) => ({
   ...(await importOriginal()),
@@ -74,16 +73,20 @@ function questionProjection(threadId: ThreadId, requestIds = ["first", "second"]
   } satisfies OrchestrationV2ThreadProjection;
 }
 
-interface ProbeProps {
+let requests: ReturnType<typeof usePendingThreadRequests>;
+
+function PendingRequestsProbe({
+  environmentId,
+  projection,
+  loading = false,
+}: {
   environmentId: EnvironmentId;
   projection: OrchestrationV2ThreadProjection;
   loading?: boolean;
-}
-
-function useProbeRequests({ environmentId, projection, loading = false }: ProbeProps) {
+}) {
   const promptRef = useRef("");
   const composerRef = useRef(null);
-  return usePendingThreadRequests({
+  const state = usePendingThreadRequests({
     environmentId,
     activeThreadId: projection.thread.id,
     serverProjection: loading ? null : projection,
@@ -94,12 +97,6 @@ function useProbeRequests({ environmentId, projection, loading = false }: ProbeP
     composerRef,
     setThreadError: () => {},
   });
-}
-
-let requests: ReturnType<typeof usePendingThreadRequests>;
-
-function PendingRequestsProbe(props: ProbeProps) {
-  const state = useProbeRequests(props);
   useLayoutEffect(() => {
     requests = state;
   });
@@ -139,40 +136,6 @@ it("retains answers, selections and question position after leaving chat, includ
   expect(requests.activePendingUserInput).toBeNull();
   await screen.rerender(probe());
   expect(requests).toMatchObject(expected);
-});
-
-function QuestionPositionProbe(props: ProbeProps) {
-  const state = useProbeRequests(props);
-  return (
-    <>
-      <output>Question {state.activePendingQuestionIndex + 1}</output>
-      <button
-        type="button"
-        onClick={() => state.onSelectActivePendingUserInputOption("question-0", "Incremental")}
-      >
-        Choose Incremental
-      </button>
-      <button type="button" onClick={() => state.onAdvanceActivePendingUserInput()}>
-        Submit
-      </button>
-    </>
-  );
-}
-
-it("stays on an unanswered question when the composer submits", async () => {
-  await using screen = await render(
-    <QuestionPositionProbe
-      environmentId={EnvironmentId.make("unanswered-environment")}
-      projection={questionProjection(threadRef.threadId)}
-    />,
-  );
-  const submit = screen.getByRole("button", { name: "Submit" });
-  await userEvent.click(submit);
-  await expect.element(screen.getByRole("status")).toHaveTextContent("Question 1");
-
-  await userEvent.click(screen.getByRole("button", { name: "Choose Incremental" }));
-  await userEvent.click(submit);
-  await expect.element(screen.getByRole("status")).toHaveTextContent("Question 2");
 });
 
 it("isolates drafts by environment, thread and request and discards only resolved requests", async () => {

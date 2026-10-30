@@ -42,7 +42,6 @@ export const RPC_REQUIRED_SCOPES = {
   [ORCHESTRATION_V2_WS_METHODS.dispatchCommand]: AuthOrchestrationOperateScope,
   [ORCHESTRATION_V2_WS_METHODS.getWorkflowScript]: AuthOrchestrationReadScope,
   [ORCHESTRATION_V2_WS_METHODS.stopWorkflow]: AuthOrchestrationOperateScope,
-  [ORCHESTRATION_V2_WS_METHODS.forceStopThread]: AuthOrchestrationOperateScope,
   [ORCHESTRATION_V2_WS_METHODS.getTurnDiff]: AuthOrchestrationReadScope,
   [ORCHESTRATION_V2_WS_METHODS.getFullThreadDiff]: AuthOrchestrationReadScope,
   [ORCHESTRATION_V2_WS_METHODS.searchThreads]: AuthOrchestrationReadScope,
@@ -77,31 +76,6 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.providerInstallCancel]: AuthProvidersManageScope,
   [WS_METHODS.providerInstallSubscribe]: AuthOrchestrationReadScope,
   [WS_METHODS.providerInstallRemove]: AuthProvidersManageScope,
-  [WS_METHODS.providerPiGentleRead]: AuthOrchestrationReadScope,
-  [WS_METHODS.providerPiGentleComposerRead]: AuthOrchestrationReadScope,
-  [WS_METHODS.providerPiGentleAction]: AuthOrchestrationOperateScope,
-  [WS_METHODS.gentleAiRead]: AuthOrchestrationReadScope,
-  [WS_METHODS.gentleAiAction]: AuthOrchestrationOperateScope,
-  [WS_METHODS.gentleAiQuery]: AuthOrchestrationReadScope,
-  [WS_METHODS.gentleAiStartJob]: AuthOrchestrationOperateScope,
-  [WS_METHODS.gentleAiSubscribeJob]: AuthOrchestrationReadScope,
-  [WS_METHODS.gentleAiSubscribeStatus]: AuthOrchestrationReadScope,
-  [WS_METHODS.cliProxySubscribeStatus]: AuthOrchestrationReadScope,
-  // The proxy holds account credentials and runs a program on the environment, like a terminal.
-  [WS_METHODS.cliProxyAction]: AuthTerminalOperateScope,
-  [WS_METHODS.cliProxyManagement]: AuthTerminalOperateScope,
-  [WS_METHODS.boatSubscribeStatus]: AuthOrchestrationReadScope,
-  // The Boat key spends money and its machines run agents with the environment's logins.
-  [WS_METHODS.boatConfigure]: AuthSettingsWriteScope,
-  [WS_METHODS.boatSpawn]: AuthOrchestrationOperateScope,
-  [WS_METHODS.boatMachineAction]: AuthOrchestrationOperateScope,
-  [WS_METHODS.memoryOverview]: AuthOrchestrationReadScope,
-  [WS_METHODS.memorySearch]: AuthOrchestrationReadScope,
-  [WS_METHODS.memoryObservation]: AuthOrchestrationReadScope,
-  [WS_METHODS.memoryHealth]: AuthOrchestrationReadScope,
-  [WS_METHODS.memoryJudge]: AuthOrchestrationOperateScope,
-  // Writes notes into a folder on the environment.
-  [WS_METHODS.memoryExportObsidian]: AuthTerminalOperateScope,
   [WS_METHODS.serverUpdateServer]: AuthEnvironmentMaintainScope,
   [WS_METHODS.serverUpdateServerWithProgress]: AuthEnvironmentMaintainScope,
   [WS_METHODS.serverCommitDesktopUpdate]: AuthEnvironmentMaintainScope,
@@ -195,7 +169,6 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.vcsRefreshStatus]: AuthOrchestrationReadScope,
   [WS_METHODS.gitResolvePullRequest]: AuthOrchestrationReadScope,
   [WS_METHODS.vcsListRefs]: AuthOrchestrationReadScope,
-  [WS_METHODS.reviewGetBranchCommits]: AuthFilesystemReadScope,
   [WS_METHODS.reviewGetDiffPreview]: AuthFilesystemReadScope,
   [WS_METHODS.reviewGetDiffFileContents]: AuthFilesystemReadScope,
   [WS_METHODS.terminalOpen]: AuthTerminalOperateScope,
@@ -254,8 +227,7 @@ const SettingsUpdate = Schema.Struct({
   patch: ServerSettingsPatch,
   providerInstanceMutation: Schema.optionalKey(ProviderInstanceMutation),
 });
-// Middleware receives the payload already decoded, so it is checked against the decoded shape.
-const decodeSettingsUpdate = Schema.decodeUnknownSync(Schema.toType(SettingsUpdate));
+const decodeSettingsUpdate = Schema.decodeUnknownSync(SettingsUpdate);
 
 const requiredScopesForSettingsUpdate = (payload: unknown) => {
   const input = decodeSettingsUpdate(payload);

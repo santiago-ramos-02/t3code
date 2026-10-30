@@ -10,16 +10,6 @@ const decodeDelegateTaskInput = Schema.decodeUnknownSync(OrchestratorMcpDelegate
 const decodeDelegateTaskResult = Schema.decodeUnknownSync(OrchestratorMcpDelegateTaskResult);
 
 describe("orchestrator MCP contracts", () => {
-  it("accepts an optional Boat machine on delegated task requests", () => {
-    const request = decodeDelegateTaskInput({
-      task: "Run the suite.",
-      machine: "bx_test0001",
-    });
-    expect(request.machine).toBe("bx_test0001");
-    expect(decodeDelegateTaskInput({ task: "Run the suite." }).machine).toBeUndefined();
-    expect(() => decodeDelegateTaskInput({ task: "Run the suite.", machine: " " })).toThrow();
-  });
-
   it("decodes cross-provider delegated task requests and durable results", () => {
     const request = decodeDelegateTaskInput({
       task: "Inspect the workspace and report the result.",

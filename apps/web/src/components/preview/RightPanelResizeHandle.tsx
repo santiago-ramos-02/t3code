@@ -1,23 +1,16 @@
-import type { ComponentProps } from "react";
 import type { ResizableWidthHandlers } from "~/hooks/useResizableWidth";
 import { cn } from "~/lib/utils";
 
-interface Props extends Pick<
-  ComponentProps<"div">,
-  "tabIndex" | "onKeyDown" | "aria-valuenow" | "aria-valuemin" | "aria-valuemax"
-> {
+interface Props {
   handlers: ResizableWidthHandlers;
   className?: string;
-  label?: string;
 }
 
-export function RightPanelResizeHandle({ handlers, className, label, ...separatorProps }: Props) {
+export function RightPanelResizeHandle({ handlers, className }: Props) {
   return (
     <div
       role="separator"
-      aria-label={label}
       aria-orientation="vertical"
-      {...separatorProps}
       className={cn(
         "group absolute inset-y-0 -left-1 z-20 w-2 cursor-col-resize select-none",
         className,
@@ -26,7 +19,7 @@ export function RightPanelResizeHandle({ handlers, className, label, ...separato
     >
       <span
         aria-hidden
-        className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-transparent transition-colors duration-150 group-hover:bg-border group-focus-visible:bg-primary/60 group-active:bg-primary/60"
+        className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-transparent transition-colors duration-150 group-hover:bg-border group-active:bg-primary/60"
       />
     </div>
   );

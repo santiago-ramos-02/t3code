@@ -99,19 +99,16 @@ export function mapSettingsSecrets(
           ...(instance.environment
             ? {
                 environment: instance.environment.map((variable) => {
-                  const { valueRedacted: _omit, ...rest } = variable;
-                  // A secret reference is not itself secret; storage sees the value cleared.
-                  const reference = typeof variable.value === "string" ? undefined : variable.value;
                   const result = map({
                     secretName: `provider-env-${encode(instanceId)}-${encode(variable.name)}`,
                     kind: "environment",
-                    value: typeof variable.value === "string" ? variable.value : "",
-                    redacted: reference === undefined && variable.valueRedacted === true,
+                    value: variable.value,
+                    redacted: variable.valueRedacted === true,
                     sensitive: variable.sensitive,
                     providerInstanceId: instanceId,
                     environmentVariable: variable.name,
                   });
-                  if (reference !== undefined) return { ...rest, value: reference };
+                  const { valueRedacted: _omit, ...rest } = variable;
                   return {
                     ...rest,
                     value: result.value,

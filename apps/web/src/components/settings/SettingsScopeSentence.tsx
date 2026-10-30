@@ -115,7 +115,7 @@ function ScopeOptionLabel({ option }: { option: ScopeOption }) {
   );
 }
 
-export function ScopeMenu({
+function ScopeMenu({
   ariaLabel,
   icon,
   label,

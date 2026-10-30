@@ -2,7 +2,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   ProviderReplayEntry,
   ProviderInstanceId,
-  type ResolvedProviderInstanceEnvironment,
+  type ProviderInstanceEnvironment,
   type ProviderReplayTranscript,
   type ProviderReplayEntry as ProviderReplayEntryType,
 } from "@t3tools/contracts";
@@ -363,7 +363,7 @@ export function layer<E, R>(input: {
   readonly spawner: Layer.Layer<ChildProcessSpawner.ChildProcessSpawner, E, R>;
   readonly binaryPath: string;
   readonly launchArgs: string;
-  readonly environment?: ResolvedProviderInstanceEnvironment;
+  readonly environment?: ProviderInstanceEnvironment;
 }) {
   return ProviderAdapterRegistry.layerFromAdaptersEffect(
     PiAdapterV2Driver.create({
