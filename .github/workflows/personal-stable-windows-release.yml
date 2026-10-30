@@ -222,8 +222,9 @@ jobs:
       matrix:
         include:
           - label: macOS arm64
-            # Hosted arm64 Macs often go unassigned for lack of capacity; Intel cross-builds arm64.
-            runner: macos-15-intel
+            # Upstream's tagged build self-checks the bundle, which only an arm64 host can run.
+            # A run that finds no arm64 runner fails, and the next scheduled run rebuilds it.
+            runner: macos-15
             platform: mac
             target: dmg
             arch: arm64
