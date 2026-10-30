@@ -292,7 +292,9 @@ export function isProxiedClaudeInstance(instance: ProviderInstanceConfig): boole
     (instance.environment ?? []).some(
       (variable) =>
         variable.name === "ANTHROPIC_BASE_URL" &&
-        (variable.value.trim() !== "" || variable.valueRedacted === true),
+        (typeof variable.value !== "string" ||
+          variable.value.trim() !== "" ||
+          variable.valueRedacted === true),
     )
   );
 }
