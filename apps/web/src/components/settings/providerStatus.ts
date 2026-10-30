@@ -64,12 +64,6 @@ export function getProviderReadyMeta(provider: ServerProvider | undefined): stri
 }
 
 /**
- * Exact message PiDriver publishes for an enabled instance before its
- * scope-owned startup probe runs. That snapshot is pending, not failed.
- */
-export const PI_PRE_PROBE_MESSAGE = "Pi version has not been checked yet.";
-
-/**
  * Resolve what a provider instance card shows for its status line.
  *
  * Config and snapshot arrive separately: an enabled config with a stale or
@@ -112,17 +106,6 @@ export function resolveProviderCardDisplay(input: {
       statusKey: "warning",
       headline: "Checking provider status",
       detail: "Waiting for refreshed status after enabling.",
-    };
-  }
-  if (
-    String(input.driver ?? provider?.driver ?? "") === "pi" &&
-    provider.status === "error" &&
-    provider.message === PI_PRE_PROBE_MESSAGE
-  ) {
-    return {
-      statusKey: "warning",
-      headline: "Checking provider status",
-      detail: "Waiting for the initial provider check to complete.",
     };
   }
   const summary = getProviderSummary(provider);

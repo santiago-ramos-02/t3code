@@ -6,7 +6,6 @@ import {
   getProviderReadyMeta,
   getProviderStatusKey,
   getProviderSummary,
-  PI_PRE_PROBE_MESSAGE,
   PROVIDER_SUMMARY_DETAIL_LIMIT,
   resolveProviderCardDisplay,
   truncateProviderDetail,
@@ -98,31 +97,6 @@ describe("resolveProviderCardDisplay", () => {
     },
   );
 
-  it("reads the Pi pre-probe snapshot as Checking, not an error", () => {
-    expect(PI_PRE_PROBE_MESSAGE).toBe("Pi version has not been checked yet.");
-    expect(
-      resolveProviderCardDisplay({
-        enabled: true,
-        provider: {
-          ...provider,
-          driver: ProviderDriverKind.make("pi"),
-          enabled: true,
-          installed: false,
-          version: null,
-          status: "error",
-          message: "Pi version has not been checked yet.",
-          models: [],
-        },
-        isChecking: false,
-        driver: "pi",
-      }),
-    ).toEqual({
-      statusKey: "warning",
-      headline: "Checking provider status",
-      detail: "Waiting for the initial provider check to complete.",
-    });
-  });
-
   it("keeps real Pi errors visible after the initial check", () => {
     const display = resolveProviderCardDisplay({
       enabled: true,
@@ -136,21 +110,6 @@ describe("resolveProviderCardDisplay", () => {
       driver: "pi",
     });
     expect(display.headline).toBe("Unavailable");
-    expect(display.statusKey).toBe("error");
-  });
-
-  it("does not treat the pre-probe message as Checking for other drivers", () => {
-    const display = resolveProviderCardDisplay({
-      enabled: true,
-      provider: {
-        ...provider,
-        status: "error",
-        message: "Pi version has not been checked yet.",
-      },
-      isChecking: false,
-      driver: "codex",
-    });
-    expect(display.headline).not.toBe("Checking provider status");
     expect(display.statusKey).toBe("error");
   });
 

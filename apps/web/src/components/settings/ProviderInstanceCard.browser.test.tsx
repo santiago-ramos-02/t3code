@@ -126,23 +126,6 @@ describe("ProviderInstanceCard status truthfulness", () => {
     expect(screen.container.textContent).not.toMatch(/(^| )Disabled( |$)/);
   });
 
-  it("reads the Pi pre-probe snapshot as Checking, not an error", async () => {
-    await using screen = await render(
-      piCard({
-        liveProvider: piSnapshot({
-          installed: false,
-          version: null,
-          status: "error",
-          message: "Pi version has not been checked yet.",
-          models: [],
-        }),
-      }),
-    );
-    expect(screen.container.textContent).toContain("Checking provider status");
-    expect(screen.container.textContent).not.toContain("Unavailable");
-    expect(screen.container.textContent).not.toContain("Not found");
-  });
-
   it("reads a disabled instance as Disabled immediately, even with a healthy snapshot", async () => {
     await using screen = await render(
       piCard({ instance: piInstance(false), liveProvider: piSnapshot() }),
