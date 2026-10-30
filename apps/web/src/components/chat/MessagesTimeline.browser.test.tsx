@@ -15,7 +15,6 @@ import {
 import type { LegendListRef } from "@legendapp/list/react";
 import { createRef, Profiler, StrictMode, type ComponentProps, type ReactElement } from "react";
 import { describe, expect, it, vi } from "vite-plus/test";
-import { userEvent } from "vite-plus/test/browser";
 
 import "~/index.css";
 
@@ -28,7 +27,6 @@ import {
 } from "../../session-logic";
 import { remarkThoughtPreview } from "./TimelineWorkEntryRow.logic";
 import { parseMarkdownWithMath } from "@t3tools/shared/markdownMath";
-import { readTimelinePosition } from "./timelineScrollAnchoring";
 import { collectThreadFindRanges } from "./threadFindHighlights";
 import { toastManager } from "../ui/toast";
 import type { CitedHistory } from "./citationProcedure";
@@ -98,7 +96,6 @@ function baseProps(): Omit<TimelineProps, "timelineEntries"> {
     contentInsetEndAdjustment: 0,
     emptyPlaceholderInset: 0,
     liveFollowEnabled: true,
-    isLiveFollowLatched: () => true,
     onIsAtEndChange: () => {},
   };
 }
@@ -391,69 +388,6 @@ describe("MessagesTimeline messages", () => {
     expect(screen.container.innerHTML).not.toContain("javascript:");
     await click(screen.button("Safe details"));
     expect((globalThis as { __t3Xss?: number }).__t3Xss).toBeUndefined();
-  });
-});
-
-describe("MessagesTimeline scroll position", () => {
-  const tall = (index: number) =>
-    message(
-      `Message ${index}\n\n${"Long paragraph. ".repeat(80)}`,
-      { role: "assistant" },
-      `message-${index}`,
-    );
-  const tallEntries = Array.from({ length: 12 }, (_, index) => tall(index));
-
-  async function waitForList(props: ReturnType<typeof baseProps>) {
-    await vi.waitFor(() => {
-      const viewport = props.listRef.current?.getScrollableNode();
-      expect(viewport?.scrollHeight ?? 0).toBeGreaterThan(viewport?.clientHeight ?? 0);
-    });
-    return props.listRef.current!.getScrollableNode()!;
-  }
-
-  it("remembers a live-following thread at the end while the follow scroll trails output", async () => {
-    let latched = true;
-    const props = { ...baseProps(), isLiveFollowLatched: () => latched };
-    const entries = [...tallEntries, message("Newest send", {}, "newest-send")];
-    const timeline = (liveFollowEnabled: boolean, anchorMessageId: MessageId | null = null) => (
-      <MessagesTimeline
-        {...props}
-        timelineEntries={entries}
-        liveFollowEnabled={liveFollowEnabled}
-        anchorMessageId={anchorMessageId}
-      />
-    );
-    await using screen = await renderElement(timeline(true));
-    const viewport = await waitForList(props);
-    const remembered = () => readTimelinePosition(props.routeThreadKey);
-    // The wheel scrolls the real list away from the end, as streamed output
-    // does while the follow scroll trails behind it.
-    const scrollUp = async () => {
-      await userEvent.wheel(viewport, { delta: { y: -200 } });
-      await vi.waitFor(() => expect(remembered()?.scrollOffset).toBe(viewport.scrollTop));
-    };
-
-    await scrollUp();
-    expect(remembered()?.atEnd).toBe(true);
-
-    // A gesture releases the latch before the next render turns follow off.
-    latched = false;
-    await scrollUp();
-    expect(remembered()?.atEnd).toBe(false);
-    latched = true;
-    await scrollUp();
-    expect(remembered()?.atEnd).toBe(true);
-
-    // Once the user scrolls away, the same offset is a reading position.
-    await screen.rerender(timeline(false));
-    await vi.waitFor(() =>
-      expect(remembered()).toMatchObject({ atEnd: false, scrollOffset: viewport.scrollTop }),
-    );
-
-    // A first send anchored near the top is not following the end either.
-    await screen.rerender(timeline(true, MessageId.make("newest-send")));
-    await scrollUp();
-    expect(remembered()?.atEnd).toBe(false);
   });
 });
 

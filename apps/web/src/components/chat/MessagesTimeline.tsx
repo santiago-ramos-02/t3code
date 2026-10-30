@@ -196,7 +196,6 @@ const TIMELINE_MAINTAIN_SCROLL_AT_END_SMOOTH = {
   animated: true,
 } as const satisfies MaintainScrollAtEndOptions;
 
-const alwaysLatched = () => true;
 const CITED_HISTORY_LOADING: CitedHistory = { _tag: "loading" };
 
 export interface MessagesTimelineHistoryControls {
@@ -289,11 +288,6 @@ interface MessagesTimelineProps {
   onIsAtEndChange: (isAtEnd: boolean) => void;
   /** Disable while reading history to prevent LegendList re-pinning near the bottom. */
   liveFollowEnabled: boolean;
-  /**
-   * Reads ChatView's live-follow latch. A navigation gesture releases it
-   * synchronously, before `liveFollowEnabled` re-renders. Omitted, `liveFollowEnabled` alone decides.
-   */
-  isLiveFollowLatched?: () => boolean;
   /** Receives the list's viewport when it mounts; the returned cleanup runs when it goes away. */
   onViewportAttach?: (viewport: TimelineViewport) => () => void;
   /** The footer's content grew, such as a new queued turn or status line. */
@@ -392,7 +386,6 @@ const ConversationTimeline = memo(function ConversationTimeline({
   contentInsetEndAdjustment,
   onIsAtEndChange,
   liveFollowEnabled,
-  isLiveFollowLatched = alwaysLatched,
   onViewportAttach,
   onFooterGrow,
   hideEmptyPlaceholder = false,
@@ -942,9 +935,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
 
   const handleScroll = () => {
     if (restoringThreadPosition || listRef.current?.getState?.().data !== rows) return;
-    const isAtEnd = rememberPosition(
-      liveFollowEnabled && isLiveFollowLatched() && !anchoredEndSpace,
-    );
+    const isAtEnd = rememberPosition(liveFollowEnabled && !anchoredEndSpace);
     if (isAtEnd !== undefined && !citationPositioning) {
       onIsAtEndChange(isAtEnd);
     }
