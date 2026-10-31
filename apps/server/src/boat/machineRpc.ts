@@ -14,6 +14,7 @@ import {
 import * as Effect from "effect/Effect";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 import * as Layer from "effect/Layer";
+import * as Redacted from "effect/Redacted";
 import type * as Rpc from "effect/rpc/Rpc";
 import * as RpcClient from "effect/rpc/RpcClient";
 import type * as RpcGroup from "effect/rpc/RpcGroup";
@@ -76,7 +77,7 @@ export const openMachineRpc = Effect.fn("MachineRpc.open")(function* <Rpcs exten
     );
 
   const socket = Socket.layerWebSocket(
-    `${input.machineUrl.replace(/^http/, "ws")}/ws?wsTicket=${encodeURIComponent(ticket)}&${ORCHESTRATION_PROTOCOL_QUERY_PARAM}=${ORCHESTRATION_PROTOCOL_VERSION}`,
+    `${input.machineUrl.replace(/^http/, "ws")}/ws?wsTicket=${encodeURIComponent(Redacted.value(ticket))}&${ORCHESTRATION_PROTOCOL_QUERY_PARAM}=${ORCHESTRATION_PROTOCOL_VERSION}`,
     { openTimeout: "15 seconds" },
   );
   const protocol = Layer.effect(

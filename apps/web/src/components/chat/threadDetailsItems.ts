@@ -13,6 +13,7 @@ export const THREAD_DETAILS_ITEMS = [
   { id: "feature", label: "Feature", defaultVisible: true },
   { id: "memory", label: "Memory", defaultVisible: true },
   { id: "lineage", label: "Lineage", defaultVisible: true },
+  { id: "sideChats", label: "Side chats", defaultVisible: true },
   { id: "usage", label: "Usage limits", defaultVisible: false },
   { id: "context", label: "Context window", defaultVisible: false },
 ] as const;
