@@ -50,7 +50,7 @@ const PROFILE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const AGENT_NAME = /^[A-Za-z0-9._:@/+%-]+$/;
 const MODEL_ID = /^[A-Za-z0-9._~:@/+%-]+$/;
 
-export type GentleRouting = typeof PiGentleRouting.Type;
+export type GentleRouting = PiGentleRouting;
 
 const RawRouting = Schema.Record(
   Schema.String,
