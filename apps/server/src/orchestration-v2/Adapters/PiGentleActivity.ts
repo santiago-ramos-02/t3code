@@ -67,6 +67,18 @@ const GentleActivitySchema = Schema.Struct({
       }),
     }),
   ),
+  // Newer gentle-pi only: its `bash_background` commands and monitors, running or just finished.
+  jobs: Schema.optional(
+    Schema.Array(
+      Schema.Struct({
+        id: TrimmedNonEmptyString,
+        kind: Schema.Literals(["command", "monitor"]),
+        label: Schema.String,
+        status: Schema.Literals(["running", "exited", "stopped", "failed"]),
+        exitCode: Schema.optional(Schema.NullOr(Schema.Finite)),
+      }),
+    ),
+  ),
 });
 const decodeGentleActivity = Schema.decodeUnknownOption(
   Schema.fromJsonString(GentleActivitySchema),
@@ -157,14 +169,25 @@ function readTask(task: GentleActivityTask): GentleTask {
   };
 }
 
+export type GentleJob = NonNullable<(typeof GentleActivitySchema.Type)["jobs"]>[number];
+
+/** The subagents and background jobs in one `gentle-agents` widget snapshot, or null when it is not one. */
+export function readGentleSnapshot(widgetLines: ReadonlyArray<string> | undefined): {
+  readonly tasks: ReadonlyArray<GentleTask>;
+  readonly jobs: ReadonlyArray<GentleJob>;
+} | null {
+  const line = widgetLines?.length === 1 ? widgetLines[0] : undefined;
+  if (line === undefined || line.length > MAX_WIDGET_LINE_CHARS) return null;
+  const activity = decodeGentleActivity(line);
+  if (Option.isNone(activity)) return null;
+  return { tasks: activity.value.tasks.map(readTask), jobs: activity.value.jobs ?? [] };
+}
+
 /** The subagents in one `gentle-agents` widget snapshot, or null when it is not one. */
 export function readGentleActivity(
   widgetLines: ReadonlyArray<string> | undefined,
 ): ReadonlyArray<GentleTask> | null {
-  const line = widgetLines?.length === 1 ? widgetLines[0] : undefined;
-  if (line === undefined || line.length > MAX_WIDGET_LINE_CHARS) return null;
-  const activity = decodeGentleActivity(line);
-  return Option.isNone(activity) ? null : activity.value.tasks.map(readTask);
+  return readGentleSnapshot(widgetLines)?.tasks ?? null;
 }
 
 const ODD_FEATURE_DOCUMENT = /odd\/tasks\/([\w.-]+?)\.md/;

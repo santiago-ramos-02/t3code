@@ -1194,6 +1194,70 @@ describe("PiAdapterV2", () => {
     ),
   );
 
+  it.effect("tracks gentle-pi's background job until it exits and wakes the parent", () =>
+    Effect.gen(function* () {
+      const jobsWidget = (status: string, exitCode: number | null) => ({
+        type: "extension_ui_request",
+        id: `widget-job-${status}`,
+        method: "setWidget",
+        widgetKey: "gentle-agents",
+        widgetLines: [
+          JSON.stringify({
+            schema: "gentle-agents.activity/v1",
+            tasks: [],
+            jobs: [{ id: "job-3", kind: "command", label: "sdk codegen", status, exitCode }],
+          }),
+        ],
+      });
+      const fake = yield* makeFakePi;
+      const { runtime, takeEvent, offers } = yield* openRuntimeWithContinuations(fake);
+      const providerThread = yield* runtime.ensureThread({
+        threadId: THREAD_ID,
+        modelSelection: modelSelection("default"),
+        runtimePolicy,
+      });
+      yield* startTurn(runtime, providerThread);
+      yield* fake.takeRequest("prompt");
+      yield* fake.emit({ type: "agent_start" });
+      yield* fake.emit(jobsWidget("running", null));
+      const roster = yield* takeEvent(
+        (event) =>
+          event.type === "provider_thread.updated" &&
+          (event.providerThread.pendingBackgroundTasks?.length ?? 0) > 0,
+      );
+      assert.deepEqual(
+        roster.type === "provider_thread.updated"
+          ? roster.providerThread.pendingBackgroundTasks
+          : undefined,
+        [{ taskId: "gentle:job:job-3", kind: "command", description: "sdk codegen" }],
+      );
+      fake.queueState({ isStreaming: false, isCompacting: false, pendingMessageCount: 0 });
+      yield* fake.emit({ type: "agent_settled" });
+      yield* fake.takeRequest("get_state");
+      yield* takeEvent((event) => event.type === "turn.terminal");
+      // The running job keeps the session from being released, like a background subagent.
+      assert.isTrue(yield* runtime.hasPendingBackgroundWork!);
+
+      yield* fake.emit(jobsWidget("exited", 0));
+      yield* takeEvent(
+        (event) =>
+          event.type === "provider_thread.updated" &&
+          event.providerThread.pendingBackgroundTasks?.length === 0,
+      );
+      yield* fake.emit({ type: "agent_start" });
+      const offer = yield* Queue.take(offers);
+      assert.isTrue(
+        offer.detail === "A background job finished." &&
+          offer.notification?.source.kind === "command" &&
+          offer.notification.summary === 'Command "sdk codegen" finished (exit 0)',
+      );
+    }).pipe(
+      Effect.scoped,
+      Effect.provideService(PiGentleHooks, gentleHooks()),
+      Effect.provide(layerTest),
+    ),
+  );
+
   it.effect("keeps native image bytes and the saved path in the prompt", () =>
     Effect.gen(function* () {
       const host = yield* ProviderHost.ProviderHost;

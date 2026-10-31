@@ -27,7 +27,8 @@ import {
   GENTLE_ACTIVITY_WIDGET_KEY,
   gentleTodoSteps,
   gentleWorkflowName,
-  readGentleActivity,
+  readGentleSnapshot,
+  type GentleJob,
   type GentleTask,
   type GentleThreadItem,
 } from "./PiGentleActivity.ts";
@@ -37,6 +38,14 @@ const CHILD_PROMPT_ORDINAL = 100;
 const CHILD_FIRST_ITEM_ORDINAL = 101;
 const CHILD_RESULT_ORDINAL = 1_000_000;
 const WAKE_TEXT = "A background subagent finished.";
+const JOB_WAKE_TEXT = "A background job finished.";
+
+function jobOutcome(job: GentleJob) {
+  if (job.status === "stopped") return "cancelled" as const;
+  if (job.status === "failed") return "failed" as const;
+  if (job.exitCode == null) return "unknown" as const;
+  return job.exitCode === 0 ? ("completed" as const) : ("failed" as const);
+}
 
 // gentle-pi's ODD phases in protocol order (gentle-shell lib/odd-phase.ts).
 const ODD_PHASES = [
@@ -167,6 +176,9 @@ export function makePiGentle<Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>
   let lastTurn: Turn | null = null;
   /** A background subagent that finished with no turn running, so gentle-pi is about to wake Pi. */
   let finishedBackground: string | null = null;
+  /** gentle-pi's running `bash_background` jobs, and one that finished with no turn running. */
+  let liveJobs: ReadonlyArray<GentleJob> = [];
+  let finishedJob: GentleJob | null = null;
   const planIds = new Map<string, PlanId>();
   let latestPlan: OrchestrationV2PlanArtifact | null = null;
 
@@ -732,7 +744,7 @@ export function makePiGentle<Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>
   });
 
   /**
-   * The provider thread with its gentle-pi entries replaced by the subagents still running.
+   * The provider thread with its gentle-pi entries replaced by the subagents and jobs still running.
    * Unfinished subagents keep the thread working through this background roster, which also
    * covers redraws after the turn settles.
    */
@@ -747,14 +759,27 @@ export function makePiGentle<Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>
         kind: "subagent" as const,
         description: title,
       })),
+      ...liveJobs.map((job) => ({
+        taskId: `gentle:job:${job.id}`,
+        kind: job.kind,
+        description: job.label,
+      })),
     ],
   });
 
   const onActivity = Effect.fnUntraced(function* (widgetLines: ReadonlyArray<string> | undefined) {
     const state = deps.threadState();
-    const snapshot = readGentleActivity(widgetLines);
-    if (state === null || snapshot === null) return;
+    const activity = readGentleSnapshot(widgetLines);
+    if (state === null || activity === null) return;
+    const snapshot = activity.tasks;
     const now = yield* DateTime.now;
+    const wasRunning = new Set(liveJobs.map((job) => job.id));
+    liveJobs = activity.jobs.filter((job) => job.status === "running");
+    if (state.activeTurn === null) {
+      finishedJob =
+        activity.jobs.find((job) => job.status !== "running" && wasRunning.has(job.id)) ??
+        finishedJob;
+    }
     const wasLive = liveBackground;
     const unfinished = snapshot.filter((task) => !task.terminal);
     live = new Map(unfinished.map((task) => [task.id, task.title]));
@@ -891,14 +916,31 @@ export function makePiGentle<Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>
       reportedPhases.clear();
       live = new Map();
       liveBackground = new Set();
+      liveJobs = [];
+      finishedJob = null;
       lastTurn = null;
       finishedBackground = null;
       planIds.clear();
       latestPlan = null;
     },
 
-    /** Names the background subagent whose finish woke Pi, for the continuation run. */
+    /** Names the background subagent or job whose finish woke Pi, for the continuation run. */
     describeWake: () => {
+      if (finishedBackground === null && finishedJob !== null) {
+        const job = finishedJob;
+        finishedJob = null;
+        return {
+          detail: JOB_WAKE_TEXT,
+          notification: backgroundWorkNotification([
+            {
+              kind: job.kind,
+              label: job.label,
+              outcome: jobOutcome(job),
+              ...(job.kind === "command" && job.exitCode != null ? { exitCode: job.exitCode } : {}),
+            },
+          ]),
+        };
+      }
       if (lastTurn === null) return null;
       // gentle-pi's activity can arrive just after the wake-up it caused, so a background
       // subagent still listed as running counts too.
@@ -932,7 +974,7 @@ export function makePiGentle<Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>
      */
     withRoster,
 
-    hasPendingBackgroundWork: Effect.sync(() => live.size > 0),
+    hasPendingBackgroundWork: Effect.sync(() => live.size > 0 || liveJobs.length > 0),
 
     hasPendingBackgroundWorkForThread: (providerThread: OrchestrationV2ProviderThread) =>
       Effect.sync(() =>
