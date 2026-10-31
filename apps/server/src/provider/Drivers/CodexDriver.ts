@@ -149,6 +149,7 @@ export const CodexDriver: ProviderDriver<
     const pathService = yield* Path.Path;
     const httpClient = yield* HttpClient.HttpClient;
     const latestVersions = yield* ProviderLatestVersions.ProviderLatestVersions;
+    const installation = yield* CodexInstallation.CodexInstallation;
     const modelCatalog = yield* ModelCatalog.ModelCatalog;
     const currentCatalog = modelCatalog.current(DRIVER_KIND);
     const processEnv = yield* mergeProviderInstanceEnvironment(environment);
@@ -205,6 +206,7 @@ export const CodexDriver: ProviderDriver<
         onUsageLimits: (update) => snapshot.applyUsageLimits(update),
         prepareSession: yield* makeCodexGentleOffSession(DRIVER_KIND),
         gentleReviewers: yield* makeGentleReviewers,
+        compatibility: installation.compatibility,
       },
     ).pipe(
       Effect.mapError(
