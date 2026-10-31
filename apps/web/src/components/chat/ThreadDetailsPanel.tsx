@@ -25,7 +25,11 @@ import { ThreadRelationshipsPanel } from "./ThreadRelationshipsControl";
 import { ThreadMemoryPanel } from "../memory/ThreadMemoryPanel";
 import { ThreadFeaturePanel } from "./ThreadFeaturePanel";
 import { ThreadServersPanel } from "./ThreadServersPanel";
-import { ThreadDetailsUsage, type ThreadDetailsUsageInput } from "./ThreadDetailsUsage";
+import {
+  ThreadDetailsContext,
+  ThreadDetailsUsage,
+  type ThreadDetailsUsageInput,
+} from "./ThreadDetailsUsage";
 import { ThreadDetailsItemsMenuItems } from "./ThreadDetailsItemsMenu";
 import { resolveThreadDetailsVisibility, THREAD_DETAILS_ITEMS } from "./threadDetailsItems";
 import { useClientSettings } from "../../hooks/useSettings";
@@ -267,6 +271,10 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
               ) : null}
 
               {visible.usage ? <ThreadDetailsUsage {...props.usage} /> : null}
+
+              {visible.context && props.usage.contextWindow ? (
+                <ThreadDetailsContext usage={props.usage.contextWindow} />
+              ) : null}
 
               {/* Shown only when no section above has content, so an emptied card can be refilled. */}
               <div className="p-2 group-has-[>section>:last-child:not(:empty)]/details-items:hidden">
