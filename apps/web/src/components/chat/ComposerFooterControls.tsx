@@ -9,7 +9,6 @@ import { BotIcon, PencilRulerIcon } from "lucide-react";
 import { type ComponentProps, memo, useId, useRef, useState } from "react";
 
 import type { ContextWindowSnapshot } from "../../lib/contextWindow";
-import type { PromptCacheSnapshot } from "../../lib/promptCache";
 import { Menu as MenuPrimitive } from "@base-ui/react/menu";
 import { Menu, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -18,7 +17,6 @@ import { focusRequestedPermission, useComposerMenuProps } from "./composerEventS
 import { ComposerPrimaryActions } from "./ComposerPrimaryActions";
 import { ContextWindowMeter, ContextWindowMeterPlaceholder } from "./ContextWindowMeter";
 import { resolveModelPickerSelectedModel } from "./ModelPickerContent";
-import { PromptCacheIndicator } from "./PromptCacheIndicator";
 import { ProviderModelPicker } from "./ProviderModelPicker";
 import { runtimeModeConfig } from "./runtimeModeConfig";
 import { useComposerMenuState } from "./useComposerMenuState";
@@ -95,7 +93,7 @@ export const ComposerFooterModeControls = memo(function ComposerFooterModeContro
     </Tooltip>
   ) : null;
 
-  // The chip opens the same Permissions toggle used in the effort menu.
+  // The chip opens the same Permissions toggle used in the model picker and the overflow menu.
   const permissionsTooltip = `Permissions: ${runtimeModeOption.label}. ${runtimeModeOption.description}`;
   const permissionsChip = (
     <Menu
@@ -114,7 +112,7 @@ export const ComposerFooterModeControls = memo(function ComposerFooterModeContro
                   ref={permissionsChipRef}
                   data-composer-shortcut="composer.mode"
                   size={size}
-                  // Mirrors the effort chip's trailing pe-1 so both gaps around the bars match.
+                  // Mirrors the model trigger's trailing pe-1 so the gaps on both sides of the chip match.
                   className="ps-1.5"
                   aria-label={`Permissions: ${runtimeModeOption.label}`}
                 />
@@ -158,7 +156,7 @@ export const ComposerFooterModeControls = memo(function ComposerFooterModeContro
 /**
  * Permission modes as one horizontal toggle, with the shown mode named below.
  * Each segment is a real menu radio item, so arrow keys reach it from the rest of the menu
- * and a pick closes the menu. Lives inside a Menu: the permissions chip, the effort menu,
+ * and a pick closes the menu. Lives inside a Menu: the permissions chip, the model picker,
  * or the overflow menu.
  */
 export function ComposerPermissionsSection(props: {
@@ -247,10 +245,6 @@ export const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryA
   compact: boolean;
   canOperateThread: boolean;
   activeContextWindow: ContextWindowSnapshot | null;
-  /** Shown beside the meter. */
-  promptCache: PromptCacheSnapshot | null;
-  /** What the next request sends, whether or not the meter shows. */
-  contextTokens: number | null;
   reserveContextWindowMeter: boolean;
   activeThreadModelDisplayName: string | null;
   isPreparingWorktree: boolean;
@@ -289,9 +283,6 @@ export const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryA
 }) {
   return (
     <>
-      {props.promptCache ? (
-        <PromptCacheIndicator cache={props.promptCache} contextTokens={props.contextTokens} />
-      ) : null}
       {props.activeContextWindow ? (
         <ContextWindowMeter
           usage={props.activeContextWindow}

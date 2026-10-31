@@ -3,9 +3,8 @@ import {
   runAtomCommand,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import { scopedProjectKey, scopeProjectRef } from "@t3tools/client-runtime/environment";
+import { scopedProjectKey } from "@t3tools/client-runtime/environment";
 import type {
-  BoatSize,
   EnvironmentId,
   ProjectCloneSnapshot,
   ProjectId,
@@ -17,10 +16,7 @@ import { appAtomRegistry } from "../rpc/atomRegistry";
 import { suggestAppAccessForRemote } from "../components/sourceControlAppAccessToast";
 import { environmentProjectClonesAtom, silenceProjectCloneToasts } from "../state/projectClones";
 import { projectEnvironment } from "../state/projects";
-import { environmentServerConfigsAtom } from "../state/server";
 import { sourceControlEnvironment } from "../state/sourceControl";
-import { startBoatMachine } from "./boatMachine";
-import type { MachineStartStep } from "./machineStartSteps";
 
 /** Matches the server's read cap: a larger file would arrive truncated. */
 export const COPYABLE_FILE_MAX_BYTES = 1024 * 1024;
@@ -106,7 +102,7 @@ export function dismissProjectFileCopy(ref: ScopedProjectRef) {
  * talk to each other. Resolves once the clone starts. The caller opens the new
  * project, whose composer shows the clone and copy progress, so nothing toasts.
  */
-async function addProjectToMachine(input: AddProjectToMachineInput): Promise<void> {
+export async function addProjectToMachine(input: AddProjectToMachineInput): Promise<void> {
   // Read first, so the copy reflects the files as they were when the user asked.
   const reads = await Promise.all(
     input.files.map(async (relativePath) => {
@@ -192,138 +188,4 @@ async function addProjectToMachine(input: AddProjectToMachineInput): Promise<voi
           },
     );
   })();
-}
-
-/** A project being added to another machine, from the confirmed dialog until its clone is done. */
-export interface MachineStartJob {
-  readonly id: string;
-  readonly source: ScopedProjectRef;
-  /** Set once the clone started on the machine, which is where the user lands. */
-  readonly destination: ScopedProjectRef | null;
-  readonly title: string;
-  readonly targetLabel: string;
-  readonly steps: ReadonlyArray<MachineStartStep>;
-  readonly phase: "machine" | "clone";
-  readonly error: string | null;
-}
-
-export interface MachineStartRun {
-  readonly source: ScopedProjectRef;
-  readonly title: string;
-  readonly targetLabel: string;
-  /** A new Boat machine started for the project, or a machine that is already connected. */
-  readonly destination:
-    | {
-        readonly kind: "boat";
-        readonly hostEnvironmentId: EnvironmentId;
-        readonly size: BoatSize;
-        readonly projectId: ProjectId | null;
-      }
-    | { readonly kind: "machine"; readonly environmentId: EnvironmentId; readonly label: string };
-  readonly add: Omit<AddProjectToMachineInput, "target">;
-  /** Called once the clone started, to take the user to the new project. */
-  readonly onStarted: (target: ScopedProjectRef) => void;
-}
-
-const useMachineStarts = create<{ jobs: Readonly<Record<string, MachineStartJob>> }>(() => ({
-  jobs: {},
-}));
-
-function patchJob(id: string, changes: Partial<MachineStartJob> | null) {
-  useMachineStarts.setState(({ jobs }) => {
-    const { [id]: job, ...rest } = jobs;
-    if (!job) return { jobs };
-    return { jobs: changes === null ? rest : { ...rest, [id]: { ...job, ...changes } } };
-  });
-}
-
-/** The job whose rows this project's composer shows: on the source until the user lands. */
-export function useMachineStartJob(ref: ScopedProjectRef | null): MachineStartJob | null {
-  return useMachineStarts((state) => {
-    if (!ref) return null;
-    const key = scopedProjectKey(ref);
-    return (
-      Object.values(state.jobs).find(
-        (job) =>
-          scopedProjectKey(job.source) === key ||
-          (job.destination !== null && scopedProjectKey(job.destination) === key),
-      ) ?? null
-    );
-  });
-}
-
-// What a retry needs. A machine that already started is kept, so a retry never starts a second.
-const runs = new Map<
-  string,
-  { readonly run: MachineStartRun; machine: { environmentId: EnvironmentId; label: string } | null }
->();
-let jobCount = 0;
-
-async function execute(id: string) {
-  const entry = runs.get(id);
-  if (!entry) return;
-  const { run } = entry;
-  patchJob(id, { error: null });
-  try {
-    if (run.destination.kind === "boat" && entry.machine === null) {
-      patchJob(id, { phase: "machine", steps: [] });
-      entry.machine = await startBoatMachine({
-        hostEnvironmentId: run.destination.hostEnvironmentId,
-        size: run.destination.size,
-        projectId: run.destination.projectId,
-        onSteps: (steps) => patchJob(id, { steps }),
-      });
-    }
-    const target =
-      run.destination.kind === "machine"
-        ? { environmentId: run.destination.environmentId, label: run.destination.label }
-        : entry.machine;
-    if (!target) return;
-    patchJob(id, { phase: "clone" });
-    await addProjectToMachine({ ...run.add, target });
-    const destination = scopeProjectRef(target.environmentId, run.add.projectId);
-    patchJob(id, { destination });
-    run.onStarted(destination);
-    const tracked =
-      appAtomRegistry.get(environmentServerConfigsAtom).get(target.environmentId)?.environment
-        .capabilities.projectCloneTracking === true;
-    if (!tracked) return dismissMachineStart(id);
-    void waitForClone(target.environmentId, run.add.projectId).then(() => dismissMachineStart(id));
-  } catch (cause) {
-    patchJob(id, { error: cause instanceof Error ? cause.message : "Could not add the project." });
-  }
-}
-
-/**
- * Adds a project to another machine after the dialog closes: starts the Boat machine when asked,
- * then clones. Progress is the job's rows in the composer, and a failure there offers a retry.
- */
-export function startAddProjectToMachine(run: MachineStartRun) {
-  const id = `machine-start-${++jobCount}`;
-  runs.set(id, { run, machine: null });
-  useMachineStarts.setState(({ jobs }) => ({
-    jobs: {
-      ...jobs,
-      [id]: {
-        id,
-        source: run.source,
-        destination: null,
-        title: run.title,
-        targetLabel: run.targetLabel,
-        steps: [],
-        phase: run.destination.kind === "boat" ? "machine" : "clone",
-        error: null,
-      },
-    },
-  }));
-  void execute(id);
-}
-
-export function retryMachineStart(id: string) {
-  void execute(id);
-}
-
-export function dismissMachineStart(id: string) {
-  runs.delete(id);
-  patchJob(id, null);
 }

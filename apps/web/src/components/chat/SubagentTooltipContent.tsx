@@ -32,8 +32,6 @@ import { deriveProviderInstanceEntries, shouldShowInstanceBadge } from "../../pr
 
 export function SubagentTooltipContent(props: {
   title: string;
-  /** The named agent it ran as, such as Gentle AI's odd-explorer. */
-  agentName?: string | undefined;
   model: string | null;
   providerInstanceId: ProviderInstanceId;
   origin: OrchestrationV2Subagent["origin"];
@@ -122,12 +120,6 @@ export function SubagentTooltipContent(props: {
         : CircleDashedIcon;
   return (
     <ThreadHoverCard title={props.title}>
-      {props.agentName ? (
-        <div className="flex min-w-0 items-center gap-2">
-          <BotIcon aria-hidden className="size-3 shrink-0" />
-          <span className="min-w-0 truncate font-mono text-foreground/75">{props.agentName}</span>
-        </div>
-      ) : null}
       <div className="flex min-w-0 items-center gap-2">
         {driver ? (
           <ProviderInstanceIcon

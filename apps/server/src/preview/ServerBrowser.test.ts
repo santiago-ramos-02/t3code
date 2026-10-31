@@ -453,48 +453,6 @@ beforeEach(() => {
   desktopConnections.length = 0;
 });
 
-it.live("answers every browser request arriving together from different threads", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      yield* ServerBrowser.ServerBrowser;
-      const broker = yield* Broker.PreviewAutomationBroker;
-      yield* Effect.yieldNow;
-      const requests = ["batch-one", "batch-two", "batch-three"].map((id) => ({
-        ...scope,
-        requestNamespace: id,
-        thread: { ...testThread, threadId: ThreadId.make(id), providerSessionId: id },
-      }));
-      const opened = yield* Effect.forEach(
-        requests,
-        (requestScope) =>
-          broker.invoke<PreviewAutomationStatus>({
-            scope: requestScope,
-            operation: "open",
-            input: { reuseExistingTab: false, show: false },
-          }),
-        { concurrency: "unbounded" },
-      );
-      expect(opened.every((status) => status.available && status.tabId !== undefined)).toBe(true);
-      expect(new Set(opened.map((status) => status.tabId)).size).toBe(requests.length);
-      yield* Effect.forEach(requests, (requestScope, index) =>
-        broker
-          .invoke<PreviewAutomationStatus>({
-            scope: requestScope,
-            operation: "status",
-            input: {},
-          })
-          .pipe(
-            Effect.tap((status) =>
-              Effect.sync(() => {
-                expect(status.tabId).toBe(opened[index]!.tabId);
-              }),
-            ),
-          ),
-      );
-    }),
-  ).pipe(Effect.provide(layer)),
-);
-
 it.live("tells the desktop once per thread when its agent turns start and end", () =>
   Effect.gen(function* () {
     yield* ServerBrowser.ServerBrowser;

@@ -1,37 +1,7 @@
-import {
-  AuthOrchestrationOperateScope,
-  ProviderDriverKind,
-  ServerProvider,
-} from "@t3tools/contracts";
-import * as Schema from "effect/Schema";
+import { AuthOrchestrationOperateScope } from "@t3tools/contracts";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import {
-  canMaintainEnvironment,
-  canInstallEnvironmentProvider,
-  findEnvironmentUpdate,
-} from "./environment-maintenance";
-
-const provider = Schema.decodeUnknownSync(ServerProvider)({
-  instanceId: "codex-personal",
-  driver: "codex",
-  enabled: true,
-  installed: true,
-  version: "1.0.0",
-  status: "ready",
-  auth: { status: "authenticated" },
-  checkedAt: "2026-09-23T00:00:00.000Z",
-  models: [],
-  versionAdvisory: {
-    status: "behind_latest",
-    currentVersion: "1.0.0",
-    latestVersion: "1.1.0",
-    canUpdate: true,
-    updateCommand: null,
-    checkedAt: null,
-    message: null,
-  },
-});
+import { canMaintainEnvironment, findEnvironmentUpdate } from "./environment-maintenance";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -82,25 +52,6 @@ describe("environment maintenance access", () => {
       ).toBe(expected);
     },
   );
-  it("offers to install Pi only while it is enabled, missing, and not already installing", () => {
-    const missingPi = { ...provider, driver: ProviderDriverKind.make("pi"), installed: false };
-    expect(canInstallEnvironmentProvider(missingPi)).toBe(true);
-    expect(canInstallEnvironmentProvider({ ...missingPi, installed: true })).toBe(false);
-    expect(canInstallEnvironmentProvider({ ...missingPi, enabled: false })).toBe(false);
-    expect(canInstallEnvironmentProvider({ ...provider, installed: false })).toBe(false);
-    expect(
-      canInstallEnvironmentProvider({
-        ...missingPi,
-        updateState: {
-          status: "running",
-          startedAt: null,
-          finishedAt: null,
-          message: null,
-          output: null,
-        },
-      }),
-    ).toBe(false);
-  });
 });
 
 describe("environment release checks", () => {

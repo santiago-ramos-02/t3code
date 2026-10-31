@@ -50,7 +50,6 @@ export function FoldedSettingsSection({
                       open && "rotate-90",
                     )}
                   />
-                  {summary ? <span className="text-xs">{summary}</span> : null}
                 </CollapsibleTrigger>
               </h2>
               {control}

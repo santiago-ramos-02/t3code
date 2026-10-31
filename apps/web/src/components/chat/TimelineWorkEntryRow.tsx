@@ -44,7 +44,6 @@ import {
   workEntryReadOutput,
 } from "./MessagesTimeline.logic";
 import { cn } from "~/lib/utils";
-import { MemoryToolLink } from "../memory/MemoryToolLink";
 import { formatUpcomingTimestamp } from "../../timestampFormat";
 import { FetchedToolOutput, V2ItemInspector } from "./V2ItemInspector";
 import { SubagentNotificationLink } from "./V2LifecycleRow";
@@ -471,15 +470,6 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
             >
               Open chat
             </button>
-          ) : null}
-          {payload?.type === "dynamic_tool" && threadRef ? (
-            <MemoryToolLink
-              threadRef={threadRef}
-              toolName={payload.toolName}
-              input={payload.input}
-              output={payload.output}
-              onKeyDown={stopRowToggle}
-            />
           ) : null}
           {notifiedSubagentThreadId ? (
             <InlineButton

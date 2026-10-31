@@ -1,5 +1,4 @@
 import {
-  AuthOrchestrationOperateScope,
   AuthSettingsWriteScope,
   ENVIRONMENT_MACHINE_KINDS,
   isEnvironmentMachineKind,
@@ -32,11 +31,6 @@ export function resolveEnvironmentIconPickerLock(input: {
     return "Your session on this environment cannot change its settings.";
   }
   return null;
-}
-
-/** The fork's settings routes use the same session grants as the upstream settings UI. */
-export function useEnvironmentOperateAccess(environmentId: EnvironmentId) {
-  return useEnvironmentScope(environmentId, AuthOrchestrationOperateScope) ? "granted" : "denied";
 }
 
 export function EnvironmentIconMenu({

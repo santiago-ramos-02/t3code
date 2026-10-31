@@ -8,7 +8,6 @@ import {
   type ServerProvider,
   type UnifiedSettings,
 } from "@t3tools/contracts";
-import * as Cause from "effect/Cause";
 import { AsyncResult, type Atom } from "effect/reactivity";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vite-plus/test";
@@ -161,12 +160,10 @@ vi.mock(import("../ProviderUpdatesAction"), async (original) => ({
 }));
 
 import { appAtomRegistry } from "~/rpc/atomRegistry";
-import { toastManager } from "../ui/toast";
 import { EnvironmentProviderSettings } from "./ProviderSettingsPanel";
 
 const environmentId = EnvironmentId.make("remote-device");
 const codexId = ProviderInstanceId.make("codex");
-const piId = ProviderInstanceId.make("pi");
 const customId = ProviderInstanceId.make("codex_work");
 
 function provider(): ServerProvider {
@@ -198,7 +195,6 @@ const setProviders = (providers: ReadonlyArray<ServerProvider>) =>
   act(async () => appAtomRegistry.set(state.providers, providers));
 
 function panel(options?: {
-  readonly environmentId?: EnvironmentId;
   readonly readOnly?: boolean;
   readonly targetInstanceId?: ProviderInstanceId;
 }) {
@@ -206,7 +202,7 @@ function panel(options?: {
     <RegistryContext.Provider value={appAtomRegistry}>
       <div className="@container/providers">
         <EnvironmentProviderSettings
-          environmentId={options?.environmentId ?? environmentId}
+          environmentId={environmentId}
           environmentLabel="Remote device"
           {...(options?.readOnly === undefined ? {} : { readOnly: options.readOnly })}
           {...(options?.targetInstanceId === undefined
@@ -242,169 +238,6 @@ async function setup() {
 }
 
 describe("EnvironmentProviderSettings routing", () => {
-  it("renders Pi through the generic local-binary provider card", async () => {
-    await setup();
-    state.settings = {
-      ...DEFAULT_UNIFIED_SETTINGS,
-      providerInstances: {
-        [piId]: {
-          driver: ProviderDriverKind.make("pi"),
-          enabled: true,
-          config: { binaryPath: "/opt/pi/bin/pi" },
-        },
-      },
-    };
-    await setProviders([
-      {
-        ...provider(),
-        instanceId: piId,
-        driver: ProviderDriverKind.make("pi"),
-        displayName: "Pi",
-        version: "0.86.1",
-        auth: { status: "unknown" },
-        models: [
-          {
-            slug: "openrouter/anthropic/claude-sonnet-4",
-            name: "Claude Sonnet 4",
-            isCustom: false,
-            capabilities: null,
-          },
-        ],
-      },
-    ]);
-    await using screen = await render(panel({ targetInstanceId: piId }));
-
-    await expect
-      .element(page.getByRole("button", { name: "Select Pi", exact: true }))
-      .toBeVisible();
-    await expect.element(page.getByText("v0.86.1").first()).toBeVisible();
-    await expect.element(page.getByText("Claude Sonnet 4")).toBeVisible();
-    expect(
-      screen.container.querySelector<HTMLInputElement>("input[value='/opt/pi/bin/pi']"),
-    ).not.toBeNull();
-    // Pi has no driver-specific setup flow, unlike Antigravity.
-    await expect.element(page.getByText(/Install and manage/)).not.toBeInTheDocument();
-  });
-
-  describe("scoped provider refresh", () => {
-    const failedProbe = () => ({
-      ...provider(),
-      status: "error" as const,
-      message: "Probe failed.",
-    });
-    const cardRefresh = () => page.getByRole("button", { name: "Refresh status", exact: true });
-    const cardChecking = () => page.getByRole("button", { name: "Checking", exact: true });
-    const scopedRefreshInput = { instanceId: codexId, refreshModels: true };
-
-    const spyOnToasts = () => vi.spyOn(toastManager, "add").mockReturnValue("scoped-refresh-toast");
-
-    /** Holds the next refresh open so the in-flight state can be observed. */
-    function holdNextRefresh() {
-      let settle!: (result: unknown) => void;
-      state.refresh.mockReturnValueOnce(
-        new Promise((resolve) => {
-          settle = resolve;
-        }),
-      );
-      return (result: unknown) => act(async () => settle(result));
-    }
-
-    it("reports scoped refresh failure with a toast and clears pending", async () => {
-      await setup();
-      using addToast = spyOnToasts();
-      await setProviders([failedProbe()]);
-      const settle = holdNextRefresh();
-      await using _screen = await render(panel());
-
-      await userEvent.click(cardRefresh());
-      await expect.element(cardChecking()).toBeDisabled();
-      expect(state.refresh).toHaveBeenCalledExactlyOnceWith({
-        environmentId,
-        input: scopedRefreshInput,
-      });
-
-      await settle(AsyncResult.failure(Cause.fail(new Error("refresh failed"))));
-      await expect.element(cardRefresh()).toBeEnabled();
-      expect(addToast).toHaveBeenCalledOnce();
-      const toast = addToast.mock.calls[0]?.[0];
-      expect(toast?.title).toBe("Could not refresh provider status");
-      expect(String(toast?.description ?? "")).not.toContain("refresh failed");
-    });
-
-    it("stays silent when a scoped refresh is interrupted", async () => {
-      await setup();
-      using addToast = spyOnToasts();
-      await setProviders([failedProbe()]);
-      const settle = holdNextRefresh();
-      await using _screen = await render(panel());
-
-      await userEvent.click(cardRefresh());
-      await expect.element(cardChecking()).toBeDisabled();
-      await settle(AsyncResult.failure(Cause.interrupt()));
-
-      await expect.element(cardRefresh()).toBeEnabled();
-      expect(state.refresh).toHaveBeenCalledExactlyOnceWith({
-        environmentId,
-        input: scopedRefreshInput,
-      });
-      expect(addToast).not.toHaveBeenCalled();
-    });
-
-    it("dedupes a double scoped refresh for the same environment and instance", async () => {
-      await setup();
-      using _addToast = spyOnToasts();
-      await setProviders([failedProbe()]);
-      await using _screen = await render(panel());
-
-      // Both clicks land before React re-renders the button as disabled.
-      const retry = cardRefresh().element() as HTMLButtonElement;
-      await act(async () => {
-        retry.click();
-        retry.click();
-      });
-      await vi.waitFor(() => expect(state.refresh).toHaveBeenCalledTimes(1));
-      expect(state.refresh).toHaveBeenCalledWith({ environmentId, input: scopedRefreshInput });
-
-      // The guard releases after settle so an explicit retry still works.
-      await expect.element(cardRefresh()).toBeEnabled();
-      await userEvent.click(cardRefresh());
-      expect(state.refresh).toHaveBeenCalledTimes(2);
-    });
-
-    it("drops a late scoped-refresh failure after the environment changes", async () => {
-      await setup();
-      using addToast = spyOnToasts();
-      await setProviders([failedProbe()]);
-      const settle = holdNextRefresh();
-      await using screen = await render(panel());
-      await userEvent.click(cardRefresh());
-      await expect.element(cardChecking()).toBeDisabled();
-
-      await screen.rerender(panel({ environmentId: EnvironmentId.make("other-device") }));
-      // Keyed by environment+instance: the old flight never marks the new card Checking.
-      await expect.element(page.getByText("Checking provider status")).not.toBeInTheDocument();
-
-      await settle(AsyncResult.failure(Cause.fail(new Error("refresh failed"))));
-      expect(addToast).not.toHaveBeenCalled();
-      await expect.element(page.getByText("Checking provider status")).not.toBeInTheDocument();
-    });
-
-    it("drops a late scoped-refresh failure after unmount", async () => {
-      await setup();
-      using addToast = spyOnToasts();
-      await setProviders([failedProbe()]);
-      const settle = holdNextRefresh();
-      await using screen = await render(panel());
-      await userEvent.click(cardRefresh());
-      await expect.element(cardChecking()).toBeDisabled();
-
-      await screen.unmount();
-      await settle(AsyncResult.failure(Cause.fail(new Error("refresh failed"))));
-
-      expect(addToast).not.toHaveBeenCalled();
-    });
-  });
-
   it("does not substitute another account when the requested instance was removed", async () => {
     await setup();
     await setProviders([provider()]);

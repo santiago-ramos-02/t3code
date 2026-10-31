@@ -1,5 +1,4 @@
 import { Spinner } from "~/components/ui/spinner";
-import { RefreshIcon } from "~/components/ui/refresh-icon";
 
 import {
   AlertTriangleIcon,
@@ -71,9 +70,9 @@ import { readCodexSetupMode } from "./CodexSetupSection.logic";
 import {
   getProviderVersionAdvisoryPresentation,
   PROVIDER_STATUS_STYLES,
-  getProviderReadyMeta,
+  getProviderStatusKey,
+  getProviderSummary,
   getProviderVersionLabel,
-  resolveProviderCardDisplay,
 } from "./providerStatus";
 
 const ENVIRONMENT_VARIABLE_NAME_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
@@ -639,8 +638,6 @@ interface ProviderInstanceCardProps {
   readonly headerAction?: ReactNode | undefined;
   readonly setup?: ReactNode;
   readonly runtime?: ReactNode;
-  /** Driver-specific sections, rendered after the shared Runtime, Environment, and Models sections. */
-  readonly integration?: ReactNode;
   readonly hiddenModels: ReadonlyArray<string>;
   readonly favoriteModels: ReadonlyArray<string>;
   readonly modelOrder: ReadonlyArray<string>;
@@ -654,19 +651,6 @@ interface ProviderInstanceCardProps {
   readonly onRunUpdate?: (() => void) | undefined;
   readonly onInstallRecommended?: (() => void) | undefined;
   readonly isUpdating?: boolean | undefined;
-  /**
-   * True while an explicit scoped status refresh is in flight for this
-   * instance. An enabled card with a stale or missing snapshot reads as
-   * Checking until the refresh lands.
-   */
-  readonly isChecking?: boolean | undefined;
-  /**
-   * Explicit scoped status refresh with model discovery for this
-   * instance. Rendered as an inline retry in the editor whenever the
-   * provider needs attention. Pass `undefined` (e.g. read-only views)
-   * to hide the control.
-   */
-  readonly onRefresh?: (() => void) | undefined;
   readonly onAcceptUrlAuth?: ((action: AcpRegistryUrlAuthAction) => void) | undefined;
   readonly environmentId?: EnvironmentId | undefined;
   readonly secretSources?: ReadonlyArray<SecretSource>;
@@ -701,7 +685,6 @@ export function ProviderInstanceCard({
   headerAction,
   setup,
   runtime,
-  integration,
   hiddenModels,
   favoriteModels,
   modelOrder,
@@ -712,8 +695,6 @@ export function ProviderInstanceCard({
   onRunUpdate,
   onInstallRecommended,
   isUpdating = false,
-  isChecking = false,
-  onRefresh,
   onAcceptUrlAuth,
   environmentId,
   acpProjects = EMPTY_ACP_PROJECTS,
@@ -721,24 +702,13 @@ export function ProviderInstanceCard({
   projectOverride,
 }: ProviderInstanceCardProps) {
   const enabled = projectOverride?.effectiveEnabled ?? resolveProviderInstanceEnabled(instance);
-  // The toggle reads persisted config while the snapshot arrives
-  // asynchronously: an enabled card with a stale disabled (or missing)
-  // snapshot is mid-check, never Disabled. See resolveProviderCardDisplay.
-  // `liveProvider.enabled` is machine-wide; a project override can turn it on.
-  const display = resolveProviderCardDisplay({
-    enabled,
-    provider: liveProvider && { ...liveProvider, enabled: true },
-    isChecking,
-    driver: String(instance.driver),
-  });
-  const statusKey = display.statusKey;
+  const effectiveProvider = liveProvider && { ...liveProvider, enabled };
   const compatibility = enabled ? liveProvider?.compatibilityAdvisory : undefined;
+  const statusKey = enabled ? getProviderStatusKey(effectiveProvider) : "disabled";
   const statusStyle = PROVIDER_STATUS_STYLES[statusKey];
-  const summary = { headline: display.headline, detail: display.detail };
-  // Ready providers name their detected version and model count next to the
-  // status line so a successful check is visibly complete, not just silent.
-  const readyMeta =
-    statusKey === "ready" && !isChecking ? getProviderReadyMeta(liveProvider) : null;
+  const summary = enabled
+    ? getProviderSummary(effectiveProvider)
+    : { headline: "Disabled", detail: null };
   const authEmail = liveProvider?.auth.email?.trim();
   const isAuthenticated = enabled && liveProvider?.auth.status === "authenticated";
   const authLabel =
@@ -946,7 +916,6 @@ export function ProviderInstanceCard({
         {inlineStatusDetail ? (
           <span className="min-w-0 [overflow-wrap:anywhere]">· {inlineStatusDetail}</span>
         ) : null}
-        {readyMeta ? <span className="min-w-0 [overflow-wrap:anywhere]">· {readyMeta}</span> : null}
       </>
     ) : (
       <>
@@ -955,40 +924,8 @@ export function ProviderInstanceCard({
         {inlineStatusDetail ? (
           <span className="min-w-0 [overflow-wrap:anywhere]">· {inlineStatusDetail}</span>
         ) : null}
-        {readyMeta ? <span className="min-w-0 [overflow-wrap:anywhere]">· {readyMeta}</span> : null}
       </>
     );
-  // Inline retry for a check that is running or left the provider needing
-  // attention. Scoped to this instance so one slow probe never blocks the
-  // rest of the list; hidden in read-only views via `onRefresh`. Unavailable
-  // shadows have no live instance to refresh, so they never offer the button.
-  const isUnavailable = liveProvider?.availability === "unavailable";
-  const statusCheckRow =
-    enabled && !isUnavailable && onRefresh !== undefined && (isChecking || needsAttention) ? (
-      <SettingsRow
-        title="Status check"
-        description={
-          <span>
-            {isChecking
-              ? "Verifying installation, version, and models."
-              : (summary.detail ?? "Refresh to re-check installation and models.")}
-          </span>
-        }
-        control={
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={isChecking}
-            aria-busy={isChecking}
-            onClick={onRefresh}
-          >
-            <RefreshIcon refreshing={isChecking} />
-            {isChecking ? "Checking" : "Refresh status"}
-          </Button>
-        }
-      />
-    ) : null;
   const versionAdvisoryNode = versionAdvisory ? (
     <Popover>
       <Tooltip>
@@ -1306,7 +1243,6 @@ export function ProviderInstanceCard({
             </div>
           }
         />
-        {statusCheckRow}
       </SettingsSection>
 
       {setup || environmentFields.length > 0 ? (
@@ -1409,8 +1345,6 @@ export function ProviderInstanceCard({
           </div>
         </SettingsSection>
       ) : null}
-
-      {integration}
     </>
   );
 }

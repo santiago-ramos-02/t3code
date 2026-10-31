@@ -15,6 +15,7 @@ import {
   remainingPercent,
 } from "@t3tools/shared/usageLimits";
 import type { Popover as PopoverPrimitive } from "@base-ui/react/popover";
+import { normalizeProviderAccentColor } from "@t3tools/client-runtime/state/provider-instance-display";
 import { AlertTriangleIcon, ExternalLinkIcon, TicketIcon } from "lucide-react";
 import {
   createContext,
@@ -46,10 +47,6 @@ import {
   resetCreditsSummary,
   useResetCredit,
 } from "./UsageLimits";
-
-const PROVIDER_DISPLAY_ORDER = new Map(
-  providerClients.definitions.map((definition, index) => [definition.driverKind, index]),
-);
 
 function accountInitials(email: string): string {
   const [local = "", domain = ""] = email.split("@");
@@ -519,7 +516,7 @@ function PoolBar({
               window={member.window}
               reset={restores.get(member.account.key)}
               refillPercent={member.refillPercent}
-              color={color}
+              color={normalizeProviderAccentColor(member.account.accentColor) ?? color}
               now={now}
               index={position + 1}
               showAccountName={pool.columns.length > 1}
@@ -616,12 +613,7 @@ export function UsageLimitsPooled({
 }) {
   const [segmentPopover] = useState(() => PopoverCreateHandle<SegmentPayload>());
   const segmentPopoverActions = useRef<PopoverPrimitive.Root.Actions | null>(null);
-  // Hub accounts arrive after native providers, but the sections follow Providers order.
-  const pools = collectLimitPools(collectLimitAccounts(presentations), now).toSorted(
-    (left, right) =>
-      (PROVIDER_DISPLAY_ORDER.get(left.driver) ?? Number.MAX_SAFE_INTEGER) -
-      (PROVIDER_DISPLAY_ORDER.get(right.driver) ?? Number.MAX_SAFE_INTEGER),
-  );
+  const pools = collectLimitPools(collectLimitAccounts(presentations), now);
   const notices = collectLimitNotices(presentations);
   const externalLinks = collectExternalUsageLinks(presentations);
   const cursorPromptAt =

@@ -57,7 +57,7 @@
     "@expo-google-fonts/dm-sans": "^0.4.2",
     "@expo/metro-runtime": "~58.0.14",
     "@expo/ui": "58.0.20",
-    "@legendapp/list": "catalog:mobile",
+    "@legendapp/list": "catalog:",
     "@material/material-color-utilities": "0.3.0",
     "@noble/curves": "catalog:",
     "@pierre/diffs": "catalog:",
@@ -176,7 +176,8 @@
         "@react-native-menu/menu",
         "expo-audio",
         "expo-video",
-        "expo-network"
+        "expo-network",
+        "expo-sharing"
       ]
     }
   },

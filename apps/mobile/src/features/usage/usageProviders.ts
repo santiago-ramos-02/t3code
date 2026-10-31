@@ -28,20 +28,6 @@ export const PROVIDER_LABEL: Record<UsageProviderKind, string> = {
   muse: "Muse Code",
 };
 
-/** Shared labels for provider-instance and live-limit surfaces. */
-const PROVIDER_DRIVER_LABEL: Readonly<Record<string, string>> = {
-  antigravity: "Antigravity",
-  claudeAgent: "Claude",
-  codex: "Codex",
-  cursor: "Cursor",
-  grok: "Grok",
-  opencode: "OpenCode",
-  pi: "Pi",
-};
-
-export function providerDriverLabel(driver: string): string {
-  return PROVIDER_DRIVER_LABEL[driver] ?? driver;
-}
 export function useProviderColors(): Record<UsageProviderKind, string> {
   const { themeAppearance: scheme } = useAppearancePreferences();
   return {

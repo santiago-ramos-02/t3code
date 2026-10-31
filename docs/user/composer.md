@@ -23,7 +23,7 @@ included, and `#1234` without a space still looks up a pull request.
 
 Enter sends. In a list or quote, **Shift+Enter** continues it, and Shift+Enter
 on an empty line moves out one level, then leaves it; **Tab** nests a list item
-under the one above. In a code block, Enter
+under the one above and **Shift+Tab** moves it back out. In a code block, Enter
 starts a new line at the current indentation, **Tab** and **Shift+Tab** indent
 the selected lines, and a closing ` ``` ` followed by Enter, or two blank lines
 at the end, leave the block. **Backspace** at the start of a code block turns it
@@ -244,23 +244,6 @@ provider supports it. Web and desktop also offer compaction from the context met
 
 Claude instances can also compact idle threads for you. See
 [compact long conversations](./providers-claude.md#compact-long-conversations).
-
-## Prompt cache
-
-Providers keep the start of a conversation in a prompt cache for a while after each
-request, so the next message re-reads it cheaply. On web and desktop, once a turn reports
-cache use, the composer shows how much of the last turn the cache served and how long it lives
-on, such as **98% · 44m**. The dot turns yellow as the cache runs low and red once it has
-expired, when your next message sends the whole conversation again at full price. Hover the
-readout for the countdown, whether your next message reuses the context, the last turn's read,
-written, and new tokens, why it rebuilt the cache if it did, and the recent turns.
-
-The readout counts down for Claude, for Pi on Anthropic models, which report how long they
-keep the cache, and for GPT-5.6 and later models on Codex or Pi, which OpenAI keeps for 30
-minutes. Pi on claude-bridge counts down from the lifetime your Claude threads last reported,
-since the bridge runs Claude Code on the same login. For other models, the readout shows only
-the cached share, and its popover shows when the cache was last used. Cursor, Grok, and
-Antigravity do not report cache use.
 
 ## Goals
 

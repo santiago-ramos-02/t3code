@@ -12,19 +12,9 @@ import { useProjectClone } from "../../state/projectClones";
 import {
   projectCloneDisplayName,
   projectCloneProgressSummary,
-  type ProjectCloneSnapshot,
   type ScopedProjectRef,
 } from "@t3tools/contracts";
-import {
-  dismissMachineStart,
-  dismissProjectFileCopy,
-  retryMachineStart,
-  useMachineStartJob,
-  useProjectFileCopy,
-  type MachineStartJob,
-} from "../../lib/addProjectToMachine";
-import { machineStartRows } from "../../lib/machineStartSteps";
-import { BoatMachineStartSteps } from "./BoatMachineStartSteps";
+import { dismissProjectFileCopy, useProjectFileCopy } from "../../lib/addProjectToMachine";
 import { type ComposerBannerStackItem } from "./ComposerBannerStack";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { Button } from "../ui/button";
@@ -67,9 +57,7 @@ export function useProjectCloneBanner(activeProjectRef: ScopedProjectRef | null)
         : activeProjectFileCopy?.phase === "copying"
           ? "Copying files"
           : null;
-  const startJob = useMachineStartJob(activeProjectRef);
-  const startJobClone = useProjectClone(startJob?.destination ?? null);
-  const cloneBannerItem = (() => {
+  const projectCloneBannerItem = (() => {
     if (activeProjectFileCopy?.phase === "failed" && activeProjectRef) {
       return {
         id: `project-file-copy:${activeProjectRef.projectId}`,
@@ -138,61 +126,8 @@ export function useProjectCloneBanner(activeProjectRef: ScopedProjectRef | null)
       ),
     };
   })() as ComposerBannerStackItem | null;
-  // A project being added to another machine shows the machine's start steps ahead of the clone,
-  // in the clone's own banner once the user is on the new project.
-  const projectCloneBannerItem = startJob
-    ? machineStartBannerItem(startJob, startJobClone, cloneBannerItem)
-    : cloneBannerItem;
   return {
     projectCloneBannerItem,
     projectCloneSendBlockReason,
-  };
-}
-
-function machineStartBannerItem(
-  job: MachineStartJob,
-  clone: ProjectCloneSnapshot | null,
-  cloneItem: ComposerBannerStackItem | null,
-): ComposerBannerStackItem {
-  const rows = machineStartRows({
-    steps: job.steps,
-    phase: job.phase,
-    failed: job.error !== null,
-    clone,
-  });
-  const children = <BoatMachineStartSteps rows={rows} />;
-  if (cloneItem) {
-    return {
-      ...cloneItem,
-      description: cloneItem.variant === "info" ? undefined : cloneItem.description,
-      children,
-    };
-  }
-  if (job.error === null) {
-    return {
-      id: `machine-start:${job.id}`,
-      variant: "info",
-      icon: <DownloadIcon />,
-      title: `Adding ${job.title} to ${job.targetLabel}`,
-      children,
-    };
-  }
-  return {
-    id: `machine-start:${job.id}`,
-    variant: "error",
-    icon: <DownloadIcon />,
-    title: `Could not add ${job.title} to ${job.targetLabel}`,
-    description: job.error,
-    children,
-    actions: (
-      <>
-        <Button size="xs" variant="ghost" onClick={() => dismissMachineStart(job.id)}>
-          Dismiss
-        </Button>
-        <Button size="xs" variant="ghost" onClick={() => retryMachineStart(job.id)}>
-          Retry
-        </Button>
-      </>
-    ),
   };
 }

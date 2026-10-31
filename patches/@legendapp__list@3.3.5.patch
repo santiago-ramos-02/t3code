@@ -269,7 +269,7 @@ index ce1fe00001c9e5aee6c6ea8bb2d4757d4586d002..ca6e596aa53327a097a388ffd545a4c6
       * Number of columns to render items in.
       * @default 1
 diff --git a/react-native.js b/react-native.js
-index b3c5a306b293f797a8b338adfca3060c0f6db22b..ec75555dd8eef31f58f71f7826d2b49c157132c9 100644
+index b3c5a306b293f797a8b338adfca3060c0f6db22b..d7f59b63cd4982dfc9c347732caa77e0974864df 100644
 --- a/react-native.js
 +++ b/react-native.js
 @@ -717,6 +717,15 @@ function hasActiveInitialScroll(state) {
@@ -519,15 +519,6 @@ index b3c5a306b293f797a8b338adfca3060c0f6db22b..ec75555dd8eef31f58f71f7826d2b49c
                state.scroll = maxScroll;
                state.scrollPending = maxScroll;
                diff = 0;
-@@ -1934,7 +2025,7 @@ function prepareMVCP(ctx, dataChanged) {
-           anchorPositionForLock = newPosition;
-         }
-       }
--      if (scrollingToViewPosition && scrollingToViewPosition > 0) {
-+      if (scrollingToViewPosition && scrollingToViewPosition > 0 && targetId !== null && targetId !== void 0) {
-         const newSize = getItemSize(ctx, targetId, scrollTarget, state.props.data[scrollTarget]);
-         const prevSize = scrollingTo == null ? void 0 : scrollingTo.itemSize;
-         if (newSize !== void 0 && prevSize !== void 0 && newSize !== prevSize) {
 @@ -2320,8 +2411,121 @@ function scrollToIndex(ctx, {
  }
  
@@ -918,7 +909,7 @@ index b3c5a306b293f797a8b338adfca3060c0f6db22b..ec75555dd8eef31f58f71f7826d2b49c
        recycleItems,
        refreshControl: refreshControlElement ? stylePaddingTopState > 0 ? React2__namespace.cloneElement(refreshControlElement, {
 diff --git a/react-native.mjs b/react-native.mjs
-index 40e87cda8c9bc79a889e5542f29af429a24b24d4..db54209b4cb57784079c91833f9ae035557ec582 100644
+index 40e87cda8c9bc79a889e5542f29af429a24b24d4..c2ca39bab6ea1ebaaed25190a01e8cf2e395ece9 100644
 --- a/react-native.mjs
 +++ b/react-native.mjs
 @@ -696,6 +696,15 @@ function hasActiveInitialScroll(state) {
@@ -1168,15 +1159,6 @@ index 40e87cda8c9bc79a889e5542f29af429a24b24d4..db54209b4cb57784079c91833f9ae035
                state.scroll = maxScroll;
                state.scrollPending = maxScroll;
                diff = 0;
-@@ -1913,7 +2004,7 @@ function prepareMVCP(ctx, dataChanged) {
-           anchorPositionForLock = newPosition;
-         }
-       }
--      if (scrollingToViewPosition && scrollingToViewPosition > 0) {
-+      if (scrollingToViewPosition && scrollingToViewPosition > 0 && targetId !== null && targetId !== void 0) {
-         const newSize = getItemSize(ctx, targetId, scrollTarget, state.props.data[scrollTarget]);
-         const prevSize = scrollingTo == null ? void 0 : scrollingTo.itemSize;
-         if (newSize !== void 0 && prevSize !== void 0 && newSize !== prevSize) {
 @@ -2299,8 +2390,121 @@ function scrollToIndex(ctx, {
  }
  
@@ -1567,18 +1549,9 @@ index 40e87cda8c9bc79a889e5542f29af429a24b24d4..db54209b4cb57784079c91833f9ae035
        recycleItems,
        refreshControl: refreshControlElement ? stylePaddingTopState > 0 ? React2.cloneElement(refreshControlElement, {
 diff --git a/react-native.web.js b/react-native.web.js
-index 914d2dafaafa001c9ab6791a0a0581659295e333..39e3753444615346cbc97c467b6f14493a63100c 100644
+index 914d2dafaafa001c9ab6791a0a0581659295e333..8b88b09d1269acef77c6ce0f8aaa1049d4fa26e9 100644
 --- a/react-native.web.js
 +++ b/react-native.web.js
-@@ -1771,7 +1771,7 @@ function prepareMVCP(ctx, dataChanged) {
-           anchorPositionForLock = newPosition;
-         }
-       }
--      if (scrollingToViewPosition && scrollingToViewPosition > 0) {
-+      if (scrollingToViewPosition && scrollingToViewPosition > 0 && targetId !== null && targetId !== void 0) {
-         const newSize = getItemSize(ctx, targetId, scrollTarget, state.props.data[scrollTarget]);
-         const prevSize = scrollingTo == null ? void 0 : scrollingTo.itemSize;
-         if (newSize !== void 0 && prevSize !== void 0 && newSize !== prevSize) {
 @@ -5651,6 +5651,18 @@ var ContainerSlot = typedMemo(function ContainerSlot2(props) {
  });
  
@@ -1611,18 +1584,9 @@ index 914d2dafaafa001c9ab6791a0a0581659295e333..39e3753444615346cbc97c467b6f1449
      }
    }
 diff --git a/react-native.web.mjs b/react-native.web.mjs
-index 95465f2ab89ce41a10553f58af83618f7310e83c..4455097ea3dbf50e9873681e350595fbe6c9e7cb 100644
+index 95465f2ab89ce41a10553f58af83618f7310e83c..d7cbe1cb43449cc29822b2646deabbddd67f1e7d 100644
 --- a/react-native.web.mjs
 +++ b/react-native.web.mjs
-@@ -1750,7 +1750,7 @@ function prepareMVCP(ctx, dataChanged) {
-           anchorPositionForLock = newPosition;
-         }
-       }
--      if (scrollingToViewPosition && scrollingToViewPosition > 0) {
-+      if (scrollingToViewPosition && scrollingToViewPosition > 0 && targetId !== null && targetId !== void 0) {
-         const newSize = getItemSize(ctx, targetId, scrollTarget, state.props.data[scrollTarget]);
-         const prevSize = scrollingTo == null ? void 0 : scrollingTo.itemSize;
-         if (newSize !== void 0 && prevSize !== void 0 && newSize !== prevSize) {
 @@ -5630,6 +5630,18 @@ var ContainerSlot = typedMemo(function ContainerSlot2(props) {
  });
  
@@ -1658,15 +1622,6 @@ diff --git a/react.js b/react.js
 index 914d2dafaafa001c9ab6791a0a0581659295e333..8c320b0dfb3ea60ef145274b37b1297b7dee26dc 100644
 --- a/react.js
 +++ b/react.js
-@@ -1771,7 +1771,7 @@ function prepareMVCP(ctx, dataChanged) {
-           anchorPositionForLock = newPosition;
-         }
-       }
--      if (scrollingToViewPosition && scrollingToViewPosition > 0) {
-+      if (scrollingToViewPosition && scrollingToViewPosition > 0 && targetId !== null && targetId !== void 0) {
-         const newSize = getItemSize(ctx, targetId, scrollTarget, state.props.data[scrollTarget]);
-         const prevSize = scrollingTo == null ? void 0 : scrollingTo.itemSize;
-         if (newSize !== void 0 && prevSize !== void 0 && newSize !== prevSize) {
 @@ -1908,6 +1908,10 @@ function updateScroll(ctx, newScroll, forceUpdate, options) {
    state.scrollTime = currentTime;
    const scrollDelta = Math.abs(newScroll - prevScroll);
@@ -1951,15 +1906,6 @@ diff --git a/react.mjs b/react.mjs
 index 95465f2ab89ce41a10553f58af83618f7310e83c..252a9d5b23e271c089d30c357a78dff754f1c899 100644
 --- a/react.mjs
 +++ b/react.mjs
-@@ -1750,7 +1750,7 @@ function prepareMVCP(ctx, dataChanged) {
-           anchorPositionForLock = newPosition;
-         }
-       }
--      if (scrollingToViewPosition && scrollingToViewPosition > 0) {
-+      if (scrollingToViewPosition && scrollingToViewPosition > 0 && targetId !== null && targetId !== void 0) {
-         const newSize = getItemSize(ctx, targetId, scrollTarget, state.props.data[scrollTarget]);
-         const prevSize = scrollingTo == null ? void 0 : scrollingTo.itemSize;
-         if (newSize !== void 0 && prevSize !== void 0 && newSize !== prevSize) {
 @@ -1887,6 +1887,10 @@ function updateScroll(ctx, newScroll, forceUpdate, options) {
    state.scrollTime = currentTime;
    const scrollDelta = Math.abs(newScroll - prevScroll);

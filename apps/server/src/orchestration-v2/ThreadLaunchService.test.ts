@@ -82,6 +82,8 @@ const project = {
   defaultModelSelection: modelSelection,
   defaultThreadEnvMode: null,
   scripts: [],
+  pinnedAt: null,
+  archivedAt: null,
   createdAt: "2026-06-20T00:00:00.000Z",
   updatedAt: "2026-06-20T00:00:00.000Z",
   deletedAt: null,
@@ -247,6 +249,8 @@ function makeHarness(options: HarnessOptions = {}) {
               faviconPath: null,
               projectIcon: null,
               scripts: project.scripts,
+              pinnedAt: null,
+              archivedAt: null,
               createdAt: project.createdAt,
               updatedAt: project.updatedAt,
               deletedAt: project.deletedAt,
@@ -1109,60 +1113,6 @@ it.effect.each(["stable", "upstream/release"])(
       ),
     ),
 );
-
-it.effect("names the base branch when it is neither on origin nor in the checkout", () => {
-  const harness = makeHarness({
-    fetchWorktreeBaseCommit: () => Effect.succeed(null),
-    git: { hasRefNamed: () => Effect.succeed(false) },
-  });
-  return Effect.gen(function* () {
-    const launches = yield* ThreadLaunch.ThreadLaunchService;
-    const threads = yield* ThreadManagement.ThreadManagementService;
-    const launched = yield* launches.launch(
-      launchInput({
-        command: "command:launch:missing-base",
-        thread: "thread:launch:missing-base",
-        message: "Start from a branch only another machine has",
-        workspace: { type: "worktree", baseRef: "chore/local-only", startFromOrigin: true },
-      }),
-    );
-    yield* threads.streamStoredEventsFrom({ threadId: launched.threadId }).pipe(
-      Stream.filter(
-        (stored) => stored.event.type === "run.updated" && stored.event.payload.status === "failed",
-      ),
-      Stream.runHead,
-    );
-    const projection = yield* threads.getThreadProjection(launched.threadId);
-    assert.equal(projection.runs[0]?.status, "failed");
-    assert.include(
-      projection.turnItems.find((item) => item.type === "error")?.failure.message ?? "",
-      'Base ref "chore/local-only" does not resolve to a commit',
-    );
-    assert.equal(harness.createWorktree.mock.calls.length, 0);
-  }).pipe(Effect.provide(harness.layer));
-});
-
-it.effect("starts from the local branch when origin does not have it", () => {
-  const harness = makeHarness({
-    fetchWorktreeBaseCommit: () => Effect.succeed(null),
-    hasCommit: ({ refName }) => Effect.succeed(refName === "chore/local-only"),
-    git: { hasRefNamed: () => Effect.succeed(false) },
-  });
-  return Effect.gen(function* () {
-    const launches = yield* ThreadLaunch.ThreadLaunchService;
-    const launched = yield* launches.launch(
-      launchInput({
-        command: "command:launch:local-base",
-        thread: "thread:launch:local-base",
-        message: "Start from a branch only this checkout has",
-        workspace: { type: "worktree", baseRef: "chore/local-only", startFromOrigin: true },
-      }),
-    );
-    const settled = yield* preparationSettled(launched.threadId);
-    assert.equal(settled.runs[0]?.status, "starting");
-    assert.equal(harness.createWorktree.mock.calls[0]?.[0]?.refName, "chore/local-only");
-  }).pipe(Effect.provide(harness.layer));
-});
 
 it.effect("shows the fetch diagnosis when preparing a worktree from origin fails", () => {
   const detail =

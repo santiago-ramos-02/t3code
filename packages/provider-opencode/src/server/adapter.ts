@@ -54,7 +54,6 @@ import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 
 import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
-import { OpenCodeGentleHooks, type OpenCodeGentleHooksShape } from "./gentleHooks.ts";
 import { mcpToolPresentation } from "@t3tools/provider-core/server/mcpToolPresentation";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEventLoggers";
@@ -66,6 +65,7 @@ import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/
 import { t3OrchestrationSystemPrompt } from "@t3tools/provider-core/server/orchestrationInstructions";
 import { buildRuntimeInstructions } from "@t3tools/provider-core/server/runtimeInstructions";
 import * as OpenCodeRuntime from "./OpenCodeRuntime.ts";
+import { readableProviderErrorMessage } from "./providerErrorMessage.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
 import { turnScopedSelectionTransition } from "@t3tools/provider-core/server/selectionTransition";
@@ -419,8 +419,6 @@ export interface OpenCodeAdapterV2Options {
   readonly settings: OpenCodeSettings;
   readonly environment: NodeJS.ProcessEnv;
   readonly nativeEventLogger?: ProviderEventLoggers.EventNdjsonLogger;
-  /** Adjusts the server launch for one session. */
-  readonly prepareSession?: OpenCodeGentleHooksShape["prepareSession"];
 }
 
 export interface OpenCodeProtocolLogEvent {
@@ -849,7 +847,14 @@ function providerRef(nativeId: string, strength: "strong" | "weak" = "strong") {
 function openCodeErrorMessage(event: Extract<OpenCodeEvent, { type: "session.error" }>): string {
   const error = event.properties.error;
   if (error === undefined) return "OpenCode session failed without an error payload.";
-  return recordString(error.data, "message") ?? error.name;
+  const statusCode = recordValue(error.data, "statusCode");
+  return (
+    readableProviderErrorMessage(
+      recordString(error.data, "message"),
+      typeof statusCode === "number" ? statusCode : undefined,
+      recordString(error.data, "responseBody"),
+    ) ?? error.name
+  );
 }
 
 function terminalStatusForError(
@@ -935,21 +940,14 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
       function* (input: ProviderAdapter.ProviderAdapterV2OpenSessionInput) {
         const scope = yield* Effect.scope;
         const cwd = input.runtimePolicy.cwd ?? host.paths.cwd;
-        const baseLaunch = {
-          environment: options.environment,
-          serverUrl: options.settings.serverUrl,
-        };
-        const launch = options.prepareSession
-          ? yield* options.prepareSession(input, baseLaunch)
-          : baseLaunch;
         const connection = yield* runtime.connectToOpenCodeServer({
           binaryPath: options.settings.binaryPath,
           directory: cwd,
-          serverUrl: launch.serverUrl,
+          serverUrl: options.settings.serverUrl,
           ...(options.settings.serverPassword
             ? { serverPassword: options.settings.serverPassword }
             : {}),
-          environment: launch.environment,
+          environment: options.environment,
         });
         const client = runtime.createOpenCodeSdkClient({
           baseUrl: connection.url,
@@ -2655,15 +2653,19 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
                   : [threads.get(event.properties.sessionID)].filter(
                       (state): state is OpenCodeThreadState => state !== undefined,
                     );
-              const message = openCodeErrorMessage(event);
               const error = event.properties.error;
               const usageLimit = error?.name === "APIError" && error.data.statusCode === 429;
+              const failure = makeProviderFailure({
+                message: openCodeErrorMessage(event),
+                code: error?.name ?? null,
+                class: usageLimit ? "usage_limit" : "provider_error",
+              });
               if (
                 !isMessageAbortedError(event) &&
                 (event.properties.sessionID === undefined ||
                   states.some((state) => state.parentSubagent === null))
               ) {
-                yield* updateProviderSession("error", message);
+                yield* updateProviderSession("error", failure.message);
               }
               for (const state of states) {
                 if (state.activeTurn !== null) {
@@ -2672,11 +2674,7 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
                     state.activeTurn,
                     terminalStatusForError(event, state.activeTurn),
                     {
-                      failure: makeProviderFailure({
-                        message,
-                        code: error?.name ?? null,
-                        class: usageLimit ? "usage_limit" : "provider_error",
-                      }),
+                      failure,
                       threadDisposition:
                         event.properties.sessionID === undefined ? "broken" : "reusable",
                     },
@@ -3766,7 +3764,6 @@ export const OpenCodeAdapterV2Driver: ProviderAdapterDriver<
     function* (input: ProviderAdapterDriverCreateInput<OpenCodeSettings>) {
       const hostEnvironment = yield* HostProcess.Environment;
       const providerEventLoggers = yield* ProviderEventLoggers.ProviderEventLoggers;
-      const { prepareSession } = yield* OpenCodeGentleHooks;
       return yield* makeOpenCodeAdapterV2({
         instanceId: input.instanceId,
         settings: { ...input.config, enabled: input.enabled },
@@ -3774,7 +3771,6 @@ export const OpenCodeAdapterV2Driver: ProviderAdapterDriver<
         ...(providerEventLoggers.native === undefined
           ? {}
           : { nativeEventLogger: providerEventLoggers.native }),
-        ...(prepareSession === undefined ? {} : { prepareSession }),
       });
     },
     (effect, input) =>

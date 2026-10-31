@@ -21,8 +21,7 @@ const RIGHT_PANEL_KINDS = [
   "terminal",
   "pull-request",
   "pull-requests",
-  "memory",
-  "memories",
+  "side-chat",
 ] as const;
 export type RightPanelKind = (typeof RIGHT_PANEL_KINDS)[number];
 
@@ -77,10 +76,7 @@ export type RightPanelSurface =
       detailTab?: PullRequestDetailTab;
     }
   | { id: "pull-requests"; kind: "pull-requests" }
-  /** One Engram memory on the thread's environment, opened from the thread; several can be open. */
-  | { id: `memory:${number}`; kind: "memory"; memoryId: number; title: string }
-  /** The memories the thread saved and its project keeps, one singleton tab beside `memory` tabs. */
-  | { id: "memories"; kind: "memories" };
+  | { id: `side-chat:${string}`; kind: "side-chat"; threadId: ThreadId };
 
 const RIGHT_PANEL_STORAGE_KEY = "t3code:right-panel-state:v2";
 const RIGHT_PANEL_STORAGE_VERSION = 14;
@@ -127,13 +123,10 @@ interface RightPanelStoreState {
   ) => boolean;
   open: (
     ref: ScopedThreadRef,
-    kind: Exclude<RightPanelKind, "file" | "terminal" | "pull-request" | "memory">,
+    kind: Exclude<RightPanelKind, "file" | "terminal" | "pull-request" | "side-chat">,
   ) => void;
+  openSideChat: (ref: ScopedThreadRef, threadId: ThreadId) => void;
   openDevice: (ref: ScopedThreadRef, target: DeviceTabTarget, automatic?: boolean) => void;
-  openMemory: (
-    ref: ScopedThreadRef,
-    memory: { readonly id: number; readonly title: string },
-  ) => void;
   renameDevice: (ref: ScopedThreadRef, surfaceId: string, title: string) => void;
   openBrowser: (ref: ScopedThreadRef, tabId: string | null) => void;
   openFile: (ref: ScopedThreadRef, relativePath: string, line?: number) => void;
@@ -190,7 +183,7 @@ interface RightPanelStoreState {
   toggleVisibility: (ref: ScopedThreadRef) => void;
   toggle: (
     ref: ScopedThreadRef,
-    kind: Exclude<RightPanelKind, "file" | "terminal" | "pull-request" | "memory">,
+    kind: Exclude<RightPanelKind, "file" | "terminal" | "pull-request" | "side-chat">,
   ) => void;
   setThreadPanelOpen: (
     ref: ScopedThreadRef,
@@ -213,7 +206,7 @@ const DEFAULT_THREAD_PANEL_VISIBILITY: ThreadPanelVisibility = {
 };
 
 const singletonSurface = (
-  kind: Exclude<RightPanelKind, "file" | "preview" | "terminal" | "pull-request" | "memory">,
+  kind: Exclude<RightPanelKind, "file" | "preview" | "terminal" | "pull-request" | "side-chat">,
 ): RightPanelSurface => {
   switch (kind) {
     case "diff":
@@ -222,8 +215,6 @@ const singletonSurface = (
       return { id: "files", kind };
     case "pull-requests":
       return { id: "pull-requests", kind };
-    case "memories":
-      return { id: "memories", kind };
     case "device":
       return { id: "device", kind };
   }
@@ -262,13 +253,6 @@ const terminalSurface = (terminalId: string): RightPanelSurface => ({
   terminalIds: [terminalId],
   activeTerminalId: terminalId,
 });
-
-function memorySurface(memory: {
-  readonly id: number;
-  readonly title: string;
-}): Extract<RightPanelSurface, { kind: "memory" }> {
-  return { id: `memory:${memory.id}`, kind: "memory", memoryId: memory.id, title: memory.title };
-}
 
 export type PullRequestSurface = Extract<RightPanelSurface, { kind: "pull-request" }>;
 
@@ -401,11 +385,39 @@ const automaticUpdate = (
   ...updateThread(state, threadKey, updater),
 });
 
+// A side chat pane has no panel of its own, so its panel actions open in its parent's panel.
+const panelHosts = new Map<string, ScopedThreadRef>();
+
+/** Routes `guest`'s panel actions to `host`'s panel until the returned cleanup runs. */
+export function hostRightPanel(guest: ScopedThreadRef, host: ScopedThreadRef): () => void {
+  const guestKey = scopedThreadKey(guest);
+  panelHosts.set(guestKey, host);
+  return () => {
+    if (panelHosts.get(guestKey) === host) panelHosts.delete(guestKey);
+  };
+}
+
+/** The thread whose panel shows `ref`'s panel actions, so it also owns their browser tabs. */
+export function rightPanelHostRef(ref: ScopedThreadRef): ScopedThreadRef {
+  return panelHosts.get(scopedThreadKey(ref)) ?? ref;
+}
+
 const userAction = (
+  state: RightPanelStoreState,
+  guestKey: string,
+  updater: (current: ThreadRightPanelState) => ThreadRightPanelState,
+  closesView = false,
+): Partial<RightPanelStoreState> => {
+  const host = panelHosts.get(guestKey);
+  const threadKey = host === undefined ? guestKey : scopedThreadKey(host);
+  return userActionOnThread(state, threadKey, updater, closesView);
+};
+
+const userActionOnThread = (
   state: RightPanelStoreState,
   threadKey: string,
   updater: (current: ThreadRightPanelState) => ThreadRightPanelState,
-  closesView = false,
+  closesView: boolean,
 ): Partial<RightPanelStoreState> => ({
   ...updateThread(state, threadKey, (current) => {
     const next = updater(current);
@@ -510,14 +522,6 @@ export function migratePersistedRightPanelState(persistedState: unknown): {
                           ...(typeof environmentId === "string" ? { environmentId } : {}),
                         }),
                       ];
-                    }
-                    if (surface.kind === "memory") {
-                      return typeof surface.memoryId === "number" &&
-                        Number.isSafeInteger(surface.memoryId) &&
-                        surface.memoryId > 0 &&
-                        typeof surface.title === "string"
-                        ? [memorySurface({ id: surface.memoryId, title: surface.title })]
-                        : [];
                     }
                     if (surface.kind !== "terminal") return [surface];
                     if (
@@ -709,6 +713,12 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
             );
           }),
         ),
+      openSideChat: (ref, threadId) =>
+        set((state) =>
+          userAction(state, scopedThreadKey(ref), (current) =>
+            upsertSurface(current, { id: `side-chat:${threadId}`, kind: "side-chat", threadId }),
+          ),
+        ),
       renameDevice: (ref, surfaceId, title) =>
         set((state) =>
           userAction(state, scopedThreadKey(ref), (current) => ({
@@ -745,18 +755,6 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
                   ),
                 }
               : next;
-          }),
-        ),
-      openMemory: (ref, memory) =>
-        set((state) =>
-          userAction(state, scopedThreadKey(ref), (current) => {
-            const surface = memorySurface(memory);
-            const next = upsertSurface(current, surface);
-            // Reopening keeps the tab and takes the latest title.
-            return {
-              ...next,
-              surfaces: next.surfaces.map((entry) => (entry.id === surface.id ? surface : entry)),
-            };
           }),
         ),
       setPullRequestDetailTab: (ref, surfaceId, detailTab) =>

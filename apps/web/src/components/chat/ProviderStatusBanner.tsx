@@ -52,7 +52,6 @@ export function shouldShowProviderStatusBanner(
 export function hasProviderSetup(status: ServerProvider): boolean {
   return (
     status.driver === "antigravity" ||
-    status.driver === "pi" ||
     status.setup?.canAuthenticate === true ||
     status.setup?.canInstall === true
   );

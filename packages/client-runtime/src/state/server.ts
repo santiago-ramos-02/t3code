@@ -1173,31 +1173,6 @@ export function createServerEnvironmentAtoms<R, E>(
     concurrency: configConcurrency,
   });
 
-  // The environment's Gentle AI job. Queries refresh when a job finishes, since jobs change
-  // what gentle-ai reports; progress alone does not re-run them.
-  const gentleAiJob = createEnvironmentRpcSubscriptionAtomFamily(runtime, {
-    label: "environment-data:gentle-ai:job",
-    tag: WS_METHODS.gentleAiSubscribeJob,
-    idleTtlMs: 0,
-  });
-  const gentleAiStatus = createEnvironmentRpcSubscriptionAtomFamily(runtime, {
-    label: "environment-data:gentle-ai:status",
-    tag: WS_METHODS.gentleAiSubscribeStatus,
-  });
-  const gentleAiJobFinishedFamily = Atom.family((environmentId: EnvironmentId) =>
-    Atom.make((get) => {
-      const result = get(gentleAiJob({ environmentId, input: {} }));
-      if (result._tag !== "Success" || result.value === null) return null;
-      return result.value.phase === "running" ? null : result.value.id;
-    }).pipe(Atom.withLabel(`environment-data:gentle-ai:job-finished:${environmentId}`)),
-  );
-  const gentleAiQuery = createEnvironmentRpcQueryAtomFamily(runtime, {
-    label: "environment-data:gentle-ai:query",
-    tag: WS_METHODS.gentleAiQuery,
-    staleTimeMs: 30_000,
-    refreshTrigger: ({ environmentId }) => gentleAiJobFinishedFamily(environmentId),
-  });
-
   return {
     configValueAtom,
     runStorageCleanup: createEnvironmentRpcCommand(runtime, {
@@ -1388,93 +1363,6 @@ export function createServerEnvironmentAtoms<R, E>(
         // Both ids are free-form strings; a delimiter could collide.
         key: ({ environmentId, input }) => JSON.stringify([environmentId, input]),
       },
-    }),
-    readPiGentle: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:provider:pi-gentle-read",
-      tag: WS_METHODS.providerPiGentleRead,
-    }),
-    readPiGentleComposer: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:provider:pi-gentle-composer-read",
-      tag: WS_METHODS.providerPiGentleComposerRead,
-    }),
-    updatePiGentle: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:provider:pi-gentle-action",
-      tag: WS_METHODS.providerPiGentleAction,
-    }),
-    readGentleAi: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:gentle-ai:read",
-      tag: WS_METHODS.gentleAiRead,
-    }),
-    runGentleAiAction: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:gentle-ai:action",
-      tag: WS_METHODS.gentleAiAction,
-    }),
-    gentleAiJob,
-    gentleAiQuery,
-    gentleAiStatus,
-    // Memory: what the environment's agents learned, from Engram. Engram does not announce
-    // changes, so the Memory page refreshes the overview while it is open.
-    memoryOverview: createEnvironmentRpcQueryAtomFamily(runtime, {
-      label: "environment-data:memory:overview",
-      tag: WS_METHODS.memoryOverview,
-      staleTimeMs: 15_000,
-    }),
-    memorySearch: createEnvironmentRpcQueryAtomFamily(runtime, {
-      label: "environment-data:memory:search",
-      tag: WS_METHODS.memorySearch,
-      staleTimeMs: 15_000,
-    }),
-    memoryObservation: createEnvironmentRpcQueryAtomFamily(runtime, {
-      label: "environment-data:memory:observation",
-      tag: WS_METHODS.memoryObservation,
-      staleTimeMs: 30_000,
-    }),
-    memoryHealth: createEnvironmentRpcQueryAtomFamily(runtime, {
-      label: "environment-data:memory:health",
-      tag: WS_METHODS.memoryHealth,
-      staleTimeMs: 60_000,
-    }),
-    judgeMemory: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:memory:judge",
-      tag: WS_METHODS.memoryJudge,
-    }),
-    exportMemoryToObsidian: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:memory:export-obsidian",
-      tag: WS_METHODS.memoryExportObsidian,
-    }),
-    // CLIProxyAPI on the environment: status now and on every change, actions, management calls.
-    cliProxyStatus: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
-      label: "environment-data:cli-proxy:status",
-      tag: WS_METHODS.cliProxySubscribeStatus,
-    }),
-    runCliProxyAction: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:cli-proxy:action",
-      tag: WS_METHODS.cliProxyAction,
-    }),
-    cliProxyManagement: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:cli-proxy:management",
-      tag: WS_METHODS.cliProxyManagement,
-    }),
-    // Boat machines the environment starts: status now and on every change, and its actions.
-    boatStatus: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
-      label: "environment-data:boat:status",
-      tag: WS_METHODS.boatSubscribeStatus,
-    }),
-    configureBoat: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:boat:configure",
-      tag: WS_METHODS.boatConfigure,
-    }),
-    spawnBoatMachine: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:boat:spawn",
-      tag: WS_METHODS.boatSpawn,
-    }),
-    runBoatMachineAction: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:boat:machine-action",
-      tag: WS_METHODS.boatMachineAction,
-    }),
-    startGentleAiJob: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:gentle-ai:start-job",
-      tag: WS_METHODS.gentleAiStartJob,
     }),
     refreshProviders: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:refresh-providers",

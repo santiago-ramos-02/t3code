@@ -28,6 +28,7 @@ import * as Semaphore from "effect/Semaphore";
 import { HttpClient, HttpClientResponse } from "effect/http";
 
 import { writeFileStringAtomically } from "@t3tools/shared/atomicWrite";
+import { formatMalformedUsageWarning } from "@t3tools/shared/usageFormat";
 import * as ServerConfig from "../config.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import { BUILT_IN_USAGE_DRIVERS, type BuiltInUsageReadersEnv } from "../provider/builtInDrivers.ts";
@@ -55,7 +56,6 @@ import {
   type CachedFile,
   type ScanCache,
 } from "./usageScanCache.ts";
-import { importedUsageForWindow, readImportedUsage, withImportedUsage } from "./importedUsage.ts";
 
 const LITELLM_RATES_URL =
   "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json";
@@ -856,10 +856,7 @@ export const make = Effect.gen(function* () {
         distinctSessions: sessionIds.size,
         message:
           malformedRecords > 0
-            ? [
-                sourceMessage,
-                `${malformedRecords} malformed or inconsistent usage record(s) were skipped; usage may be incomplete.`,
-              ]
+            ? [sourceMessage, formatMalformedUsageWarning(malformedRecords)]
                 .filter(Boolean)
                 .join(" ")
             : sourceMessage,
@@ -927,12 +924,7 @@ export const make = Effect.gen(function* () {
         return created;
       }),
     );
-    const summary = yield* Deferred.await(deferred);
-    const imported = yield* readImportedUsage(config.stateDir).pipe(
-      Effect.provideService(FileSystem.FileSystem, fileSystem),
-      Effect.provideService(Path.Path, path),
-    );
-    return withImportedUsage(summary, importedUsageForWindow(imported, input));
+    return yield* Deferred.await(deferred);
   });
 
   return { readSummary, refreshRates, awaitPersisted } as const;

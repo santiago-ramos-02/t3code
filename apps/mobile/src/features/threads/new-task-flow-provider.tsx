@@ -38,7 +38,6 @@ import { scopedProjectKey } from "../../lib/scopedEntities";
 import { useAtomValue } from "@effect/atom-react";
 import { appAtomRegistry } from "../../state/atom-registry";
 import { projectEnvironment } from "../../state/projects";
-import { serverEnvironment } from "../../state/server";
 import { useLinkedEnvironments } from "../../state/peerLinks";
 import { useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -335,31 +334,6 @@ export function NewTaskFlowProvider(
   const isScratchDraft = projectDefaults.isScratch;
   const serverConfigs = useServerConfigs();
   const { connectedEnvironments } = useRemoteConnectionStatus();
-  const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders, {
-    reportFailure: false,
-  });
-  const requestedWorkspaceModels = useRef(new Set<string>());
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- asks the server to probe Pi models for the selected workspace, once per environment, instance and cwd
-  useEffect(() => {
-    if (!selectedProject?.workspaceRoot) return;
-    for (const provider of selectedEnvironmentServerConfig?.providers ?? []) {
-      if (provider.driver !== "pi" || !provider.enabled || !provider.installed) continue;
-      if (
-        provider.workspaceSnapshots?.some((entry) => entry.cwd === selectedProject.workspaceRoot)
-      ) {
-        continue;
-      }
-      const key = `${selectedProject.environmentId}:${provider.instanceId}:${selectedProject.workspaceRoot}`;
-      if (requestedWorkspaceModels.current.has(key)) continue;
-      requestedWorkspaceModels.current.add(key);
-      void refreshProviders({
-        environmentId: selectedProject.environmentId,
-        input: { instanceId: provider.instanceId, cwd: selectedProject.workspaceRoot },
-      }).then((result) => {
-        if (result._tag === "Failure") requestedWorkspaceModels.current.delete(key);
-      });
-    }
-  }, [refreshProviders, selectedEnvironmentServerConfig?.providers, selectedProject]);
   const selectedProjectDraftKey = selectedProject ? activeDraftKey : null;
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- creates the persistent draft in the new-task flow store once a project is selected, before the composer mounts
   useEffect(() => {
@@ -467,8 +441,6 @@ export function NewTaskFlowProvider(
     draftModelSelection ?? projectDefaultModelSelection ?? stickyModelSelection,
     undefined,
     selectedProject?.id ?? null,
-    false,
-    selectedProject?.workspaceRoot,
   );
 
   const selectedDefaultModel = resolveNewTaskModelSelection({

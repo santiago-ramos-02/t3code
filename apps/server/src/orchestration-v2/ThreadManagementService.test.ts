@@ -152,34 +152,6 @@ it.effect(
 );
 
 it.effect(
-  "treats a Boat machine instance as enabled and other unconfigured instances as disabled",
-  () => {
-    const projectId = ProjectId.make("project:thread-management:chokepoint");
-    const boat = ProviderInstanceId.make("boat-bx_test0001");
-    const unconfigured = ProviderInstanceId.make("codex_work");
-    const layerTest = layerDispatchChokepointTest(ServerSettings.layerTest())([]);
-
-    return Effect.gen(function* () {
-      const threads = yield* ThreadManagementService.ThreadManagementService;
-      const commandId = CommandId.make("command:thread-management:boat-enabled");
-      yield* threads.assertProviderInstanceEnabled({ projectId, commandId, instanceId: boat });
-      expect(
-        yield* threads.isProviderInstanceEnabledForProject({ projectId, instanceId: boat }),
-      ).toBe(true);
-      expect(
-        yield* threads.isProviderInstanceEnabledForProject({ projectId, instanceId: unconfigured }),
-      ).toBe(false);
-      const error = yield* Effect.flip(
-        threads.assertProviderInstanceEnabled({ projectId, commandId, instanceId: unconfigured }),
-      );
-      expect(error).toBeInstanceOf(
-        ThreadManagementService.ThreadManagementProviderInstanceDisabledError,
-      );
-    }).pipe(Effect.provide(layerTest));
-  },
-);
-
-it.effect(
   "a replay of an already-accepted command id dispatches despite the instance now being disabled",
   () => {
     const projectId = ProjectId.make("project:thread-management:chokepoint");

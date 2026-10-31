@@ -27,8 +27,6 @@ import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ProviderAdapterRegistry from "../orchestration-v2/ProviderAdapterRegistry.ts";
-import * as BoatMachines from "../boat/BoatMachines.ts";
-import * as GentleAi from "../gentleAi/GentleAi.ts";
 import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
 import * as UsageLimitRecoveryWorker from "../orchestration-v2/UsageLimitRecoveryWorker.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
@@ -177,10 +175,6 @@ it.effect.each([
           OrchestratorMcpService.layer.pipe(
             Layer.provide(Layer.mock(ThreadLaunchService.ThreadLaunchService)({})),
             Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
-            Layer.provide(Layer.mock(BoatMachines.BoatMachines)({})),
-            Layer.provide(
-              Layer.mock(GentleAi.GentleAi)({ current: Effect.succeed(GentleAi.NOT_INSTALLED) }),
-            ),
           ),
           layerRecovery,
         ).pipe(

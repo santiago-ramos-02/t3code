@@ -108,10 +108,6 @@ export interface MergedUsage {
   readonly contractMismatches: readonly UsageContractMismatch[];
 }
 
-function readAtMs(scan: { readonly environment: EnvironmentUsage; readonly source: UsageSource }) {
-  return Date.parse(scan.source.readAt ?? scan.environment.summary.readAt) || 0;
-}
-
 // volumeId distinguishes machines sharing a hostname and home path.
 function fingerprintKey(fingerprint: UsageSourceFingerprint): string {
   return [
@@ -159,28 +155,20 @@ function claimSources(environments: readonly EnvironmentUsage[]): {
       (Date.parse(b.summary.readAt) || 0) - (Date.parse(a.summary.readAt) || 0) ||
       a.environmentId.localeCompare(b.environmentId),
   );
-  // A stored copy of another machine's source is as fresh as when it was read, not the summary.
-  const scans = ordered
-    .flatMap((environment) =>
-      environment.summary.sources.map((source) => ({ environment, source })),
-    )
-    .sort((a, b) => readAtMs(b) - readAtMs(a));
 
   for (const status of ["ok", "partial", "failed"] as const) {
-    for (const { environment, source } of scans) {
-      if (source.status !== status) continue;
-      const key = fingerprintKey(source.fingerprint);
-      const owner = ownerScanByFingerprint.get(key);
-      if (owner !== undefined) {
-        // A stored copy superseded by a fresher read is expected, not a duplicate.
-        if (source.readAt === undefined && owner.source.readAt === undefined) {
+    for (const environment of ordered) {
+      for (const source of environment.summary.sources) {
+        if (source.status !== status) continue;
+        const key = fingerprintKey(source.fingerprint);
+        if (ownerByFingerprint.has(key)) {
           duplicates.push(`${environment.label}: ${source.fingerprint.resolvedHomePath}`);
+          continue;
         }
-        continue;
+        ownerByFingerprint.set(key, environment.environmentId);
+        ownerScanByFingerprint.set(key, { environment, source });
+        sessionsByFingerprint.set(key, source.distinctSessions);
       }
-      ownerByFingerprint.set(key, environment.environmentId);
-      ownerScanByFingerprint.set(key, { environment, source });
-      sessionsByFingerprint.set(key, source.distinctSessions);
     }
   }
 
@@ -190,7 +178,10 @@ function claimSources(environments: readonly EnvironmentUsage[]): {
       if (source.status !== "partial") continue;
       const key = fingerprintKey(source.fingerprint);
       const owner = ownerScanByFingerprint.get(key);
-      if (owner?.source.status !== "ok" || readAtMs({ environment, source }) <= readAtMs(owner)) {
+      if (
+        owner?.source.status !== "ok" ||
+        Date.parse(environment.summary.readAt) <= Date.parse(owner.environment.summary.readAt)
+      ) {
         continue;
       }
       let seen = seenBucketKeysByFingerprint.get(key);

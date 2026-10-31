@@ -54,6 +54,7 @@ import {
 import {
   type ComposerSubmissionIntent,
   collapseExpandedComposerCursor,
+  parseSideChatCommand,
   parseStandaloneComposerSlashCommand,
 } from "../../composer-logic";
 import { resolvePlanFollowUpSubmission } from "../../proposedPlan";
@@ -76,7 +77,10 @@ import {
   useComposerDraftStore,
   DraftId,
 } from "../../composerDraftStore";
-import { type TerminalContextDraft } from "../../lib/terminalContext";
+import {
+  filterTerminalContextsWithText,
+  type TerminalContextDraft,
+} from "../../lib/terminalContext";
 import { ensureInlineContextReferences } from "../../lib/composerContextReferences";
 import {
   buildMessageContext,
@@ -86,7 +90,6 @@ import { environmentServerConfigsAtom } from "../../state/server";
 import { threadEnvironment } from "../../state/threads";
 import { runMobileComposerTransition } from "./draftHeroTransition";
 import { useClientSettingsHydrated, useEnvironmentSettings } from "../../hooks/useSettings";
-import { useStableCallback } from "../../hooks/useStableCallback";
 import { environmentPresentations } from "../../state/presentation";
 import {
   approvalRedirectNotice,
@@ -198,8 +201,6 @@ interface ComposerSendInput {
   readonly isRevertingCheckpoint: boolean;
   readonly threadDetailLoading: boolean;
   readonly activeEnvironmentUnavailable: boolean;
-  /** Resumes a stopped Boat machine; resolves true once it is connected. */
-  readonly wakeStoppedEnvironment: (() => Promise<boolean>) | null;
   readonly isSendBusy: boolean;
   readonly sendQueuesBehindSetup: boolean;
   readonly isDraftHeroState: boolean;
@@ -240,6 +241,10 @@ interface ComposerSendInput {
   readonly anchorNewTurn: TimelineFollow["anchorNewTurn"];
   readonly acknowledgeActiveThreadWoke: () => void;
   readonly handleInteractionModeChange: (mode: ProviderInteractionMode) => void;
+  /** Resolves true once the side chat started and got the prompt. */
+  readonly onSideChat?: ((prompt: string) => Promise<boolean>) | undefined;
+  /** Refuses `/side` with this reason and keeps the draft. */
+  readonly sideChatDisabledReason: string | null;
   readonly handleNewThreadInActiveProject: () => void;
   readonly persistThreadSettingsForNextTurn: (input: {
     threadId: ThreadId;
@@ -291,7 +296,6 @@ export function useComposerSend(input: ComposerSendInput) {
     isRevertingCheckpoint,
     threadDetailLoading,
     activeEnvironmentUnavailable,
-    wakeStoppedEnvironment,
     isSendBusy,
     sendQueuesBehindSetup,
     isDraftHeroState,
@@ -326,6 +330,8 @@ export function useComposerSend(input: ComposerSendInput) {
     anchorNewTurn,
     acknowledgeActiveThreadWoke,
     handleInteractionModeChange,
+    onSideChat,
+    sideChatDisabledReason,
     handleNewThreadInActiveProject,
     persistThreadSettingsForNextTurn,
   } = input;
@@ -396,9 +402,7 @@ export function useComposerSend(input: ComposerSendInput) {
     respondingRequestIdsRef.current = respondingRequestIds;
   }, [pendingApprovals, respondingRequestIds]);
 
-  // The send that runs once a resumed machine connects reads that render's state, not this one's.
-  const latestSend = useStableCallback(onSend);
-  async function onSend(
+  const onSend = async (
     e?: { preventDefault: () => void },
     dispatchMode: ComposerDispatchMode = "auto",
     submissionIntent: ComposerSubmissionIntent = "foreground",
@@ -406,7 +410,7 @@ export function useComposerSend(input: ComposerSendInput) {
       annotation: PreviewAnnotationPayload;
       image: ComposerImageAttachment | null;
     },
-  ) {
+  ) => {
     e?.preventDefault();
     // What the user pressed send on; uploads below can take a while, and a redirect must not
     // decline approvals for a draft that changed meanwhile.
@@ -426,16 +430,6 @@ export function useComposerSend(input: ComposerSendInput) {
       return;
     }
 
-    if (activeEnvironmentUnavailable && wakeStoppedEnvironment) {
-      // Sending to a stopped Boat machine resumes it, and the message goes once it is connected.
-      // This comes before the checks below, which a disconnected thread fails without a word.
-      void wakeStoppedEnvironment().then((connected) => {
-        if (connected) {
-          void latestSend(undefined, dispatchMode, submissionIntent, directAnnotation);
-        }
-      });
-      return;
-    }
     const notifyDirectAnnotationAttached = () => {
       if (!directAnnotation) return;
       toastManager.add(
@@ -489,7 +483,57 @@ export function useComposerSend(input: ComposerSendInput) {
       return;
     }
     const sendCtx = composerRef.current?.getSendContext();
-    if (activePendingProgress && sendCtx?.answeringPendingUserInput !== false) {
+    // `/side` beats an open question and a plan follow-up, which would send the text to main.
+    const sideChatCommand =
+      sendCtx && !directAnnotation && !queuedRunEdit.isEditing
+        ? parseSideChatCommand(promptAtSend)
+        : null;
+    const answeringQuestion =
+      Boolean(activePendingProgress) && sendCtx?.answeringPendingUserInput !== false;
+    // Where side chats are unavailable, `/side` text can still be a literal answer.
+    if (sideChatDisabledReason !== null && sideChatCommand && !answeringQuestion) {
+      toastManager.add(
+        stackedThreadToast({
+          type: "warning",
+          title: "Side chat not started",
+          description: sideChatDisabledReason,
+        }),
+      );
+      return;
+    }
+    if (onSideChat && sendCtx && sideChatCommand && sideChatDisabledReason === null) {
+      if (
+        sendCtx.images.length > 0 ||
+        sendCtx.files.length > 0 ||
+        filterTerminalContextsWithText(sendCtx.terminalContexts).length > 0 ||
+        sendCtx.previewAnnotations.length > 0 ||
+        sendCtx.reviewComments.length > 0 ||
+        sendCtx.threadContexts.length > 0 ||
+        sendCtx.environmentContexts.length > 0
+      ) {
+        toastManager.add(
+          stackedThreadToast({
+            type: "warning",
+            title: "Side chats take text only",
+            description: "Remove the attachments and context, then send it again.",
+          }),
+        );
+        return;
+      }
+      const started = await onSideChat(sideChatCommand.prompt);
+      // Clear only what was sent; the user may have edited the draft or left meanwhile.
+      if (
+        started &&
+        currentRouteThreadKeyRef.current === routeThreadKey &&
+        promptRef.current === promptAtSend
+      ) {
+        promptRef.current = "";
+        setComposerDraftPrompt(composerDraftTarget, "");
+        composerRef.current?.resetCursorState();
+      }
+      return;
+    }
+    if (answeringQuestion) {
       if (directAnnotation) {
         notifyDirectAnnotationAttached();
         return;
@@ -1461,7 +1505,7 @@ export function useComposerSend(input: ComposerSendInput) {
       );
       if (!sendQueuesBehindSetup) resetLocalDispatch();
     }
-  }
+  };
 
   return { onSend };
 }

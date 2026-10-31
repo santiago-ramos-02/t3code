@@ -1,7 +1,7 @@
-import type { GentleOddThreadTrail } from "@t3tools/client-runtime/gentle-ai";
 import { useComposerTypingGuard } from "./useComposerTypingGuard";
 import { insertAttachmentReferencesForDraft } from "./composerAttachmentReferences";
 import { DESKTOP_PASTE_AS_TEXT_EVENT } from "../../lib/desktopPasteAsText";
+import { BackgroundThreadContext } from "./backgroundThread";
 import {
   resolveCompatibleRuntimeMode,
   runtimeModeConfig,
@@ -36,7 +36,6 @@ import type {
   ThreadId,
 } from "@t3tools/contracts";
 import {
-  gentleAiEnabled,
   EnvironmentRequestInvalidError,
   AuthOrchestrationOperateScope,
   ProviderDriverKind,
@@ -44,7 +43,6 @@ import {
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
 } from "@t3tools/contracts";
 import type { EnvironmentConnectionPresentation } from "@t3tools/client-runtime/connection";
-import { resourcesForGentle } from "@t3tools/client-runtime/piGentleComposer";
 import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import * as Schema from "effect/Schema";
 import { isPasteAsTextShortcut } from "@t3tools/client-runtime/text-paste";
@@ -55,6 +53,7 @@ import { createModelSelection, normalizeModelSlug } from "@t3tools/shared/model"
 import { USAGE_LIMITS_COMMAND } from "@t3tools/shared/usageLimits";
 import {
   memo,
+  use,
   useEffect,
   useEffectEvent,
   useId,
@@ -93,6 +92,7 @@ import { serializeComposerImages } from "./composerImagePersistence";
 import {
   isInsideCollapsedComposerControls,
   isInsideRestingComposerControlScope,
+  markOpenToEffort,
   markOpenToPermissions,
 } from "./composerEventScope";
 import {
@@ -191,8 +191,6 @@ import {
   ComposerCommandMenu,
   composerSuggestionOptionId,
 } from "./ComposerCommandMenu";
-import { GentleComposerSlot } from "./GentleComposerActions";
-import { useWorkspacePiModels, workspaceProviderStatuses } from "./useWorkspaceProviderStatuses";
 import {
   ComposerAttachButton,
   ComposerAttachmentFileList,
@@ -256,7 +254,6 @@ import {
   type ComposerDispatchMode,
 } from "@t3tools/client-runtime/state/composer-dispatch";
 import type { ContextWindowSnapshot } from "../../lib/contextWindow";
-import type { PromptCacheSnapshot } from "../../lib/promptCache";
 import {
   resolveProviderSkillsForCwd,
   resolveProviderSlashCommandsForCwd,
@@ -370,7 +367,6 @@ export interface ChatComposerProps {
   activeThreadId: ThreadId | null;
   activeThread: Thread | undefined;
   activeThreadShell: ThreadShell | null;
-  isLocalDraftThread: boolean;
   promptHistoryMessages: ReadonlyArray<ChatMessage>;
   forceExpandedOnMobile: boolean;
   projectSelectionRequired: boolean;
@@ -388,6 +384,8 @@ export interface ChatComposerProps {
   keepFullHistory: boolean;
   onToggleKeepFullHistory: () => void;
   onUsageLimitsCommand?: (() => void) | undefined;
+  sideChatAvailable?: boolean;
+  sideChatDisabledReason?: string | null;
   environmentUnavailable: {
     readonly label: string;
     readonly connection: EnvironmentConnectionPresentation;
@@ -432,7 +430,6 @@ export interface ChatComposerProps {
   activeProjectId: ProjectId | null;
 
   activeContextWindow: ContextWindowSnapshot | null;
-  activePromptCache: PromptCacheSnapshot | null;
   compactThreadUnavailable: boolean;
   compactDisabled: boolean;
   compactDisabledReason: string | null;
@@ -442,10 +439,6 @@ export interface ChatComposerProps {
   keybindings: ResolvedKeybindingsConfig;
   terminalOpen: boolean;
   gitCwd: string | null;
-  /** Opens a new draft in this project for a Gentle AI step (see GentleComposerActions). */
-  onStartGentleThread: (prompt: string, modelSelection: ModelSelection) => void;
-  /** The thread's text so far, read when Gentle AI's feature menu opens. */
-  readGentleThreadTrail: () => GentleOddThreadTrail | null;
   pullRequestProjectId: ProjectId | null;
   pullRequestRepository: string | null;
   threadPullRequests: ReadonlyArray<ThreadPullRequestLink> | undefined;
@@ -494,7 +487,7 @@ export interface ChatComposerProps {
     model: string,
     options?: { focusComposer?: boolean },
   ) => void;
-  onOpenProviderSetup: (instanceId: ProviderInstanceId, projectCwd?: string) => void;
+  onOpenProviderSetup: (instanceId: ProviderInstanceId) => void;
   getModelDisabledReason: (instanceId: ProviderInstanceId, model: string) => string | null;
   toggleInteractionMode: () => void;
   handleRuntimeModeChange: (mode: RuntimeMode) => void;
@@ -514,7 +507,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const {
     composerDraftTarget,
     environmentId,
-    isLocalDraftThread,
     canOperateThread,
     attachmentUploadsCapabilityKnown,
     supportsAttachmentUploads,
@@ -562,7 +554,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     reportedModelSelection,
     activeProjectId,
     activeContextWindow,
-    activePromptCache,
     compactThreadUnavailable,
     compactDisabled,
     compactDisabledReason,
@@ -571,8 +562,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     keybindings,
     terminalOpen,
     gitCwd,
-    onStartGentleThread,
-    readGentleThreadTrail,
     pullRequestProjectId,
     pullRequestRepository,
     threadPullRequests,
@@ -875,7 +864,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     supportsAttachmentUploads,
   ]);
 
-  const scopedProviderStatuses = workspaceProviderStatuses(providerStatuses, gitCwd);
   const {
     providerInstanceEntries,
     selectedProviderEntry,
@@ -888,7 +876,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     selectedModel,
     composerProviderState,
   } = useComposerProviderModel({
-    providerStatuses: scopedProviderStatuses,
+    providerStatuses,
     settings,
     activeProjectId,
     threadRef: composerDraftTarget,
@@ -940,16 +928,16 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const isSendDisabled = sendDisabledReason !== null;
   const selectedProviderStatus = selectedProviderEntry?.snapshot ?? null;
   const compactCommandAvailable = providerSupportsManualCompaction(selectedProviderEntry);
+  const selectedProviderSkills = selectedProviderStatus
+    ? resolveProviderSkillsForCwd(selectedProviderStatus, gitCwd)
+    : NO_PROVIDER_SKILLS;
+  const selectedProviderSlashCommands = selectedProviderStatus
+    ? resolveProviderSlashCommandsForCwd(selectedProviderStatus, gitCwd)
+    : NO_PROVIDER_SLASH_COMMANDS;
   const refreshWorkspaceSnapshotOnTyping = useProviderWorkspaceSnapshotRefresh({
     environmentId,
     gitCwd,
     instanceId: selectedProviderEntry?.instanceId,
-  });
-  useWorkspacePiModels({
-    environmentId,
-    providers: providerStatuses,
-    cwd: gitCwd,
-    selectedInstanceId: selectedProviderEntry?.instanceId,
   });
 
   const selectedPromptEffort = composerProviderState.promptEffort;
@@ -964,20 +952,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     selectedModel,
     selectedModelOptionsForDispatch,
   );
-  // Gentle AI off hides its resources.
-  const selectedGentleEnabled = gentleAiEnabled(selectedModelSelection.options);
-  const selectedProviderSkills = selectedProviderStatus
-    ? resourcesForGentle(
-        resolveProviderSkillsForCwd(selectedProviderStatus, gitCwd),
-        selectedGentleEnabled,
-      )
-    : NO_PROVIDER_SKILLS;
-  const selectedProviderSlashCommands = selectedProviderStatus
-    ? resourcesForGentle(
-        resolveProviderSlashCommandsForCwd(selectedProviderStatus, gitCwd),
-        selectedGentleEnabled,
-      )
-    : NO_PROVIDER_SLASH_COMMANDS;
   const selectedModelForPicker = selectedModel;
   const modelOptionsByInstance = new Map<ProviderInstanceId, ReadonlyArray<AppModelOption>>();
   for (const entry of providerInstanceEntries) {
@@ -1076,14 +1050,19 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     isRevertingCheckpointRef.current = isRevertingCheckpoint;
   });
 
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes to window keydown, blur and the desktop paste-as-text event to arm plain-text paste
+  const backgroundThread = use(BackgroundThreadContext);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes to keydown, window blur and the desktop paste-as-text event to arm plain-text paste
   useEffect(() => {
+    // A background composer listens on its own form, so it never hears the main composer's keys.
+    const target: EventTarget | null = backgroundThread ? composerFormRef.current : window;
+    if (target === null) return;
     const armPasteAsTextShortcut = () => {
       // Electron's menu action can precede paste; browsers deliver keydown first.
       pasteAsTextShortcutUntilRef.current = Date.now() + 1_000;
     };
-    const onKeyDown = (event: KeyboardEvent) => {
+    const onKeyDown = (event: Event) => {
       if (
+        event instanceof KeyboardEvent &&
         event.target instanceof Node &&
         composerFormRef.current?.contains(event.target) &&
         isPasteAsTextShortcut(event, isMacPlatform(navigator.platform))
@@ -1101,22 +1080,24 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         activeElement.closest(
           'input, textarea, select, button, a[href], summary, [contenteditable="true"], [contenteditable="plaintext-only"], [role="textbox"], [role="button"], [role="menuitem"], [role="option"]',
         ) !== null;
+      // A background composer takes no paste-to-focus, so it arms only for its own focus.
       if (
         (activeElement instanceof Node && composerFormRef.current?.contains(activeElement)) ||
-        !blocksPasteToFocus
+        (!blocksPasteToFocus && !backgroundThread)
       ) {
         armPasteAsTextShortcut();
       }
     };
-    window.addEventListener(DESKTOP_PASTE_AS_TEXT_EVENT, onDesktopPasteAsText);
-    window.addEventListener("keydown", onKeyDown, true);
-    window.addEventListener("blur", onBlur);
+    target.addEventListener(DESKTOP_PASTE_AS_TEXT_EVENT, onDesktopPasteAsText);
+    target.addEventListener("keydown", onKeyDown, true);
+    // An arm lasts a second, so a background composer can skip the window blur reset.
+    if (!backgroundThread) window.addEventListener("blur", onBlur);
     return () => {
-      window.removeEventListener(DESKTOP_PASTE_AS_TEXT_EVENT, onDesktopPasteAsText);
-      window.removeEventListener("keydown", onKeyDown, true);
+      target.removeEventListener(DESKTOP_PASTE_AS_TEXT_EVENT, onDesktopPasteAsText);
+      target.removeEventListener("keydown", onKeyDown, true);
       window.removeEventListener("blur", onBlur);
     };
-  }, []);
+  }, [backgroundThread]);
 
   const composerSendState = deriveComposerSendState({
     prompt,
@@ -1151,6 +1132,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     pullRequestRepository,
     threadPullRequests,
     planModeUiEnabled,
+    sideChatAvailable: props.sideChatAvailable === true,
+    sideChatDisabledReason: props.sideChatDisabledReason ?? null,
     compactSlashCommandAvailable,
     selectedProvider,
     selectedProviderSkills,
@@ -1877,6 +1860,17 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           setComposerHighlightedItemId(null);
           setIsComposerModelPickerOpen(true);
         }
+        return;
+      }
+      if (item.command === "side" || item.command === "btw") {
+        if (props.sideChatDisabledReason) return;
+        const applied = applyPromptReplacement(
+          trigger.rangeStart,
+          trigger.rangeEnd,
+          `/${item.command} `,
+          { expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd) },
+        );
+        if (applied) setComposerHighlightedItemId(null);
         return;
       }
       if (!planModeUiEnabled) return;
@@ -2841,15 +2835,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           direction,
         });
         if (!change) return;
-        if (change.modelOptions) {
-          useComposerDraftStore
-            .getState()
-            .setProviderModelOptions(composerDraftTarget, selectedProvider, change.modelOptions, {
-              instanceId: selectedInstanceId,
-              model: selectedModel,
-              persistSticky: true,
-            });
-        }
+        useComposerDraftStore
+          .getState()
+          .setProviderModelOptions(composerDraftTarget, selectedProvider, change.modelOptions, {
+            instanceId: selectedInstanceId,
+            model: selectedModel,
+            persistSticky: true,
+          });
         if (change.prompt !== promptRef.current) {
           applyPromptReplacementStable(0, promptRef.current.length, change.prompt, {
             expandedCursorAfterReplace: change.cursor,
@@ -2881,6 +2873,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         if (!trigger) return;
         trigger.focus({ preventScroll: true });
         if (command === "composer.mode") markOpenToPermissions(trigger);
+        if (command === "composer.effort") markOpenToEffort(trigger);
         trigger.click();
       },
       compactContext: compactThreadContextStable,
@@ -3182,36 +3175,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             </ComposerBanner.Attachment>
           ) : null}
         </ComposerBanner.Column>
-        <div className="ml-auto flex min-w-0 items-end gap-1">
-          <ComposerStashBadge
-            count={stashQueue.length}
-            menuOpen={isStashMenuOpen}
-            pulseKey={stashPulseKey}
-            onToggleMenu={toggleStashMenuStable}
-          />
-          <GentleComposerSlot
-            resetKey={`${routeKind}:${activeThreadId ?? draftId ?? "new"}:${activeThread?.latestRun?.runId ?? ""}:${activeThread?.latestRun?.completedAt ?? ""}:${selectedInstanceId}:${gitCwd}`}
-            gentleAi={selectedProviderStatus?.gentleAi === true}
-            cwd={gitCwd}
-            draftTarget={composerDraftTarget}
-            isDraft={isLocalDraftThread}
-            multipleModels={multipleModelSelections !== null}
-            environmentId={environmentId}
-            pi={selectedProvider === "pi"}
-            modelSelection={selectedModelSelection}
-            models={selectedProviderModels}
-            modelLocked={providerCatalogPending || isSendBusy}
-            readThreadTrail={readGentleThreadTrail}
-            onStartThread={onStartGentleThread}
-            onWritePrompt={(request) => {
-              // Added after whatever is already written, never in place of it.
-              editPromptFromTraits((prompt) => {
-                const current = prompt.trimEnd();
-                return current === "" ? request : `${current}\n\n${request}`;
-              });
-            }}
-          />
-        </div>
+        <ComposerStashBadge
+          count={stashQueue.length}
+          menuOpen={isStashMenuOpen}
+          pulseKey={stashPulseKey}
+          onToggleMenu={toggleStashMenuStable}
+        />
       </ComposerBanner.Dock>
       <div className="relative">
         <ComposerSurface.Main
@@ -3487,8 +3456,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     activeContextWindow={
                       settings.contextWindowMeterEnabled ? activeContextWindow : null
                     }
-                    promptCache={activePromptCache}
-                    contextTokens={activeContextWindow?.usedTokens ?? null}
                     reserveContextWindowMeter={reserveContextWindowMeter}
                     activeThreadModelDisplayName={activeThreadModelDisplayName}
                     pendingAction={pendingPrimaryAction}

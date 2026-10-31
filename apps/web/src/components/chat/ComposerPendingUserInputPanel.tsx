@@ -9,6 +9,7 @@ import { CheckboxMark } from "../ui/checkbox";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
 import { Kbd } from "../ui/kbd";
 import { cn } from "~/lib/utils";
+import { isInSideChatPane } from "~/lib/sideChatPane";
 import { ComposerBanner } from "./ComposerBanner";
 import ChatMarkdown from "../ChatMarkdown";
 
@@ -151,6 +152,7 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
     const handler = (event: globalThis.KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       const target = event.target;
+      if (isInSideChatPane(target)) return;
       if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
         return;
       }
@@ -177,9 +179,6 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
     return null;
   }
 
-  const header =
-    activeQuestion.header === activeQuestion.question ? "Question" : activeQuestion.header;
-
   return (
     <Collapsible
       open={!isCollapsed}
@@ -199,7 +198,7 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
           <span
             className={cn("min-w-0 truncate text-muted-foreground", isCollapsed && "max-w-1/2")}
           >
-            {header}
+            {activeQuestion.header}
           </span>
           {isCollapsed ? (
             <>

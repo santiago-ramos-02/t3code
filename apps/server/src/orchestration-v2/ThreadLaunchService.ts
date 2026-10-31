@@ -415,22 +415,6 @@ const make = Effect.gen(function* () {
           if (remoteBase !== null) {
             startRef = remoteBase.commitSha;
             baseRefName = `refs/remotes/${remoteBase.remoteRefName}`;
-          } else {
-            // The pre-launch check trusts origin to have the branch; when it does not, say which.
-            const cwd = project.workspaceRoot;
-            const resolves = yield* Effect.gen(function* () {
-              if (yield* git.hasCommit({ cwd, refName: startRef })) return true;
-              return yield* git.hasRefNamed({ cwd, refName: startRef });
-            }).pipe(Effect.mapError(mapError(input, "provision-worktree", threadId)));
-            if (!resolves) {
-              const missing = new ThreadLaunchBaseRefError({
-                projectId: project.id,
-                projectTitle: project.title,
-                workspaceRoot: cwd,
-                baseRef: startRef,
-              });
-              return yield* mapError(input, "provision-worktree", threadId)(missing);
-            }
           }
         }
         if (shouldFetch) yield* setupTracker.stageStatus(threadId, "fetch", "done");

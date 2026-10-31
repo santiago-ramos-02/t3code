@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it } from "vite-plus/test";
 import { useClosedViewStore } from "./closedViewStore";
 import { reopenClosedView } from "./reopenClosedView";
 import {
+  hostRightPanel,
   migratePersistedRightPanelState,
   pullRequestSurface,
   pullRequestSurfaceId,
@@ -39,6 +40,23 @@ async function reloadRightPanelStore() {
 }
 
 describe("rightPanelStore", () => {
+  it("opens a hosted side chat's panel actions in its parent's panel until unhosted", () => {
+    const store = useRightPanelStore.getState();
+    const unhost = hostRightPanel(refB, refA);
+    store.openFile(refB, "src/app.ts");
+    expect(selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, refA)?.id).toBe(
+      "file:src/app.ts",
+    );
+    expect(
+      selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refB).surfaces,
+    ).toEqual([]);
+    unhost();
+    store.openFile(refB, "src/app.ts");
+    expect(selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, refB)?.id).toBe(
+      "file:src/app.ts",
+    );
+  });
+
   it("records single and bulk tab closes, newest first", () => {
     const store = useRightPanelStore.getState();
     const pr = pullRequestSurface({
@@ -1219,48 +1237,5 @@ describe("rightPanelStore", () => {
     store.reconcileBrowserSurfaces(refA, ["tab-a", "tab-b"]);
     expect(surfaceIds()).toEqual(["browser:tab-a", "terminal:term-1", "diff", "browser:tab-b"]);
     expect(store.getUserActionRevision(refA)).toBe(revision);
-  });
-});
-
-describe("memory surfaces", () => {
-  it("opens a memory beside the thread once, keeping the newest title", () => {
-    const store = useRightPanelStore.getState();
-    store.openMemory(refA, { id: 7, title: "Memory #7" });
-    store.openMemory(refA, { id: 8, title: "Other" });
-    store.openMemory(refA, { id: 7, title: "Switched to JWT" });
-    const state = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA);
-    expect(state.surfaces).toEqual([
-      { id: "memory:7", kind: "memory", memoryId: 7, title: "Switched to JWT" },
-      { id: "memory:8", kind: "memory", memoryId: 8, title: "Other" },
-    ]);
-    expect(state.activeSurfaceId).toBe("memory:7");
-    expect(state.isOpen).toBe(true);
-  });
-
-  it("keeps one Memories tab beside the memories it opened", () => {
-    const store = useRightPanelStore.getState();
-    store.open(refA, "memories");
-    store.openMemory(refA, { id: 4, title: "A memory" });
-    store.open(refA, "memories");
-    const state = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA);
-    expect(state.surfaces.map((surface) => surface.id)).toEqual(["memories", "memory:4"]);
-    expect(state.activeSurfaceId).toBe("memories");
-  });
-
-  it("restores saved memory tabs and drops broken ones", () => {
-    const migrated = migratePersistedRightPanelState({
-      byThreadKey: {
-        "env-1:thread-A": {
-          activeSurfaceId: null,
-          surfaces: [
-            { id: "memory:3", kind: "memory", memoryId: 3, title: "Kept" },
-            { id: "memory:x", kind: "memory", memoryId: "x", title: "Broken" },
-          ],
-        },
-      },
-    });
-    expect(migrated.byThreadKey["env-1:thread-A"]?.surfaces).toEqual([
-      { id: "memory:3", kind: "memory", memoryId: 3, title: "Kept" },
-    ]);
   });
 });

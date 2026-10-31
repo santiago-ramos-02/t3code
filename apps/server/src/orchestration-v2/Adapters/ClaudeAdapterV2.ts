@@ -181,11 +181,6 @@ import {
   T3_CODE_ORCHESTRATION_INSTRUCTIONS,
 } from "@t3tools/provider-core/server/orchestrationInstructions";
 import { buildRuntimeInstructions } from "@t3tools/provider-core/server/runtimeInstructions";
-import type {
-  ClaudeLaunchQuery,
-  ClaudeSessionLaunch,
-  PrepareProviderSession,
-} from "../../gentleAi/GentleAiSessions.ts";
 import {
   mcpToolPresentation,
   normalizeMcpText,
@@ -209,8 +204,6 @@ import {
   backgroundWorkNotification,
 } from "@t3tools/provider-core/server/notification";
 import * as ProviderContinuationRequests from "@t3tools/provider-core/server/ProviderContinuationRequests";
-import * as ClaudeCacheLifetime from "./ClaudeCacheLifetime.ts";
-import type { GentleReviewersHook } from "./GentleReviewers.ts";
 import {
   makeSubagentChildThread,
   makeSubagentConversationArtifacts,
@@ -1476,8 +1469,6 @@ export function makeClaudeQueryOptions(input: {
   readonly sdkSettings?: string | ClaudeSdkSettings;
   readonly environment?: NodeJS.ProcessEnv;
   readonly mcpServers?: ClaudeQueryOptions["mcpServers"];
-  /** What the session's launch adds, such as a Gentle AI off settings source. */
-  readonly launch?: ClaudeLaunchQuery;
   /** The thread's T3 MCP session holds the `device` capability. */
   readonly deviceToolsAvailable?: boolean;
   readonly tools?: ClaudeAgentSdkQueryTools;
@@ -1593,15 +1584,7 @@ export function makeClaudeQueryOptions(input: {
       ? { pathToClaudeCodeExecutable: input.settings.binaryPath }
       : {}),
     ...(input.environment === undefined ? {} : { env: input.environment }),
-    ...(input.mcpServers === undefined && input.launch?.mcpServers === undefined
-      ? {}
-      : { mcpServers: { ...input.launch?.mcpServers, ...input.mcpServers } }),
-    ...(input.launch?.settingSources === undefined
-      ? {}
-      : { settingSources: input.launch.settingSources }),
-    ...(input.launch?.agents === undefined ? {} : { agents: input.launch.agents }),
-    ...(input.launch?.plugins === undefined ? {} : { plugins: input.launch.plugins }),
-    ...(input.launch?.strictMcpConfig ? { strictMcpConfig: true } : {}),
+    ...(input.mcpServers === undefined ? {} : { mcpServers: input.mcpServers }),
     systemPrompt: {
       type: "preset" as const,
       preset: "claude_code" as const,
@@ -1614,7 +1597,6 @@ export function makeClaudeQueryOptions(input: {
               (deviceInstructions
                 ? `\n${T3_CODE_DEVICE_TOOL_INSTRUCTIONS_WITH_TOOL_SEARCH}\n`
                 : "")),
-        ...(input.launch?.appendSystemPrompt ? [input.launch.appendSystemPrompt] : []),
         ...launchAppendSystemPrompt,
       ].join("\n\n"),
     },
@@ -1721,7 +1703,6 @@ export const CLAUDE_READ_ONLY_T3_MCP_ALLOWED_TOOLS: ReadonlyArray<string> = [
   "mcp__t3-code__t3_thread_search",
   "mcp__t3-code__t3_preview_list",
   "mcp__t3-code__t3_environment_read",
-  "mcp__t3-code__t3_boat_machine_list",
   "mcp__t3-code__t3_environment_links",
   "mcp__t3-code__html_preview",
   "mcp__t3-code__html_render",
@@ -3207,6 +3188,7 @@ function isClaudeTypedToolResultErrorContent(content: ClaudeTypedToolResultConte
   }
 
   switch (content.type) {
+    case "advisor_tool_result_error":
     case "bash_code_execution_tool_result_error":
     case "code_execution_tool_result_error":
     case "text_editor_code_execution_tool_result_error":
@@ -4503,17 +4485,11 @@ export interface ClaudeAdapterV2Options {
   readonly queryRunner: ClaudeAgentSdkQueryRunnerShape;
   readonly scopedLimitNames?: Ref.Ref<ClaudeScopedLimitNames>;
   readonly onUsageLimits?: ManagedServerProvider["applyUsageLimits"];
-  /** Adjusts the launch for one session. */
-  readonly prepareSession?: PrepareProviderSession<ClaudeSessionLaunch>;
   readonly continuationRequests?: {
     readonly offer: (
       request: ProviderContinuationRequests.ProviderContinuationRequest,
     ) => Effect.Effect<void>;
   };
-  /** Where the cache lifetime Claude reports goes; defaults to nowhere. */
-  readonly cacheLifetime?: ClaudeCacheLifetime.ClaudeCacheLifetimeShape;
-  /** Shows gentle-ai reviewers that a session's shell commands run as subagents. */
-  readonly gentleReviewers?: GentleReviewersHook;
 }
 
 export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
@@ -4530,7 +4506,6 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
   const continuationRequests = adapterOptions.continuationRequests ?? {
     offer: () => Effect.void,
   };
-  const cacheLifetime = adapterOptions.cacheLifetime;
   const homePath = yield* resolveClaudeHomePath(
     adapterOptions.settings,
     adapterOptions.environment,
@@ -4701,13 +4676,6 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
     }),
     openSession: Effect.fn("ClaudeAdapterV2.openSession")(
       function* (input: ProviderAdapter.ProviderAdapterV2OpenSessionInput) {
-        const baseLaunch: ClaudeSessionLaunch = {
-          environment: adapterOptions.environment,
-          query: {},
-        };
-        const launch = adapterOptions.prepareSession
-          ? yield* adapterOptions.prepareSession(input, baseLaunch)
-          : baseLaunch;
         const sessionScope = yield* Effect.scope;
         const now = yield* DateTime.now;
         const session = providerSession({
@@ -5045,23 +5013,6 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           });
         });
 
-        const gentleReviewerEnvironment =
-          adapterOptions.gentleReviewers === undefined
-            ? {}
-            : yield* adapterOptions.gentleReviewers(input, {
-                driver: CLAUDE_PROVIDER,
-                instanceId: adapterOptions.instanceId,
-                idAllocator: adapterOptions.idAllocator,
-                emit: emitProviderEvent,
-                currentTurn: Ref.get(activeTurn).pipe(
-                  Effect.map((context) =>
-                    context === null
-                      ? null
-                      : { input: context.input, providerTurnId: context.providerTurnId },
-                  ),
-                ),
-              });
-
         // Usage without input is a placeholder, not a context measurement.
         const emitContextUsage = Effect.fnUntraced(function* (
           context: ActiveClaudeTurnContext,
@@ -5079,9 +5030,6 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             adapterOptions.settings.autoCompactWindow,
             context.streamUsage?.requestedAt,
           );
-          if (cacheLifetime !== undefined && tokenUsage.promptCacheTtlMs !== undefined) {
-            yield* cacheLifetime.observe(tokenUsage.promptCacheTtlMs / 1000);
-          }
           if (tokenUsage.inputTokens <= 0) return;
           yield* emitProviderEvent({
             type: "provider_turn.updated",
@@ -10173,7 +10121,13 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               existing.openedPermissionMode === queryPolicy.permissionMode)
           ) {
             const live = existing;
-            yield* live.query.setModel(compiledSelection.apiModelId).pipe(
+            // Preserve launcher-selected models unless the model changed or a failed update left it unknown.
+            yield* (
+              live.selection.queryIdentity === "" ||
+              live.selection.apiModelId !== compiledSelection.apiModelId
+                ? live.query.setModel(compiledSelection.apiModelId)
+                : Effect.void
+            ).pipe(
               Effect.andThen(
                 live.query.applyFlagSettings(claudeLiveSelectionFlagSettings(compiledSelection)),
               ),
@@ -10269,16 +10223,12 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               ? {}
               : { sdkSettings: claudeSdkLaunchArgSettings(launchArgSettings) }),
             environment: claudeQueryEnvironment(
-              { ...launch.environment, ...gentleReviewerEnvironment },
+              adapterOptions.environment,
               turnInput.appThread,
               turnInput.appThread.lineage.relationshipToParent === "subagent"
                 ? yield* resolveSubagentPromptCacheTtl(turnInput.runtimePolicy.cwd)
                 : undefined,
             ),
-            ...(launch.query.sdkSettings === undefined
-              ? {}
-              : { sdkSettings: launch.query.sdkSettings as ClaudeSdkSettings }),
-            launch: launch.query,
             tools: queryPolicy.tools ?? CLAUDE_CODE_PRESET_TOOLS,
             ...(mcpOverrides.allowedTools === undefined
               ? {}
@@ -11554,10 +11504,7 @@ export type ClaudeAdapterV2DriverEnv =
 export const createClaudeAdapterV2 = Effect.fn("ClaudeAdapterV2Driver.create")(
   function* (
     input: ProviderAdapterDriverCreateInput<ClaudeSettings>,
-    hooks: Pick<
-      ClaudeAdapterV2Options,
-      "scopedLimitNames" | "onUsageLimits" | "prepareSession" | "gentleReviewers"
-    > = {},
+    hooks: Pick<ClaudeAdapterV2Options, "scopedLimitNames" | "onUsageLimits"> = {},
   ) {
     const { instanceId, environment, enabled, config } = input;
     const fileSystem = yield* FileSystem.FileSystem;
@@ -11566,7 +11513,6 @@ export const createClaudeAdapterV2 = Effect.fn("ClaudeAdapterV2Driver.create")(
     const queryRunner = yield* ClaudeAgentSdkQueryRunner;
     const serverConfig = yield* ServerConfig.ServerConfig;
     const continuationRequests = yield* ProviderContinuationRequests.ProviderContinuationRequests;
-    const cacheLifetime = yield* ClaudeCacheLifetime.ClaudeCacheLifetime;
     const baseEnvironment = yield* mergeProviderInstanceEnvironment(environment, hostEnvironment);
     const claudeEnvironment = yield* makeClaudeEnvironment(config, baseEnvironment);
     const path = yield* Path.Path;
@@ -11586,7 +11532,6 @@ export const createClaudeAdapterV2 = Effect.fn("ClaudeAdapterV2Driver.create")(
       idAllocator,
       queryRunner,
       continuationRequests,
-      cacheLifetime,
       ...hooks,
     });
   },

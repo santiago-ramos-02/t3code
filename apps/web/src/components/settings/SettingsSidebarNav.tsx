@@ -26,7 +26,6 @@ import {
   PaletteIcon,
   SearchIcon,
   ServerIcon,
-  WaypointsIcon,
   Settings2Icon,
   ShieldCheckIcon,
   SmartphoneIcon,
@@ -47,8 +46,6 @@ import {
   SidebarMenuItem,
   SidebarInput,
 } from "../ui/sidebar";
-import { GentleRoseIcon } from "../GentleRoseIcon";
-import { useEnvironments } from "~/state/environments";
 import { scrollToSettingsTarget } from "./settingsLayout";
 import {
   searchSettings,
@@ -98,8 +95,6 @@ const SETTINGS_SECTION_ICONS: Readonly<
   "/settings/keybindings": KeyboardIcon,
   "/settings/snap-shot": SnapShotIcon,
   "/settings/providers": BotIcon,
-  "/settings/gentle-ai": GentleRoseIcon,
-  "/settings/cli-proxy": WaypointsIcon,
   "/settings/threads": MessagesSquareIcon,
   "/settings/browser": GlobeIcon,
   "/settings/devices": SmartphoneIcon,
@@ -137,9 +132,6 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
   const currentHash = useLocation({ select: (location) => location.hash });
   const currentSearch = useLocation({ select: (location) => location.search });
   const scopeSearch = validateSettingsScopeSearch(currentSearch);
-  const { environments } = useEnvironments();
-  // Gentle AI's page is where it is installed when missing, so it shows for any environment.
-  const gentleAiVisible = environments.length > 0;
   const activePath = SETTINGS_DETAIL_PAGE_PARENTS[pathname] ?? pathname;
   const navPaths = SETTINGS_NAV_GROUPS.flatMap((group) => group.paths);
   const sectionNavigation = useSettingsSectionNavigation(
@@ -408,35 +400,30 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
                         </h3>
                       ) : null}
                       <SidebarMenu role="presentation">
-                        {group.paths
-                          .filter((to) => to !== "/settings/gentle-ai" || gentleAiVisible)
-                          .map((to) => {
-                            const Icon = SETTINGS_SECTION_ICONS[to];
-                            const isActive = activePath === to || activePath.startsWith(`${to}/`);
-                            return (
-                              <SidebarMenuItem key={to} role="presentation">
-                                <SidebarMenuButton
-                                  data-settings-section={to}
-                                  role="treeitem"
-                                  tabIndex={sectionNavigation.tabIndexFor(to)}
-                                  aria-selected={isActive}
-                                  aria-current={isActive ? "page" : undefined}
-                                  isActive={isActive}
-                                  onClick={() => handleSectionClick(to)}
+                        {group.paths.map((to) => {
+                          const Icon = SETTINGS_SECTION_ICONS[to];
+                          const isActive = activePath === to || activePath.startsWith(`${to}/`);
+                          return (
+                            <SidebarMenuItem key={to} role="presentation">
+                              <SidebarMenuButton
+                                data-settings-section={to}
+                                role="treeitem"
+                                tabIndex={sectionNavigation.tabIndexFor(to)}
+                                aria-selected={isActive}
+                                aria-current={isActive ? "page" : undefined}
+                                isActive={isActive}
+                                onClick={() => handleSectionClick(to)}
+                              >
+                                <Icon />
+                                <span
+                                  className={cn("truncate", !compactSearchOpen && "max-md:sr-only")}
                                 >
-                                  <Icon />
-                                  <span
-                                    className={cn(
-                                      "truncate",
-                                      !compactSearchOpen && "max-md:sr-only",
-                                    )}
-                                  >
-                                    {SETTINGS_SECTION_LABELS[to]}
-                                  </span>
-                                </SidebarMenuButton>
-                              </SidebarMenuItem>
-                            );
-                          })}
+                                  {SETTINGS_SECTION_LABELS[to]}
+                                </span>
+                              </SidebarMenuButton>
+                            </SidebarMenuItem>
+                          );
+                        })}
                       </SidebarMenu>
                     </div>
                   ))}

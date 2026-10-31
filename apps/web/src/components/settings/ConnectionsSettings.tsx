@@ -30,6 +30,7 @@ import {
   isWslSettingsRowVisible,
   missingTailscaleEndpointDescription,
   resolveLocalVersionStatusLabel,
+  resolveTailscaleServeBaseUrl,
 } from "./ConnectionsSettings.logic";
 import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsLayout";
 import { LocalEnvironmentSetting } from "./LocalEnvironmentSetting";
@@ -133,8 +134,6 @@ import {
   SavedBackendListRow,
 } from "./SavedEnvironmentRows";
 import { AddEnvironmentDialog } from "./AddEnvironmentDialog";
-import { BoatEnvironmentRows } from "./BoatSettings";
-import { boatMachineAt, useBoat } from "../../hooks/useBoat";
 
 const DEFAULT_TAILSCALE_SERVE_PORT = 443;
 const EMPTY_ADVERTISED_ENDPOINTS: ReadonlyArray<AdvertisedEndpoint> = [];
@@ -172,16 +171,8 @@ export function ConnectionsSettings({ view }: { readonly view: "environments" | 
   const savedEnvironments = environments.filter(
     (environment) => environment.entry.target._tag !== "PrimaryConnectionTarget",
   );
-  const boat = useBoat();
-  const boatHost =
-    boat.hostEnvironmentId !== null && boat.status?.configured
-      ? { environmentId: boat.hostEnvironmentId, status: boat.status }
-      : null;
-  // Boat machines are listed under Boat rather than as machines of their own.
   const listedEnvironments = savedEnvironments.filter(
-    (environment) =>
-      !isDesktopLocalConnectionTarget(environment.entry.target) &&
-      boatMachineAt(boat.status, environment.displayUrl) === null,
+    (environment) => !isDesktopLocalConnectionTarget(environment.entry.target),
   );
   const savedUpdateStates = useAtomValue(
     environmentUpdateStatesAtom(
@@ -350,20 +341,11 @@ export function ConnectionsSettings({ view }: { readonly view: "environments" | 
     parsedTailscaleServePort >= 1 &&
     parsedTailscaleServePort <= 65_535;
 
-  const pendingTailscaleServeBaseUrl = (() => {
-    if (!pendingTailscaleServeEndpoint) return null;
-    if (!isTailscaleServePortValid) return pendingTailscaleServeEndpoint.httpBaseUrl;
-    if (parsedTailscaleServePort === DEFAULT_TAILSCALE_SERVE_PORT) {
-      return pendingTailscaleServeEndpoint.httpBaseUrl;
-    }
-    try {
-      const url = new URL(pendingTailscaleServeEndpoint.httpBaseUrl);
-      url.port = String(parsedTailscaleServePort);
-      return url.toString().replace(/\/$/u, "");
-    } catch {
-      return pendingTailscaleServeEndpoint.httpBaseUrl;
-    }
-  })();
+  const pendingTailscaleServeBaseUrl = resolveTailscaleServeBaseUrl(
+    pendingTailscaleServeEndpoint,
+    parsedTailscaleServePort,
+    isTailscaleServePortValid,
+  );
 
   const handleDesktopServerExposureChange = async (checked: boolean) => {
     if (
@@ -1520,32 +1502,9 @@ export function ConnectionsSettings({ view }: { readonly view: "environments" | 
             }}
           />
         ))}
-        {boatHost ? (
-          <BoatEnvironmentRows
-            hostEnvironmentId={boatHost.environmentId}
-            status={boatHost.status}
-            savedEnvironments={savedEnvironments}
-            renderPairedRow={(environment, machine) => (
-              <SavedBackendListRow
-                key={environment.environmentId}
-                environment={environment}
-                removingEnvironmentId={removingSavedEnvironmentId}
-                onSetEnabled={handleSetSavedBackendEnabled}
-                onRemove={handleRemoveSavedBackend}
-                onAddRoute={(target) => {
-                  setRouteTarget(target);
-                  setSavedBackendError(null);
-                  setAddBackendDialogOpen(true);
-                }}
-                boat={{ hostEnvironmentId: boatHost.environmentId, machine, savedEnvironments }}
-              />
-            )}
-          />
-        ) : null}
         <CloudRemoteEnvironmentRows
           primaryEnvironmentId={primaryEnvironmentId}
           savedEnvironments={savedEnvironments}
-          hasOtherRows={boatHost !== null}
         />
       </SettingsSection>
       {hasCloudPublicConfig() ? (

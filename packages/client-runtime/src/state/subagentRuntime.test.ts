@@ -228,7 +228,6 @@ describe("resolveWorkflowOpening", () => {
     expect(opening).toMatchObject({
       messageId: "message-1",
       script: SCRIPT,
-      scriptKind: "script",
       name: "probe-wf",
       description: "Run the alpha workflow",
     });
@@ -238,26 +237,6 @@ describe("resolveWorkflowOpening", () => {
         members: phase.members.map((agent) => [agent.title, agent.status, agent.childThreadId]),
       })),
     ).toEqual([{ title: "Alpha", members: [["alpha:one", "running", "member-1"]] }]);
-  });
-
-  it("opens a workflow that starts from a request rather than a script", () => {
-    // gentle-pi's ODD workflows open with the request the orchestrator carries out.
-    const opening = resolveWorkflowOpening({
-      thread: childThread,
-      messages: [brief("Add dark mode", true)],
-      parentSubagents: [
-        coordinator({
-          name: "ODD workflow",
-          phases: [{ index: 1, title: "Exploring" }],
-          agents: [member({ childThreadId: ThreadId.make("member-1") })],
-        }),
-      ],
-    });
-    expect(opening).toMatchObject({
-      script: "Add dark mode",
-      scriptKind: "request",
-      name: "ODD workflow",
-    });
   });
 
   it("recognizes an unmarked script before the parent loads", () => {

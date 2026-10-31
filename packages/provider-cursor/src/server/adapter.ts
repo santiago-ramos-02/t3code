@@ -11,7 +11,6 @@ import type {
 import { formatReadToolLabel, formatSearchToolLabel } from "@t3tools/shared/toolActivity";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import {
-  gentleAiEnabled,
   isOrchestrationV2WorkActive,
   defaultInstanceIdForDriver,
   type ChatAttachment,
@@ -312,13 +311,7 @@ export function makeCursorAgentOptions(input: {
     local: {
       ...(input.runtimePolicy.cwd === null ? {} : { cwd: input.runtimePolicy.cwd }),
       autoReview: policy.autoReview,
-      // gentle-ai installs its Cursor rules, skills, and MCP servers in the user and plugin
-      // layers; the SDK loads layers whole, so a thread with Gentle AI off skips both.
-      settingSources: gentleAiEnabled(input.modelSelection.options)
-        ? [...CURSOR_AGENT_SETTING_SOURCES]
-        : CURSOR_AGENT_SETTING_SOURCES.filter(
-            (source) => source !== "user" && source !== "plugins",
-          ),
+      settingSources: [...CURSOR_AGENT_SETTING_SOURCES],
       sandboxOptions: {
         enabled: policy.sandboxEnabled,
       },
@@ -484,7 +477,7 @@ function cursorToolSearchResults(
         if (result.type === "count") {
           return result.output.counts.map((entry) => ({
             fileName: entry.file,
-            preview: `${entry.count} matches`,
+            preview: `${entry.count} ${entry.count === 1 ? "match" : "matches"}`,
           }));
         }
         return result.output.matches.map((entry) => ({

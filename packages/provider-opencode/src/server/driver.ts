@@ -16,7 +16,6 @@ import { makeOpenCodeTextGeneration } from "./textGeneration.ts";
 import * as ProviderLatestVersions from "@t3tools/provider-core/server/ProviderLatestVersions";
 import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 import * as OpenCodeAdapterV2 from "./adapter.ts";
-import { OpenCodeGentleHooks } from "./gentleHooks.ts";
 import * as OpenCode2AdapterV2 from "./v2/adapter.ts";
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import type { ProviderTextGeneration } from "@t3tools/provider-core/server/textGeneration";
@@ -277,14 +276,11 @@ export const OpenCodeDriver: ProviderDriver<
         yield* OpenCode2Client.make.pipe(Effect.provideService(HttpClient.HttpClient, httpClient)),
       ),
     );
-    const { wrapSharedServerAdapter } = yield* OpenCodeGentleHooks;
     const orchestrationAdapter = selectOpenCodeRuntimeAdapter({
       probe: runtimeProbe,
       v1: openCodeV1Adapter,
-      v2: (wrapSharedServerAdapter ?? ((adapter) => adapter))(
-        yield* OpenCode2AdapterV2.make(instanceId).pipe(
-          Effect.provideService(OpenCode2Server.OpenCode2Server, openCode2Server),
-        ),
+      v2: yield* OpenCode2AdapterV2.make(instanceId).pipe(
+        Effect.provideService(OpenCode2Server.OpenCode2Server, openCode2Server),
       ),
     });
     const loadOpenCode2Models = yield* makeOpenCode2ModelLoader(

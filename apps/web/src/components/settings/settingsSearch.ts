@@ -25,8 +25,6 @@ export type SettingsPath =
   | "/settings/keybindings"
   | "/settings/snap-shot"
   | "/settings/providers"
-  | "/settings/gentle-ai"
-  | "/settings/cli-proxy"
   | "/settings/threads"
   | "/settings/browser"
   | "/settings/devices"
@@ -97,8 +95,6 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/keybindings": "Keybindings",
   "/settings/snap-shot": "SnapShots",
   "/settings/providers": "Providers",
-  "/settings/gentle-ai": "Gentle AI",
-  "/settings/cli-proxy": "CLIProxyAPI",
   "/settings/threads": "Threads",
   "/settings/browser": "Browser",
   "/settings/devices": "Devices",
@@ -134,8 +130,6 @@ export const SETTINGS_NAV_GROUPS: ReadonlyArray<{
     heading: "Agents",
     paths: [
       "/settings/providers",
-      "/settings/gentle-ai",
-      "/settings/cli-proxy",
       "/settings/threads",
       "/settings/browser",
       "/settings/devices",
@@ -1195,10 +1189,6 @@ const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScop
   "/settings/snap-shot": null,
   "/settings/keybindings": null,
   "/settings/providers": null,
-  // Like Providers, Gentle AI is machine state shown for the representative environment.
-  "/settings/gentle-ai": null,
-  // Machine state too: the proxy runs on the representative environment.
-  "/settings/cli-proxy": null,
   "/settings/threads": null,
   "/settings/browser": null,
   "/settings/devices": null,

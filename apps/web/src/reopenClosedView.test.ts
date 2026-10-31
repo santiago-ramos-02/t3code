@@ -63,24 +63,6 @@ describe("reopenClosedView", () => {
     expect(openPreview).not.toHaveBeenCalled();
   });
 
-  it("restores a closed memory with its saved identity and title", async () => {
-    const surface = {
-      kind: "memory",
-      id: "memory:7",
-      memoryId: 7,
-      title: "Switched to JWT",
-    } as const;
-    const reopened = await reopenClosedView(
-      { kind: "panel-tab", threadRef, surface },
-      { openPreview: vi.fn(), workspaceAvailable: false },
-    );
-    expect(reopened).toBe(true);
-    const state = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, threadRef);
-    expect(state.surfaces).toEqual([surface]);
-    expect(state.activeSurfaceId).toBe(surface.id);
-    expect(state.isOpen).toBe(true);
-  });
-
   it("does not reopen workspace tabs without an available project", async () => {
     const options = {
       openPreview: vi.fn(),
@@ -152,6 +134,7 @@ describe("planNextReopen", () => {
     environmentKnown: true,
     catalogReady: true,
     ownerExists: true,
+    sideChatExists: true,
     shellLive: true,
     panel: { isOpen: false, activeSurfaceId: null, surfaces: [] },
   };
@@ -180,6 +163,18 @@ describe("planNextReopen", () => {
       [{ ...known, ownerExists: false }, known],
       [],
       "b",
+    ],
+    [
+      "skips but keeps a side chat deleted from a live shell",
+      [{ ...known, sideChatExists: false }, known],
+      [],
+      "b",
+    ],
+    [
+      "waits when a cached shell lacks the side chat",
+      [{ ...known, sideChatExists: false, shellLive: false }, known],
+      [],
+      null,
     ],
     [
       "waits when a cached shell lacks the thread",

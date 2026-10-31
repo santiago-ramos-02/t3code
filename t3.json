@@ -7,11 +7,6 @@
       "command": "node scripts/setup-worktree.ts",
       "icon": "configure",
       "runOnWorktreeCreate": true
-    },
-    {
-      "name": "Update Boat template",
-      "command": "vp run update-boat-template",
-      "icon": "build"
     }
   ]
 }

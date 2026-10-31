@@ -10,15 +10,15 @@ import type {
 } from "@t3tools/contracts";
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { lazy, Suspense } from "react";
+import SideChatPane from "./SideChatPane";
 import type { ComposerImageAttachment, DraftId } from "../../composerDraftStore";
 import type { ShortcutMatchContext } from "../../keybindings";
+import type { SideChatParentPanel } from "../../lib/sideChatPane";
 import { type RightPanelSurface, useRightPanelStore } from "../../rightPanelStore";
 import {
   PersistentThreadTerminalPanel,
   type PersistentThreadTerminalPanelProps,
 } from "../PersistentThreadTerminals";
-import { MemoriesPanel } from "../memory/MemoriesPanel";
-import { MemoryPanel } from "../memory/MemoryPanel";
 import { pullRequestPanelContext } from "../pullRequest/pullRequestDetail.logic";
 import { PullRequestDetailPanel } from "../pullRequest/PullRequestDetailPanel";
 import { PullRequestDetailGhost } from "../pullRequest/PullRequestGhosts";
@@ -77,6 +77,7 @@ export function RightPanelSurfaceContent(props: {
   readonly terminal: RightPanelTerminalProps;
   readonly pullRequest: RightPanelPullRequestProps;
   readonly files: RightPanelFileProps;
+  readonly sideChatParentPanel: SideChatParentPanel;
 }) {
   const { surface, threadRef, visible } = props;
   if (surface === null) return null;
@@ -167,15 +168,15 @@ export function RightPanelSurfaceContent(props: {
     }
     case "pull-requests":
       return <ThreadPullRequestsPanel threadRef={threadRef} />;
-    case "memories":
-      return <MemoriesPanel threadRef={threadRef} />;
-    case "memory":
+    case "side-chat":
+      // Not lazy: revealing a suspended tiptap editor tears down its view and crashes the composer.
       return (
-        <MemoryPanel
+        <SideChatPane
           key={surface.id}
-          threadRef={threadRef}
-          memoryId={surface.memoryId}
-          title={surface.title}
+          parentRef={threadRef}
+          threadId={surface.threadId}
+          parentPanel={props.sideChatParentPanel}
+          onClose={() => props.onCloseSurface(surface)}
         />
       );
     case "device":

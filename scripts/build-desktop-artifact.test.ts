@@ -1318,12 +1318,6 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
 
         assert.instanceOf(error, BundleNotSelfContainedError);
         assert.include(error.output, "t3code-deliberately-missing-package");
-
-        // An Intel host cannot run an arm64 bundle, so a cross-build skips the check.
-        yield* validateMacPackagedPayload({
-          stageDistDir: fixture.stageDistDir,
-          targetArch: "arm64",
-        }).pipe(Effect.provideService(HostProcess.Architecture, "x64"));
       }),
     ),
   );

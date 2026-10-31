@@ -41,7 +41,6 @@ import * as PullRequestHttp from "./pullRequest/http.ts";
 import * as PullRequestProviderRegistry from "./pullRequest/PullRequestProviderRegistry.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
 import * as SqlitePersistence from "./persistence/Sqlite.ts";
-import * as ClaudeCacheLifetime from "./orchestration-v2/Adapters/ClaudeCacheLifetime.ts";
 import * as PullRequestFilesViewed from "./persistence/PullRequestFilesViewed.ts";
 import * as PullRequestReviewGuides from "./persistence/PullRequestReviewGuides.ts";
 import * as PullRequestReviewGuideService from "./pullRequest/PullRequestReviewGuideService.ts";
@@ -62,7 +61,6 @@ import * as AcpRegistrySupport from "@t3tools/provider-acp-registry/server/AcpRe
 import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import * as CheckpointStore from "./checkpointing/CheckpointStore.ts";
 import * as SourceControlBuiltInDrivers from "./sourceControl/builtInDrivers.ts";
-import * as ServerSourceControlHost from "./sourceControl/ServerSourceControlHost.ts";
 import * as SourceControlSignIn from "./sourceControl/SourceControlSignIn.ts";
 import { BUILT_IN_SOURCE_CONTROL_DRIVER_LIST } from "./sourceControl/sourceControlDefinitions.ts";
 import * as TextGeneration from "./textGeneration/TextGeneration.ts";
@@ -124,8 +122,6 @@ import * as ReviewService from "./review/ReviewService.ts";
 import * as SourceControlProviderRegistry from "./sourceControl/SourceControlProviderRegistry.ts";
 import * as PullRequestReadCache from "./pullRequest/PullRequestReadCache.ts";
 import * as SourceControlRateLimit from "@t3tools/source-control-core/server/SourceControlRateLimit";
-import * as Socket from "effect/socket/Socket";
-import * as GitHubCredentials from "@t3tools/source-control-github/server/GitHubCredentials";
 import * as SourceControlRepositoryService from "./sourceControl/SourceControlRepositoryService.ts";
 import * as WorktreeSetupTracker from "./project/WorktreeSetupTracker.ts";
 import * as Observability from "./observability/Observability.ts";
@@ -183,12 +179,6 @@ import * as ResourceAttribution from "./resourceTelemetry/ResourceAttribution.ts
 import * as ResourceMonitorBinary from "./resourceTelemetry/ResourceMonitorBinary.ts";
 import * as ProcessGroupMetrics from "./resourceTelemetry/ProcessGroupMetrics.ts";
 import * as ResourceTelemetry from "./resourceTelemetry/ResourceTelemetry.ts";
-import * as GentleAi from "./gentleAi/GentleAi.ts";
-import * as BoatMachines from "./boat/BoatMachines.ts";
-import * as MachineGitTools from "./boat/machineGitTools.ts";
-import * as CliProxy from "./cliProxy/CliProxy.ts";
-import * as Engram from "./memory/Engram.ts";
-import * as GentleAiFootprints from "./gentleAi/GentleAiFootprints.ts";
 import * as AntigravityUsage from "./provider/Drivers/AntigravityUsage.ts";
 import { MuseUsageHome } from "@t3tools/provider-muse/server";
 import * as CursorAccountReader from "@t3tools/provider-cursor/server/CursorAccountReader";
@@ -355,13 +345,6 @@ const layerSourceControlProviderRegistry = SourceControlProviderRegistry.layer.p
   Layer.provideMerge(layerVcsDriverRegistry),
 );
 
-// The host's own GitHub login, which Boat machines are given.
-const layerGitHubCredentials = GitHubCredentials.layer.pipe(
-  Layer.provide(ServerSourceControlHost.layer),
-  Layer.provide(GitVcsDriver.layer),
-  Layer.provide(layerVcsDriverRegistry),
-);
-
 const layerRepositoryIdentityResolver = Layer.effect(
   RepositoryIdentityResolver.RepositoryIdentityResolver,
   Effect.gen(function* () {
@@ -413,7 +396,6 @@ const layerGitWorkflow = GitWorkflowService.layer.pipe(
 
 const layerSourceControlRepositoryService = SourceControlRepositoryService.layer.pipe(
   Layer.provideMerge(GitVcsDriver.layer),
-  Layer.provideMerge(GitHubCredentials.layer),
   Layer.provideMerge(layerSourceControlProviderRegistry),
 );
 
@@ -655,25 +637,7 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   Layer.provideMerge(Layer.mergeAll(layerTerminal, layerPreview, layerDevice)),
   Layer.provideMerge(layerPersistence),
   Layer.provideMerge(
-    Layer.mergeAll(
-      Keybindings.layer,
-      EnvironmentTheme.layer,
-      UsageLimitSources.layer,
-      GentleAi.layer,
-      CliProxy.layer,
-      BoatMachines.layer.pipe(
-        Layer.provide(ProcessRunner.layer),
-        Layer.provide(layerServerSettings),
-        Layer.provide(layerGitHubCredentials),
-        Layer.provide(Socket.layerWebSocketConstructorGlobal),
-      ),
-      MachineGitTools.layer.pipe(
-        Layer.provide(ProcessRunner.layer),
-        Layer.provide(layerServerSettings),
-        Layer.provide(layerGitHubCredentials),
-      ),
-      Engram.layer,
-    ),
+    Layer.mergeAll(Keybindings.layer, EnvironmentTheme.layer, UsageLimitSources.layer),
   ),
   Layer.provideMerge(ProviderRegistry.layer),
   Layer.provideMerge(ProviderInstanceRegistryHydration.layer),
@@ -698,8 +662,6 @@ const layerRuntimeCoreDependencies = layerRuntimeCoreDependenciesBase.pipe(
       ResetCreditCoordinator.layer,
       ProviderLatestVersions.layer,
       McpProviderSessions.layer,
-      GentleAiFootprints.layer,
-      ClaudeCacheLifetime.layer,
     ),
   ),
   Layer.provideMerge(

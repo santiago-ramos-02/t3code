@@ -23,7 +23,6 @@ import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts
 import * as ServerSettings from "../serverSettings.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
 import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
-import * as BoatMachines from "../boat/BoatMachines.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as RemoteDelegation from "../peer/RemoteDelegation.ts";
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
@@ -31,14 +30,10 @@ import * as ThreadManagementService from "../orchestration-v2/ThreadManagementSe
 import type * as McpInvocationContext from "./McpInvocationContext.ts";
 import * as OrchestratorMcpService from "./OrchestratorMcpService.ts";
 import { liveThreadShell } from "./McpToolAccess.testkit.ts";
-import * as GentleAi from "../gentleAi/GentleAi.ts";
 
-// Gentle AI is not installed unless a test sets it up.
 const layerOrchestratorService = OrchestratorMcpService.layer.pipe(
   Layer.provide(Layer.mock(ThreadLaunchService.ThreadLaunchService)({})),
   Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
-  Layer.provide(Layer.mock(BoatMachines.BoatMachines)({})),
-  Layer.provide(Layer.mock(GentleAi.GentleAi)({ current: Effect.succeed(GentleAi.NOT_INSTALLED) })),
 );
 
 const environmentId = EnvironmentId.make("environment-mcp-orchestrator-detail");

@@ -284,7 +284,6 @@ it.effect(
           isLive: (providerSessionId) => Effect.succeed(providerSessionId === oldSessionId),
           close: () => Effect.void,
           closeInstance: () => Effect.void,
-          closeIdleInstance: () => Effect.succeed("closed"),
           release: () => Effect.void,
           detach: () => Effect.void,
           otherWorkingThreads: () => Effect.succeed([]),

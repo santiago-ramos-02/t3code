@@ -45,6 +45,8 @@ interface RightPanelActionsInput {
   readonly pullRequestPanelTarget: ReturnType<typeof threadPullRequestPanelTarget> | null;
   readonly threadPanelPresentation: ThreadPanelPresentation;
   readonly isServerThread: boolean;
+  /** A side chat pane; the main view already answers preview bus actions. */
+  readonly embedded: boolean;
   readonly isGitRepo: boolean;
   readonly browserAvailable: boolean;
   readonly canOperatePreview: boolean;
@@ -55,7 +57,6 @@ interface RightPanelActionsInput {
   readonly rightPanelMaximized: boolean;
   readonly supportsPullRequests: boolean;
   readonly pullRequestsSurfaceAvailable: boolean;
-  readonly memoriesSurfaceAvailable: boolean;
   readonly gitCwd: string | null;
   readonly activeProjectCwd: string | null;
   readonly explicitDiffOpenRef: { current: ScopedThreadRef | null };
@@ -65,7 +66,7 @@ interface RightPanelActionsInput {
 
 /**
  * Opening, closing, and arranging the right panel's surfaces: browser, diff, files, pull
- * requests, memories, device, and terminal tabs.
+ * requests, device, and terminal tabs.
  */
 export function useRightPanelActions(input: RightPanelActionsInput) {
   const {
@@ -79,6 +80,7 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
     pullRequestPanelTarget,
     threadPanelPresentation,
     isServerThread,
+    embedded,
     isGitRepo,
     browserAvailable,
     canOperatePreview,
@@ -89,7 +91,6 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
     rightPanelMaximized,
     supportsPullRequests,
     pullRequestsSurfaceAvailable,
-    memoriesSurfaceAvailable,
     gitCwd,
     activeProjectCwd,
     explicitDiffOpenRef,
@@ -151,11 +152,6 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
     useRightPanelStore.getState().open(activeThreadRef, "pull-requests");
   };
   const addPullRequestsSurfaceStable = useStableCallback(addPullRequestsSurface);
-  const addMemoriesSurface = () => {
-    if (!activeThreadRef || !memoriesSurfaceAvailable) return;
-    useRightPanelStore.getState().open(activeThreadRef, "memories");
-  };
-  const addMemoriesSurfaceStable = useStableCallback(addMemoriesSurface);
   const addDeviceSurface = () => {
     if (!activeThreadRef) return;
     if (!deviceState.onboardingCompleted || deviceState.hostStatus === "disabled") {
@@ -323,10 +319,12 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes to the preview action bus to toggle the preview panel
   useEffect(
     () =>
-      subscribePreviewAction((action) => {
-        if (action === "toggle-panel") togglePreviewPanelStable();
-      }),
-    [togglePreviewPanelStable],
+      embedded
+        ? undefined
+        : subscribePreviewAction((action) => {
+            if (action === "toggle-panel") togglePreviewPanelStable();
+          }),
+    [embedded, togglePreviewPanelStable],
   );
 
   const shortcuts = {
@@ -350,7 +348,6 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
     addFilesSurfaceStable,
     addPullRequestSurfaceStable,
     addPullRequestsSurfaceStable,
-    addMemoriesSurfaceStable,
     closePreviewPanelStable,
     copyRightPanelFilePathStable,
     createBrowserSurface,

@@ -10,7 +10,6 @@ import type {
   OrchestrationV2ThreadStreamItem,
   OrchestrationV2TurnItem,
 } from "@t3tools/contracts";
-import { compactEngramToolCall } from "@t3tools/shared/engramTools";
 import {
   dedupeSubagentBodies,
   dedupeTurnItemBodies,
@@ -187,13 +186,10 @@ export function projectTurnItemForWire(item: OrchestrationV2TurnItem): Orchestra
       };
     case "dynamic_tool": {
       const { output: rawOutput, ...projected } = item;
-      const compact = compactDynamicToolOutput(rawOutput);
-      // Engram memory calls keep the few fields the activity log and Memory links read.
-      const engram = compactEngramToolCall(item.toolName, item.input, rawOutput);
-      const output = engram === undefined ? compact : { ...compact, ...engram.output };
+      const output = compactDynamicToolOutput(rawOutput);
       return {
         ...projected,
-        input: engram?.input ?? summarizeDynamicValue(item.input),
+        input: summarizeDynamicValue(item.input),
         ...(output === undefined ? {} : { output }),
         ...(hasDynamicValue(rawOutput) ? { outputOmitted: true } : {}),
       };

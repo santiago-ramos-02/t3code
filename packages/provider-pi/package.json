@@ -18,10 +18,6 @@
     "./server/usage": {
       "types": "./src/server/usage.ts",
       "import": "./src/server/usage.ts"
-    },
-    "./server/gentleHooks": {
-      "types": "./src/server/gentleHooks.ts",
-      "import": "./src/server/gentleHooks.ts"
     }
   },
   "scripts": {

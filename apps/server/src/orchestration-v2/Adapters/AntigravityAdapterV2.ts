@@ -1,5 +1,4 @@
 import {
-  gentleAiEnabled,
   ANTIGRAVITY_DEFAULT_MODEL,
   ProviderDriverKind,
   ProviderInstanceId,
@@ -66,10 +65,7 @@ export interface AntigravityAdapterV2Options {
   readonly instanceId: ProviderInstanceId;
   readonly selfInvocation: SelfInvocation;
   readonly makeRuntime: (
-    input: Omit<AntigravityAcpRuntimeInput, "spawn" | "childProcessSpawner"> & {
-      // The thread runs without Gentle AI's skills.
-      readonly gentleAiOff?: boolean;
-    },
+    input: Omit<AntigravityAcpRuntimeInput, "spawn" | "childProcessSpawner">,
   ) => Effect.Effect<
     AcpSessionRuntime.AcpSessionRuntime["Service"],
     EffectAcpErrors.AcpError | ProviderSetupError,
@@ -130,7 +126,6 @@ export function makeAntigravityAcpAdapterFlavor(
           Scope.close(scope, Exit.void),
           options.makeRuntime({
             ...input,
-            ...(gentleAiEnabled(input.modelSelection.options) ? {} : { gentleAiOff: true }),
             clientFileReads: true,
             additionalDirectories: [options.host.paths.attachmentsDir],
           }),

@@ -1,5 +1,5 @@
 import { pipe } from "effect/Function";
-import { ChevronsLeftRightEllipsisIcon, CloudIcon, PlusIcon, TerminalIcon } from "lucide-react";
+import { ChevronsLeftRightEllipsisIcon, PlusIcon, TerminalIcon } from "lucide-react";
 import { useAtomValue } from "@effect/atom-react";
 import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import {
@@ -18,8 +18,6 @@ import * as Option from "effect/Option";
 
 import { cn } from "../../lib/utils";
 import { formatDesktopSshTarget } from "./EnvironmentRow";
-import { BoatSetupForm } from "./BoatSettings";
-import { useBoat } from "../../hooks/useBoat";
 import { Input } from "../ui/input";
 import { CommandShortcut } from "../ui/command";
 import {
@@ -111,10 +109,7 @@ export function AddEnvironmentDialog({
     }
     return keys;
   })();
-  const [savedBackendMode, setSavedBackendMode] = useState<"remote" | "ssh" | "boat">("remote");
-  const boat = useBoat();
-  // Boat starts machines from the primary environment, so it is set up there, once.
-  const boatOffered = boat.hostEnvironmentId !== null && routeTarget === null;
+  const [savedBackendMode, setSavedBackendMode] = useState<"remote" | "ssh">("remote");
   const [savedBackendHost, setSavedBackendHost] = useState("");
   const [savedBackendPairingCode, setSavedBackendPairingCode] = useState("");
   const [savedBackendSshHost, setSavedBackendSshHost] = useState("");
@@ -353,7 +348,7 @@ export function AddEnvironmentDialog({
     setSavedBackendHost(value);
   };
   const renderConnectionModeCard = (input: {
-    readonly mode: "remote" | "ssh" | "boat";
+    readonly mode: "remote" | "ssh";
     readonly title: string;
     readonly description: string;
     readonly icon?: ReactNode;
@@ -640,14 +635,7 @@ export function AddEnvironmentDialog({
         </DialogHeader>
         <DialogPanel>
           <div className="space-y-4">
-            <div
-              className={cn(
-                "grid gap-3",
-                (desktopBridge ? 1 : 0) + (boatOffered ? 1 : 0) === 2
-                  ? "sm:grid-cols-3"
-                  : "sm:grid-cols-2",
-              )}
-            >
+            <div className="grid gap-3 sm:grid-cols-2">
               {renderConnectionModeCard({
                 mode: "remote",
                 title: "Remote link",
@@ -662,34 +650,9 @@ export function AddEnvironmentDialog({
                     icon: <TerminalIcon aria-hidden className="size-4" />,
                   })
                 : null}
-              {boatOffered
-                ? renderConnectionModeCard({
-                    mode: "boat",
-                    title: "Boat",
-                    description: boat.status?.configured
-                      ? "Set up. Change the key or how new machines start."
-                      : "Start a cloud machine for each thread, billed only while it runs.",
-                    icon: <CloudIcon aria-hidden className="size-4" />,
-                  })
-                : null}
             </div>
             <AnimatedHeight>
-              {savedBackendMode === "boat" && boat.hostEnvironmentId !== null ? (
-                <BoatSetupForm
-                  // Fills its fields once the saved settings arrive.
-                  key={boat.status ? "loaded" : "loading"}
-                  hostEnvironmentId={boat.hostEnvironmentId}
-                  status={boat.status}
-                  onSaved={() => {
-                    onOpenChange(false);
-                    setSavedBackendMode("remote");
-                  }}
-                />
-              ) : savedBackendMode === "ssh" ? (
-                renderSshFields()
-              ) : (
-                renderRemoteModeBody()
-              )}
+              {savedBackendMode === "ssh" ? renderSshFields() : renderRemoteModeBody()}
             </AnimatedHeight>
           </div>
         </DialogPanel>

@@ -28,23 +28,6 @@ if (!TELEMETRY_CHANNELS.includes(telemetryChannel)) {
   );
 }
 
-// dev-electron.mjs watches `dist` while the watcher child rebuilds this bundle; a watch-mode
-// clean would remove `dist` under that watcher, so the flagged process alone skips `pack.clean`.
-export const SERVER_BUNDLE_WATCH_ENV_VAR = "T3CODE_SERVER_BUNDLE_WATCH";
-export const SERVER_BUNDLE_WATCH_ENV_VALUE = "1";
-
-export function isServerBundleWatcherBuild(
-  env: Record<string, string | undefined> = process.env,
-): boolean {
-  return env[SERVER_BUNDLE_WATCH_ENV_VAR] === SERVER_BUNDLE_WATCH_ENV_VALUE;
-}
-
-export function resolveServerPackClean(
-  env: Record<string, string | undefined> = process.env,
-): boolean {
-  return !isServerBundleWatcherBuild(env);
-}
-
 // tsdown SEA needs one chunk (sourcemaps count) and Node >=25.7, so package separately.
 // TEMPORARY one-time Node fix. Remove when fixed: https://github.com/nodejs/node/issues/67048
 // "1" builds dist-exe/t3 here; "bundle" stops at bin.mjs for scripts/cli.ts to inject (linux-arm64).
@@ -103,7 +86,7 @@ export default mergeConfig(
       entry: packExecutable ? ["src/bin.ts"] : ["src/bin.ts", "src/claude-history-worker.ts"],
       outDir: packExecutable ? "dist-exe" : "dist",
       sourcemap: !packExecutable,
-      clean: resolveServerPackClean(),
+      clean: true,
       // TEMPORARY one-time Node fix. Remove when fixed: https://github.com/nodejs/node/issues/67048
       // SEA can only resolve built-ins; keep dynamic imports inside its one module.
       ...(packExecutable ? { outputOptions: { codeSplitting: false } } : {}),

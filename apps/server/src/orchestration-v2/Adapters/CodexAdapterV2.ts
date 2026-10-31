@@ -152,9 +152,6 @@ import {
 } from "@t3tools/provider-core/server/subagentProjection";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
-import type { PrepareProviderSession } from "../../gentleAi/GentleAiSessions.ts";
-import { openAiCacheTtlSeconds } from "./promptCacheLifetime.ts";
-import type { GentleReviewersHook } from "./GentleReviewers.ts";
 
 const CODEX_PROVIDER = ProviderDriverKind.make("codex");
 const CODEX_CAPACITY_MAX_RETRIES = 5;
@@ -200,10 +197,7 @@ export function canReuseCodexContextUsage(previous: ModelSelection, next: ModelS
 export function codexProviderTurnTokenUsage(
   tokenUsage: CodexSchema.V2ThreadTokenUsageUpdatedNotification["tokenUsage"],
   updatedAt: string,
-  model: string,
 ) {
-  // Codex does not say how long the cache lives; OpenAI documents it per model.
-  const cacheTtlSeconds = openAiCacheTtlSeconds(model);
   return {
     usedTokens: Math.max(0, tokenUsage.last.totalTokens),
     maxTokens: tokenUsage.modelContextWindow ?? null,
@@ -211,7 +205,6 @@ export function codexProviderTurnTokenUsage(
     cachedInputTokens: Math.max(0, tokenUsage.last.cachedInputTokens),
     outputTokens: Math.max(0, tokenUsage.last.outputTokens),
     reasoningOutputTokens: Math.max(0, tokenUsage.last.reasoningOutputTokens),
-    ...(cacheTtlSeconds === undefined ? {} : { promptCacheTtlMs: cacheTtlSeconds * 1000 }),
     updatedAt,
   };
 }
@@ -498,11 +491,19 @@ function codexMcpAppResourceUri(item: CodexDynamicToolItem): string | undefined 
   return typeof uri === "string" && uri.startsWith(MCP_APP_RESOURCE_SCHEME) ? uri : undefined;
 }
 
-function codexDynamicToolOutput(
+const CODEX_IMAGE_DATA_URL = /^data:(image\/[a-z0-9.+-]+);base64,([A-Za-z0-9+/=]+)$/i;
+
+export function codexDynamicToolOutput(
   item: Extract<CodexDynamicToolItem, { readonly type: "dynamicToolCall" }>,
 ): unknown | undefined {
   if (item.contentItems !== null && item.contentItems !== undefined) {
-    return item.contentItems;
+    return item.contentItems.map((content) => {
+      if (content.type !== "inputImage") return content;
+      const match = CODEX_IMAGE_DATA_URL.exec(content.imageUrl);
+      return match?.[1] && match[2]
+        ? { type: "image", mimeType: match[1].toLowerCase(), data: match[2] }
+        : content;
+    });
   }
   return item.success === false ? { success: false } : undefined;
 }
@@ -586,10 +587,15 @@ function approvalDecisionToLegacyReviewDecision(
 function providerRequestKindFromPermissions(
   permissions: CodexSchema.PermissionsRequestApprovalParams["permissions"],
 ): ProviderRequestKind {
-  if ((permissions.fileSystem?.write?.length ?? 0) > 0) {
+  // Codex leaves the legacy `read`/`write` lists out when a path is a glob or
+  // special path, and is replacing them with `entries`.
+  const requests = (access: "read" | "write") =>
+    (permissions.fileSystem?.[access]?.length ?? 0) > 0 ||
+    permissions.fileSystem?.entries?.some((entry) => entry.access === access);
+  if (requests("write")) {
     return "file-change";
   }
-  if ((permissions.fileSystem?.read?.length ?? 0) > 0) {
+  if (requests("read")) {
     return "file-read";
   }
   return "command";
@@ -1557,10 +1563,7 @@ export type CodexAdapterV2DriverEnv =
 
 export const createCodexAdapterV2 = Effect.fn("CodexAdapterV2.createCodexAdapterV2")(function* (
   { instanceId, environment, enabled, config }: ProviderAdapterDriverCreateInput<CodexSettings>,
-  hooks: Pick<
-    CodexAdapterV2Options,
-    "onUsageLimits" | "resolveRuntime" | "compatibility" | "prepareSession" | "gentleReviewers"
-  > = {},
+  hooks: Pick<CodexAdapterV2Options, "onUsageLimits" | "resolveRuntime" | "compatibility"> = {},
 ) {
   const clientFactory = yield* CodexAppServerClientFactory;
   const continuationRequests = yield* ProviderContinuationRequests.ProviderContinuationRequests;
@@ -1611,11 +1614,6 @@ export interface CodexAdapterV2Options {
   readonly clientFactory: CodexAppServerClientFactoryShape;
   readonly onUsageLimits?: ManagedServerProvider["applyUsageLimits"];
   readonly resolveRuntime?: Effect.Effect<CodexEffectiveRuntime, ProviderSetupError, Scope.Scope>;
-  /** Adjusts the launch for one session, after `resolveRuntime`. */
-  readonly prepareSession?: PrepareProviderSession<{
-    readonly settings: CodexSettings;
-    readonly environment: NodeJS.ProcessEnv;
-  }>;
   readonly compatibility?: (
     version: string,
   ) => Effect.Effect<ServerProviderCompatibilityAdvisory | undefined>;
@@ -1623,8 +1621,6 @@ export interface CodexAdapterV2Options {
   readonly fileSystem: FileSystem.FileSystem;
   readonly idAllocator: IdAllocator.IdAllocatorV2["Service"];
   readonly serverConfig: ServerConfig["Service"];
-  /** Shows gentle-ai reviewers that a session's shell commands run as subagents. */
-  readonly gentleReviewers?: GentleReviewersHook;
   /** Omitting this leaves late completions projection-only. */
   readonly continuationRequests?: {
     readonly offer: (
@@ -1668,42 +1664,13 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                     }),
                 ),
               );
-        const baseRuntime = {
-          settings: resolvedRuntime?.config ?? adapterOptions.settings,
-          environment: resolvedRuntime?.environment ?? adapterOptions.environment,
-        };
-        const sessionRuntime = adapterOptions.prepareSession
-          ? yield* adapterOptions.prepareSession(input, baseRuntime)
-          : baseRuntime;
-        const activeTurns = yield* Ref.make(new Map<string, ActiveCodexTurnContext>());
-        // Reviewer lines only arrive once Codex runs a command, after `emitProviderEvent` exists.
-        const gentleReviewerEnvironment =
-          adapterOptions.gentleReviewers === undefined
-            ? {}
-            : yield* adapterOptions.gentleReviewers(input, {
-                driver: CODEX_PROVIDER,
-                instanceId: adapterOptions.instanceId,
-                idAllocator: adapterOptions.idAllocator,
-                emit: (event) => emitProviderEvent(event),
-                // The session's own turn runs gentle-ai; its native subagents have their own threads.
-                currentTurn: Ref.get(activeTurns).pipe(
-                  Effect.map((turns) => {
-                    const context = Array.from(turns.values()).find(
-                      (turn) => turn.input.threadId === input.threadId,
-                    );
-                    return context === undefined
-                      ? null
-                      : { input: context.input, providerTurnId: context.providerTurnId };
-                  }),
-                ),
-              });
         const client = yield* clientFactory.open({
           instanceId: adapterOptions.instanceId,
           threadId: input.threadId,
           providerSessionId: input.providerSessionId,
           runtimePolicy: input.runtimePolicy,
-          settings: sessionRuntime.settings,
-          environment: { ...sessionRuntime.environment, ...gentleReviewerEnvironment },
+          settings: resolvedRuntime?.config ?? adapterOptions.settings,
+          environment: resolvedRuntime?.environment ?? adapterOptions.environment,
         });
         const additionalContextByThread = yield* Ref.make(
           new Map<
@@ -1822,6 +1789,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
         const limitedTurnItems = yield* Ref.make(
           new Map<ProviderThreadId, Extract<OrchestrationV2TurnItem, { type: "error" }>>(),
         );
+        const activeTurns = yield* Ref.make(new Map<string, ActiveCodexTurnContext>());
         const turnTokenUsageByThread = new Map<string, CodexTurnTokenUsageState>();
         const usageStateForThread = (nativeThreadId: string) => {
           let state = turnTokenUsageByThread.get(nativeThreadId);
@@ -4493,8 +4461,6 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                 tokenUsage: codexProviderTurnTokenUsage(
                   payload.tokenUsage,
                   DateTime.formatIso(now),
-                  subagentSelections.get(payload.threadId)?.model ??
-                    context.input.modelSelection.model,
                 ),
               },
             });

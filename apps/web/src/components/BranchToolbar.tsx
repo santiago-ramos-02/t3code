@@ -37,10 +37,8 @@ import {
   type BranchToolbarBranchSelectorHandle,
 } from "./BranchToolbarBranchSelector";
 import { BranchToolbarEnvironmentSelector } from "./BranchToolbarEnvironmentSelector";
-import { BOAT_TARGET, openAddProjectToMachine } from "./AddProjectToMachineDialog";
+import { openAddProjectToMachine } from "./AddProjectToMachineDialog";
 import { type AddProjectTarget, useAddProjectTargets } from "../hooks/useAddProjectTargets";
-import { useBoatHostFor, useBoatMachineOf } from "../hooks/useBoat";
-import { BoatMachineMenuSection } from "./BoatMachineMenuSection";
 import { BranchToolbarEnvModeSelector } from "./BranchToolbarEnvModeSelector";
 import { PreviousWorktreeItemContent } from "./PreviousWorktreeItemContent";
 import { ThreadDetailsControl } from "./chat/ThreadDetailsControl";
@@ -162,7 +160,6 @@ interface RunContextSelectorProps {
   onUsePreviousWorktree: () => void;
   addTargets: readonly AddProjectTarget[];
   onAddToMachine: (environmentId: EnvironmentId) => void;
-  onNewBoatMachine: (() => void) | undefined;
 }
 
 const RunContextSelector = memo(function RunContextSelector({
@@ -186,9 +183,7 @@ const RunContextSelector = memo(function RunContextSelector({
   onUsePreviousWorktree,
   addTargets,
   onAddToMachine,
-  onNewBoatMachine,
 }: RunContextSelectorProps) {
-  const canAddToMachine = addTargets.length > 0 || onNewBoatMachine !== undefined;
   const composerFloatingLayerProps = useComposerMenuProps();
   const activeEnvironment =
     availableEnvironments?.find((env) => env.environmentId === environmentId) ?? null;
@@ -206,11 +201,6 @@ const RunContextSelector = memo(function RunContextSelector({
         ? resolveEnvModeLabel("worktree")
         : resolveCurrentWorkspaceLabel(activeWorktreePath);
   const isPanel = displayMode === "panel";
-  const boat = useBoatMachineOf(environmentId);
-  const boatSection =
-    boat && showEnvironmentIndicator ? (
-      <BoatMachineMenuSection hostEnvironmentId={boat.hostEnvironmentId} machine={boat.machine} />
-    ) : null;
   const isLocked = envLocked || (envModeLocked && (!isPanel || !showEnvironmentPicker));
   const workspacePath =
     forceNewWorktree || (effectiveEnvMode === "worktree" && !activeWorktreePath)
@@ -224,9 +214,7 @@ const RunContextSelector = memo(function RunContextSelector({
   const workspaceIcon = (
     <Tooltip>
       <TooltipTrigger render={<span className="inline-flex shrink-0" />}>
-        <WorkspaceIcon
-          className={isPanel ? THREAD_DETAILS_PANEL_ICON_CLASS : "size-3 shrink-0 mx-0!"}
-        />
+        <WorkspaceIcon className={isPanel ? THREAD_DETAILS_PANEL_ICON_CLASS : "size-3 shrink-0"} />
       </TooltipTrigger>
       <TooltipPopup>
         {isPanel
@@ -242,7 +230,7 @@ const RunContextSelector = memo(function RunContextSelector({
       <TooltipTrigger render={<span className="inline-flex shrink-0" />}>
         {autoEnvironmentLabel ? (
           <ScaleIcon
-            className={isPanel ? THREAD_DETAILS_PANEL_ICON_CLASS : "size-3 shrink-0 mx-0!"}
+            className={isPanel ? THREAD_DETAILS_PANEL_ICON_CLASS : "size-3 shrink-0"}
             aria-hidden="true"
           />
         ) : (
@@ -250,9 +238,7 @@ const RunContextSelector = memo(function RunContextSelector({
             kind={activeEnvironment?.machine ?? "server"}
             // Wide machine glyphs need a little more box to match the square row icons.
             className={
-              isPanel
-                ? cn(THREAD_DETAILS_PANEL_ICON_CLASS, "-mx-px size-4.5")
-                : "size-3 shrink-0 mx-0!"
+              isPanel ? cn(THREAD_DETAILS_PANEL_ICON_CLASS, "-mx-px size-4.5") : "size-3 shrink-0"
             }
           />
         )}
@@ -273,35 +259,11 @@ const RunContextSelector = memo(function RunContextSelector({
     </>
   );
 
-  // A started thread's machine cannot change, but a Boat machine still has details and actions.
-  if (isLocked && boatSection) {
-    return (
-      <Menu>
-        <MenuTrigger
-          render={isPanel ? <ThreadDetailsControl part="select" /> : <ComposerControl size="xs" />}
-          className={isPanel ? undefined : "min-w-0 max-w-[48%] flex-initial justify-start"}
-          onContextMenu={handleContextMenu}
-          aria-label={isPanel ? "Run context" : undefined}
-          data-composer-context-control
-        >
-          {triggerContent}
-        </MenuTrigger>
-        <MenuPopup
-          align="start"
-          side={isPanel ? "bottom" : "top"}
-          {...(!isPanel ? composerFloatingLayerProps : {})}
-        >
-          {boatSection}
-        </MenuPopup>
-      </Menu>
-    );
-  }
-
   if (isLocked) {
     return (
       <span
         className={cn(
-          "inline-flex h-7 min-w-0 max-w-[48%] flex-initial items-center justify-start gap-1 rounded-md border border-transparent px-1.75 font-normal text-foreground/70 text-xs sm:h-6 dark:text-muted-foreground",
+          "inline-flex h-7 min-w-0 max-w-[48%] flex-initial items-center justify-start gap-1 rounded-md border border-transparent px-1.75 font-normal text-foreground/70 text-sm sm:h-6 sm:text-xs dark:text-muted-foreground",
           isPanel && "max-w-full",
           isPanel && THREAD_DETAILS_PANEL_LOCKED_ROW_CLASS,
         )}
@@ -357,7 +319,7 @@ const RunContextSelector = memo(function RunContextSelector({
         {...(!isPanel ? composerFloatingLayerProps : {})}
       >
         {availableEnvironments &&
-        ((showEnvironmentPicker && onEnvironmentChange) || canAddToMachine) ? (
+        ((showEnvironmentPicker && onEnvironmentChange) || addTargets.length > 0) ? (
           <>
             <MenuGroup>
               <MenuGroupLabel>Run on</MenuGroupLabel>
@@ -402,7 +364,7 @@ const RunContextSelector = memo(function RunContextSelector({
                   </MenuRadioItem>
                 ))}
               </MenuRadioGroup>
-              {canAddToMachine ? (
+              {addTargets.length > 0 ? (
                 <MenuSub>
                   <MenuSubTrigger>
                     <span className={ADD_TO_MACHINE_LABEL_CLASS}>
@@ -422,24 +384,10 @@ const RunContextSelector = memo(function RunContextSelector({
                         </span>
                       </MenuItem>
                     ))}
-                    {onNewBoatMachine ? (
-                      <MenuItem onClick={onNewBoatMachine}>
-                        <span className="flex min-w-0 items-center gap-1.5">
-                          <EnvironmentMachineIcon kind="cloud" className="size-3" />
-                          <span className="min-w-0 truncate">New Boat machine</span>
-                        </span>
-                      </MenuItem>
-                    ) : null}
                   </MenuSubPopup>
                 </MenuSub>
               ) : null}
             </MenuGroup>
-            <MenuSeparator />
-          </>
-        ) : null}
-        {boatSection ? (
-          <>
-            {boatSection}
             <MenuSeparator />
           </>
         ) : null}
@@ -725,19 +673,8 @@ export const BranchToolbar = memo(function BranchToolbar({
   const addTargets = useAddProjectTargets(activeProject, availableEnvironments);
   const onAddToMachine = (targetEnvironmentId: EnvironmentId | null) =>
     openAddProjectToMachine({ projectRef: activeProjectRef, targetEnvironmentId });
-  const onNewBoatMachine =
-    useBoatHostFor(activeProject) !== null
-      ? () =>
-          openAddProjectToMachine({
-            projectRef: activeProjectRef,
-            targetEnvironmentId: BOAT_TARGET,
-          })
-      : undefined;
   // A project on one machine still gets the picker when it can be added to another.
-  const hasMultipleEnvironments =
-    (availableEnvironments?.length ?? 0) > 1 ||
-    addTargets.length > 0 ||
-    onNewBoatMachine !== undefined;
+  const hasMultipleEnvironments = (availableEnvironments?.length ?? 0) > 1 || addTargets.length > 0;
   const showEnvironmentPicker = hasMultipleEnvironments && onEnvironmentChange !== undefined;
   const activeEnvironmentOption =
     availableEnvironments?.find((env) => env.environmentId === environmentId) ?? null;
@@ -776,7 +713,6 @@ export const BranchToolbar = memo(function BranchToolbar({
             onUsePreviousWorktree={onUsePreviousWorktree}
             addTargets={addTargets}
             onAddToMachine={onAddToMachine}
-            onNewBoatMachine={onNewBoatMachine}
           />
         ) : null}
         {panelSection !== "workspace" ? (
@@ -807,7 +743,7 @@ export const BranchToolbar = memo(function BranchToolbar({
       className={cn("gap-1 text-xs font-normal text-foreground/70 dark:text-muted-foreground")}
     >
       {showGitControls ? (
-        <div className="contents @3xl/composer-surface:hidden">
+        <div className="contents @xl/composer-surface:hidden">
           <RunContextSelector
             forceNewWorktree={forceNewWorktree}
             autoEnvironmentLabel={autoEnvironmentLabel}
@@ -827,7 +763,6 @@ export const BranchToolbar = memo(function BranchToolbar({
             onUsePreviousWorktree={onUsePreviousWorktree}
             addTargets={addTargets}
             onAddToMachine={onAddToMachine}
-            onNewBoatMachine={onNewBoatMachine}
           />
         </div>
       ) : null}
@@ -835,7 +770,7 @@ export const BranchToolbar = memo(function BranchToolbar({
         <div
           className={cn(
             "min-h-7 min-w-10 items-center gap-1 sm:min-h-6",
-            showGitControls ? "hidden @3xl/composer-surface:flex" : "flex",
+            showGitControls ? "hidden @xl/composer-surface:flex" : "flex",
             "flex-1",
           )}
         >
@@ -849,7 +784,6 @@ export const BranchToolbar = memo(function BranchToolbar({
                 availableEnvironments={availableEnvironments}
                 {...(showEnvironmentPicker ? { onEnvironmentChange } : {})}
                 {...(addTargets.length > 0 ? { onAddToMachine: () => onAddToMachine(null) } : {})}
-                {...(onNewBoatMachine ? { onNewBoatMachine } : {})}
               />
               {showGitControls ? (
                 <Separator
@@ -879,7 +813,7 @@ export const BranchToolbar = memo(function BranchToolbar({
         <BranchToolbarBranchSelector
           forceNewWorktree={forceNewWorktree}
           ref={branchSelectorRef}
-          className="min-w-0 flex-initial justify-end @3xl/composer-surface:ml-auto"
+          className="min-w-0 flex-initial justify-end @xl/composer-surface:ml-auto"
           environmentId={environmentId}
           threadId={threadId}
           {...(draftId ? { draftId } : {})}

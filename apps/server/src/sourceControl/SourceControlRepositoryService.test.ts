@@ -6,7 +6,6 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Layer from "effect/Layer";
-import * as Redacted from "effect/Redacted";
 import * as PlatformError from "effect/PlatformError";
 import { ChildProcessSpawner } from "effect/process";
 
@@ -15,8 +14,6 @@ import {
   SourceControlProviderError,
   type SourceControlCloneRepositoryInput,
 } from "@t3tools/contracts";
-
-import * as GitHubCredentials from "@t3tools/source-control-github/server/GitHubCredentials";
 
 import * as ServerConfig from "../config.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
@@ -66,23 +63,8 @@ function layer(input: {
   readonly provider?: SourceControlProvider.SourceControlProvider["Service"];
   readonly git?: Partial<GitVcsDriver.GitVcsDriver["Service"]>;
   readonly fileSystem?: FileSystem.FileSystem;
-  // The token this server holds for GitHub; none by default.
-  readonly githubToken?: string;
 }) {
   const layerService = SourceControlRepositoryService.layer.pipe(
-    Layer.provide(
-      Layer.mock(GitHubCredentials.GitHubCredentials)({
-        get: (host) =>
-          input.githubToken === undefined
-            ? Effect.fail(new GitHubCredentials.GitHubNotSignedInError({ host }))
-            : Effect.succeed({
-                host,
-                token: Redacted.make(input.githubToken),
-                source: "settings",
-                fingerprint: "fingerprint",
-              }),
-      }),
-    ),
     Layer.provide(
       Layer.mock(SourceControlProviderRegistry.SourceControlProviderRegistry)({
         resolveLink: () => undefined,
@@ -341,7 +323,6 @@ function rejectingSsh(
 const cloneInTemporaryDirectory = (
   git: Partial<GitVcsDriver.GitVcsDriver["Service"]>,
   input: Omit<SourceControlCloneRepositoryInput, "destinationPath">,
-  githubToken?: string,
 ) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
@@ -355,11 +336,7 @@ const cloneInTemporaryDirectory = (
         ...input,
         destinationPath: path.join(parent, "t3code"),
       });
-    }).pipe(
-      Effect.provide(
-        layer({ git, ...(githubToken === undefined ? {} : { githubToken }) }).pipe(Layer.orDie),
-      ),
-    );
+    }).pipe(Effect.provide(layer({ git }).pipe(Layer.orDie)));
   }).pipe(Effect.provide(NodeServices.layer));
 
 it.effect("retries a clone over HTTPS when the SSH login is refused", () =>
@@ -403,164 +380,6 @@ it.effect.each([
     );
 
     assert.deepStrictEqual(urls, [CLONE_URLS.sshUrl]);
-  }),
-);
-
-const GITHUB_TOKEN = "ghp_hostsecret";
-const GITHUB_BASIC = btoa(`x-access-token:${GITHUB_TOKEN}`);
-const GITHUB_HTTPS = "https://github.com/octocat/t3code.git";
-
-const authenticationFailure = (input: GitVcsDriver.ExecuteGitInput) =>
-  Effect.gen(function* () {
-    yield* (
-      input.progress?.onStderrLine?.(
-        "fatal: could not read Username for 'https://github.com': terminal prompts disabled",
-      ) ?? Effect.void
-    );
-    return yield* new GitCommandError({
-      operation: input.operation,
-      command: "git",
-      cwd: input.cwd,
-      reason: "authentication_failed",
-      detail: "Git command exited with a non-zero status.",
-    });
-  });
-
-// Git accepts the clone only with the GitHub login header, as GitHub does for a private repository.
-const privateRepository = (
-  calls: Array<GitVcsDriver.ExecuteGitInput>,
-  options: { readonly acceptsLogin: boolean } = { acceptsLogin: true },
-) =>
-  ({
-    execute: (input: GitVcsDriver.ExecuteGitInput) => {
-      calls.push(input);
-      return options.acceptsLogin && input.env?.GIT_CONFIG_COUNT !== undefined
-        ? Effect.succeed(processOutput())
-        : authenticationFailure(input);
-    },
-  }) satisfies Partial<GitVcsDriver.GitVcsDriver["Service"]>;
-
-const leaksToken = (value: unknown) => {
-  const text = JSON.stringify(value);
-  return text.includes(GITHUB_TOKEN) || text.includes(GITHUB_BASIC);
-};
-
-it.effect("clones a private GitHub repository with the server's GitHub token", () =>
-  Effect.gen(function* () {
-    const calls: Array<GitVcsDriver.ExecuteGitInput> = [];
-    const progress: Array<unknown> = [];
-    const result = yield* cloneInTemporaryDirectory(
-      privateRepository(calls),
-      { remoteUrl: GITHUB_HTTPS },
-      GITHUB_TOKEN,
-    );
-
-    // Anonymous first, so a clone that needs no login never sends one.
-    assert.strictEqual(calls.length, 2);
-    assert.isUndefined(calls[0]?.env?.GIT_CONFIG_COUNT);
-    const login = calls[1]?.env;
-    assert.strictEqual(login?.GIT_CONFIG_COUNT, "1");
-    assert.strictEqual(login?.GIT_CONFIG_KEY_0, "http.https://github.com/.extraheader");
-    assert.strictEqual(login?.GIT_CONFIG_VALUE_0, `AUTHORIZATION: basic ${GITHUB_BASIC}`);
-    assert.strictEqual(login?.GIT_TERMINAL_PROMPT, "0");
-    // The login travels in git's environment only: never the URL, the arguments, or the result.
-    assert.deepStrictEqual(
-      calls.map((call) => call.args.at(-2)),
-      [GITHUB_HTTPS, GITHUB_HTTPS],
-    );
-    assert.isFalse(leaksToken(calls.map((call) => call.args)));
-    assert.isFalse(leaksToken([result, progress]));
-    assert.strictEqual(result.remoteUrl, GITHUB_HTTPS);
-  }),
-);
-
-it.effect("signs in over HTTPS after the SSH login is refused, as on a Boat machine", () =>
-  Effect.gen(function* () {
-    const calls: Array<GitVcsDriver.ExecuteGitInput> = [];
-    const result = yield* cloneInTemporaryDirectory(
-      privateRepository(calls),
-      { remoteUrl: CLONE_URLS.sshUrl },
-      GITHUB_TOKEN,
-    );
-
-    assert.deepStrictEqual(
-      calls.map((call) => [call.args.at(-2), call.env?.GIT_CONFIG_COUNT]),
-      [
-        [CLONE_URLS.sshUrl, undefined],
-        [GITHUB_HTTPS, undefined],
-        [GITHUB_HTTPS, "1"],
-      ],
-    );
-    assert.strictEqual(result.remoteUrl, GITHUB_HTTPS);
-  }),
-);
-
-it.effect("keeps the token out of the error when GitHub still refuses the clone", () =>
-  Effect.gen(function* () {
-    const calls: Array<GitVcsDriver.ExecuteGitInput> = [];
-    const error = yield* Effect.flip(
-      cloneInTemporaryDirectory(
-        privateRepository(calls, { acceptsLogin: false }),
-        { remoteUrl: GITHUB_HTTPS },
-        GITHUB_TOKEN,
-      ),
-    );
-
-    assert.strictEqual(calls.length, 2);
-    assert.strictEqual(
-      error.detail,
-      "fatal: could not read Username for 'https://github.com': terminal prompts disabled",
-    );
-    assert.isFalse(leaksToken(error));
-  }),
-);
-
-it.effect("sends no login when an anonymous clone works", () =>
-  Effect.gen(function* () {
-    const urls: Array<string> = [];
-    const envs: Array<NodeJS.ProcessEnv | undefined> = [];
-    yield* cloneInTemporaryDirectory(
-      {
-        execute: (input) =>
-          Effect.sync(() => {
-            urls.push(input.args.at(-2) ?? "");
-            envs.push(input.env);
-            return processOutput();
-          }),
-      },
-      { remoteUrl: GITHUB_HTTPS },
-      GITHUB_TOKEN,
-    );
-
-    assert.deepStrictEqual(urls, [GITHUB_HTTPS]);
-    assert.isUndefined(envs[0]?.GIT_CONFIG_COUNT);
-  }),
-);
-
-it.effect.each([
-  ["the server has no GitHub token", GITHUB_HTTPS, undefined, undefined],
-  ["the remote is not GitHub", "https://gitlab.com/octocat/t3code.git", "https", GITHUB_TOKEN],
-  ["the caller asked for SSH", CLONE_URLS.sshUrl, "ssh", GITHUB_TOKEN],
-  [
-    "the URL carries its own login",
-    "https://octocat:pw@github.com/octocat/t3code.git",
-    "https",
-    GITHUB_TOKEN,
-  ],
-] as const)("does not add a login when %s", ([, remoteUrl, protocol, token]) =>
-  Effect.gen(function* () {
-    const calls: Array<GitVcsDriver.ExecuteGitInput> = [];
-    const error = yield* Effect.flip(
-      cloneInTemporaryDirectory(
-        privateRepository(calls),
-        { remoteUrl, ...(protocol === undefined ? {} : { protocol }) },
-        token,
-      ),
-    );
-
-    assert.strictEqual(calls.filter((call) => call.args.at(-2) === remoteUrl).length, 1);
-    assert.isTrue(calls.every((call) => call.env?.GIT_CONFIG_COUNT === undefined));
-    assert.strictEqual(error.operation, "cloneRepository");
   }),
 );
 

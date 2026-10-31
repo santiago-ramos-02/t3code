@@ -410,6 +410,28 @@ it.layer(
       }),
     );
 
+    it.effect("labels the plan the usage read reports over the cached login plan", () =>
+      Effect.gen(function* () {
+        const statusWithUsagePlan = (planType: string | null) =>
+          checkCodexProviderStatus(defaultCodexSettings, () =>
+            Effect.succeed(
+              makeCodexProbeSnapshot({
+                rateLimits: { snapshot: { planType }, resetCredits: null },
+              }),
+            ),
+          );
+
+        const downgraded = yield* statusWithUsagePlan("free");
+        assert.strictEqual(downgraded.auth.label, "ChatGPT Free Subscription");
+
+        const unreported = yield* statusWithUsagePlan(null);
+        assert.strictEqual(unreported.auth.label, "ChatGPT Pro 200 Subscription");
+
+        const unknown = yield* statusWithUsagePlan("unknown");
+        assert.strictEqual(unknown.auth.label, "ChatGPT Pro 200 Subscription");
+      }),
+    );
+
     it.effect("returns unauthenticated when app-server requires OpenAI auth", () =>
       Effect.gen(function* () {
         const status = yield* checkCodexProviderStatus(defaultCodexSettings, () =>
@@ -705,42 +727,6 @@ it.layer(
       assert.deepStrictEqual(
         failedRefresh.workspaceSnapshots?.[1]?.optionDescriptors,
         optionDescriptors,
-      );
-    });
-
-    it("stores a workspace model catalog only when it differs from the machine catalog", () => {
-      const model = {
-        slug: "project-provider/project-model",
-        name: "Project Model",
-        subProvider: "project-provider",
-        isCustom: false,
-        capabilities: null,
-      } as const;
-      const provider = {
-        instanceId: ProviderInstanceId.make("pi"),
-        driver: ProviderDriverKind.make("pi"),
-        status: "ready",
-        enabled: true,
-        installed: true,
-        auth: { status: "authenticated" },
-        checkedAt: "2026-03-25T00:00:00.000Z",
-        version: "0.87.1",
-        models: [],
-        slashCommands: [],
-        skills: [],
-      } satisfies ServerProvider;
-      const scoped = { ...provider, models: [model] } satisfies ServerProvider;
-
-      const result = ProviderRegistry.upsertProviderWorkspaceSnapshot(provider, "/project", scoped);
-
-      assert.deepStrictEqual(result.models, []);
-      assert.deepStrictEqual(result.workspaceSnapshots?.[0]?.models, [model]);
-      assert.deepStrictEqual(
-        ProviderRegistry.mergeProviderSnapshot(result, {
-          ...provider,
-          checkedAt: "2026-03-25T00:02:00.000Z",
-        }).workspaceSnapshots,
-        undefined,
       );
     });
 
@@ -2480,74 +2466,6 @@ it.layer(
           assert.include(unavailable, "ghost_current");
           assert.notInclude(unavailable, "ghost_stale");
         }),
-    );
-    it.effect("registers the default Pi instance as an available provider", () =>
-      Effect.gen(function* () {
-        const serverSettings = yield* makeMutableServerSettingsService({
-          ...decodeServerSettings(encodedDefaultServerSettings),
-          providerInstances: disabledDefaultSlots(
-            "codex",
-            "claudeAgent",
-            "cursor",
-            "grok",
-            "opencode",
-          ),
-        });
-        const scope = yield* Scope.make();
-        yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void));
-        const layerProviderRegistry = ProviderRegistry.layer.pipe(
-          Layer.provideMerge(
-            ProviderInstanceRegistryHydration.layer.pipe(Layer.provide(PortScanner.layerTest)),
-          ),
-          Layer.provideMerge(AntigravityInstallation.AntigravityInstallation.layer),
-          Layer.provideMerge(
-            Layer.succeed(ServerSettingsModule.ServerSettingsService, serverSettings),
-          ),
-          Layer.provideMerge(ServerSecretStore.layer),
-          Layer.provideMerge(
-            ServerConfig.layerTest(process.cwd(), {
-              prefix: "t3-provider-registry-",
-            }),
-          ),
-          Layer.provideMerge(layerTestHttpClient),
-          Layer.provideMerge(
-            Layer.succeed(
-              ProviderEventLoggers.ProviderEventLoggers,
-              ProviderEventLoggers.NoOpProviderEventLoggers,
-            ),
-          ),
-          Layer.provideMerge(ProviderLatestVersions.layer),
-          Layer.provideMerge(McpProviderSessions.layer),
-          Layer.provideMerge(ModelManifest.layerTest),
-          Layer.provideMerge(ResetCreditCoordinator.layerTest),
-          Layer.provideMerge(
-            OpenCodeRuntime.layer.pipe(Layer.provide(OpenCodeServerLedger.layerTest)),
-          ),
-          Layer.provideMerge(NodeServices.layer),
-          Layer.provideMerge(layerBackgroundPolicyAlwaysRun),
-        );
-        const runtimeServices = yield* Layer.build(layerProviderRegistry).pipe(
-          Scope.provide(scope),
-        );
-
-        yield* Effect.gen(function* () {
-          const registry = yield* ProviderRegistry.ProviderRegistry;
-          const instanceRegistry = yield* ProviderInstanceRegistry.ProviderInstanceRegistry;
-          const providers = yield* registry.getProviders;
-          const pi = providers.find((provider) => provider.instanceId === "pi");
-
-          assert.notStrictEqual(pi, undefined);
-          assert.strictEqual(pi?.driver, "pi");
-          assert.notStrictEqual(pi?.availability, "unavailable");
-          assert.strictEqual(pi?.unavailableReason, undefined);
-
-          const unavailable = yield* instanceRegistry.listUnavailable;
-          assert.strictEqual(
-            unavailable.some((provider) => provider.instanceId === "pi"),
-            false,
-          );
-        }).pipe(Effect.provide(runtimeServices));
-      }),
     );
   });
 

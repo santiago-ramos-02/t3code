@@ -24,12 +24,10 @@ import * as Stream from "effect/Stream";
 import { ClaudeProviderCapabilitiesV2 } from "../orchestration-v2/Adapters/ClaudeAdapterV2.ts";
 import * as CommandReceiptStore from "../orchestration-v2/CommandReceiptStore.ts";
 import * as EffectWorker from "../orchestration-v2/EffectWorker.ts";
-import * as GentleAi from "../gentleAi/GentleAi.ts";
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ProviderAdapterRegistry from "../orchestration-v2/ProviderAdapterRegistry.ts";
 import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
-import * as BoatMachines from "../boat/BoatMachines.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
 import * as ServerSettings from "../serverSettings.ts";
@@ -47,7 +45,6 @@ import * as RemoteDelegation from "../peer/RemoteDelegation.ts";
 const layerOrchestratorService = OrchestratorMcpService.layer.pipe(
   Layer.provide(Layer.mock(ThreadLaunchService.ThreadLaunchService)({})),
   Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
-  Layer.provide(Layer.mock(BoatMachines.BoatMachines)({})),
 );
 
 const driver = ProviderDriverKind.make("claudeAgent");
@@ -162,7 +159,6 @@ it.effect("task_cancel ends a delegated child's background native subagent", () 
             Layer.mock(RemoteDelegation.RemoteDelegation)({}),
             ServerSettings.layerTest(),
             Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),
-            Layer.mock(GentleAi.GentleAi)({ current: Effect.succeed(GentleAi.NOT_INSTALLED) }),
             NodeServices.layer,
           ),
         ),

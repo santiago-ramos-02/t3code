@@ -55,9 +55,6 @@ export type T3McpToolSummaryAction =
   | "environment-link"
   | "environment-unlink"
   | "environment-update"
-  | "boat-list"
-  | "boat-start"
-  | "boat-action"
   | "attachment-prepare"
   | "attachment-discard"
   | "attachment-send"
@@ -350,9 +347,6 @@ const T3_MCP_TOOLS: Readonly<Record<string, T3McpToolDefinition>> = {
   t3_project_update: tool(["Update", "Updating", "Updated", "a project"], "project-update"),
   t3_project_delete: tool(["Delete", "Deleting", "Deleted", "a project"], "project-delete"),
   t3_project_clone: tool(["Clone", "Cloning", "Cloned", "a repository"], "project-clone"),
-  t3_boat_machine_list: tool(["List", "Listing", "Listed", "Boat machines"], "boat-list"),
-  t3_boat_machine_start: tool(["Start", "Starting", "Started", "a Boat machine"], "boat-start"),
-  t3_boat_machine_action: tool(["Change", "Changing", "Changed", "a Boat machine"], "boat-action"),
   t3_attachment_prepare_upload: tool(
     ["Prepare", "Preparing", "Prepared", "an attachment upload"],
     "attachment-prepare",

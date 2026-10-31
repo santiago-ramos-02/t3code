@@ -7,11 +7,9 @@ import * as Layer from "effect/Layer";
 import { McpServer } from "effect/ai";
 
 import { ServerSecretStore } from "../auth/ServerSecretStore.ts";
-import { BoatMachines } from "../boat/BoatMachines.ts";
 import { ServerConfig } from "../config.ts";
 import { DeviceService } from "../device/DeviceService.ts";
 import { ServerEnvironment } from "../environment/ServerEnvironment.ts";
-import { GentleAi } from "../gentleAi/GentleAi.ts";
 import { GitWorkflowService } from "../git/GitWorkflowService.ts";
 import * as McpHttpServer from "../mcp/McpHttpServer.ts";
 import { PreviewAutomationBroker } from "../mcp/PreviewAutomationBroker.ts";
@@ -48,10 +46,8 @@ import budget from "./agentContextBudget.json" with { type: "json" };
 
 // Registration only stores tool definitions, so the handlers' services are never called.
 const toolHandlerServices = Layer.mergeAll(
-  Layer.mock(BoatMachines)({}),
   Layer.mock(DeviceService)({}),
   Layer.mock(DocumentText)({}),
-  Layer.mock(GentleAi)({}),
   Layer.mock(GitVcsDriver)({}),
   Layer.mock(GitWorkflowService)({}),
   Layer.mock(ManagedProjectFolders)({ namedProjectsRoot: "" }),

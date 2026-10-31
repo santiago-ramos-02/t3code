@@ -73,15 +73,6 @@ installs Pi's example `subagent` extension, T3 Code also shows its task progress
 UI. Pi runs those children without a session, so they cannot be opened or resumed as T3 Code
 threads.
 
-## Gentle AI
-
-Gentle AI reaches Pi through the gentle-pi package. In **Settings > Gentle AI**, Pi's
-gentle-pi section offers **Install** when gentle-pi is missing. T3 Code
-installs its own build of gentle-pi, which carries the settings T3 Code manages, such as
-profiles, the persona, and command rules. When Pi loads gentle-pi from another source,
-such as `npm:gentle-pi`, **Use T3 Code's build** replaces it. On mobile, the same choice
-is in a project's settings. **Update** keeps whichever source is installed current.
-
 ## Troubleshooting
 
 - If Pi is unavailable, confirm that the configured binary runs on the server machine, then refresh
@@ -97,6 +88,3 @@ is in a project's settings. **Update** keeps whichever source is installed curre
   project files off without the notice.
 - The context meter appears once Pi reports usage for the thread. Some model providers only
   report usage when a response completes, so the meter can wait for the first reply.
-- When a model stops on a usage or rate limit, the thread shows as limited. If the message names
-  when the limit resets, as Claude's session and weekly limits do, the thread can resume at the
-  reset like any other provider. See [Inspect agent work](thread-sidebar.md#inspect-agent-work).

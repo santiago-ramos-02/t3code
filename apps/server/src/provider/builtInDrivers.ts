@@ -8,14 +8,9 @@ import { CodexDriver, type CodexDriverEnv } from "./Drivers/CodexDriver.ts";
 import { CursorDriver, type CursorDriverEnv } from "@t3tools/provider-cursor/server";
 import { FxDriver, type FxDriverEnv } from "@t3tools/provider-fx/server";
 import { GrokDriver, type GrokDriverEnv } from "@t3tools/provider-grok/server";
+import { OpenCodeDriver, type OpenCodeDriverEnv } from "@t3tools/provider-opencode/server";
 import { MuseDriver, type MuseDriverEnv } from "@t3tools/provider-muse/server";
-import { OpenCodeDriver } from "@t3tools/provider-opencode/server";
-import {
-  OpenCodeGentleDriver,
-  type OpenCodeGentleDriverEnv,
-} from "./Drivers/OpenCodeGentleDriver.ts";
-import { PiDriver } from "@t3tools/provider-pi/server";
-import { PiGentleDriver, type PiGentleDriverEnv } from "./Drivers/PiGentleDriver.ts";
+import { PiDriver, type PiDriverEnv } from "@t3tools/provider-pi/server";
 import type {
   AnyProviderDriver,
   ProviderUsageReaderEnv,
@@ -29,8 +24,8 @@ export type BuiltInDriversEnv =
   | CursorDriverEnv
   | FxDriverEnv
   | GrokDriverEnv
-  | OpenCodeGentleDriverEnv
-  | PiGentleDriverEnv
+  | OpenCodeDriverEnv
+  | PiDriverEnv
   | MuseDriverEnv;
 
 export const BUILT_IN_DRIVERS: ReadonlyArray<AnyProviderDriver<BuiltInDriversEnv>> = [
@@ -39,9 +34,9 @@ export const BUILT_IN_DRIVERS: ReadonlyArray<AnyProviderDriver<BuiltInDriversEnv
   CursorDriver,
   GrokDriver,
   FxDriver,
-  OpenCodeGentleDriver,
-  PiGentleDriver,
+  OpenCodeDriver,
   AntigravityDriver,
+  PiDriver,
   MuseDriver,
   AcpRegistryDriver,
 ];
@@ -51,7 +46,6 @@ export type BuiltInUsageReadersEnv =
   | ProviderUsageReaderEnv<typeof CodexDriver>
   | ProviderUsageReaderEnv<typeof GrokDriver>
   | ProviderUsageReaderEnv<typeof OpenCodeDriver>
-  | ProviderUsageReaderEnv<typeof PiDriver>
   | ProviderUsageReaderEnv<typeof AntigravityDriver>
   | ProviderUsageReaderEnv<typeof CursorDriver>
   | ProviderUsageReaderEnv<typeof PiDriver>
