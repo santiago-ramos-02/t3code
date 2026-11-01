@@ -3582,6 +3582,53 @@ describe("PiAdapterV2", () => {
     }).pipe(Effect.scoped, Effect.provide(layerTest)),
   );
 
+  it.effect("loads the native session before rolling back after a restart", () =>
+    Effect.gen(function* () {
+      const previous = yield* openRuntime(yield* makeFakePi);
+      const providerThread = yield* previous.runtime.ensureThread({
+        threadId: THREAD_ID,
+        modelSelection: modelSelection("default"),
+        runtimePolicy,
+      });
+      const fake = yield* makeFakePi;
+      const { runtime } = yield* openRuntime(fake);
+      const turn = (ordinal: number): OrchestrationV2ProviderTurn => ({
+        id: ProviderTurnId.make(`turn-${ordinal}`),
+        providerThreadId: providerThread.id,
+        nodeId: NodeId.make(`node-${ordinal}`),
+        runAttemptId: null,
+        nativeTurnRef: { driver: PI_PROVIDER, nativeId: `u${ordinal}`, strength: "strong" },
+        ordinal,
+        status: "completed",
+        startedAt: null,
+        completedAt: null,
+      });
+      const turns = [turn(1), turn(2)];
+
+      yield* runtime.rollbackThread({
+        providerThread,
+        target: {
+          type: "provider_turn",
+          checkpointId: CheckpointId.make("checkpoint-1"),
+          appRunOrdinal: 1,
+          providerTurn: turns[0]!,
+        },
+        providerThreadTurns: turns,
+      });
+
+      const lifecycle = fake
+        .allRequests()
+        .filter((request) => request.type === "switch_session" || request.type === "fork");
+      assert.deepEqual(
+        lifecycle.map((request) => [request.type, request.sessionPath ?? request.entryId]),
+        [
+          ["switch_session", FAKE_SESSION_FILE],
+          ["fork", "u2"],
+        ],
+      );
+    }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
   it.effect("rolls back past a turn whose start entry was never captured", () =>
     Effect.gen(function* () {
       const fake = yield* makeFakePi;

@@ -2994,6 +2994,15 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         ),
         rollbackThread: Effect.fn("PiAdapter.rollbackThread")(
           function* (rollbackInput) {
+            // Restarts and idle release open sessions with no thread; load the stored one to fork it.
+            if (threadState === null && rollbackInput.providerThread.nativeThreadRef !== null) {
+              yield* registerThread({
+                threadId: rollbackInput.providerThread.appThreadId ?? input.threadId,
+                modelSelection: input.modelSelection,
+                runtimePolicy: input.runtimePolicy,
+                existingProviderThread: rollbackInput.providerThread,
+              });
+            }
             const state = threadState;
             if (state === null) {
               return yield* protocolError("Pi session has no registered thread");
