@@ -6,7 +6,7 @@ import {
 } from "@t3tools/client-runtime/gentle-ai";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import * as DateTime from "effect/DateTime";
-import { FileTextIcon } from "lucide-react";
+import { CircleCheckIcon, FileTextIcon } from "lucide-react";
 import { useEffect } from "react";
 
 import { cn } from "../../lib/utils";
@@ -110,43 +110,50 @@ export function ThreadFeaturePanel(props: {
 const RING_RADIUS = 9;
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 
-/** How many of the feature's tasks are done, as a ring that fills green, with the count on hover. */
+/**
+ * How many of the feature's tasks are done, as a ring that fills green and becomes a check once
+ * all are, with the count on hover.
+ */
 function FeatureProgressRing(props: { readonly done: number; readonly total: number }) {
-  const label =
-    props.done < props.total
-      ? `${props.done} of ${props.total} ${props.total === 1 ? "task" : "tasks"} done`
-      : props.total === 1
-        ? "Task done"
-        : `All ${props.total} tasks done`;
+  const complete = props.done >= props.total;
+  const label = complete
+    ? props.total === 1
+      ? "Task done"
+      : `All ${props.total} tasks done`
+    : `${props.done} of ${props.total} ${props.total === 1 ? "task" : "tasks"} done`;
   return (
     <Tooltip>
       <TooltipTrigger
         delay={200}
         render={<span role="img" aria-label={label} className="flex size-4 shrink-0" />}
       >
-        <svg viewBox="0 0 24 24" aria-hidden className="size-full -rotate-90">
-          <circle
-            cx="12"
-            cy="12"
-            r={RING_RADIUS}
-            fill="none"
-            strokeWidth="3"
-            className="stroke-muted-foreground/24"
-          />
-          {props.done > 0 ? (
+        {complete ? (
+          <CircleCheckIcon aria-hidden className="size-full text-success" />
+        ) : (
+          <svg viewBox="0 0 24 24" aria-hidden className="size-full -rotate-90">
             <circle
               cx="12"
               cy="12"
               r={RING_RADIUS}
               fill="none"
               strokeWidth="3"
-              strokeLinecap="round"
-              strokeDasharray={RING_CIRCUMFERENCE}
-              strokeDashoffset={RING_CIRCUMFERENCE * (1 - props.done / props.total)}
-              className="stroke-success"
+              className="stroke-muted-foreground/24"
             />
-          ) : null}
-        </svg>
+            {props.done > 0 ? (
+              <circle
+                cx="12"
+                cy="12"
+                r={RING_RADIUS}
+                fill="none"
+                strokeWidth="3"
+                strokeLinecap="round"
+                strokeDasharray={RING_CIRCUMFERENCE}
+                strokeDashoffset={RING_CIRCUMFERENCE * (1 - props.done / props.total)}
+                className="stroke-success"
+              />
+            ) : null}
+          </svg>
+        )}
       </TooltipTrigger>
       <TooltipPopup side="top">{label}</TooltipPopup>
     </Tooltip>
