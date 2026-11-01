@@ -945,11 +945,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const isSendDisabled = sendDisabledReason !== null;
   const selectedProviderStatus = selectedProviderEntry?.snapshot ?? null;
   const compactCommandAvailable = providerSupportsManualCompaction(selectedProviderEntry);
-  const refreshWorkspaceSnapshotOnTyping = useProviderWorkspaceSnapshotRefresh({
-    environmentId,
-    gitCwd,
-    instanceId: selectedProviderEntry?.instanceId,
-  });
+  const { refresh: refreshWorkspaceSnapshotOnTyping, scanning: workspaceSkillsScanning } =
+    useProviderWorkspaceSnapshotRefresh({
+      environmentId,
+      gitCwd,
+      instanceId: selectedProviderEntry?.instanceId,
+    });
   useWorkspacePiModels({
     environmentId,
     providers: providerStatuses,
@@ -1170,6 +1171,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     selectedProviderSkills,
     selectedProviderSlashCommands,
     showSkillsInSlashMenu: settings.showSkillsInSlashMenu,
+    workspaceSkillsScanning,
     questionAttachmentTarget,
   });
 
@@ -3344,7 +3346,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   ? isComposerMenuLoading
                     ? composerTriggerKind === "pull-request"
                       ? "Finding pull request..."
-                      : "Searching workspace files..."
+                      : composerTriggerKind === "skill" || composerTriggerKind === "slash-command"
+                        ? "Searching workspace skills..."
+                        : "Searching workspace files..."
                     : composerMenuEmptyState
                   : ""}
               </div>

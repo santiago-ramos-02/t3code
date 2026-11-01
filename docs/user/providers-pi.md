@@ -95,8 +95,9 @@ is in a project's settings. **Update** keeps whichever source is installed curre
   environment, including `PI_CODING_AGENT_DIR` if set. Trust the folder or its parent with `/trust`,
   then start a new thread using that same worktree. Launch arguments with `--no-approve` keep
   project files off without the notice.
-- The context meter appears once Pi reports usage for the thread. Some model providers only
-  report usage when a response completes, so the meter can wait for the first reply.
+- The context meter is off by default; see [commands and skills](./composer.md#commands-and-skills)
+  to enable it on web and desktop. It appears once Pi reports usage for the thread. Some model
+  providers only report usage when a response completes, so the meter can wait for the first reply.
 - When a model stops on a usage or rate limit, the thread shows as limited. If the message names
   when the limit resets, as Claude's session and weekly limits do, the thread can resume at the
   reset like any other provider. See [Inspect agent work](thread-sidebar.md#inspect-agent-work).
