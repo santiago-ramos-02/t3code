@@ -11,6 +11,7 @@ import type {
   OrchestrationV2ProviderTurn,
   ProviderDriverKind,
   ProviderInstanceId,
+  ServerProviderUsageLimits,
 } from "@t3tools/contracts";
 import type * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
@@ -92,6 +93,8 @@ export interface PiGentleHooksShape {
     call: { readonly provider: string | undefined; readonly model: string | undefined },
   ) => Effect.Effect<number | undefined>;
   readonly makeGentle?: <Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>) => PiGentle<Turn>;
+  /** gentle-pi's latest provider limits, attached to every probe so a re-probe keeps them. */
+  readonly usageLimits?: Effect.Effect<ServerProviderUsageLimits | undefined>;
 }
 
 /** Without gentle-pi: nothing handled, nothing pending. */

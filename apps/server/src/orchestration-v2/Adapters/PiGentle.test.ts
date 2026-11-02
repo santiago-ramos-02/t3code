@@ -13,6 +13,7 @@ import {
   type OrchestrationV2AppThread,
   type OrchestrationV2ProviderThread,
   type OrchestrationV2Subagent,
+  type ProviderUsageLimitsUpdate,
 } from "@t3tools/contracts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
@@ -60,6 +61,7 @@ const harness = Effect.fnUntraced(function* (request: string) {
   const idAllocator = yield* IdAllocator.IdAllocatorV2;
   const now = yield* DateTime.now;
   const events: Array<ProviderAdapter.ProviderAdapterV2Event> = [];
+  const usageUpdates: Array<ProviderUsageLimitsUpdate & { readonly checkedAt: string }> = [];
   const appThread = {
     createdBy: "user",
     creationSource: "web",
@@ -132,15 +134,18 @@ const harness = Effect.fnUntraced(function* (request: string) {
       completedAt: null,
     },
   } satisfies PiGentleTurn;
-  const gentle = makePiGentle({
-    driver: DRIVER,
-    instanceId: INSTANCE_ID,
-    idAllocator,
-    emit: (event) => Effect.sync(() => void events.push(event)),
-    threadState: () => ({ providerThread, activeTurn: turn }),
-    updateProviderThread: () => Effect.void,
-    itemOrdinal: () => 1,
-  });
+  const gentle = makePiGentle(
+    {
+      driver: DRIVER,
+      instanceId: INSTANCE_ID,
+      idAllocator,
+      emit: (event) => Effect.sync(() => void events.push(event)),
+      threadState: () => ({ providerThread, activeTurn: turn }),
+      updateProviderThread: () => Effect.void,
+      itemOrdinal: () => 1,
+    },
+    (update) => Effect.sync(() => void usageUpdates.push(update)),
+  );
   const show = (...tasks: ReadonlyArray<Record<string, unknown>>) =>
     gentle.onExtensionUiRequest(widget(...tasks));
   const subagents = () =>
@@ -155,13 +160,43 @@ const harness = Effect.fnUntraced(function* (request: string) {
     if (latest === undefined) return assert.fail(`no subagent titled ${title}`);
     return latest;
   };
-  return { events, show, workflow, member };
+  const showLimits = (...limits: ReadonlyArray<Record<string, unknown>>) =>
+    gentle.onExtensionUiRequest({
+      ...widget(),
+      widgetLines: [JSON.stringify({ schema: "gentle-agents.activity/v1", tasks: [], limits })],
+    });
+  return { events, show, showLimits, usageUpdates, workflow, member };
 });
 
 const millis = (value: DateTime.Utc | null | undefined) =>
   value == null ? null : DateTime.toEpochMillis(value);
 
 describe("makePiGentle", () => {
+  it.effect("applies each provider's limits once, until gentle-pi reports newer ones", () =>
+    Effect.gen(function* () {
+      const { showLimits, usageUpdates } = yield* harness("Ship it");
+      const claude = (checkedAt: number, utilization: string) => ({
+        provider: "anthropic",
+        checkedAt,
+        headers: { "anthropic-ratelimit-unified-7d-utilization": utilization },
+      });
+      const codex = {
+        provider: "codex",
+        checkedAt: NOW,
+        headers: { "x-codex-primary-used-percent": "30" },
+      };
+      yield* showLimits(claude(NOW, "0.5"), codex);
+      yield* showLimits(claude(NOW, "0.5"), codex);
+      yield* showLimits(claude(NOW + MINUTE, "0.6"), codex);
+      assert.deepStrictEqual(
+        usageUpdates.map((update) =>
+          update.windows.map((window) => [window.id, window.usedPercent]),
+        ),
+        [[["anthropic:seven_day", 50]], [["codex:primary", 30]], [["anthropic:seven_day", 60]]],
+      );
+    }).pipe(Effect.provide(IdAllocator.layer)),
+  );
+
   it.effect("keeps the times gentle-pi reports when T3 first sees finished subagents", () =>
     Effect.gen(function* () {
       const { show, workflow, member } = yield* harness("Add dark mode");

@@ -79,6 +79,17 @@ const GentleActivitySchema = Schema.Struct({
       }),
     ),
   ),
+  // Newer gentle-pi only: each provider's latest subscription rate-limit headers. `provider` stays
+  // open so a family this server does not know yet never hides the subagents.
+  limits: Schema.optional(
+    Schema.Array(
+      Schema.Struct({
+        provider: Schema.String,
+        checkedAt: Schema.Finite,
+        headers: Schema.Record(Schema.String, Schema.String),
+      }),
+    ),
+  ),
 });
 const decodeGentleActivity = Schema.decodeUnknownOption(
   Schema.fromJsonString(GentleActivitySchema),
@@ -170,17 +181,25 @@ function readTask(task: GentleActivityTask): GentleTask {
 }
 
 export type GentleJob = NonNullable<(typeof GentleActivitySchema.Type)["jobs"]>[number];
+export type GentleProviderLimits = NonNullable<
+  (typeof GentleActivitySchema.Type)["limits"]
+>[number];
 
-/** The subagents and background jobs in one `gentle-agents` widget snapshot, or null when it is not one. */
+/** The subagents, background jobs and provider limits in one `gentle-agents` widget snapshot, or null when it is not one. */
 export function readGentleSnapshot(widgetLines: ReadonlyArray<string> | undefined): {
   readonly tasks: ReadonlyArray<GentleTask>;
   readonly jobs: ReadonlyArray<GentleJob>;
+  readonly limits: ReadonlyArray<GentleProviderLimits>;
 } | null {
   const line = widgetLines?.length === 1 ? widgetLines[0] : undefined;
   if (line === undefined || line.length > MAX_WIDGET_LINE_CHARS) return null;
   const activity = decodeGentleActivity(line);
   if (Option.isNone(activity)) return null;
-  return { tasks: activity.value.tasks.map(readTask), jobs: activity.value.jobs ?? [] };
+  return {
+    tasks: activity.value.tasks.map(readTask),
+    jobs: activity.value.jobs ?? [],
+    limits: activity.value.limits ?? [],
+  };
 }
 
 /** The subagents in one `gentle-agents` widget snapshot, or null when it is not one. */

@@ -16,6 +16,7 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
+import type { ManagedServerProvider } from "@t3tools/provider-core/server/snapshot";
 import type { PiGentle, PiGentleDeps, PiGentleTurn } from "@t3tools/provider-pi/server/gentleHooks";
 import { backgroundWorkNotification } from "@t3tools/provider-core/server/notification";
 import {
@@ -32,6 +33,7 @@ import {
   type GentleTask,
   type GentleThreadItem,
 } from "./PiGentleActivity.ts";
+import { piProviderLimitsToUpdate } from "../../provider/piGentleUsageLimits.ts";
 
 // Child thread items sort after the prompt, by their gentle-pi item number.
 const CHILD_PROMPT_ORDINAL = 100;
@@ -157,8 +159,14 @@ interface GentleWorkflowState<Turn extends PiGentleTurn> {
  * gentle-pi wakes the parent itself; the continuation run is named after that subagent.
  * Called from @t3tools/provider-pi (see its gentleHooks.ts) to keep the fork's change there small.
  */
-export function makePiGentle<Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>): PiGentle<Turn> {
+export function makePiGentle<Turn extends PiGentleTurn>(
+  deps: PiGentleDeps<Turn>,
+  /** Where the provider limits gentle-pi reports go: the Pi instance's own usage limits. */
+  onUsageLimits?: ManagedServerProvider["applyUsageLimits"],
+): PiGentle<Turn> {
   const { driver, idAllocator, emit } = deps;
+  /** The newest limits already applied, by provider, so repeated snapshots apply nothing. */
+  const appliedLimits = new Map<string, number>();
   const ref = (nativeId: string): OrchestrationV2ProviderRef => ({
     driver,
     nativeId,
@@ -770,6 +778,14 @@ export function makePiGentle<Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>
   const onActivity = Effect.fnUntraced(function* (widgetLines: ReadonlyArray<string> | undefined) {
     const state = deps.threadState();
     const activity = readGentleSnapshot(widgetLines);
+    // Limits belong to the account, so they apply even before the session has a thread.
+    for (const limits of activity?.limits ?? []) {
+      if (onUsageLimits === undefined) break;
+      if ((appliedLimits.get(limits.provider) ?? -Infinity) >= limits.checkedAt) continue;
+      appliedLimits.set(limits.provider, limits.checkedAt);
+      const update = piProviderLimitsToUpdate(limits);
+      if (update !== undefined) yield* onUsageLimits(update);
+    }
     if (state === null || activity === null) return;
     const snapshot = activity.tasks;
     const now = yield* DateTime.now;
