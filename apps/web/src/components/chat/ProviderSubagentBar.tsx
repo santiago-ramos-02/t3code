@@ -4,6 +4,7 @@ import {
 } from "@t3tools/client-runtime/state/thread-execution";
 import { isOrchestrationV2WorkActive } from "@t3tools/contracts";
 import { ArrowUpLeftIcon } from "lucide-react";
+import type { ReactNode } from "react";
 
 import { tickTextContent } from "~/lib/tickTextContent";
 import { cn } from "~/lib/utils";
@@ -20,6 +21,7 @@ export function ProviderSubagentBar(props: {
   readonly effortLabel: string | null;
   readonly status: ProviderSubagentStatus | null;
   readonly onOpenParent: (() => void) | null;
+  readonly actions?: ReactNode;
 }) {
   const { status } = props;
   const live = status !== null && isOrchestrationV2WorkActive(status.status);
@@ -82,6 +84,7 @@ export function ProviderSubagentBar(props: {
       <span className="shrink-0 text-muted-foreground @max-[640px]/composer-surface:sr-only">
         Runs on its own
       </span>
+      {props.actions}
       {props.onOpenParent ? (
         <Button size="sm" variant="ghost" onClick={props.onOpenParent}>
           <ArrowUpLeftIcon />

@@ -68,7 +68,7 @@ import {
 import { appAtomRegistry } from "../../state/atom-registry";
 import { updateThreadDraftModelSelection } from "../../state/use-thread-composer-state";
 import type { ComposerDocumentAttachment } from "../../lib/composerContext";
-import { useProject, useThreadShells } from "../../state/entities";
+import { useProject, useVisibleThreadShells } from "../../state/entities";
 import { useMentionableEnvironments } from "../../state/environments";
 import { useLinkedEnvironments } from "../../state/peerLinks";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
@@ -546,7 +546,7 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
     draftMessage: draftMessage,
     ownerKey: composerDraftKey,
     environmentId: props.environmentId,
-    threadShells: useThreadShells(),
+    threadShells: useVisibleThreadShells(),
     environments: offersLinkedEnvironments(props.serverConfig)
       ? mentionableEnvironments
       : NO_MACHINES,
