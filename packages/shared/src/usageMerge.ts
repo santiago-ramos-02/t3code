@@ -190,7 +190,13 @@ function claimSources(environments: readonly EnvironmentUsage[]): {
       if (source.status !== "partial") continue;
       const key = fingerprintKey(source.fingerprint);
       const owner = ownerScanByFingerprint.get(key);
-      if (owner?.source.status !== "ok" || readAtMs({ environment, source }) <= readAtMs(owner)) {
+      // A scan under another model filter counts different records, so its cells are not missing ones.
+      if (
+        owner?.source.status !== "ok" ||
+        readAtMs({ environment, source }) <= readAtMs(owner) ||
+        JSON.stringify(environment.summary.modelFilter) !==
+          JSON.stringify(owner.environment.summary.modelFilter)
+      ) {
         continue;
       }
       let seen = seenBucketKeysByFingerprint.get(key);
