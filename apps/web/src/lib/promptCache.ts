@@ -53,7 +53,7 @@ export interface PromptCacheSnapshot {
   readonly ttlSeconds: number | null;
   /** When a request last used the cache, in epoch milliseconds. */
   readonly lastUsedAt: number;
-  /** A turn is running, so its requests keep the cache warm. */
+  /** A turn is running, so the agent's next request, not the user's message, comes next. */
   readonly working: boolean;
   readonly miss: PromptCacheMiss | null;
   /** The session's latest measured turns, oldest first, the last one being the turn above. */
@@ -78,10 +78,18 @@ function turnRow(usage: NonNullable<PromptCacheTurn["turnTokenUsage"]>, number: 
 // Writing at least this share of the previous context again means the old cache went unused.
 const REWRITE_SHARE = 0.5;
 
-/** When a turn's requests last used the cache: its latest usage report, else when it ended. */
+/**
+ * When a turn's requests last used the cache: when its latest request started, if the provider
+ * says, else its latest usage report, else when it ended.
+ */
 function lastUsedAt(turn: PromptCacheTurn) {
-  const reported =
-    turn.tokenUsage === undefined ? Number.NaN : Date.parse(turn.tokenUsage.updatedAt);
+  const usage = turn.tokenUsage;
+  const expiresAt =
+    usage?.promptCacheExpiresAt === undefined ? Number.NaN : Date.parse(usage.promptCacheExpiresAt);
+  if (!Number.isNaN(expiresAt) && usage?.promptCacheTtlMs !== undefined) {
+    return expiresAt - usage.promptCacheTtlMs;
+  }
+  const reported = usage === undefined ? Number.NaN : Date.parse(usage.updatedAt);
   if (!Number.isNaN(reported)) return reported;
   const ended = turn.completedAt ?? turn.startedAt;
   return ended === null ? null : DateTime.toEpochMillis(ended);
@@ -164,14 +172,15 @@ export function derivePromptCache(input: {
 }
 
 export type PromptCacheState =
-  | { readonly kind: "working" }
   | { readonly kind: "expiresIn"; readonly seconds: number }
   | { readonly kind: "expired"; readonly secondsAgo: number }
   | { readonly kind: "unknown"; readonly idleSeconds: number };
 
-/** Whether the cache is still there at `nowMs`, and for how long. */
+/**
+ * Whether the cache is still there at `nowMs`, and for how long. A running turn keeps it only
+ * through its requests, so a long tool call can outlast it.
+ */
 export function promptCacheState(cache: PromptCacheSnapshot, nowMs: number): PromptCacheState {
-  if (cache.working) return { kind: "working" };
   if (cache.ttlSeconds === null) {
     return {
       kind: "unknown",
@@ -199,8 +208,6 @@ export function promptCacheTone(
   state: PromptCacheState,
 ): PromptCacheTone {
   switch (state.kind) {
-    case "working":
-      return "good";
     case "expired":
       return "critical";
     case "expiresIn":
@@ -222,8 +229,6 @@ export function promptCacheHitTone(hitRate: number): Exclude<PromptCacheTone, "n
 export function promptCacheLifeLeft(cache: PromptCacheSnapshot, state: PromptCacheState) {
   if (cache.ttlSeconds === null) return null;
   switch (state.kind) {
-    case "working":
-      return 1;
     case "expiresIn":
       return Math.min(1, state.seconds / cache.ttlSeconds);
     case "expired":
@@ -233,17 +238,23 @@ export function promptCacheLifeLeft(cache: PromptCacheSnapshot, state: PromptCac
   }
 }
 
-/** Whether the next message reuses the cache or rebuilds it, and how many tokens that is. */
-export function promptCacheNextMessage(state: PromptCacheState, contextTokens: number | null) {
+/**
+ * Whether the next request reuses the cache or rebuilds it, and how many tokens that is: the
+ * agent's while a turn runs, else the user's next message.
+ */
+export function promptCacheNextMessage(
+  cache: PromptCacheSnapshot,
+  state: PromptCacheState,
+  contextTokens: number | null,
+) {
   const tokens =
     contextTokens === null ? "the cache" : `${formatContextWindowTokens(contextTokens)} tokens`;
+  const next = cache.working ? "The agent's next request" : "Next message";
   switch (state.kind) {
-    case "working":
-      return "Kept warm while the agent works";
     case "expiresIn":
-      return `Next message reuses ${tokens}`;
+      return `${next} reuses ${tokens}`;
     case "expired":
-      return `Next message rebuilds ${tokens}`;
+      return `${next} rebuilds ${tokens}`;
     case "unknown":
       return "This provider doesn't say how long it keeps the cache";
   }
@@ -291,14 +302,11 @@ function formatTimeLeft(seconds: number) {
 }
 
 /**
- * The composer readout's timer: the time left, or its full lifetime while the agent keeps it warm.
- * Null once expired, where the readout's colour already says so, and when the provider gives no
- * lifetime, as there is no time left to count.
+ * The composer readout's timer: the time left. Null once expired, where the readout's colour
+ * already says so, and when the provider gives no lifetime, as there is no time left to count.
  */
-export function promptCacheClockLabel(cache: PromptCacheSnapshot, state: PromptCacheState) {
+export function promptCacheClockLabel(state: PromptCacheState) {
   switch (state.kind) {
-    case "working":
-      return cache.ttlSeconds === null ? null : formatTimeLeft(cache.ttlSeconds);
     case "expiresIn":
       return formatTimeLeft(state.seconds);
     case "expired":
@@ -310,7 +318,6 @@ export function promptCacheClockLabel(cache: PromptCacheSnapshot, state: PromptC
 /** Milliseconds until the label reads differently, or null when only new usage changes it. */
 export function msUntilPromptCacheLabelChanges(state: PromptCacheState) {
   switch (state.kind) {
-    case "working":
     case "expired":
     case "unknown":
       return null;

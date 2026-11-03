@@ -52,6 +52,8 @@ const turn = (input: {
   readonly context: number;
   readonly usage?: TurnTokenUsage;
   readonly ttl?: number;
+  /** When that request started, if the provider says. */
+  readonly requested?: number;
   readonly running?: boolean;
 }): PromptCacheTurn => ({
   providerThreadId: PROVIDER_THREAD,
@@ -64,6 +66,13 @@ const turn = (input: {
     usedTokens: input.context,
     inputTokens: input.context,
     ...(input.ttl === undefined ? {} : { promptCacheTtlMs: input.ttl * 1000 }),
+    ...(input.ttl === undefined || input.requested === undefined
+      ? {}
+      : {
+          promptCacheExpiresAt: DateTime.formatIso(
+            DateTime.add(at(input.requested), { seconds: input.ttl }),
+          ),
+        }),
     updatedAt: iso(input.end),
   },
   ...(input.usage === undefined ? {} : { turnTokenUsage: input.usage }),
@@ -211,15 +220,47 @@ describe("derivePromptCache", () => {
     expect(cache?.writtenTokens).toBe(40_000);
   });
 
-  it("is warm while a turn runs", () => {
+  it("counts from when the latest request started, when the provider says", () => {
+    const cache = derive(
+      [
+        turn({
+          ordinal: 1,
+          start: 0,
+          end: 9,
+          context: 40_000,
+          usage: turnUsage(0, 40_000, 10),
+          ttl: 300,
+          requested: 4,
+        }),
+      ],
+      ["opus"],
+    );
+    expect(cache?.lastUsedAt).toBe(Date.parse(iso(4)));
+  });
+
+  it("keeps counting down while a turn runs, as its requests are all that keep the cache", () => {
     const cache = derive(
       [
         turn({ ordinal: 1, start: 0, end: 1, context: 40_000, usage: turnUsage(0, 40_000, 10) }),
-        turn({ ordinal: 2, start: 5, end: 6, context: 41_000, running: true }),
+        turn({ ordinal: 2, start: 5, end: 6, context: 41_000, running: true, ttl: 300 }),
       ],
       ["opus", "opus"],
     );
     expect(cache).toMatchObject({ working: true, lastUsedAt: Date.parse(iso(6)) });
+    if (cache === null) return;
+    // A tool call that runs past the lifetime lets the cache expire before the agent's next request.
+    const during = promptCacheState(cache, Date.parse(iso(8)));
+    expect(during).toEqual({ kind: "expiresIn", seconds: 180 });
+    expect(promptCacheClockLabel(during)).toBe("3:00");
+    expect(promptCacheNextMessage(cache, during, 41_000)).toBe(
+      "The agent's next request reuses 41k tokens",
+    );
+    const after = promptCacheState(cache, Date.parse(iso(2 * 24 * 60)));
+    expect(after.kind).toBe("expired");
+    expect(promptCacheTone(cache, after)).toBe("critical");
+    expect(promptCacheNextMessage(cache, after, 41_000)).toBe(
+      "The agent's next request rebuilds 41k tokens",
+    );
   });
 
   it("has nothing to say for providers that report no cache use, or another provider thread", () => {
@@ -253,7 +294,6 @@ describe("promptCacheState", () => {
   it("counts down to expiry, then up from it", () => {
     expect(promptCacheState(cache({}), 60_000)).toEqual({ kind: "expiresIn", seconds: 240 });
     expect(promptCacheState(cache({}), 420_000)).toEqual({ kind: "expired", secondsAgo: 120 });
-    expect(promptCacheState(cache({ working: true }), 420_000)).toEqual({ kind: "working" });
     expect(promptCacheState(cache({ ttlSeconds: null }), 90_000)).toEqual({
       kind: "unknown",
       idleSeconds: 90,
@@ -279,16 +319,14 @@ describe("promptCacheState", () => {
   });
 
   it("says whether the next message reuses the cache or rebuilds it", () => {
-    expect(promptCacheNextMessage({ kind: "working" }, 50_000)).toBe(
-      "Kept warm while the agent works",
-    );
-    expect(promptCacheNextMessage({ kind: "expiresIn", seconds: 600 }, 50_000)).toBe(
+    const idle = cache({});
+    expect(promptCacheNextMessage(idle, { kind: "expiresIn", seconds: 600 }, 50_000)).toBe(
       "Next message reuses 50k tokens",
     );
-    expect(promptCacheNextMessage({ kind: "expired", secondsAgo: 5 }, 151_000)).toBe(
+    expect(promptCacheNextMessage(idle, { kind: "expired", secondsAgo: 5 }, 151_000)).toBe(
       "Next message rebuilds 151k tokens",
     );
-    expect(promptCacheNextMessage({ kind: "expired", secondsAgo: 5 }, null)).toBe(
+    expect(promptCacheNextMessage(idle, { kind: "expired", secondsAgo: 5 }, null)).toBe(
       "Next message rebuilds the cache",
     );
   });
@@ -311,22 +349,19 @@ describe("promptCacheState", () => {
 
   it("shows minutes, then seconds in the last five minutes", () => {
     const counting = promptCacheState(cache({ ttlSeconds: 3_600 }), 5 * 60_000 + 4_000);
-    expect(promptCacheClockLabel(cache({ ttlSeconds: 3_600 }), counting)).toBe("55m");
+    expect(promptCacheClockLabel(counting)).toBe("55m");
     // 54:56 left reads 55m until 54:00, 56 seconds from now.
     expect(msUntilPromptCacheLabelChanges(counting)).toBe(56_000);
     // 5:30 left changes to the seconds count in 30 seconds, then every second.
     expect(msUntilPromptCacheLabelChanges({ kind: "expiresIn", seconds: 330 })).toBe(30_000);
-    expect(promptCacheClockLabel(cache({}), { kind: "expiresIn", seconds: 252 })).toBe("4:12");
+    expect(promptCacheClockLabel({ kind: "expiresIn", seconds: 252 })).toBe("4:12");
     expect(msUntilPromptCacheLabelChanges({ kind: "expiresIn", seconds: 252 })).toBe(1_000);
-    // Expired reads from the readout's colour, and working shows the full lifetime it keeps.
-    expect(promptCacheClockLabel(cache({}), { kind: "expired", secondsAgo: 1 })).toBeNull();
-    expect(promptCacheClockLabel(cache({ ttlSeconds: 3_600 }), { kind: "working" })).toBe("60m");
-    expect(promptCacheClockLabel(cache({ ttlSeconds: null }), { kind: "working" })).toBeNull();
-    expect(msUntilPromptCacheLabelChanges({ kind: "working" })).toBeNull();
+    // Expired reads from the readout's colour.
+    expect(promptCacheClockLabel({ kind: "expired", secondsAgo: 1 })).toBeNull();
   });
 
   it("shows no timer when the provider gives no lifetime", () => {
-    expect(promptCacheClockLabel(cache({}), { kind: "unknown", idleSeconds: 750 })).toBeNull();
+    expect(promptCacheClockLabel({ kind: "unknown", idleSeconds: 750 })).toBeNull();
     expect(msUntilPromptCacheLabelChanges({ kind: "unknown", idleSeconds: 750 })).toBeNull();
   });
 });

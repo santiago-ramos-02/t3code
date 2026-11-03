@@ -52,7 +52,7 @@ export function PromptCacheIndicator(props: {
   // Usage newer than the last tick, as when a turn ends, moves the clock up to it.
   const clock = Math.max(nowMs, cache.lastUsedAt);
   const state = promptCacheState(cache, clock);
-  const ticking = open && state.kind !== "working";
+  const ticking = open;
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- interval that re-reads the clock each second while the popover is open
   useEffect(() => {
@@ -71,8 +71,8 @@ export function PromptCacheIndicator(props: {
   }, [labelChangesAt]);
 
   const tone = promptCacheTone(cache, state);
-  const clockLabel = promptCacheClockLabel(cache, state);
-  const nextMessage = promptCacheNextMessage(state, props.contextTokens);
+  const clockLabel = promptCacheClockLabel(state);
+  const nextMessage = promptCacheNextMessage(cache, state, props.contextTokens);
   const share = formatPromptCacheShare(cache.hitRate);
 
   return (
@@ -211,8 +211,6 @@ function TurnHits(props: { readonly cache: PromptCacheSnapshot }) {
 function StateDetail(props: { readonly state: PromptCacheState }) {
   const { state } = props;
   switch (state.kind) {
-    case "working":
-      return null;
     case "expiresIn":
       return (
         <span className="font-semibold text-foreground text-sm tabular-nums">
