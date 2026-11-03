@@ -63,7 +63,7 @@ export interface PiGentle<Turn extends PiGentleTurn> {
     details: unknown,
     completed: boolean,
   ) => Effect.Effect<void, IdAllocator.IdAllocatorV2AllocationError>;
-  readonly onTurnFinalized: (turn: Turn) => void;
+  readonly onTurnFinalized: (turn: Turn) => Effect.Effect<void>;
   /** Pi's native session changed, so nothing seen so far belongs to it. */
   readonly reset: () => void;
   /** The provider thread with gentle-pi's running subagents as its background roster. */
@@ -101,7 +101,7 @@ export interface PiGentleHooksShape {
 export const noPiGentle: PiGentle<PiGentleTurn> = {
   onExtensionUiRequest: () => Effect.succeed(false),
   onToolResult: () => Effect.void,
-  onTurnFinalized: () => {},
+  onTurnFinalized: () => Effect.void,
   reset: () => {},
   withRoster: (providerThread) => providerThread,
   describeWake: () => null,

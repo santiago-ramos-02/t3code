@@ -1,6 +1,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
+  isWorkflowPhaseStarted,
   resolveWorkflowOpening,
   workflowOpeningHeadline,
   workflowOpeningParentThreadId,
@@ -85,7 +86,7 @@ export function ThreadWorkflowOpening(props: {
   const { opening } = props;
   const headline = workflowOpeningHeadline(opening);
   const canListMembers = opening.driver !== null && opening.providerInstanceId !== null;
-  const phases = (opening.group?.phases ?? []).filter((phase) => phase.members.length > 0);
+  const phases = (opening.group?.phases ?? []).filter(isWorkflowPhaseStarted);
   const unphased = opening.group?.unphasedMembers ?? [];
   const renderMember = (member: RuntimeSubagent) => {
     const threadId = member.childThreadId;
@@ -132,7 +133,9 @@ export function ThreadWorkflowOpening(props: {
           ? phases.map((phase) => (
               <View key={phase.index} className="gap-px">
                 <Text className="px-1 pt-1 font-t3-medium text-2xs text-foreground-muted">
-                  {phase.title} · {phase.settledCount}/{phase.members.length}
+                  {phase.members.length > 0
+                    ? `${phase.title} · ${phase.settledCount}/${phase.members.length}`
+                    : phase.title}
                 </Text>
                 {phase.members.map(renderMember)}
               </View>

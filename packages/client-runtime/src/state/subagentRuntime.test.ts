@@ -11,8 +11,10 @@ import * as DateTime from "effect/DateTime";
 import {
   deriveWorkflowGroups,
   isWorkflowScriptMessage,
+  isWorkflowPhaseStarted,
   projectedSubagentsToRuntime,
   resolveWorkflowOpening,
+  workflowPhaseSpan,
 } from "./subagentRuntime.ts";
 
 const at = (iso: string) => DateTime.makeUnsafe(iso);
@@ -155,6 +157,46 @@ describe("deriveWorkflowGroups over a dynamic workflow", () => {
     expect(group?.phases.flatMap((phase) => phase.members)).toHaveLength(4);
     expect(group?.unphasedMembers).toEqual([]);
   });
+
+  it.each(["running", "completed"] as const)(
+    "shows the coordinator's own phases without members while the workflow is %s",
+    (status) => {
+      const minute = (n: number) => Date.UTC(2026, 7, 1, 10, n);
+      const groups = groupsOf([
+        subagent({
+          status,
+          updatedAt: at("2026-08-01T10:05:00.000Z"),
+          workflow: {
+            phases: [
+              { index: 1, title: "Alpha" },
+              { index: 4, title: "Planning", startedAt: minute(1), completedAt: minute(2) },
+              { index: 6, title: "Checking", startedAt: minute(3) },
+              { index: 7, title: "Closing" },
+            ],
+            agents: [member({ state: "completed" })],
+          },
+        }),
+      ]);
+      const phases = groups[0]?.phases ?? [];
+      expect(
+        phases.map((phase) => [phase.title, phase.state, isWorkflowPhaseStarted(phase)]),
+      ).toEqual([
+        ["Alpha", "done", true],
+        ["Planning", "done", true],
+        // A stopped coordinator never closed its phase; the workflow's last update ends it.
+        ["Checking", status === "running" ? "running" : "done", true],
+        ["Closing", "pending", false],
+      ]);
+      expect(workflowPhaseSpan(phases[1]!)).toEqual({
+        status: "completed",
+        startedAt: "2026-08-01T10:01:00.000Z",
+        completedAt: "2026-08-01T10:02:00.000Z",
+      });
+      expect(workflowPhaseSpan(phases[2]!).completedAt).toBe(
+        status === "running" ? null : "2026-08-01T10:05:00.000Z",
+      );
+    },
+  );
 
   it.each([false, true])("keeps a reported phase title, missing title first=%s", (missingFirst) => {
     const agents = [member({ phaseTitle: "Review" }), member({ index: 2, phaseTitle: undefined })];

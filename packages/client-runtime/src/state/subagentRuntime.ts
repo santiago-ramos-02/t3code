@@ -36,6 +36,9 @@ export interface SubagentActivityEntry {
 export interface SubagentWorkflowPhase {
   readonly index: number;
   readonly title: string;
+  /** The coordinator's own work in the phase, in epoch milliseconds. */
+  readonly startedAt?: number | undefined;
+  readonly completedAt?: number | undefined;
 }
 
 export interface SubagentRunHandles {
@@ -105,6 +108,9 @@ export interface SubagentWorkflowGroup {
     readonly members: ReadonlyArray<RuntimeSubagent>;
     readonly state: "pending" | "running" | "done";
     readonly settledCount: number;
+    /** When the coordinator itself worked in the phase, apart from its members. */
+    readonly ownStartedAt: string | null;
+    readonly ownCompletedAt: string | null;
   }>;
   readonly unphasedMembers: ReadonlyArray<RuntimeSubagent>;
 }
@@ -262,11 +268,20 @@ export function deriveWorkflowGroups(
       );
     }
     for (const phase of workflow.phases) phaseTitles.set(phase.index, phase.title);
+    const declared = new Map(workflow.phases.map((phase) => [phase.index, phase]));
     const knownPhases = Array.from(phaseTitles.entries())
       .map(([index, title]) => ({ index, title }))
       .sort((a, b) => a.index - b.index);
+    const workflowActive = isActiveSubagentStatus(workflow.status);
 
     const phases = knownPhases.map((phase) => {
+      const own = declared.get(phase.index);
+      const ownStartedAt = isoFromEpochMillis(own?.startedAt);
+      // A coordinator that stopped mid-phase never closes it, so only a live workflow keeps it open.
+      const ownCompletedAt =
+        ownStartedAt === null
+          ? null
+          : (isoFromEpochMillis(own?.completedAt) ?? (workflowActive ? null : workflow.updatedAt));
       const phaseMembers = workflowMembers
         .filter((member) => member.phaseIndex === phase.index)
         .sort((a, b) => (a.agentIndex ?? 0) - (b.agentIndex ?? 0));
@@ -278,14 +293,21 @@ export function deriveWorkflowGroups(
       const settledCount = phaseMembers.filter((member) =>
         isTerminalSubagentStatus(member.status),
       ).length;
+      const ownRunning = ownStartedAt !== null && ownCompletedAt === null;
       const state: "pending" | "running" | "done" =
-        phaseMembers.length === 0 ? "pending" : hasActiveMember ? "running" : "done";
+        hasActiveMember || ownRunning
+          ? "running"
+          : phaseMembers.length === 0 && ownStartedAt === null
+            ? "pending"
+            : "done";
       return {
         index: phase.index,
         title: phase.title,
         members: phaseMembers,
         state,
         settledCount,
+        ownStartedAt,
+        ownCompletedAt,
       };
     });
 
@@ -295,6 +317,29 @@ export function deriveWorkflowGroups(
 
     return { workflow, phases, unphasedMembers };
   });
+}
+
+type WorkflowGroupPhase = SubagentWorkflowGroup["phases"][number];
+
+/** Whether a phase has anything to show: members, or the coordinator's own work. */
+export function isWorkflowPhaseStarted(phase: WorkflowGroupPhase): boolean {
+  return phase.members.length > 0 || phase.ownStartedAt !== null;
+}
+
+/** A phase's span across its members and the coordinator's own work, for an elapsed label. */
+export function workflowPhaseSpan(phase: WorkflowGroupPhase) {
+  const instants = (key: "startedAt" | "completedAt", own: string | null) =>
+    [...phase.members.map((member) => member[key]), own].filter((value) => value !== null).sort();
+  const running = phase.state === "running";
+  const startedAt = instants("startedAt", phase.ownStartedAt)[0] ?? null;
+  const completedAt = running
+    ? null
+    : (instants("completedAt", phase.ownCompletedAt).at(-1) ?? null);
+  return {
+    status: running ? ("running" as const) : ("completed" as const),
+    startedAt: running || completedAt !== null ? startedAt : null,
+    completedAt,
+  };
 }
 
 // Workflow scripts open with their `meta` export, after any leading comments.

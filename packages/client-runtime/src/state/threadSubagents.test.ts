@@ -204,6 +204,25 @@ describe("deriveThreadTurnSubagents", () => {
     expect(resolveSubagentPillSegment(turn)?.label).toBe("1/2");
   });
 
+  it("counts a workflow as its members, not as one more agent", () => {
+    const agent = (index: number, state: "running" | "completed") => ({
+      index,
+      label: `member-${index}`,
+      state,
+    });
+    const workflow = (agents: ReadonlyArray<ReturnType<typeof agent>>) =>
+      subagent({ id: "workflow", workflow: { phases: [], agents } });
+    const counted = deriveThreadTurnSubagents({
+      runs: [activeRun],
+      subagents: [workflow([agent(0, "running"), agent(1, "completed"), agent(2, "completed")])],
+    });
+    expect(resolveSubagentPillSegment(counted)?.label).toBe("1/3");
+
+    // Before its first member starts, the workflow stands in for them.
+    const empty = deriveThreadTurnSubagents({ runs: [activeRun], subagents: [workflow([])] });
+    expect(resolveSubagentPillSegment(empty)?.label).toBe("1/1");
+  });
+
   it("keeps the finished agents reachable while their turn is the latest", () => {
     const turn = deriveThreadTurnSubagents({
       runs: [finishedRun],

@@ -165,7 +165,16 @@ const harness = Effect.fnUntraced(function* (request: string) {
       ...widget(),
       widgetLines: [JSON.stringify({ schema: "gentle-agents.activity/v1", tasks: [], limits })],
     });
-  return { events, show, showLimits, usageUpdates, workflow, member };
+  const phase = (statusText: string | undefined) =>
+    gentle.onExtensionUiRequest({
+      type: "extension_ui_request",
+      id: "status",
+      method: "setStatus",
+      statusKey: "gentle-odd-phase",
+      statusText,
+    });
+  const finalize = () => gentle.onTurnFinalized(turn);
+  return { events, show, showLimits, usageUpdates, workflow, member, phase, finalize };
 });
 
 const millis = (value: DateTime.Utc | null | undefined) =>
@@ -308,6 +317,64 @@ describe("makePiGentle", () => {
       yield* blank.show({ id: "a", agent: "explorer", label: "Map", status: "running" });
       assert.equal(blank.workflow().workflow?.name, "ODD workflow");
     }).pipe(Effect.provide(IdAllocator.layer)),
+  );
+
+  it.effect(
+    "shows the orchestrator's own phases, including those it works in without members",
+    () =>
+      Effect.gen(function* () {
+        const { show, workflow, phase, finalize } = yield* harness("Add dark mode");
+        yield* phase("exploring");
+        yield* show({
+          id: "a",
+          agent: "gentle-ai-explore",
+          label: "Map themes",
+          status: "running",
+        });
+        yield* TestClock.adjust(MINUTE);
+        yield* phase("planning");
+        // An agent with no phase of its own joins the orchestrator's current one.
+        yield* show(
+          { id: "a", agent: "gentle-ai-explore", label: "Map themes", status: "completed" },
+          { id: "b", agent: "review-risk", label: "Review plan", status: "running" },
+        );
+        yield* TestClock.adjust(MINUTE);
+        yield* phase("checking");
+        yield* show(
+          { id: "a", agent: "gentle-ai-explore", label: "Map themes", status: "completed" },
+          { id: "b", agent: "review-risk", label: "Review plan", status: "completed" },
+        );
+        const checking = workflow();
+        assert.deepStrictEqual(checking.workflow?.phases, [
+          { index: 1, title: "Exploring", startedAt: NOW, completedAt: NOW + MINUTE },
+          { index: 4, title: "Planning", startedAt: NOW + MINUTE, completedAt: NOW + 2 * MINUTE },
+          { index: 6, title: "Checking", startedAt: NOW + 2 * MINUTE },
+        ]);
+        assert.deepStrictEqual(
+          checking.workflow?.agents.map((agent) => [agent.label, agent.phaseTitle]),
+          [
+            ["Map themes", "Exploring"],
+            ["Review plan", "Planning"],
+          ],
+        );
+        // Every member finished, but the orchestrator is still checking.
+        assert.equal(checking.status, "running");
+
+        yield* TestClock.adjust(MINUTE);
+        yield* finalize();
+        const finished = workflow();
+        assert.equal(finished.status, "completed");
+        assert.deepStrictEqual(finished.workflow?.phases.at(-1), {
+          index: 6,
+          title: "Checking",
+          startedAt: NOW + 2 * MINUTE,
+          completedAt: NOW + 3 * MINUTE,
+        });
+        assert.deepStrictEqual(
+          [millis(finished.startedAt), millis(finished.completedAt)],
+          [NOW, NOW + 3 * MINUTE],
+        );
+      }).pipe(Effect.provide(IdAllocator.layer)),
   );
 
   it.effect("still groups members by their agent's phase", () =>

@@ -804,6 +804,10 @@ export type OrchestrationV2ExecutionNode = typeof OrchestrationV2ExecutionNode.T
 export const OrchestrationV2WorkflowPhase = Schema.Struct({
   index: NonNegativeInt,
   title: TrimmedNonEmptyString,
+  // The coordinator's own work in the phase, which can have no members; epoch milliseconds.
+  startedAt: Schema.optional(NonNegativeInt),
+  /** Unset while the coordinator is still in the phase. */
+  completedAt: Schema.optional(NonNegativeInt),
 });
 export type OrchestrationV2WorkflowPhase = typeof OrchestrationV2WorkflowPhase.Type;
 

@@ -70,6 +70,16 @@ const AGENT_PHASES = new Map<string, OddPhase>([
   ["gentle-ai-verify", "checking"],
 ]);
 
+// gentle-shell publishes the orchestrator's phase under this status key to an RPC host.
+const ODD_PHASE_STATUS_KEY = "gentle-odd-phase";
+
+/** One stretch of the orchestrator's own work in a phase. */
+interface PhaseSpan {
+  readonly phase: OddPhase;
+  readonly startedAt: DateTime.Utc;
+  completedAt: DateTime.Utc | null;
+}
+
 const isOddPhase = (value: unknown): value is OddPhase =>
   ODD_PHASES.some((phase) => phase === value);
 
@@ -176,8 +186,12 @@ export function makePiGentle<Turn extends PiGentleTurn>(
   const tasks = new Map<string, GentleTaskState<Turn>>();
   /** Each turn's workflow, by provider turn id. */
   const workflows = new Map<string, GentleWorkflowState<Turn>>();
-  /** The orchestrator's latest `gentle_odd_phase` report in each turn, by provider turn id. */
-  const reportedPhases = new Map<string, OddPhase>();
+  /** The phases the orchestrator went through in each turn, oldest first, by provider turn id. */
+  const phaseSpans = new Map<string, Array<PhaseSpan>>();
+  const currentPhase = (turn: Turn) => {
+    const last = phaseSpans.get(turn.providerTurn.id)?.at(-1);
+    return last === undefined || last.completedAt !== null ? null : last.phase;
+  };
   /** Unfinished subagents in the latest snapshot with their titles, and the background ones. */
   let live = new Map<string, string>();
   let liveBackground = new Set<string>();
@@ -317,21 +331,44 @@ export function makePiGentle<Turn extends PiGentleTurn>(
     now: DateTime.Utc,
   ) {
     const members = [...workflow.members.values()];
+    const spans = phaseSpans.get(workflow.turn.providerTurn.id) ?? [];
     const statuses = members.map(({ task }) => task.status);
-    const status: OrchestrationV2Subagent["status"] = members.some(({ task }) => !task.terminal)
-      ? "running"
-      : statuses.includes("failed")
-        ? "failed"
-        : statuses.some((value) => value === "interrupted" || value === "cancelled")
-          ? "interrupted"
-          : "completed";
+    const status: OrchestrationV2Subagent["status"] =
+      members.some(({ task }) => !task.terminal) || spans.some((span) => span.completedAt === null)
+        ? "running"
+        : statuses.includes("failed")
+          ? "failed"
+          : statuses.some((value) => value === "interrupted" || value === "cancelled")
+            ? "interrupted"
+            : "completed";
     const phaseOf = (phase: OddPhase) => ({
       phaseIndex: ODD_PHASES.indexOf(phase),
       phaseTitle: phaseTitle(phase),
     });
-    const phases = ODD_PHASES.flatMap((phase, index) =>
-      members.some((member) => member.phase === phase) ? [{ index, title: phaseTitle(phase) }] : [],
-    );
+    const phases = ODD_PHASES.flatMap((phase, index) => {
+      const own = spans.filter((span) => span.phase === phase);
+      const first = own[0];
+      if (first === undefined) {
+        return members.some((member) => member.phase === phase)
+          ? [{ index, title: phaseTitle(phase) }]
+          : [];
+      }
+      const ends = own.map((span) => span.completedAt);
+      return [
+        {
+          index,
+          title: phaseTitle(phase),
+          startedAt: DateTime.toEpochMillis(first.startedAt),
+          ...(ends.includes(null)
+            ? {}
+            : {
+                completedAt: Math.max(
+                  ...ends.flatMap((end) => (end === null ? [] : [DateTime.toEpochMillis(end)])),
+                ),
+              }),
+        },
+      ];
+    });
     const agents = members.map(({ task, phase, entry }, index) => ({
       index,
       label: task.title.trim() || "Pi subagent",
@@ -352,12 +389,19 @@ export function makePiGentle<Turn extends PiGentleTurn>(
       parent.message.text,
     );
     const encoded = fingerprint({ name, status, phases, agents });
+    const spanMillis = spans.flatMap((span) => [
+      DateTime.toEpochMillis(span.startedAt),
+      ...(span.completedAt === null ? [] : [DateTime.toEpochMillis(span.completedAt)]),
+    ]);
     if (encoded === workflow.emitted) return;
     workflow.emitted = encoded;
 
     // The members carry the times, which gentle-pi keeps across a restart of T3.
     const startedAt = fromEpochMillis(
-      Math.min(...members.map(({ entry }) => DateTime.toEpochMillis(entry.startedAt))),
+      Math.min(
+        ...members.map(({ entry }) => DateTime.toEpochMillis(entry.startedAt)),
+        ...spanMillis,
+      ),
     );
     const completedAt =
       status === "running"
@@ -367,6 +411,7 @@ export function makePiGentle<Turn extends PiGentleTurn>(
               ...members.map(({ entry }) =>
                 DateTime.toEpochMillis(entry.completedAt ?? workflow.completedAt ?? now),
               ),
+              ...spanMillis,
             ),
           );
     const { turn, nativeId, id, childThreadId, childRootNodeId } = workflow;
@@ -523,6 +568,19 @@ export function makePiGentle<Turn extends PiGentleTurn>(
     });
   });
 
+  /** Moves the turn's orchestrator into `phase`, or out of every phase when null. */
+  const enterPhase = Effect.fnUntraced(function* (turn: Turn, phase: OddPhase | null) {
+    if (currentPhase(turn) === phase) return;
+    const now = yield* DateTime.now;
+    const spans = phaseSpans.get(turn.providerTurn.id) ?? [];
+    const open = spans.at(-1);
+    if (open !== undefined && open.completedAt === null) open.completedAt = now;
+    if (phase !== null) spans.push({ phase, startedAt: now, completedAt: null });
+    phaseSpans.set(turn.providerTurn.id, spans);
+    const workflow = workflows.get(turn.providerTurn.id);
+    if (workflow !== undefined) yield* emitWorkflow(workflow, now);
+  });
+
   // gentle-pi's own times win, since T3 may only see a task after it ran; without them the
   // first sighting stands in.
   const updateTimes = (entry: GentleTaskState<Turn>, task: GentleTask, now: DateTime.Utc) => {
@@ -573,8 +631,7 @@ export function makePiGentle<Turn extends PiGentleTurn>(
       tasks.set(task.id, entry);
       workflow.members.set(task.id, {
         task,
-        phase:
-          AGENT_PHASES.get(task.agent ?? "") ?? reportedPhases.get(turn.providerTurn.id) ?? null,
+        phase: AGENT_PHASES.get(task.agent ?? "") ?? currentPhase(turn),
         entry,
       });
       // The workflow's thread comes first: the member's record and thread belong to it.
@@ -891,8 +948,14 @@ export function makePiGentle<Turn extends PiGentleTurn>(
   });
 
   return {
-    /** Handles gentle-pi's activity widget; false for every other UI request. */
+    /** Handles gentle-pi's activity widget and ODD phase; false for every other UI request. */
     onExtensionUiRequest: Effect.fnUntraced(function* (event: Record<string, unknown>) {
+      if (event["method"] === "setStatus" && event["statusKey"] === ODD_PHASE_STATUS_KEY) {
+        const turn = deps.threadState()?.activeTurn ?? null;
+        const phase = event["statusText"];
+        if (turn !== null) yield* enterPhase(turn, isOddPhase(phase) ? phase : null);
+        return true;
+      }
       if (event["method"] !== "setWidget" || event["widgetKey"] !== GENTLE_ACTIVITY_WIDGET_KEY) {
         return false;
       }
@@ -912,24 +975,27 @@ export function makePiGentle<Turn extends PiGentleTurn>(
           typeof details === "object" && details !== null && "phase" in details
             ? details.phase
             : undefined;
-        if (isOddPhase(phase)) reportedPhases.set(turn.providerTurn.id, phase);
-        else reportedPhases.delete(turn.providerTurn.id);
-        return Effect.void;
+        return enterPhase(turn, isOddPhase(phase) ? phase : null);
       }
       const steps = completed ? gentleTodoSteps(toolName, details) : undefined;
       return steps === undefined ? Effect.void : emitTodo(turn, steps);
     },
 
-    /** Subagents that change after their turn settles stay on the last turn. */
+    /** Subagents that change after their turn settles stay on the last turn, whose phase ends. */
     onTurnFinalized: (turn: Turn) => {
       lastTurn = turn;
+      return enterPhase(turn, null).pipe(
+        Effect.map(() => {
+          if (!workflows.has(turn.providerTurn.id)) phaseSpans.delete(turn.providerTurn.id);
+        }),
+      );
     },
 
     /** Pi's native session changed, so nothing seen so far belongs to it. */
     reset: () => {
       tasks.clear();
       workflows.clear();
-      reportedPhases.clear();
+      phaseSpans.clear();
       live = new Map();
       liveBackground = new Set();
       liveJobs = [];
