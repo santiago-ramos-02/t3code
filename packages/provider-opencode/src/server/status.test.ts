@@ -121,7 +121,17 @@ it.effect(
         ["console-key", "3e45cfde9158185930d4cc7020a4e390895574fd54bd8f9631d23a336bbf94f0"],
         ["go-key", "d0e590e93fc9bd9353f2b993c0c287391cae505da2a78cb698b75418d2f5367e"],
         ["inline-key", "85649de18e63305548b6407e185f708483727ee6189cc4bc9512ddb17e23e776"],
+        // A sign-in's token changes on refresh, so its workspace identifies the allowance.
+        ["console-token@wrk_1", "832fe854d79253d8c7fcaf5d54c44a43c646ebafa25697ce7b9bae3d80552a31"],
       ]);
+      const signIn = {
+        type: "oauth",
+        methodID: "device",
+        access: "console-token",
+        refresh: "refresh",
+        expires: Date.UTC(2100, 0, 1),
+        metadata: { server: "https://opencode.ai/console", orgID: "wrk_1" },
+      };
       for (const {
         consoleRow = consoleKey,
         active = 1,
@@ -145,6 +155,20 @@ it.effect(
             access: "token",
             refresh: "refresh",
             expires: 0,
+          },
+          requested: ["go-key"],
+        },
+        // A Console sign-in holds no key; Go takes its OAuth token for the chosen workspace.
+        { consoleRow: signIn, requested: ["console-token@wrk_1"] },
+        { consoleRow: { ...signIn, expires: 0 }, requested: ["go-key"] },
+        {
+          consoleRow: { ...signIn, metadata: { server: "https://opencode.ai/console" } },
+          requested: ["go-key"],
+        },
+        {
+          consoleRow: {
+            ...signIn,
+            metadata: { ...signIn.metadata, server: "https://console.example" },
           },
           requested: ["go-key"],
         },
@@ -195,7 +219,9 @@ it.effect(
             HttpClient.HttpClient,
             HttpClient.make((request) => {
               NodeAssert.equal(request.url, "https://opencode.ai/zen/go/v1/usage");
-              const key = (request.headers.authorization ?? "").replace("Bearer ", "");
+              const token = (request.headers.authorization ?? "").replace("Bearer ", "");
+              const workspace = request.headers["x-opencode-org-id"];
+              const key = workspace === undefined ? token : `${token}@${workspace}`;
               authorizations.push(key);
               // The legacy key is expired in the regression; it only works in fallback scenarios.
               const status =
