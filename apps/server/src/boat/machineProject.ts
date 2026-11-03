@@ -23,7 +23,7 @@ import {
   WS_METHODS,
 } from "@t3tools/contracts";
 import { normalizeGitRemoteUrl, parseGitRemoteRepository } from "@t3tools/shared/git";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Result from "effect/Result";
@@ -101,7 +101,7 @@ const cloneProject = Effect.fn("MachineProject.clone")(function* (
   remoteUrl: string,
 ) {
   const name = checkoutName(remoteUrl);
-  const projectId = ProjectId.make(yield* (yield* Crypto.Crypto).randomUUIDv4().pipe(Effect.orDie));
+  const projectId = ProjectId.make(yield* (yield* SecureRandom.SecureRandom).uuidV4());
   const started = yield* client[WS_METHODS.projectCloneStart]({
     projectId,
     title: name,

@@ -1,7 +1,9 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
@@ -29,7 +31,7 @@ const httpClient = HttpClient.make((request) =>
   ),
 );
 
-it.layer(NodeServices.layer)("Pi Gentle settings", (it) => {
+it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("Pi Gentle settings", (it) => {
   it.effect("detects and updates gentle-pi through an isolated Pi executable", () =>
     Effect.scoped(
       Effect.gen(function* () {

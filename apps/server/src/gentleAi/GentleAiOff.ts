@@ -5,7 +5,7 @@
  *
  * @module gentleAi/GentleAiOff
  */
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import { hostUserHome } from "../hostUserHome.ts";
 import * as NodeOS from "node:os";
 
@@ -90,8 +90,8 @@ export const gentleAiOffDirectory = (agent: string) =>
   Effect.acquireRelease(
     Effect.gen(function* () {
       const path = yield* Path.Path;
-      const crypto = yield* Crypto.Crypto;
-      const id = yield* crypto.randomUUIDv4();
+      const random = yield* SecureRandom.SecureRandom;
+      const id = yield* random.uuidV4();
       return path.join(NodeOS.tmpdir(), "t3code-gentle-off", `${agent}-${id}`);
     }),
     (directory) =>

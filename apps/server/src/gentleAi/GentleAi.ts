@@ -26,7 +26,7 @@ import * as HostProcess from "@t3tools/shared/HostProcess";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import * as Cache from "effect/Cache";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Data from "effect/Data";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
@@ -243,7 +243,7 @@ export const make = Effect.gen(function* () {
   const settingsService = yield* ServerSettingsService;
   const hostPlatform = yield* HostProcess.Platform;
   const environment = yield* HostProcess.Environment;
-  const crypto = yield* Crypto.Crypto;
+  const random = yield* SecureRandom.SecureRandom;
   const arch = yield* HostProcess.Architecture;
   const releases = yield* makeGitHubReleases;
   const installLock = yield* Semaphore.make(1);
@@ -597,13 +597,7 @@ export const make = Effect.gen(function* () {
   ) {
     yield* apiBinary;
     const started: GentleAiJob = {
-      id: yield* crypto
-        .randomUUIDv4()
-        .pipe(
-          Effect.mapError(
-            () => new GentleAiError({ detail: "Could not start the Gentle AI task." }),
-          ),
-        ),
+      id: yield* random.uuidV4(),
       method,
       phase: "running",
       startedAt: DateTime.formatIso(yield* DateTime.now),

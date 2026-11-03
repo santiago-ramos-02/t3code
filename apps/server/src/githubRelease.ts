@@ -5,7 +5,7 @@
  *
  * @module githubRelease
  */
-import * as Crypto from "effect/Crypto";
+import * as Digest from "effect/crypto/Digest";
 
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
@@ -26,7 +26,7 @@ export function releaseChecksum(checksums: string, asset: string): string | null
 
 /** Reads GitHub releases with the services of the installer that builds it. */
 export const makeGitHubReleases = Effect.gen(function* () {
-  const crypto = yield* Crypto.Crypto;
+  const digests = yield* Digest.Digest;
   const httpClient = yield* HttpClient.HttpClient;
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const fileSystem = yield* FileSystem.FileSystem;
@@ -84,10 +84,9 @@ export const makeGitHubReleases = Effect.gen(function* () {
       Effect.map((buffer) => new Uint8Array(buffer)),
       Effect.mapError(() => fail(`${label} could not be downloaded.`)),
     );
-    const digest = yield* crypto.digest("SHA-256", bytes).pipe(
-      Effect.map((hash) => Buffer.from(hash).toString("hex")),
-      Effect.mapError(() => fail("The download checksum could not be verified.")),
-    );
+    const digest = yield* digests
+      .digest(Digest.sha256, bytes)
+      .pipe(Effect.map((hash) => Buffer.from(hash).toString("hex")));
     if (digest !== expected) {
       return yield* Effect.fail(
         fail("The download does not match its checksum, so nothing was installed."),

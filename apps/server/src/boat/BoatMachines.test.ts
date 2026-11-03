@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import {
@@ -312,7 +313,7 @@ const PAIRING_OUTPUT =
 // A fresh environment per test; services built within one test share its state directory.
 const layerEnvironment = Layer.mergeAll(ServerSecretStore.layer, Settings.layerTest()).pipe(
   Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "t3-boat-test-" })),
-  Layer.provideMerge(NodeServices.layer),
+  Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
 );
 
 /** A fake Boat CLI; without `login` it is not installed. */

@@ -1,4 +1,4 @@
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { hostUserHome } from "../hostUserHome.ts";
 import { compareSemverVersions } from "@t3tools/shared/semver";
@@ -231,7 +231,7 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
   readonly httpClient: HttpClient.HttpClient;
 }) {
   const { environment, fileSystem, path, spawner } = input;
-  const crypto = yield* Crypto.Crypto;
+  const random = yield* SecureRandom.SecureRandom;
   const userHome = hostUserHome(environment, yield* HostProcess.Platform);
   const agentHome =
     environment.GENTLE_PI_AGENT_HOME ||
@@ -252,7 +252,7 @@ export const makePiGentleSettings = Effect.fn("makePiGentleSettings")(function* 
     text: string,
   ) {
     yield* fileSystem.makeDirectory(path.dirname(filePath), { recursive: true });
-    const temporary = `${filePath}.${yield* crypto.randomUUIDv4()}.tmp`;
+    const temporary = `${filePath}.${yield* random.uuidV4()}.tmp`;
     yield* fileSystem.writeFileString(temporary, text);
     yield* fileSystem
       .rename(temporary, filePath)

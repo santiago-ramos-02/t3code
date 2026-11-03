@@ -17,7 +17,7 @@ import {
 } from "@t3tools/contracts";
 import { resolveWorktreeCleanup } from "@t3tools/shared/projectSettings";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Cause from "effect/Cause";
@@ -191,7 +191,7 @@ export const make = Effect.gen(function* () {
   const httpClient = yield* HttpClient.HttpClient;
   const githubCredentials = yield* GitHubCredentials.GitHubCredentials;
   const webSocket = yield* Socket.WebSocketConstructor;
-  const crypto = yield* Crypto.Crypto;
+  const random = yield* SecureRandom.SecureRandom;
   const cli = makeBoatCli({
     runner: yield* ProcessRunner.ProcessRunner,
     path,
@@ -1042,7 +1042,7 @@ export const make = Effect.gen(function* () {
             remoteUrl: input.remoteUrl,
             branch: input.branch,
             syncBranch: (workspaceRoot) => syncBranch(boat, sandboxId, workspaceRoot, input.branch),
-          }).pipe(Effect.provideService(Crypto.Crypto, crypto));
+          }).pipe(Effect.provideService(SecureRandom.SecureRandom, random));
         }),
       ),
     );

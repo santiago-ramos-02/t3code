@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import {
@@ -8,6 +9,7 @@ import {
 } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 
 import { GentleAiFootprints } from "./GentleAiFootprints.ts";
 import { makePiGentleSession } from "./GentleAiSessions.ts";
@@ -36,7 +38,7 @@ const withBinary = (binary: string | null) =>
     binary: Effect.succeed(binary),
   });
 
-it.layer(NodeServices.layer)("makePiGentleSession", (it) => {
+it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("makePiGentleSession", (it) => {
   it.effect("names T3 Code's gentle-ai for gentle-pi on Gentle AI threads", () =>
     Effect.gen(function* () {
       const prepare = yield* makePiGentleSession(PI).pipe(withBinary(FORK_GENTLE_AI));

@@ -12,7 +12,7 @@ import type { ManagedServerProvider } from "@t3tools/provider-core/server/snapsh
 import { applyUsageLimitsUpdate } from "@t3tools/provider-core/server/usageLimits";
 import { PiDriver, type PiDriverEnv } from "@t3tools/provider-pi/server";
 import { PiGentleHooks } from "@t3tools/provider-pi/server/gentleHooks";
-import type * as Crypto from "effect/Crypto";
+import type * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -27,7 +27,7 @@ import { makePiGentle } from "../../orchestration-v2/Adapters/PiGentle.ts";
 import { piCallCacheTtlSeconds } from "../../orchestration-v2/Adapters/promptCacheLifetime.ts";
 import { makePiGentleSettings } from "../PiGentleSettings.ts";
 
-export type PiGentleDriverEnv = PiDriverEnv | Crypto.Crypto;
+export type PiGentleDriverEnv = PiDriverEnv | SecureRandom.SecureRandom;
 
 export const PiGentleDriver: ProviderDriver<
   PiSettings,

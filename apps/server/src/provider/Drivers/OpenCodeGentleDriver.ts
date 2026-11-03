@@ -8,7 +8,7 @@ import type { OpenCodeSettings } from "@t3tools/provider-opencode/settings";
 import type { ProviderDriver, ProviderUsageReaderEnv } from "@t3tools/provider-core/server/driver";
 import { OpenCodeDriver, type OpenCodeDriverEnv } from "@t3tools/provider-opencode/server";
 import { OpenCodeGentleHooks } from "@t3tools/provider-opencode/server/gentleHooks";
-import type * as Crypto from "effect/Crypto";
+import type * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 
 import { withoutGentleAiOff } from "../../gentleAi/GentleAiSessionPolicy.ts";
@@ -17,7 +17,7 @@ import {
   OPENCODE_SERVER_GENTLE_OFF_UNSUPPORTED,
 } from "../../gentleAi/GentleAiSessions.ts";
 
-export type OpenCodeGentleDriverEnv = OpenCodeDriverEnv | Crypto.Crypto;
+export type OpenCodeGentleDriverEnv = OpenCodeDriverEnv | SecureRandom.SecureRandom;
 
 export const OpenCodeGentleDriver: ProviderDriver<
   OpenCodeSettings,
