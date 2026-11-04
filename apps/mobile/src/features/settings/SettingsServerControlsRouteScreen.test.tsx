@@ -87,11 +87,7 @@ vi.mock("../../components/ui/Button", () => ({
 }));
 vi.mock("./components/SettingsScreen", () => ({ SettingsScreen: Children }));
 vi.mock("./components/SettingsEnvironmentFilterHeader", () => ({
-  useSettingsEnvironmentMenu: () => ({
-    title: "Filter",
-    icon: "line.3.horizontal.decrease.circle",
-    items: [],
-  }),
+  AndroidSettingsEnvironmentFilter: () => null,
   SettingsEnvironmentFilterHeader: () => null,
 }));
 vi.mock("./components/DatabaseStorageNotice", () => ({ DatabaseStorageNotice: () => null }));

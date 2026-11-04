@@ -1,8 +1,6 @@
-import {
-  isWorkflowPhaseStarted,
-  workflowPhaseSpan,
-  type SubagentWorkflowGroup,
-  type RuntimeSubagent,
+import type {
+  SubagentWorkflowGroup,
+  RuntimeSubagent,
 } from "@t3tools/client-runtime/state/subagentRuntime";
 import type { ProviderDriverKind, ProviderInstanceId, ServerProvider } from "@t3tools/contracts";
 import { ChevronDownIcon, SquareIcon } from "lucide-react";
@@ -22,6 +20,22 @@ import {
   THREAD_DETAILS_PANEL_SPLIT_GROUP_CLASS,
   THREAD_DETAILS_PANEL_SPLIT_SEPARATOR_CLASS,
 } from "./threadDetailsPanelStyles";
+
+function phaseElapsed(phase: SubagentWorkflowGroup["phases"][number]) {
+  const instants = (key: "startedAt" | "completedAt") =>
+    phase.members
+      .map((member) => member[key])
+      .filter((value) => value !== null)
+      .sort();
+  const running = phase.state === "running";
+  const startedAt = instants("startedAt")[0] ?? null;
+  const completedAt = running ? null : (instants("completedAt").at(-1) ?? null);
+  return {
+    status: running ? ("running" as const) : ("completed" as const),
+    startedAt: running || completedAt !== null ? startedAt : null,
+    completedAt,
+  };
+}
 
 function phaseStatusLabel(phase: SubagentWorkflowGroup["phases"][number]) {
   if (phase.state === "running") return "running";
@@ -129,7 +143,7 @@ export function ThreadLineageWorkflowRow({
   const [expanded, setExpanded] = useState(false);
   const [phaseOpen, setPhaseOpen] = useState<ReadonlyMap<number, boolean>>(() => new Map());
   const label = group.workflow.workflowName ?? group.workflow.title;
-  const phases = group.phases.filter(isWorkflowPhaseStarted);
+  const phases = group.phases.filter((phase) => phase.members.length > 0);
   return (
     <li className="group" data-workflow-expanded={expanded ? "" : undefined}>
       <div className={cn("relative", THREAD_DETAILS_PANEL_SPLIT_GROUP_CLASS)}>
@@ -183,49 +197,28 @@ export function ThreadLineageWorkflowRow({
           {phases.map((phase) => {
             const open = phaseOpen.get(phase.index) ?? phase.state === "running";
             const status = phaseStatusLabel(phase);
-            const tone = phase.state === "running" ? "emphasized" : "muted";
-            const accessory = (
-              <>
-                {status === "failed" ? <SectionHeaderStatus>Failed</SectionHeaderStatus> : null}
-                {phase.members.length > 0 ? (
-                  <span className="shrink-0 text-2xs font-normal tabular-nums">
-                    {phase.settledCount}/{phase.members.length}{" "}
-                    {phase.members.length === 1 ? "agent" : "agents"}
-                  </span>
-                ) : null}
-                <span className="shrink-0 text-2xs font-normal tabular-nums empty:hidden">
-                  <AgentElapsed agent={workflowPhaseSpan(phase)} />
-                </span>
-              </>
-            );
-            if (phase.members.length === 0) {
-              // The coordinator worked in this phase alone, so there is nothing to expand.
-              return (
-                <li
-                  key={phase.index}
-                  aria-label={`${phase.title} phase, ${status}`}
-                  className={cn(
-                    "flex h-8 items-center gap-2 ps-2 pe-2.5 text-xs font-medium",
-                    tone === "emphasized"
-                      ? "text-sidebar-foreground/80"
-                      : "text-sidebar-muted-foreground",
-                  )}
-                >
-                  <span className="min-w-0 flex-1 truncate">{phase.title}</span>
-                  {accessory}
-                  <span aria-hidden className="size-3 shrink-0" />
-                </li>
-              );
-            }
             return (
               <li key={phase.index}>
                 <CollapsibleSectionHeader
                   variant="panel"
-                  tone={tone}
+                  tone={phase.state === "running" ? "emphasized" : "muted"}
                   expanded={open}
                   aria-label={`${open ? "Collapse" : "Expand"} ${phase.title} phase, ${status}`}
                   onClick={() => setPhaseOpen((phases) => new Map(phases).set(phase.index, !open))}
-                  accessory={accessory}
+                  accessory={
+                    <>
+                      {status === "failed" ? (
+                        <SectionHeaderStatus>Failed</SectionHeaderStatus>
+                      ) : null}
+                      <span className="shrink-0 text-2xs font-normal tabular-nums">
+                        {phase.settledCount}/{phase.members.length}{" "}
+                        {phase.members.length === 1 ? "agent" : "agents"}
+                      </span>
+                      <span className="shrink-0 text-2xs font-normal tabular-nums empty:hidden">
+                        <AgentElapsed agent={phaseElapsed(phase)} />
+                      </span>
+                    </>
+                  }
                 >
                   {phase.title}
                 </CollapsibleSectionHeader>

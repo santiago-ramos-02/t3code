@@ -1,6 +1,4 @@
-import { createContext } from "react";
-
-import type { InspectorContent } from "../features/layout/inspector-panes";
+import { createContext, type ReactNode } from "react";
 
 export const NativeWorkspaceModeContext = createContext(false);
 /**
@@ -35,6 +33,6 @@ export const NativePrimaryColumnContext = createContext<{
   readonly selectedPullRequestKey: string | null;
 } | null>(null);
 export const NativeWorkspaceInspectorContext = createContext<{
-  readonly content: InspectorContent | undefined;
+  readonly render: (() => ReactNode) | undefined;
   readonly visible: boolean;
-}>({ content: undefined, visible: false });
+}>({ render: undefined, visible: false });

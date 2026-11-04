@@ -1,7 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
-  isWorkflowPhaseStarted,
   resolveWorkflowOpening,
   workflowOpeningHeadline,
   workflowOpeningParentThreadId,
@@ -14,7 +13,6 @@ import { useState } from "react";
 import { Pressable, View } from "react-native";
 
 import { AppText as Text } from "../../components/ui/AppText";
-import { cn } from "../../lib/cn";
 import { environmentThreadDetails } from "../../state/threads";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { useMarkdownCodeHighlight } from "./markdownCodeHighlightState";
@@ -86,7 +84,7 @@ export function ThreadWorkflowOpening(props: {
   const { opening } = props;
   const headline = workflowOpeningHeadline(opening);
   const canListMembers = opening.driver !== null && opening.providerInstanceId !== null;
-  const phases = (opening.group?.phases ?? []).filter(isWorkflowPhaseStarted);
+  const phases = (opening.group?.phases ?? []).filter((phase) => phase.members.length > 0);
   const unphased = opening.group?.unphasedMembers ?? [];
   const renderMember = (member: RuntimeSubagent) => {
     const threadId = member.childThreadId;
@@ -133,25 +131,20 @@ export function ThreadWorkflowOpening(props: {
           ? phases.map((phase) => (
               <View key={phase.index} className="gap-px">
                 <Text className="px-1 pt-1 font-t3-medium text-2xs text-foreground-muted">
-                  {phase.members.length > 0
-                    ? `${phase.title} · ${phase.settledCount}/${phase.members.length}`
-                    : phase.title}
+                  {phase.title} · {phase.settledCount}/{phase.members.length}
                 </Text>
                 {phase.members.map(renderMember)}
               </View>
             ))
           : null}
         {canListMembers ? unphased.map(renderMember) : null}
-        <WorkflowScript script={opening.script} kind={opening.scriptKind} />
+        <WorkflowScript script={opening.script} />
       </View>
     </WorkLogBlock>
   );
 }
 
-function WorkflowScript(props: {
-  readonly script: string;
-  readonly kind: WorkflowOpeningValue["scriptKind"];
-}) {
+function WorkflowScript(props: { readonly script: string }) {
   const [expanded, setExpanded] = useState(false);
   const { themeAppearance } = useAppearancePreferences();
   const script = props.script.trimEnd();
@@ -159,7 +152,7 @@ function WorkflowScript(props: {
     code: script,
     language: "javascript",
     theme: themeAppearance,
-    enabled: props.kind === "script",
+    enabled: true,
   });
   const lineCount = script.split("\n").length;
   const canFold = lineCount > FOLDED_SCRIPT_LINES;
@@ -184,13 +177,7 @@ function WorkflowScript(props: {
   return (
     <View className="gap-1">
       <View className="rounded-lg bg-subtle px-3 py-2.5">
-        <Text
-          selectable
-          className={cn(
-            "leading-normal text-foreground",
-            props.kind === "script" ? "font-mono text-2xs" : "text-xs",
-          )}
-        >
+        <Text selectable className="font-mono text-2xs leading-normal text-foreground">
           {highlighted ?? script.split("\n").slice(0, shownLines).join("\n")}
         </Text>
       </View>
@@ -202,7 +189,7 @@ function WorkflowScript(props: {
           className="self-start py-1 active:opacity-70"
         >
           <Text className="font-t3-medium text-xs text-foreground-muted">
-            {expanded ? "Show less" : `Show full ${props.kind}`}
+            {expanded ? "Show less" : "Show full script"}
           </Text>
         </Pressable>
       ) : null}

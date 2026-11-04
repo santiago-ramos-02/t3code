@@ -26,7 +26,6 @@ import type {
 } from "@anthropic-ai/claude-agent-sdk/sdk-tools";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { toolOutputImages } from "@t3tools/shared/toolOutput";
 import {
   ChatAttachmentId,
   type ChatAttachment,
@@ -87,7 +86,6 @@ import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderS
 import { PreviewControlsToolkit } from "../../mcp/toolkits/previewControls/tools.ts";
 import { HtmlToolkit } from "../../mcp/toolkits/html/tools.ts";
 import { EnvironmentToolkit } from "../../mcp/toolkits/environment/tools.ts";
-import { BoatToolkit } from "../../mcp/toolkits/boat/tools.ts";
 import { ProjectToolkit } from "../../mcp/toolkits/project/tools.ts";
 import { WorktreeToolkit } from "../../mcp/toolkits/worktree/tools.ts";
 import { ThreadToolkit } from "../../mcp/toolkits/thread/tools.ts";
@@ -501,45 +499,6 @@ describe("ClaudeAdapterV2 runtime query policy", () => {
   });
 });
 
-describe("ClaudeAdapterV2 session launch", () => {
-  it("loads a Gentle AI off launch beside T3 Code's own MCP server", () => {
-    const options = ClaudeAdapterV2.makeClaudeQueryOptions({
-      modelSelection: CLAUDE_TEST_MODEL_SELECTION,
-      nativeThreadId: "gentle-off-thread",
-      resume: false,
-      cwd: "/workspace",
-      mcpServers: { "t3-code": { type: "http", url: "http://127.0.0.1:1/mcp" } },
-      launch: {
-        settingSources: ["project", "local"],
-        appendSystemPrompt: "# User instructions\n\nPrefer small diffs.",
-        strictMcpConfig: true,
-        mcpServers: { own: { command: "own-mcp" } },
-      },
-    });
-    assert.deepEqual(options.settingSources, ["project", "local"]);
-    assert.isTrue(options.strictMcpConfig);
-    assert.deepEqual(Object.keys(options.mcpServers ?? {}), ["own", "t3-code"]);
-    const append = options.systemPrompt;
-    assert.isTrue(
-      typeof append === "object" &&
-        append !== null &&
-        "append" in append &&
-        String(append.append).endsWith("# User instructions\n\nPrefer small diffs."),
-    );
-  });
-
-  it("keeps every settings source without a launch", () => {
-    const options = ClaudeAdapterV2.makeClaudeQueryOptions({
-      modelSelection: CLAUDE_TEST_MODEL_SELECTION,
-      nativeThreadId: "plain-thread",
-      resume: false,
-      cwd: "/workspace",
-    });
-    assert.isUndefined(options.settingSources);
-    assert.isUndefined(options.strictMcpConfig);
-  });
-});
-
 describe("ClaudeAdapterV2 MCP query overrides", () => {
   const T3_MCP_SERVERS = {
     "t3-code": {
@@ -616,7 +575,6 @@ describe("ClaudeAdapterV2 MCP query overrides", () => {
       ...Object.values(WorktreeToolkit.tools),
       ...Object.values(ProjectToolkit.tools),
       ...Object.values(EnvironmentToolkit.tools),
-      ...Object.values(BoatToolkit.tools),
       ...Object.values(PreviewControlsToolkit.tools),
       ...Object.values(HtmlToolkit.tools),
     ]
@@ -4886,19 +4844,11 @@ describe("ClaudeAdapterV2 background wake turns", () => {
               {
                 type: "tool_result",
                 tool_use_id: id,
-                content: [
-                  { type: "text", text: "Weather result" },
-                  {
-                    type: "image",
-                    source: { type: "base64", media_type: "image/png", data: "iVBORw0KGgo=" },
-                  },
-                ],
+                content: "Weather result",
                 is_error: isError,
               },
             ],
           },
-          tool_use_result:
-            title === undefined ? { screenshot: { mimeType: "image/png" } } : undefined,
         }),
       );
       yield* Queue.offer(
@@ -4931,9 +4881,6 @@ describe("ClaudeAdapterV2 background wake turns", () => {
         assert.deepEqual(item.input, { city: "Berlin" });
       }
       assert.equal(new Set(items.map((item) => item.id)).size, 1);
-      assert.deepEqual(toolOutputImages(items.at(-1)?.output), [
-        { mimeType: "image/png", data: "iVBORw0KGgo=" },
-      ]);
     }).pipe(
       Effect.scoped,
       Effect.provide(

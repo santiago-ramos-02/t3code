@@ -1175,7 +1175,7 @@ function ThreadDetailBody(
     ),
   );
   const layoutVariant = props.layoutVariant ?? "compact";
-  const isSplitLayout = layoutVariant !== "compact";
+  const isSplitLayout = layoutVariant === "split";
   const contentMaxWidth =
     Platform.OS === "android"
       ? ANDROID_READING_MAX_WIDTH
@@ -1755,7 +1755,6 @@ function ThreadDetailBody(
                     >
                       <ProviderSubagentBar
                         provider={providerSubagentProvider ?? null}
-                        agentName={props.selectedThread.lineage.agentName ?? null}
                         modelLabel={
                           providerSubagentCatalogModel?.name ??
                           formatModelSlugName(props.selectedThread.modelSelection.model)
@@ -1804,7 +1803,6 @@ function ThreadDetailBody(
                         connectionState={props.connectionStateLabel}
                         environmentLabel={props.environmentLabel}
                         selectedThread={props.selectedThread}
-                        threadFeed={props.selectedThreadFeed}
                         hasCompactableConversation={
                           hasCompactableConversation && !props.isCompacting
                         }

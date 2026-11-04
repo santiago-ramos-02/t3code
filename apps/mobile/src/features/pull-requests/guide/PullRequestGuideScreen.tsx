@@ -5,7 +5,7 @@ import type { FileDiffMetadata } from "@pierre/diffs";
 import { StackActions, useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import { useEffect } from "react";
 import { Platform, Pressable, View } from "react-native";
-import { AppBar } from "../../../components/ui/AppBar";
+import { AndroidScreenHeader } from "../../../components/ui/AndroidScreenHeader";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   letterStopNotes,
@@ -139,8 +139,7 @@ export function PullRequestGuideStopScreen({ route }: StaticScreenProps<GuideSto
         }}
       />
       {Platform.OS === "android" ? (
-        <AppBar
-          embedded
+        <AndroidScreenHeader
           title={`Stop ${route.params.position + 1}`}
           onBack={() => navigation.goBack()}
           trailing={

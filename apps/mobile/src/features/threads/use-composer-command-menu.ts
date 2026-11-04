@@ -52,7 +52,6 @@ import {
 } from "@t3tools/client-runtime/providerSkills";
 import { useAtomRefresh } from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
-import { resourcesForGentle } from "@t3tools/client-runtime/piGentleComposer";
 import { useEffect, useState } from "react";
 
 import type { ComposerEditorSelection } from "../../components/ComposerEditor";
@@ -222,7 +221,6 @@ export function useComposerCommandMenu({
   hasThread,
   hasCompactableConversation,
   offersUsageLimits = false,
-  gentleEnabled = true,
   enabled = true,
   onChangeDraftMessage,
   onUpdateInteractionMode,
@@ -244,8 +242,6 @@ export function useComposerCommandMenu({
   readonly hasThread: boolean;
   readonly hasCompactableConversation: boolean;
   readonly offersUsageLimits?: boolean;
-  /** A Pi thread with Gentle AI off loads none of its packages, so their commands are hidden. */
-  readonly gentleEnabled?: boolean;
   readonly enabled?: boolean;
   readonly onChangeDraftMessage: (value: string) => void;
   readonly onUpdateInteractionMode?: (mode: ProviderInteractionMode) => void;
@@ -268,10 +264,7 @@ export function useComposerCommandMenu({
     setLocalSelection({ ownerKey, start: next.start, end: next.end });
 
   const skills = selectedProviderStatus
-    ? resourcesForGentle(
-        resolveProviderSkillsForCwd(selectedProviderStatus, projectCwd),
-        gentleEnabled,
-      )
+    ? resolveProviderSkillsForCwd(selectedProviderStatus, projectCwd)
     : [];
   const selectedProviderInstanceId = selectedProviderStatus?.instanceId;
   const refreshWorkspaceSnapshot = useAtomRefresh(
@@ -361,10 +354,7 @@ export function useComposerCommandMenu({
           ? {
               ...selectedProviderStatus,
               slashCommands: getProviderSlashCommandsForSlashMenu(
-                resourcesForGentle(
-                  resolveProviderSlashCommandsForCwd(selectedProviderStatus, projectCwd),
-                  gentleEnabled,
-                ),
+                resolveProviderSlashCommandsForCwd(selectedProviderStatus, projectCwd),
                 visibleSkills,
               ),
             }

@@ -13,7 +13,7 @@ import {
   type ProjectGroupUpdate,
 } from "../../hooks/useProjectGroupUpdate";
 import { Navigate, useLocation, useNavigate } from "@tanstack/react-router";
-import { ChevronRightIcon, InfoIcon, Trash2Icon } from "lucide-react";
+import { InfoIcon, Trash2Icon } from "lucide-react";
 import { lazy, Suspense, useRef, useState, type ReactNode } from "react";
 
 import { useComposerDraftStore } from "../../composerDraftStore";
@@ -604,31 +604,6 @@ function ProjectDetail({
                   Choose file
                 </Button>
               </div>
-            }
-          />
-          <SettingsRow
-            title="Gentle AI"
-            description="Review, Pi profile, and tools for this project."
-            control={
-              <Button
-                size="sm"
-                variant="outline"
-                type="button"
-                // The project stays chosen, so the page opens on this project's settings.
-                onClick={() =>
-                  void navigate({
-                    to: "/settings/gentle-ai",
-                    search: (previous) => ({
-                      project: previous.project,
-                      machine: previous.machine,
-                      checkout: previous.checkout,
-                    }),
-                  })
-                }
-              >
-                Open
-                <ChevronRightIcon aria-hidden />
-              </Button>
             }
           />
           {canOrganize ? (

@@ -61,25 +61,6 @@ function selections(
 }
 
 describe("getComposerProviderState", () => {
-  it("retains a thread's Gentle AI choice alongside model options", () => {
-    const state = getComposerProviderState({
-      provider: ProviderDriverKind.make("codex"),
-      model: MODEL,
-      models: modelWith([
-        selectDescriptor("thinkingLevel", [
-          { id: "low", label: "Low" },
-          { id: "high", label: "High" },
-        ]),
-      ]),
-      modelOptions: selections(["thinkingLevel", "low"], ["gentleAi", false]),
-      planModeEnabled: true,
-    });
-
-    expect(state.modelOptionsForDispatch).toEqual(
-      selections(["thinkingLevel", "low"], ["gentleAi", false]),
-    );
-  });
-
   it("uses descriptor defaults for display without dispatching them as overrides", () => {
     const state = getComposerProviderState({
       provider: PROVIDER,

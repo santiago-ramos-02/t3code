@@ -56,7 +56,6 @@ import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
-import { sandboxIdOfBoatInstance } from "./Adapters/BoatAdapterV2.ts";
 import * as CommandReceiptStore from "./CommandReceiptStore.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
@@ -403,7 +402,6 @@ export interface ThreadManagementServiceShape {
     ProjectionRecords<K>,
     ThreadManagementProjectionLoadError | ThreadManagementThreadNotFoundError
   >;
-  readonly getAgentAwarenessSnapshot: Orchestrator.OrchestratorV2["Service"]["getAgentAwarenessSnapshot"];
   readonly getShellSnapshot: (
     options?: Pick<
       ShellSnapshotOptions,
@@ -579,15 +577,6 @@ const make = Effect.gen(function* () {
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const receipts = yield* CommandReceiptStore.CommandReceiptStoreV2;
 
-  // A Boat machine is named by its instance id alone and has no settings entry to switch off.
-  const isInstanceEnabled = (
-    settings: Parameters<typeof resolveProjectProviderInstanceEnabled>[0],
-    projectId: ProjectId,
-    instanceId: ProviderInstanceId,
-  ) =>
-    sandboxIdOfBoatInstance(instanceId) !== undefined ||
-    resolveProjectProviderInstanceEnabled(settings, projectId, instanceId);
-
   const assertProviderInstanceEnabled: ThreadManagementServiceShape["assertProviderInstanceEnabled"] =
     (input) =>
       receipts.getByCommandId(input.commandId).pipe(
@@ -598,7 +587,7 @@ const make = Effect.gen(function* () {
             : serverSettings.getSettings.pipe(
                 Effect.orDie,
                 Effect.flatMap((current) =>
-                  isInstanceEnabled(current, input.projectId, input.instanceId)
+                  resolveProjectProviderInstanceEnabled(current, input.projectId, input.instanceId)
                     ? Effect.void
                     : new ThreadManagementProviderInstanceDisabledError({
                         projectId: input.projectId,
@@ -613,7 +602,9 @@ const make = Effect.gen(function* () {
     (input) =>
       serverSettings.getSettings.pipe(
         Effect.orDie,
-        Effect.map((current) => isInstanceEnabled(current, input.projectId, input.instanceId)),
+        Effect.map((current) =>
+          resolveProjectProviderInstanceEnabled(current, input.projectId, input.instanceId),
+        ),
       );
 
   const hasReceipt: ThreadManagementServiceShape["hasReceipt"] = (commandId) =>
@@ -1529,7 +1520,6 @@ const make = Effect.gen(function* () {
     getThreadTranscript,
     getThreadSnapshotWindow,
     getProjectThreadRecords,
-    getAgentAwarenessSnapshot: orchestrator.getAgentAwarenessSnapshot,
     getShellSnapshot: orchestrator.getShellSnapshot,
     listActiveSubagentThreadIds: orchestrator.listActiveSubagentThreadIds,
     countThreads: orchestrator.countThreads,

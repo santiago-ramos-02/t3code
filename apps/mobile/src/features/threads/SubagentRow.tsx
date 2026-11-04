@@ -26,7 +26,6 @@ type SubagentRowSubagent = Pick<
   | "driver"
   | "providerInstanceId"
   | "title"
-  | "agentName"
   | "prompt"
   | "status"
   | "progress"
@@ -160,8 +159,6 @@ function SubagentMetadata(props: {
         />
       )}
       <Text className="min-w-0 shrink text-xs text-foreground-muted" numberOfLines={1}>
-        {/* A named agent, such as Gentle AI's odd-explorer, leads what the subagent runs as. */}
-        {subagent.agentName ? `${subagent.agentName} · ` : ""}
         {provider ? `${resolveProviderInstanceDisplayName(provider)} · ` : ""}
         {modelLabel}
       </Text>

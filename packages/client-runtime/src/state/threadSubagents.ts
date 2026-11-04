@@ -2,11 +2,7 @@ import * as DateTime from "effect/DateTime";
 import type { OrchestrationV2Subagent, OrchestrationV2ThreadProjection } from "@t3tools/contracts";
 import { copySorted } from "@t3tools/shared/Array";
 
-import {
-  isActiveSubagentStatus,
-  isTerminalSubagentStatus,
-  projectedSubagentsToRuntime,
-} from "./subagentRuntime.ts";
+import { isActiveSubagentStatus, isTerminalSubagentStatus } from "./subagentRuntime.ts";
 import { resolveActiveThreadRun } from "./threadWorkflows.ts";
 
 type Projection = OrchestrationV2ThreadProjection;
@@ -19,8 +15,6 @@ export interface ThreadTurnSubagents {
   /** No later turn has run since these agents' turn. */
   readonly latestTurn: boolean;
   readonly subagents: ReadonlyArray<Subagent>;
-  /** The agents behind the subagents: a workflow counts as its members, not as one agent. */
-  readonly agentCount: number;
   readonly liveCount: number;
   readonly settledCount: number;
 }
@@ -80,27 +74,17 @@ export function deriveThreadTurnSubagents(
   );
   if (subagents.length === 0) return null;
 
-  // A workflow with no members yet stands in for them.
-  const coordinatorsWithMembers = new Set<string>(
-    subagents.flatMap((subagent) =>
-      (subagent.workflow?.agents.length ?? 0) > 0 ? [subagent.id] : [],
-    ),
-  );
-  const agents = projectedSubagentsToRuntime(subagents).filter(
-    (agent) => !coordinatorsWithMembers.has(agent.id),
-  );
   let liveCount = 0;
   let settledCount = 0;
-  for (const agent of agents) {
-    if (isActiveSubagentStatus(agent.status)) liveCount += 1;
-    else if (isTerminalSubagentStatus(agent.status)) settledCount += 1;
+  for (const subagent of subagents) {
+    if (isActiveSubagentStatus(subagent.status)) liveCount += 1;
+    else if (isTerminalSubagentStatus(subagent.status)) settledCount += 1;
   }
   return {
     runId,
     turnActive: activeRun !== null,
     latestTurn: runId === null || latestStartedRun === null || runId === latestStartedRun.id,
     subagents,
-    agentCount: agents.length,
     liveCount,
     settledCount,
   };
@@ -119,7 +103,7 @@ export function resolveSubagentPillSegment(
   ) {
     return null;
   }
-  const total = turn.agentCount;
+  const total = turn.subagents.length;
   if (turn.liveCount > 0) {
     return {
       label: `${turn.liveCount}/${total}`,

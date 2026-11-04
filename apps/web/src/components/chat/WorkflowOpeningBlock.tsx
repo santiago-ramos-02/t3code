@@ -1,9 +1,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import {
   isTerminalSubagentStatus,
-  isWorkflowPhaseStarted,
   workflowOpeningHeadline,
-  workflowPhaseSpan,
   type RuntimeSubagent,
   type WorkflowOpening,
 } from "@t3tools/client-runtime/state/subagentRuntime";
@@ -44,7 +42,7 @@ export function WorkflowOpeningBlock(props: {
   const { opening } = props;
   const providers = useAtomValue(providersIgnoringCheckedAtAtom(props.environmentId));
   const headline = workflowOpeningHeadline(opening);
-  const phases = opening.group?.phases.filter(isWorkflowPhaseStarted) ?? [];
+  const phases = opening.group?.phases.filter((phase) => phase.members.length > 0) ?? [];
   const memberRow = (member: RuntimeSubagent) =>
     opening.providerInstanceId === null ? null : (
       <WorkflowMemberRow
@@ -88,15 +86,9 @@ export function WorkflowOpeningBlock(props: {
             <span className="min-w-0 truncate" data-thread-find-text="true">
               {phase.title}
             </span>
-            {phase.members.length > 0 ? (
-              <span className="shrink-0 font-normal tabular-nums">
-                {phase.settledCount}/{phase.members.length}
-              </span>
-            ) : (
-              <span className="shrink-0 font-normal tabular-nums empty:hidden">
-                <AgentElapsed agent={workflowPhaseSpan(phase)} />
-              </span>
-            )}
+            <span className="shrink-0 font-normal tabular-nums">
+              {phase.settledCount}/{phase.members.length}
+            </span>
           </h4>
           <ul className="m-0 list-none p-0">{phase.members.map(memberRow)}</ul>
         </section>
@@ -104,7 +96,7 @@ export function WorkflowOpeningBlock(props: {
       {opening.group && opening.group.unphasedMembers.length > 0 ? (
         <ul className="m-0 list-none p-0">{opening.group.unphasedMembers.map(memberRow)}</ul>
       ) : null}
-      <WorkflowScript script={opening.script} kind={opening.scriptKind} />
+      <WorkflowScript script={opening.script} />
     </section>
   );
 }
@@ -207,10 +199,7 @@ function WorkflowMemberRow(props: {
   );
 }
 
-function WorkflowScript(props: {
-  readonly script: string;
-  readonly kind: WorkflowOpening["scriptKind"];
-}) {
+function WorkflowScript(props: { readonly script: string }) {
   const [expanded, setExpanded] = useState(false);
   const revealRef = findRevealRef(() => setExpanded(true));
   const canFold = shouldCollapseUserMessage(props.script);
@@ -228,10 +217,7 @@ function WorkflowScript(props: {
             : undefined
         }
       >
-        <ChatMarkdown
-          text={props.kind === "script" ? scriptMarkdown(props.script) : props.script}
-          cwd={undefined}
-        />
+        <ChatMarkdown text={scriptMarkdown(props.script)} cwd={undefined} />
       </div>
       {canFold ? (
         <div className="-ms-1">
@@ -243,7 +229,7 @@ function WorkflowScript(props: {
             data-scroll-anchor-ignore
             onClick={() => setExpanded((value) => !value)}
           >
-            {expanded ? "Show less" : `Show full ${props.kind}`}
+            {expanded ? "Show less" : "Show full script"}
           </Button>
         </div>
       ) : null}

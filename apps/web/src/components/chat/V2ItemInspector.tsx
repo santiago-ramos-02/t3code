@@ -1,7 +1,6 @@
 import type { ToolCallDiffTarget } from "../../diffPanelStore";
 import type { EnvironmentId, OrchestrationV2ProjectedTurnItem } from "@t3tools/contracts";
 import {
-  isJsonToolText,
   toolCallLines,
   turnItemDetailRevision,
   turnItemNeedsDetailFetch,
@@ -44,7 +43,7 @@ function SyntaxTokens({
   language,
 }: {
   readonly text: string;
-  readonly language: "json" | "typescript" | "html";
+  readonly language: "json" | "typescript";
 }) {
   const resolvedTheme = useRenderedAppearance();
   const highlighter = use(getSyntaxHighlighterPromise(language));
@@ -65,6 +64,16 @@ function SyntaxTokens({
 const monoClassName =
   "font-mono text-(length:--font-size-code,var(--text-2xs)) leading-relaxed whitespace-pre-wrap break-words select-text";
 
+function isJsonText(text: string): boolean {
+  if (!text) return false;
+  try {
+    JSON.parse(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function StructuredValue({
   value,
   highlightJson = false,
@@ -72,10 +81,10 @@ function StructuredValue({
 }: {
   readonly value: unknown;
   readonly highlightJson?: boolean;
-  readonly language?: "typescript" | "html" | "json";
+  readonly language?: "typescript";
 }) {
   const text = typeof value === "string" ? value : JSON.stringify(value, null, 2);
-  const isJson = highlightJson && isJsonToolText(text);
+  const isJson = highlightJson && isJsonText(text);
   if (!text) return null;
   return (
     <pre className={cn("max-h-80 overflow-auto text-muted-foreground", monoClassName)}>
@@ -141,8 +150,8 @@ interface ToolOutputState {
   readonly onImageExpand?: ((preview: ExpandedImagePreview) => void) | undefined;
 }
 
-function ToolOutputImages(props: ToolOutputState) {
-  return props.images.map((resource) => (
+function ToolOutput(props: ToolOutputState) {
+  const images = props.images.map((resource) => (
     <ChatMarkdownAssetImage
       key={resource.index}
       environmentId={props.environmentId}
@@ -152,18 +161,21 @@ function ToolOutputImages(props: ToolOutputState) {
       onImageExpand={props.onImageExpand}
     />
   ));
-}
-
-function ToolOutput(props: ToolOutputState) {
-  return props.output ? (
-    <StructuredValue value={props.output} highlightJson />
+  const text = props.output ? (
+    <div className="max-h-80 overflow-auto text-muted-foreground">{props.output}</div>
   ) : props.pending ? (
     <div className="text-muted-foreground italic">Loading output…</div>
   ) : props.error ? (
     <div className="text-destructive">Couldn&apos;t load output: {props.error}</div>
-  ) : props.empty && props.images.length === 0 ? (
+  ) : props.empty && images.length === 0 ? (
     <div className="text-muted-foreground italic">No output.</div>
   ) : null;
+  return (
+    <>
+      {images}
+      {text}
+    </>
+  );
 }
 
 export function FetchedToolOutput(props: {
@@ -175,7 +187,6 @@ export function FetchedToolOutput(props: {
   const { output } = useFetchedTurnItem(props.projectedItem, props.environmentId, props.source);
   return (
     <div className={cn("mt-1.5 space-y-1.5", monoClassName)}>
-      <ToolOutputImages {...output} onImageExpand={props.onImageExpand} />
       <ToolOutput {...output} onImageExpand={props.onImageExpand} />
     </div>
   );
@@ -194,19 +205,14 @@ function ToolCallBody(
   const call = toolCallLines({ command: props.command, args: props.args });
   return (
     <div className={cn("space-y-1.5", monoClassName)}>
-      <ToolOutputImages {...props} />
       {call.command ? <ShellCommandBlock command={call.command} /> : null}
       {call.args ? (
         <div className="text-foreground/85">
           {call.args.map(([key, value]) => (
             <div key={key}>
               <span className="text-muted-foreground">{key} </span>
-              {key === "html" ? (
-                <StructuredValue value={value} language="html" />
-              ) : key === "code" && isJavaScriptReplTool(props.toolName) ? (
+              {key === "code" && isJavaScriptReplTool(props.toolName) ? (
                 <StructuredValue value={value} language="typescript" />
-              ) : isJsonToolText(value) ? (
-                <StructuredValue value={value} language="json" />
               ) : (
                 value
               )}

@@ -3,8 +3,7 @@
 Home and thread routes share the [root native stack](../../apps/mobile/src/Stack.tsx)
 so UIKit can animate the header within one navigation controller. The iPad sidebar
 has its own stack. Splitting Home and threads between controllers loses that
-continuous transition. How the stack becomes columns, sheets and panes is in
-[Mobile layout](./mobile-layout.md).
+continuous transition.
 
 ## Selecting versus drilling in
 

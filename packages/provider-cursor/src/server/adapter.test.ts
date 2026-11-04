@@ -1,10 +1,8 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import type { InteractionUpdate } from "@cursor/sdk";
-import { toolOutputImages } from "@t3tools/shared/toolOutput";
 import {
   EnvironmentId,
-  GENTLE_AI_OPTION_ID,
   MessageId,
   NodeId,
   ProjectId,
@@ -846,18 +844,7 @@ describe("CursorAdapterV2", () => {
               args: { city: "Berlin" },
             },
             ...(type === "tool-call-completed"
-              ? {
-                  result: {
-                    status: "success" as const,
-                    value: {
-                      content: [
-                        { text: { text: "Preview complete" } },
-                        { image: { data: "iVBORw0KGgo=", mimeType: "image/png" } },
-                      ],
-                      isError: false,
-                    },
-                  },
-                }
+              ? { result: { status: "success" as const, value: { content: [], isError: false } } }
               : {}),
           },
         })),
@@ -1168,9 +1155,6 @@ describe("CursorAdapterV2", () => {
         });
         assert.deepEqual(item.input, { city: "Berlin" });
       }
-      assert.deepEqual(toolOutputImages(mcpItems.at(-1)?.output), [
-        { mimeType: "image/png", data: "iVBORw0KGgo=" },
-      ]);
       const fileSearchItems = events.flatMap((event) =>
         event.type === "turn_item.updated" &&
         event.turnItem.type === "file_search" &&
@@ -1745,22 +1729,6 @@ describe("CursorAdapterV2", () => {
         sandboxEnabled: true,
       },
     );
-  });
-
-  it("skips the user and plugin layers for a thread with Gentle AI off", () => {
-    // gentle-ai installs its Cursor rules, skills, and MCP servers there.
-    const options = makeCursorAgentOptions({
-      modelSelection: {
-        instanceId: ProviderInstanceId.make("cursor"),
-        model: "composer-2.5",
-        options: [{ id: GENTLE_AI_OPTION_ID, value: false }],
-      },
-      runtimePolicy: { runtimeMode: "full-access", interactionMode: "default", cwd: "/workspace" },
-      threadId: ThreadId.make("thread-cursor-gentle-off"),
-      mcpSession: undefined,
-      platform: "linux",
-    });
-    assert.deepEqual(options.local?.settingSources, ["project", "team", "mdm"]);
   });
 
   it("injects thread-scoped MCP credentials without logging them", () => {

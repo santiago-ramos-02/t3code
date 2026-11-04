@@ -1,19 +1,28 @@
 import { useNativeWorkspaceColumnsSupported } from "../../native/NativeWorkspaceColumns";
+import { useAdaptiveWorkspaceLayout } from "./AdaptiveWorkspaceLayout";
 import { withNativeGlassHeaderItem } from "./native-glass-header-items";
-import { useSidebarToggle } from "./useSidebarToggle";
 
-/** `useSidebarToggle` as a native header item. */
 export function useWorkspaceSidebarHeaderItem() {
   const usesNativeWorkspaceColumns = useNativeWorkspaceColumnsSupported();
-  const toggle = useSidebarToggle();
-  if (!toggle) return null;
+  const { layout, panes, togglePrimarySidebar } = useAdaptiveWorkspaceLayout();
+  const label = panes.primarySidebarVisible
+    ? layout.primarySidebarOverlaysContent
+      ? "Hide thread sidebar"
+      : "Maximize content"
+    : "Show thread sidebar";
   return withNativeGlassHeaderItem({
     axisBehavior: usesNativeWorkspaceColumns ? "horizontalOnly" : undefined,
-    accessibilityLabel: toggle.accessibilityLabel,
-    icon: { name: toggle.icon, type: "sfSymbol" as const },
+    accessibilityLabel: label,
+    icon: {
+      name:
+        panes.primarySidebarVisible && !layout.primarySidebarOverlaysContent
+          ? "arrow.up.left.and.arrow.down.right"
+          : "sidebar.left",
+      type: "sfSymbol" as const,
+    },
     identifier: "thread-left-sidebar",
-    label: toggle.accessibilityLabel,
-    onPress: toggle.onPress,
+    label,
+    onPress: togglePrimarySidebar,
     type: "button" as const,
   });
 }

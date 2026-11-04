@@ -155,8 +155,6 @@ export const OrchestrationV2AppThreadLineage = Schema.Struct({
   parentThreadId: Schema.NullOr(ThreadId),
   relationshipToParent: Schema.NullOr(Schema.Literals(["fork", "subagent"])),
   rootThreadId: ThreadId,
-  /** The named agent a subagent thread runs as, such as Gentle AI's `gentle-ai-worker`. */
-  agentName: Schema.optional(Schema.String),
   sideChat: Schema.optional(Schema.Boolean),
 });
 export type OrchestrationV2AppThreadLineage = typeof OrchestrationV2AppThreadLineage.Type;
@@ -804,10 +802,6 @@ export type OrchestrationV2ExecutionNode = typeof OrchestrationV2ExecutionNode.T
 export const OrchestrationV2WorkflowPhase = Schema.Struct({
   index: NonNegativeInt,
   title: TrimmedNonEmptyString,
-  // The coordinator's own work in the phase, which can have no members; epoch milliseconds.
-  startedAt: Schema.optional(NonNegativeInt),
-  /** Unset while the coordinator is still in the phase. */
-  completedAt: Schema.optional(NonNegativeInt),
 });
 export type OrchestrationV2WorkflowPhase = typeof OrchestrationV2WorkflowPhase.Type;
 
@@ -902,9 +896,6 @@ export const OrchestrationV2Subagent = Schema.Struct({
   nativeTaskRef: Schema.NullOr(OrchestrationV2ProviderRef),
   prompt: Schema.String,
   title: Schema.NullOr(Schema.String),
-  // The named agent a provider ran it as, such as Gentle AI's odd-explorer. Shown beside the
-  // title, never in it, so thread names stay what the subagent was asked to do.
-  agentName: Schema.optional(TrimmedNonEmptyString),
   model: Schema.NullOr(Schema.String),
   modelSelection: Schema.optional(ModelSelection),
   completionWake: Schema.optional(Schema.Literals(["always", "settled_only"])),

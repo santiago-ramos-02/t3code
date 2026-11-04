@@ -1,4 +1,3 @@
-import { usePaneRole } from "../../components/ui/Pane";
 import { Button } from "../../components/ui/Button";
 import {
   applyPullRequestDraftFilterChange,
@@ -187,8 +186,7 @@ export function PullRequestsScreen(
     connectedTargets.map((target) => target.environmentId),
     result.updateEntry,
   );
-  const paneRole = usePaneRole();
-  const sidebar = props.sidebar === true || (primaryColumn !== null && paneRole === "sidebar");
+  const sidebar = props.sidebar === true || primaryColumn !== null;
   const selectedKey = props.selectedPullRequestKey ?? primaryColumn?.selectedPullRequestKey;
   const connectedKey = connectedTargets.map((target) => target.environmentId).join("\n");
   const entries = useMemo(

@@ -1,5 +1,4 @@
 import { CodexSettings, ProviderDriverKind } from "@t3tools/contracts";
-import { makeCodexGentleOffSession } from "../../gentleAi/GentleAiSessions.ts";
 import * as Digest from "effect/crypto/Digest";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
@@ -12,7 +11,6 @@ import { ChildProcessSpawner } from "effect/process";
 import type * as CodexUsageHistory from "../../usage/CodexUsageHistory.ts";
 import { makeCodexTextGeneration } from "../../textGeneration/CodexTextGeneration.ts";
 import * as ProviderLatestVersions from "@t3tools/provider-core/server/ProviderLatestVersions";
-import { makeGentleReviewers } from "../../orchestration-v2/Adapters/GentleReviewers.ts";
 import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 import * as ServerConfig from "../../config.ts";
 import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
@@ -214,8 +212,6 @@ export const CodexDriver: ProviderDriver<
       },
       {
         onUsageLimits: (update) => snapshot.applyUsageLimits(update),
-        prepareSession: yield* makeCodexGentleOffSession(DRIVER_KIND),
-        gentleReviewers: yield* makeGentleReviewers,
         compatibility: installation.compatibility,
       },
     ).pipe(

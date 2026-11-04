@@ -179,12 +179,10 @@ it("keeps a focused inspector registered across renders and updates its content"
   const deactivate = vi.fn(() => {
     activeRender = undefined;
   });
-  const registerWorkspaceInspector = vi.fn(
-    (content: { readonly panes: ReadonlyArray<{ readonly render: () => React.ReactNode }> }) => {
-      activeRender = content.panes[0]?.render;
-      return deactivate;
-    },
-  );
+  const registerWorkspaceInspector = vi.fn((render: () => React.ReactNode) => {
+    activeRender = render;
+    return deactivate;
+  });
   const navigation = {
     isFocused: () => focused,
     addListener(event: "focus" | "blur", listener: () => void) {
@@ -223,12 +221,7 @@ it("keeps a focused inspector registered across renders and updates its content"
     },
   );
   const exports: {
-    Inspector?: (props: {
-      readonly content: {
-        readonly active: string;
-        readonly panes: ReadonlyArray<{ readonly key: string; readonly render: () => string }>;
-      };
-    }) => null;
+    useRegisterWorkspaceInspector?: (render: (() => React.ReactNode) | undefined) => void;
   } = {};
   const load = (name: string) => {
     if (name === "react" || name.startsWith("react/")) return requireMobile(name);
@@ -240,26 +233,22 @@ it("keeps a focused inspector registered across renders and updates its content"
       return {
         NavigationContext: navigationContext,
         NavigationRouteContext: routeContext,
+        useFocusEffect: (callback: () => (() => void) | undefined) =>
+          React.useEffect(callback, [callback]),
       };
     return {};
   };
   new Function("require", "exports", compiled.code)(load, exports);
-  const Inspector = exports.Inspector!;
-  const contents = new Map<string, Parameters<typeof Inspector>[0]["content"]>();
-  function Screen({ content }: { content: string | undefined }) {
-    if (content === undefined) return null;
-    let panes = contents.get(content);
-    if (!panes) {
-      panes = { active: "main", panes: [{ key: "main", render: () => content }] };
-      contents.set(content, panes);
-    }
-    return <Inspector content={panes} />;
+  const useRegisterWorkspaceInspector = exports.useRegisterWorkspaceInspector!;
+  function Screen({ render }: { render: (() => React.ReactNode) | undefined }) {
+    useRegisterWorkspaceInspector(render);
+    return null;
   }
   const root = createRoot(document.createElement("div"));
   using _root = { [Symbol.dispose]: () => act(() => root.unmount()) };
-  const render = (content: string | undefined) =>
-    act(() => root.render(<Screen content={content} />));
-  const first = "first";
+  const render = (content: (() => React.ReactNode) | undefined) =>
+    act(() => root.render(<Screen render={content} />));
+  const first = () => "first";
   render(first);
   registerWorkspaceInspector.mockClear();
   deactivate.mockClear();
@@ -267,7 +256,7 @@ it("keeps a focused inspector registered across renders and updates its content"
   render(first);
   expect(registerWorkspaceInspector).not.toHaveBeenCalled();
   expect(deactivate).not.toHaveBeenCalled();
-  const second = "second";
+  const second = () => "second";
   render(second);
   expect(registerWorkspaceInspector).toHaveBeenCalledTimes(1);
   const paneContainer = document.createElement("div");

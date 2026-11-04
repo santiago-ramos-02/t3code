@@ -180,9 +180,6 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
     return null;
   }
 
-  const header =
-    activeQuestion.header === activeQuestion.question ? "Question" : activeQuestion.header;
-
   const promptDirection = markdownProseDirection(
     prompt.questions
       .flatMap((question) => [
@@ -213,9 +210,9 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
         <ComposerBanner.Content>
           <span
             className={cn("min-w-0 truncate text-muted-foreground", isCollapsed && "max-w-1/2")}
-            dir={textDirection(header)}
+            dir={textDirection(activeQuestion.header)}
           >
-            {header}
+            {activeQuestion.header}
           </span>
           {isCollapsed ? (
             <>

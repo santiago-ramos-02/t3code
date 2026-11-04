@@ -7,7 +7,7 @@ import { useState } from "react";
 import { Platform, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { AppBar } from "../../components/ui/AppBar";
+import { AndroidScreenHeader } from "../../components/ui/AndroidScreenHeader";
 import { useRemoteConnections } from "../../state/use-remote-environment-registry";
 import { LocalEnvironmentList } from "./LocalEnvironmentList";
 import { PullRequestRoutingSettings } from "./PullRequestRoutingSettings";
@@ -31,8 +31,7 @@ export function ConnectionsRouteScreen() {
   return (
     <View collapsable={false} className="flex-1 bg-sheet">
       {Platform.OS === "android" ? (
-        <AppBar
-          embedded
+        <AndroidScreenHeader
           title="Environments"
           onBack={() => navigation.goBack()}
           actions={[

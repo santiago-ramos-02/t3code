@@ -28,6 +28,4 @@ export interface ProviderMaintenanceCommandAction {
   readonly lockKey: string;
   /** The provider's environment, including its PATH and custom home. */
   readonly env?: NodeJS.ProcessEnv;
-  /** Installs a provider that is missing, rather than updating one that is installed. */
-  readonly installs?: true;
 }

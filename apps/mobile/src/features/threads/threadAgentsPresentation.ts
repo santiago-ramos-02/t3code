@@ -130,33 +130,23 @@ function railTone(members: ReadonlyArray<RuntimeSubagent>): WorkflowRailTone {
 }
 
 export function workflowRail(group: SubagentWorkflowGroup): ReadonlyArray<WorkflowRailItem> {
-  const item = (
-    key: string,
-    title: string,
-    members: ReadonlyArray<RuntimeSubagent>,
-    tone: WorkflowRailTone = railTone(members),
-  ): WorkflowRailItem => ({
-    key,
-    title,
-    members,
-    completedCount: members.filter((member) => member.status === "completed").length,
-    tone,
-  });
-  const items = group.phases.map((phase) =>
-    // A phase the coordinator works in alone has no members to take its tone from.
-    phase.members.length === 0 && phase.state !== "pending"
-      ? item(
-          String(phase.index),
-          phase.title,
-          phase.members,
-          phase.state === "running" ? "working" : "completed",
-        )
-      : item(String(phase.index), phase.title, phase.members),
-  );
+  const items = group.phases.map((phase) => ({
+    key: String(phase.index),
+    title: phase.title,
+    members: phase.members,
+  }));
   if (group.unphasedMembers.length > 0) {
-    items.push(item("unphased", items.length === 0 ? "Agents" : "Other", group.unphasedMembers));
+    items.push({
+      key: "unphased",
+      title: items.length === 0 ? "Agents" : "Other",
+      members: group.unphasedMembers,
+    });
   }
-  return items;
+  return items.map((item) => ({
+    ...item,
+    completedCount: item.members.filter((member) => member.status === "completed").length,
+    tone: railTone(item.members),
+  }));
 }
 
 export function nextWorkflowSelection(

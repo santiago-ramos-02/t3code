@@ -41,8 +41,6 @@ import * as SecretRequests from "../secrets/SecretRequests.ts";
 import * as RemoteDelegation from "../peer/RemoteDelegation.ts";
 import * as SourceControlRepositoryService from "../sourceControl/SourceControlRepositoryService.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
-import * as BoatMachines from "../boat/BoatMachines.ts";
-import * as GentleAi from "../gentleAi/GentleAi.ts";
 import * as McpHttpServer from "./McpHttpServer.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
 import * as PeerForwarding from "../peer/PeerForwarding.ts";
@@ -170,13 +168,7 @@ const layerTools = Layer.mergeAll(
   Layer.provide(
     Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({ namedProjectsRoot: "/p" }),
   ),
-  Layer.provide(
-    Layer.mergeAll(
-      Layer.mock(GitVcsDriver.GitVcsDriver)({}),
-      Layer.mock(BoatMachines.BoatMachines)({}),
-      Layer.mock(GentleAi.GentleAi)({ current: Effect.succeed(GentleAi.NOT_INSTALLED) }),
-    ),
-  ),
+  Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
   Layer.provide(
     Layer.mock(SourceControlRepositoryService.SourceControlRepositoryService)({
       cloneRepository: (input) =>

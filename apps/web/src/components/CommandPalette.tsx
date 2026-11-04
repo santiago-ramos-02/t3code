@@ -54,7 +54,6 @@ import {
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import {
   ArrowLeftIcon,
-  BrainIcon,
   BugIcon,
   ChartNoAxesColumnIcon,
   CheckIcon,
@@ -128,7 +127,6 @@ import { reportProjectFailure, useProjectPin } from "../hooks/useProjectGroupUpd
 import {
   useEnvironmentProviders,
   useEnvironments,
-  useMemoryEnvironments,
   usePrimaryEnvironmentId,
 } from "../state/environments";
 import {
@@ -462,7 +460,6 @@ function OpenCommandPaletteDialog(props: {
   const { environments } = useEnvironments();
   const desktopLocalBootstraps = useDesktopLocalBootstraps();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
-  const memorySupported = useMemoryEnvironments().length > 0;
   const availableSettingsSearchItems = useAvailableSettingsSearchItems();
   const { activeDraftThread, activeThread, defaultProjectRef, handleNewThread } =
     useHandleNewThread();
@@ -1586,20 +1583,6 @@ function OpenCommandPaletteDialog(props: {
       await navigate({ to: "/usage" });
     },
   });
-
-  if (memorySupported) {
-    actionItems.push({
-      kind: "action",
-      value: "action:memory",
-      searchTerms: ["memory", "engram", "remember", "brain", "learned", "obsidian"],
-      title: "Open memory",
-      icon: <BrainIcon className={ITEM_ICON_CLASS} />,
-      shortcutCommand: "memory.open",
-      run: async () => {
-        await navigate({ to: "/memory" });
-      },
-    });
-  }
 
   for (const direction of [1, -1] as const) {
     const title = direction === 1 ? "Focus Next Workspace Area" : "Focus Previous Workspace Area";

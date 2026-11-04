@@ -58,7 +58,7 @@ export function useSystemWorkspaceTabBar() {
   return (
     Platform.OS === "ios" &&
     deviceType !== "pad" &&
-    layout.variant !== "medium" &&
+    !layout.primarySidebarOverlaysContent &&
     sidebarTabs === null &&
     !compactTabs
   );

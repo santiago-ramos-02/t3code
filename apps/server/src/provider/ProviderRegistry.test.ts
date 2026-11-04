@@ -6,7 +6,6 @@ import * as CodexManagedTokenBroker from "./CodexManagedTokenBroker.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import type { ModelInfo } from "@anthropic-ai/claude-agent-sdk";
 import { describe, it, assert, expect } from "@effect/vitest";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
@@ -45,7 +44,6 @@ import { createModelCapabilities } from "@t3tools/shared/model";
 import { applyServerSettingsPatch } from "@t3tools/shared/serverSettings";
 
 import { checkCodexProviderStatus, type CodexAppServerProviderSnapshot } from "./CodexProvider.ts";
-import { BUNDLED_CLAUDE_MODEL_CATALOG } from "./ClaudeModelCatalog.ts";
 import { checkClaudeProviderStatus } from "./ClaudeProvider.ts";
 import * as BackgroundPolicy from "../background/BackgroundPolicy.ts";
 import * as AntigravityInstallation from "./AntigravityInstallation.ts";
@@ -177,7 +175,6 @@ type TestClaudeCapabilities = {
   readonly apiKeySource: string | undefined;
   readonly apiProvider: string | undefined;
   readonly slashCommands: ReadonlyArray<ServerProviderSlashCommand>;
-  readonly models?: ReadonlyArray<ModelInfo>;
 };
 
 function claudeCapabilities(overrides: Partial<TestClaudeCapabilities> = {}) {
@@ -732,42 +729,6 @@ it.layer(
       assert.deepStrictEqual(
         failedRefresh.workspaceSnapshots?.[1]?.optionDescriptors,
         optionDescriptors,
-      );
-    });
-
-    it("stores a workspace model catalog only when it differs from the machine catalog", () => {
-      const model = {
-        slug: "project-provider/project-model",
-        name: "Project Model",
-        subProvider: "project-provider",
-        isCustom: false,
-        capabilities: null,
-      } as const;
-      const provider = {
-        instanceId: ProviderInstanceId.make("pi"),
-        driver: ProviderDriverKind.make("pi"),
-        status: "ready",
-        enabled: true,
-        installed: true,
-        auth: { status: "authenticated" },
-        checkedAt: "2026-03-25T00:00:00.000Z",
-        version: "0.87.1",
-        models: [],
-        slashCommands: [],
-        skills: [],
-      } satisfies ServerProvider;
-      const scoped = { ...provider, models: [model] } satisfies ServerProvider;
-
-      const result = ProviderRegistry.upsertProviderWorkspaceSnapshot(provider, "/project", scoped);
-
-      assert.deepStrictEqual(result.models, []);
-      assert.deepStrictEqual(result.workspaceSnapshots?.[0]?.models, [model]);
-      assert.deepStrictEqual(
-        ProviderRegistry.mergeProviderSnapshot(result, {
-          ...provider,
-          checkedAt: "2026-03-25T00:02:00.000Z",
-        }).workspaceSnapshots,
-        undefined,
       );
     });
 
@@ -3074,143 +3035,9 @@ it.layer(
           assert.notInclude(unavailable, "ghost_stale");
         }),
     );
-    it.effect("registers the default Pi instance as an available provider", () =>
-      Effect.gen(function* () {
-        const serverSettings = yield* makeMutableServerSettingsService({
-          ...decodeServerSettings(encodedDefaultServerSettings),
-          providerInstances: disabledDefaultSlots(
-            "codex",
-            "claudeAgent",
-            "cursor",
-            "grok",
-            "opencode",
-          ),
-        });
-        const scope = yield* Scope.make();
-        yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void));
-        const layerProviderRegistry = ProviderRegistry.layer.pipe(
-          Layer.provideMerge(
-            ProviderInstanceRegistryHydration.layer.pipe(Layer.provide(PortScanner.layerTest)),
-          ),
-          Layer.provideMerge(AntigravityInstallation.AntigravityInstallation.layer),
-          Layer.provideMerge(
-            Layer.succeed(ServerSettingsModule.ServerSettingsService, serverSettings),
-          ),
-          Layer.provideMerge(ServerSecretStore.layer),
-          Layer.provideMerge(
-            ServerConfig.layerTest(process.cwd(), {
-              prefix: "t3-provider-registry-",
-            }),
-          ),
-          Layer.provideMerge(layerTestHttpClient),
-          Layer.provideMerge(
-            Layer.succeed(
-              ProviderEventLoggers.ProviderEventLoggers,
-              ProviderEventLoggers.NoOpProviderEventLoggers,
-            ),
-          ),
-          Layer.provideMerge(ProviderLatestVersions.layer),
-          Layer.provideMerge(McpProviderSessions.layer),
-          Layer.provideMerge(ModelManifest.layerTest),
-          Layer.provideMerge(ResetCreditCoordinator.layerTest),
-          Layer.provideMerge(
-            OpenCodeRuntime.layer.pipe(Layer.provide(OpenCodeServerLedger.layerTest)),
-          ),
-          Layer.provideMerge(NodeServices.layer),
-          Layer.provideMerge(layerBackgroundPolicyAlwaysRun),
-        );
-        const runtimeServices = yield* Layer.build(layerProviderRegistry).pipe(
-          Scope.provide(scope),
-        );
-
-        yield* Effect.gen(function* () {
-          const registry = yield* ProviderRegistry.ProviderRegistry;
-          const instanceRegistry = yield* ProviderInstanceRegistry.ProviderInstanceRegistry;
-          const providers = yield* registry.getProviders;
-          const pi = providers.find((provider) => provider.instanceId === "pi");
-
-          assert.notStrictEqual(pi, undefined);
-          assert.strictEqual(pi?.driver, "pi");
-          assert.notStrictEqual(pi?.availability, "unavailable");
-          assert.strictEqual(pi?.unavailableReason, undefined);
-
-          const unavailable = yield* instanceRegistry.listUnavailable;
-          assert.strictEqual(
-            unavailable.some((provider) => provider.instanceId === "pi"),
-            false,
-          );
-        }).pipe(Effect.provide(runtimeServices));
-      }),
-    );
   });
 
   describe("checkClaudeProviderStatus", () => {
-    it.effect("adds models Claude Code reports that the catalog does not know", () =>
-      Effect.gen(function* () {
-        const status = yield* checkClaudeProviderStatus(
-          {
-            ...defaultClaudeSettings,
-            customModels: [{ slug: "gateway/kimi-3[1m]", name: "Kimi (mine)" }],
-          },
-          claudeCapabilities({
-            models: [
-              { value: "default", displayName: "Default", description: "" },
-              { value: "sonnet", displayName: "Sonnet", description: "" },
-              { value: "claude-haiku-4-5[1m]", displayName: "Haiku", description: "" },
-              {
-                value: "best",
-                resolvedModel: "claude-opus-5[1m]",
-                displayName: "Best",
-                description: "",
-              },
-              { value: "gateway/kimi-3[1m]", displayName: "Kimi 3", description: "" },
-              { value: "gateway/glm-5[1m]", displayName: "GLM 5", description: "" },
-              { value: "gateway/glm-5", displayName: "GLM 5 again", description: "" },
-              {
-                value: "gateway/claude-relay",
-                displayName: "Claude Relay",
-                description: "",
-                supportsEffort: true,
-                supportedEffortLevels: ["low", "high"],
-              },
-            ],
-          }),
-        );
-        const catalogSlugs = new Set(BUNDLED_CLAUDE_MODEL_CATALOG.models.map((m) => m.model.slug));
-        const added = status.models.filter((model) => !catalogSlugs.has(model.slug));
-
-        assert.deepStrictEqual(
-          added.map((model) => [model.slug, model.name, model.isCustom]),
-          [
-            ["gateway/glm-5[1m]", "GLM 5", false],
-            ["gateway/claude-relay", "Claude Relay", false],
-            ["gateway/kimi-3[1m]", "Kimi (mine)", true],
-          ],
-        );
-        assert.deepStrictEqual(added[0]?.capabilities?.optionDescriptors, []);
-        assert.deepStrictEqual(added[1]?.capabilities?.optionDescriptors, [
-          {
-            id: "effort",
-            label: "Reasoning",
-            type: "select",
-            options: [
-              { id: "default", label: "Default", isDefault: true },
-              { id: "low", label: "Low" },
-              { id: "high", label: "High" },
-            ],
-          },
-        ]);
-      }).pipe(
-        Effect.provide(
-          layerMockSpawner((args) => {
-            const joined = args.join(" ");
-            if (joined === "--version") return { stdout: "1.0.0\n", stderr: "", code: 0 };
-            throw new Error(`Unexpected args: ${joined}`);
-          }),
-        ),
-      ),
-    );
-
     it.effect("reports a logged-out CLI as unauthenticated", () =>
       Effect.gen(function* () {
         const status = yield* checkClaudeProviderStatus(

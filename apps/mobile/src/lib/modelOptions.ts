@@ -21,7 +21,6 @@ import {
   buildExplicitProviderOptionSelectionsFromDescriptors,
   getProviderOptionDescriptors,
 } from "@t3tools/shared/model";
-import { resolveProviderForCwd } from "@t3tools/client-runtime/providerSkills";
 import { resolveModelShortName } from "@t3tools/client-runtime/provider-clients";
 
 export type ModelOption = {
@@ -283,8 +282,6 @@ export function buildModelOptions(
   providerInstanceId: ModelSelection["instanceId"] | undefined,
   projectId: ProjectId | null,
   includeHidden = false,
-  /** The project directory; Pi project-level settings add their models. */
-  cwd?: string | null,
 ): ReadonlyArray<ModelOption> {
   const options = new Map<string, ModelOption>();
   const lockedProvider = config?.providers.find(
@@ -339,8 +336,7 @@ export function buildModelOptions(
     };
   };
 
-  for (const source of config?.providers ?? []) {
-    const provider = resolveProviderForCwd(source, cwd);
+  for (const provider of config?.providers ?? []) {
     if (
       !matchesLockedProvider(provider) ||
       isDriverDisallowed(config, provider.driver) ||
@@ -424,11 +420,9 @@ export function buildModelOptions(
         (candidate) => candidate.instanceId === fallbackModelSelection.instanceId,
       );
       const instanceConfig = config?.settings?.providerInstances[fallbackModelSelection.instanceId];
-      const model =
-        provider &&
-        resolveProviderForCwd(provider, cwd).models.find(
-          (candidate) => candidate.slug === fallbackModelSelection.model,
-        );
+      const model = provider?.models.find(
+        (candidate) => candidate.slug === fallbackModelSelection.model,
+      );
       const providerDriver =
         provider?.driver ?? instanceConfig?.driver ?? fallbackModelSelection.instanceId;
       const providerLabel = providerDisplayLabel({

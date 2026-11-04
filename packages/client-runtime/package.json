@@ -7,14 +7,6 @@
       "types": "./src/assemblyHighlighting.ts",
       "default": "./src/assemblyHighlighting.ts"
     },
-    "./gentle-ai": {
-      "types": "./src/gentleAi.ts",
-      "default": "./src/gentleAi.ts"
-    },
-    "./cli-proxy": {
-      "types": "./src/cliProxy.ts",
-      "default": "./src/cliProxy.ts"
-    },
     "./zip/bounded-zip": {
       "types": "./src/zip/boundedZip.ts",
       "default": "./src/zip/boundedZip.ts"
@@ -135,14 +127,6 @@
       "types": "./src/providerSkills.ts",
       "default": "./src/providerSkills.ts"
     },
-    "./piGentleComposer": {
-      "types": "./src/piGentleComposer.ts",
-      "default": "./src/piGentleComposer.ts"
-    },
-    "./gentleRose": {
-      "types": "./src/gentleRose.ts",
-      "default": "./src/gentleRose.ts"
-    },
     "./providerUpdateRequiredModels": {
       "types": "./src/providerUpdateRequiredModels.ts",
       "default": "./src/providerUpdateRequiredModels.ts"
@@ -262,10 +246,6 @@
     "./state/provider-instance-display": {
       "types": "./src/state/providerInstanceDisplay.ts",
       "default": "./src/state/providerInstanceDisplay.ts"
-    },
-    "./state/final-assistant-messages": {
-      "types": "./src/state/finalAssistantMessages.ts",
-      "default": "./src/state/finalAssistantMessages.ts"
     },
     "./state/pull-requests": {
       "types": "./src/state/pullRequests.ts",

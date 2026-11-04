@@ -178,15 +178,6 @@ export interface ProviderSessionManagerV2Shape {
   readonly closeInstance: (
     instanceId: ProviderInstanceId,
   ) => Effect.Effect<void, ProviderSessionManagerV2Error>;
-  /**
-   * Closes every live runtime of one provider instance unless one is running a turn or background
-   * work, so its files can change under it. Closes none when one is busy. Closed sessions reopen
-   * on their next turn.
-   */
-  readonly closeIdleInstance: (input: {
-    readonly instanceId: ProviderInstanceId;
-    readonly detail: string;
-  }) => Effect.Effect<"closed" | "busy", ProviderSessionManagerV2Error>;
   readonly release: (input: {
     readonly providerSessionId: ProviderSessionId;
     readonly reason: ProviderSessionReleaseReason;
@@ -1193,55 +1184,6 @@ export const layerWithOptions = (
           );
         },
       );
-
-      const instanceEntries = (instanceId: ProviderInstanceId) =>
-        Ref.get(sessions).pipe(
-          Effect.map((current) =>
-            [...current.values()].filter((entry) => entry.runtime.instanceId === instanceId),
-          ),
-        );
-
-      // Busy with a turn, or with background work such as subagents, as idle release checks.
-      const isBusy = (entry: LiveSessionEntry) =>
-        entry.busyTurns.size > 0
-          ? Effect.succeed(true)
-          : (entry.runtime.hasPendingBackgroundWork ?? Effect.succeed(false)).pipe(
-              Effect.catchCause(() => Effect.succeed(false)),
-            );
-
-      const releaseInstanceEntries = Effect.fn("ProviderSessionManager.releaseInstanceEntries")(
-        function* (
-          entries: ReadonlyArray<LiveSessionEntry>,
-          detail: string,
-          options?: { readonly onlyIfIdle: boolean },
-        ) {
-          const outcomes = yield* Effect.forEach(
-            entries,
-            (entry) =>
-              releaseEntry({
-                providerSessionId: entry.runtime.providerSessionId,
-                reason: "manual_shutdown",
-                detail,
-                ...(options?.onlyIfIdle === true
-                  ? { onlyIfIdleGeneration: entry.idleGeneration }
-                  : {}),
-              }).pipe(Effect.exit),
-            { concurrency: "unbounded" },
-          );
-          const failure = outcomes.find(Exit.isFailure);
-          if (failure !== undefined && Exit.isFailure(failure)) {
-            return yield* Effect.failCause(failure.cause);
-          }
-        },
-      );
-
-      const instanceCloseError = (instanceId: ProviderInstanceId) => (cause: unknown) =>
-        new ProviderSessionCloseError({
-          providerSessionId: ProviderSessionId.make(
-            `provider-session:provider-instance:${instanceId}`,
-          ),
-          cause,
-        });
 
       const withActivityError = <A, E, R>(
         providerSessionId: ProviderSessionId,
@@ -2385,25 +2327,36 @@ export const layerWithOptions = (
           ),
         closeInstance: Effect.fn("ProviderSessionManager.closeInstance")(
           function* (instanceId) {
-            yield* releaseInstanceEntries(
-              yield* instanceEntries(instanceId),
-              `Provider instance ${instanceId} logged out.`,
+            const active = [...(yield* Ref.get(sessions)).values()].filter(
+              (entry) => entry.runtime.instanceId === instanceId,
             );
-          },
-          (effect, instanceId) => effect.pipe(Effect.mapError(instanceCloseError(instanceId))),
-        ),
-        closeIdleInstance: Effect.fn("ProviderSessionManager.closeIdleInstance")(
-          function* (input) {
-            const entries = yield* instanceEntries(input.instanceId);
-            const busy = yield* Effect.forEach(entries, isBusy).pipe(
-              Effect.map((states) => states.includes(true)),
+            const outcomes = yield* Effect.forEach(
+              active,
+              (entry) =>
+                releaseEntry({
+                  providerSessionId: entry.runtime.providerSessionId,
+                  reason: "manual_shutdown",
+                  detail: `Provider instance ${instanceId} logged out.`,
+                }).pipe(Effect.exit),
+              { concurrency: "unbounded" },
             );
-            if (busy) return "busy" as const;
-            // A turn that starts after the check keeps its session.
-            yield* releaseInstanceEntries(entries, input.detail, { onlyIfIdle: true });
-            return "closed" as const;
+            const failure = outcomes.find(Exit.isFailure);
+            if (failure !== undefined && Exit.isFailure(failure)) {
+              return yield* Effect.failCause(failure.cause);
+            }
           },
-          (effect, input) => effect.pipe(Effect.mapError(instanceCloseError(input.instanceId))),
+          (effect, instanceId) =>
+            effect.pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProviderSessionCloseError({
+                    providerSessionId: ProviderSessionId.make(
+                      `provider-session:provider-instance:${instanceId}`,
+                    ),
+                    cause,
+                  }),
+              ),
+            ),
         ),
         release: releaseEntry,
         releaseUnlessBusy: Effect.fn("ProviderSessionManager.releaseUnlessBusy")(function* (input) {

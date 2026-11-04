@@ -13,7 +13,6 @@ import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 import { piUsageReader } from "./usage.ts";
 import { makePiTextGeneration } from "./textGeneration.ts";
 import { PiAdapterV2Driver, type PiAdapterV2DriverEnv } from "./adapter.ts";
-import { PiGentleHooks } from "./gentleHooks.ts";
 import { ProviderDriverError } from "@t3tools/provider-core/server/errors";
 import {
   buildInitialPiProviderSnapshot,
@@ -141,15 +140,9 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv, Path.Path> = {
     );
     const textGeneration = yield* makePiTextGeneration(effectiveConfig, processEnv);
 
-    const gentleUsageLimits = (yield* PiGentleHooks).usageLimits ?? Effect.undefined;
     const checkProvider = checkPiProviderStatus(effectiveConfig, processEnv, cwd).pipe(
       Effect.map(stampIdentity),
       Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
-      Effect.flatMap((probed) =>
-        gentleUsageLimits.pipe(
-          Effect.map((usageLimits) => (usageLimits ? { ...probed, usageLimits } : probed)),
-        ),
-      ),
     );
 
     const snapshotSettings = yield* makeProviderSnapshotSettingsSource(effectiveConfig);

@@ -101,7 +101,6 @@ import * as DatabaseStorage from "./persistence/DatabaseStorage.ts";
 import * as TerminalManager from "./terminal/Manager.ts";
 import * as ThreadLaunchService from "./orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadSearch from "./orchestration-v2/ThreadSearch.ts";
-import * as GentleAi from "./gentleAi/GentleAi.ts";
 import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
 import * as UsageService from "./usage/UsageService.ts";
 import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
@@ -800,10 +799,6 @@ it.effect.each([
           streamChanges: Stream.never,
         }),
         Layer.mock(UsageLimitSources.UsageLimitSources)({ streamChanges: Stream.make([]) }),
-        Layer.mock(GentleAi.GentleAi)({
-          current: Effect.succeed(GentleAi.NOT_INSTALLED),
-          streamChanges: Stream.never,
-        }),
         Layer.mock(RemoteOpenTargets.RemoteOpenTargets)({
           resolveTargets: () =>
             Deferred.succeed(remoteDiscoveryStarted, undefined).pipe(
@@ -1055,10 +1050,6 @@ it.effect("on-demand clients get provider config without workspace snapshots", (
       Layer.mock(UsageLimitSources.UsageLimitSources)({
         current: Effect.succeed([]),
         streamChanges: Stream.make([]),
-      }),
-      Layer.mock(GentleAi.GentleAi)({
-        current: Effect.succeed(GentleAi.NOT_INSTALLED),
-        streamChanges: Stream.concat(Stream.make(GentleAi.NOT_INSTALLED), Stream.never),
       }),
       Layer.mock(RemoteOpenTargets.RemoteOpenTargets)({
         resolveTargets: () => Effect.succeed([]),

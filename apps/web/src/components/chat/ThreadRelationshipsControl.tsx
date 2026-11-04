@@ -527,19 +527,10 @@ export function ThreadRelationshipsPanel(props: {
     (agent): agent is OrchestrationV2Subagent & { remoteChild: OrchestrationV2RemoteTaskChild } =>
       agent.remoteChild !== undefined,
   );
-  // A workflow counts as its running members, not as one agent.
-  const runningAgents = ({ threadId, edge }: (typeof active)[number]) => {
-    const agent = subagentsByThreadId.get(threadId);
-    const group = agent === undefined ? undefined : workflowGroupsById.get(agent.id);
-    if (group === undefined) return edge.status === "running" ? 1 : 0;
-    return [...group.phases.flatMap((phase) => phase.members), ...group.unphasedMembers].filter(
-      (member) => member.status === "running",
-    ).length;
-  };
   const runningCount =
     (projection?.subagents.filter(
       (agent) => agent.childThreadId === null && agent.status === "running",
-    ).length ?? 0) + active.reduce((count, row) => count + runningAgents(row), 0);
+    ).length ?? 0) + active.filter(({ edge }) => edge.status === "running").length;
 
   // A linked environment's agent may have delegated this thread from there.
   const delegatedFrom = currentThread?.delegatedFrom;
@@ -712,7 +703,6 @@ export function ThreadRelationshipsPanel(props: {
     const relationshipTooltip = agent ? (
       <SubagentTooltipContent
         title={threadTitle}
-        agentName={agent.role ?? undefined}
         model={agent.model}
         providerInstanceId={agent.providerInstanceId}
         origin={agent.origin}

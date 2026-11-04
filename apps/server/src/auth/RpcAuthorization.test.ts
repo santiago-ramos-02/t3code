@@ -68,16 +68,6 @@ describe("RPC authorization scopes", () => {
     }
   });
 
-  it("keeps the Boat key behind settings and billed machines behind operate scope", () => {
-    expect(requiredScopeForRpcMethod(WS_METHODS.boatSubscribeStatus)).toBe(
-      AuthOrchestrationReadScope,
-    );
-    expect(requiredScopeForRpcMethod(WS_METHODS.boatConfigure)).toBe(AuthSettingsWriteScope);
-    for (const method of [WS_METHODS.boatSpawn, WS_METHODS.boatMachineAction]) {
-      expect(requiredScopeForRpcMethod(method)).toBe(AuthOrchestrationOperateScope);
-    }
-  });
-
   it("rejects unknown RPC method names", () => {
     for (const method of ["server.notRegistered", "toString", "constructor"]) {
       expect(() => requiredScopeForRpcMethod(method)).toThrow(

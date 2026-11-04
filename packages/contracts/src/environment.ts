@@ -85,9 +85,6 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
     }),
   ),
   pullRequests: Schema.optionalKey(Schema.Boolean),
-  /** Server reads Engram memory for the Memory page. Absent on servers from before it shipped, so
-      clients must not probe the memory APIs. */
-  memory: Schema.optionalKey(Schema.Boolean),
   pullRequestChecks: Schema.optionalKey(Schema.Boolean),
   /** Side chats: hidden `lineage.sideChat` forks. Older servers ignore the fork flag. */
   sideChats: Schema.optionalKey(Schema.Boolean),

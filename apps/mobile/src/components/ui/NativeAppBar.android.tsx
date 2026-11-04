@@ -10,8 +10,6 @@ export function NativeAppBar(props: {
   readonly title: ReactElement;
   readonly navigationIcon?: ReactElement;
   readonly actions?: ReactElement;
-  /** Compose nodes laid out by the bar itself, so they never wait on a React Native measure. */
-  readonly nativeActions?: ReactElement;
   /** Shorter bar for a one-row title. */
   readonly singleLine?: boolean;
 }) {
@@ -38,10 +36,9 @@ export function NativeAppBar(props: {
             <RNHostView matchContents>{props.navigationIcon}</RNHostView>
           </TopAppBar.NavigationIcon>
         ) : null}
-        {props.actions || props.nativeActions ? (
+        {props.actions ? (
           <TopAppBar.Actions>
-            {props.nativeActions}
-            {props.actions ? <RNHostView matchContents>{props.actions}</RNHostView> : null}
+            <RNHostView matchContents>{props.actions}</RNHostView>
           </TopAppBar.Actions>
         ) : null}
       </TopAppBar>

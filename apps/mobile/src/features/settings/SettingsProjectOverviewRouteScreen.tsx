@@ -39,19 +39,16 @@ import { SettingsSection } from "./components/SettingsSection";
 import { ListActionRow as SettingsActionRow } from "../../components/ui/ListActionRow";
 import { SettingsSwitchRow } from "./components/SettingsSwitchRow";
 import {
-  useSettingsEnvironmentMenu,
+  AndroidSettingsEnvironmentFilter,
   SettingsEnvironmentFilterHeader,
 } from "./components/SettingsEnvironmentFilterHeader";
 import { useSettingsEnvironmentFilter, type SettingsTarget } from "./settings-environment-filter";
-import { GentleAiProjectReviewSettings } from "./GentleAiProjectReviewSettings";
-import { PiGentleProjectSettings } from "./PiGentleProjectSettings";
 import { leaveSettingsPage } from "./settings-navigation";
 import { workspaceHasColumns } from "../workspace/workspace-selection-store";
 import { DEFAULT_SETTINGS_PAGE } from "../workspace/workspace-tab-navigation";
 import { readUnloadedThreadCount } from "../../state/olderSettledShelf";
 
 export function SettingsProjectOverviewRouteScreen() {
-  const environmentMenu = useSettingsEnvironmentMenu();
   const insets = useSafeAreaInsets();
   const [isRemoving, setIsRemoving] = useState(false);
   const removalPending = useRef(false);
@@ -91,7 +88,7 @@ export function SettingsProjectOverviewRouteScreen() {
   return (
     <>
       <SettingsEnvironmentFilterHeader />
-      <SettingsScreen title="Projects" menus={[environmentMenu]}>
+      <SettingsScreen title="Projects" trailing={<AndroidSettingsEnvironmentFilter />}>
         <ScrollView
           contentInsetAdjustmentBehavior="automatic"
           showsVerticalScrollIndicator={false}
@@ -418,28 +415,6 @@ function ProjectOverviewContent(props: {
           );
         })}
       </SettingsSection>
-      {props.members.map((member) => (
-        <GentleAiProjectReviewSettings
-          key={`${member.environmentId}:${member.id}:gentle-review`}
-          environmentId={member.environmentId}
-          workspaceRoot={member.workspaceRoot}
-          environmentLabel={
-            props.environments.find((entry) => entry.environmentId === member.environmentId)
-              ?.label ?? "Environment"
-          }
-        />
-      ))}
-      {props.members.map((member) => (
-        <PiGentleProjectSettings
-          key={`${member.environmentId}:${member.id}:gentle`}
-          environmentId={member.environmentId}
-          workspaceRoot={member.workspaceRoot}
-          environmentLabel={
-            props.environments.find((entry) => entry.environmentId === member.environmentId)
-              ?.label ?? "Environment"
-          }
-        />
-      ))}
       <SettingsSection title="Danger">
         <SettingsActionRow
           icon="trash"

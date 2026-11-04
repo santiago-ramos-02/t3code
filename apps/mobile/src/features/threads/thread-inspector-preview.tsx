@@ -11,7 +11,7 @@ import { View } from "react-native";
 
 import { IconButton } from "../../components/ui/IconButton";
 import { SheetHeader } from "../../components/ui/SheetHeader";
-import { InspectorCloseContext } from "../layout/inspector-bar-store";
+import { NativeInspectorContent } from "../../native/NativeInspectorContent";
 import { createV5StackNavigator } from "../../native/createV5StackNavigator";
 import { NativeStackScreenOptions } from "../../native/StackHeader";
 import { WorkspaceSlotOptionsContext } from "../../native/v5-workspace-context";
@@ -62,13 +62,11 @@ const PreviewStack = createV5StackNavigator<{
 export function InspectorContentScope({ children }: { readonly children: ReactNode }) {
   return (
     <WorkspaceSlotOptionsContext value={null}>
-      <InspectorCloseContext value={null}>
-        <WorkspaceContentWidthContext value={null}>
-          <WorkspaceSettledContentWidthContext value={null}>
-            {children}
-          </WorkspaceSettledContentWidthContext>
-        </WorkspaceContentWidthContext>
-      </InspectorCloseContext>
+      <WorkspaceContentWidthContext value={null}>
+        <WorkspaceSettledContentWidthContext value={null}>
+          {children}
+        </WorkspaceSettledContentWidthContext>
+      </WorkspaceContentWidthContext>
     </WorkspaceSlotOptionsContext>
   );
 }
@@ -99,43 +97,45 @@ export function ThreadInspectorPreview(props: {
   return (
     <ThreadInspectorNavigationContext value={props.onOpen}>
       <InspectorContentScope>
-        {target.type === "device" ? (
-          <DevicePreviewScreen
-            key={`${target.environmentId}:${target.threadId}`}
-            environmentId={EnvironmentId.make(target.environmentId)}
-            threadId={ThreadId.make(target.threadId)}
-            initialDeviceKey={target.deviceKey}
-            onClose={props.onClose}
-            onMaximize={maximizeDevice}
-          />
-        ) : (
-          <View className="flex-1 bg-screen">
-            <NavigationIndependentTree>
-              <NavigationContainer theme={theme} onUnhandledAction={navigation.dispatch}>
-                <PreviewStack.Navigator
-                  key={`${target.environmentId}:${target.threadId}`}
-                  screenOptions={{ headerBackVisible: false }}
-                >
-                  <PreviewStack.Screen name="Thread" initialParams={target}>
-                    {(screen) =>
-                      props.renderThread({
-                        route: screen.route,
-                        inspectorPresentation: {
-                          onClose: props.onClose,
-                          onMaximize: () =>
-                            navigation.navigate("ThreadInspectorFullscreen", {
-                              environmentId: screen.route.params.environmentId,
-                              threadId: screen.route.params.threadId,
-                            }),
-                        },
-                      })
-                    }
-                  </PreviewStack.Screen>
-                </PreviewStack.Navigator>
-              </NavigationContainer>
-            </NavigationIndependentTree>
-          </View>
-        )}
+        <NativeInspectorContent>
+          {target.type === "device" ? (
+            <DevicePreviewScreen
+              key={`${target.environmentId}:${target.threadId}`}
+              environmentId={EnvironmentId.make(target.environmentId)}
+              threadId={ThreadId.make(target.threadId)}
+              initialDeviceKey={target.deviceKey}
+              onClose={props.onClose}
+              onMaximize={maximizeDevice}
+            />
+          ) : (
+            <View className="flex-1 bg-screen">
+              <NavigationIndependentTree>
+                <NavigationContainer theme={theme} onUnhandledAction={navigation.dispatch}>
+                  <PreviewStack.Navigator
+                    key={`${target.environmentId}:${target.threadId}`}
+                    screenOptions={{ headerBackVisible: false }}
+                  >
+                    <PreviewStack.Screen name="Thread" initialParams={target}>
+                      {(screen) =>
+                        props.renderThread({
+                          route: screen.route,
+                          inspectorPresentation: {
+                            onClose: props.onClose,
+                            onMaximize: () =>
+                              navigation.navigate("ThreadInspectorFullscreen", {
+                                environmentId: screen.route.params.environmentId,
+                                threadId: screen.route.params.threadId,
+                              }),
+                          },
+                        })
+                      }
+                    </PreviewStack.Screen>
+                  </PreviewStack.Navigator>
+                </NavigationContainer>
+              </NavigationIndependentTree>
+            </View>
+          )}
+        </NativeInspectorContent>
       </InspectorContentScope>
     </ThreadInspectorNavigationContext>
   );

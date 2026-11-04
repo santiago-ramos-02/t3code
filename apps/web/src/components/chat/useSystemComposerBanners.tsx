@@ -1,5 +1,5 @@
 import { useStableCallback } from "../../hooks/useStableCallback";
-import { boatMachineLabel, type EnvironmentId } from "@t3tools/contracts";
+import { type EnvironmentId } from "@t3tools/contracts";
 import { type EnvironmentConnectionPresentation } from "@t3tools/client-runtime/connection";
 import { useAtomValue } from "@effect/atom-react";
 import { useState } from "react";
@@ -8,12 +8,11 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import { CirclePauseIcon, WifiOffIcon } from "lucide-react";
+import { WifiOffIcon } from "lucide-react";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { environmentCatalog } from "../../connection/catalog";
 import { ConnectionDiagnosisHeadline } from "../settings/ConnectionDiagnosisDetails";
 import { isDesktopLocalConnectionTarget } from "../../connection/desktopLocal";
-import { type BoatMachineWake } from "../../hooks/useBoat";
 import {
   useEnvironmentDisconnectDelay,
   useEnvironmentStateHeldFor,
@@ -43,8 +42,6 @@ export type EnvironmentUnavailableState = {
 
 interface SystemComposerBannersInput {
   readonly activeEnvironment: EnvironmentPresentation | null;
-  // Set while the active thread's Boat machine is stopped.
-  readonly boatWake: BoatMachineWake | null;
   readonly activeEnvironmentUnavailable: boolean;
   readonly activeEnvironmentUnavailableState: EnvironmentUnavailableState | null;
   readonly activeThreadEnvironmentId: EnvironmentId | null;
@@ -55,13 +52,12 @@ interface SystemComposerBannersInput {
 }
 
 /**
- * The composer banners about the machine itself: stopped, offline or reconnecting,
+ * The composer banners about the machine itself: offline or reconnecting,
  * a server update, and auto-balanced machines that need one.
  */
 export function useSystemComposerBanners(input: SystemComposerBannersInput) {
   const {
     activeEnvironment,
-    boatWake,
     activeEnvironmentUnavailable,
     activeEnvironmentUnavailableState,
     activeThreadEnvironmentId,
@@ -187,24 +183,7 @@ export function useSystemComposerBanners(input: SystemComposerBannersInput) {
       activeEnvironmentUnavailableState !== null &&
       unavailableConnection !== null &&
       !suppressUnavailableBanner;
-    if (boatWake) {
-      const label = activeEnvironment?.label ?? boatMachineLabel(boatWake.machine);
-      items.push({
-        id: `boat-machine-stopped:${boatWake.machine.sandboxId}`,
-        variant: boatWake.error ? "error" : "default",
-        icon: <CirclePauseIcon />,
-        title: boatWake.waking ? `Resuming ${label}` : `${label} is stopped`,
-        description:
-          boatWake.error ??
-          boatWake.machine.notice ??
-          (boatWake.waking ? undefined : "Not billed while stopped. Sending a message resumes it."),
-        actions: boatWake.waking ? undefined : (
-          <Button size="xs" variant="ghost" onClick={() => void boatWake.wake()}>
-            Resume
-          </Button>
-        ),
-      });
-    } else if (showUnavailableBanner) {
+    if (showUnavailableBanner) {
       items.push({
         id: `environment-unavailable:${activeEnvironmentUnavailableState.environmentId}`,
         variant: unavailableConnection.phase === "error" ? "error" : "warning",

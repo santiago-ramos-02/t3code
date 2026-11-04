@@ -18,7 +18,6 @@ import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderS
 import * as TestProviderHost from "@t3tools/provider-testing/TestProviderHost";
 import type { PiSettings } from "../settings.ts";
 import { PiDriver } from "./driver.ts";
-import { PiGentleHooks } from "./gentleHooks.ts";
 
 const layerTest = Layer.mergeAll(
   TestProviderHost.layer({
@@ -125,24 +124,6 @@ const create = (config: Partial<PiSettings> = {}, enabled = true) =>
   });
 
 it.layer(layerTest)("PiDriver workspace discovery", (it) => {
-  it.effect("keeps the provider limits gentle-pi reported through every probe", () =>
-    Effect.gen(function* () {
-      const { spawner } = yield* makePiSpawner();
-      const usageLimits = {
-        checkedAt: "2026-11-01T12:00:00.000Z",
-        windows: [
-          { id: "codex:primary", kind: "session", label: "Session · Codex", usedPercent: 30 },
-        ],
-      } as const;
-      const instance = yield* create().pipe(
-        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
-        Effect.provideService(PiGentleHooks, { usageLimits: Effect.succeed(usageLimits) }),
-      );
-      yield* instance.snapshot.refresh;
-      assert.deepStrictEqual((yield* instance.snapshot.getSnapshot).usageLimits, usageLimits);
-    }).pipe(Effect.scoped),
-  );
-
   it.effect("keeps each workspace's skills and commands separate from the machine catalog", () =>
     Effect.gen(function* () {
       const { spawner, launches } = yield* makePiSpawner();

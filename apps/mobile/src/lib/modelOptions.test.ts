@@ -22,44 +22,6 @@ import {
 } from "./modelOptions";
 
 describe("mobile model options", () => {
-  it("shows project-scoped Pi models only in their workspace", () => {
-    const config = {
-      providers: [
-        {
-          instanceId: "pi",
-          driver: "pi",
-          enabled: true,
-          installed: true,
-          auth: { status: "authenticated" },
-          models: [{ slug: "openai/global", name: "Global", isCustom: false, capabilities: null }],
-          workspaceSnapshots: [
-            {
-              cwd: "/project",
-              models: [
-                {
-                  slug: "local/project",
-                  name: "Project",
-                  subProvider: "local",
-                  isCustom: false,
-                  capabilities: null,
-                },
-              ],
-            },
-          ],
-        },
-      ],
-    } as unknown as ServerConfig;
-
-    expect(
-      buildModelOptions(config, null, undefined, null, false, "/project").map(
-        (option) => option.key,
-      ),
-    ).toEqual(["pi:local/project"]);
-    expect(
-      buildModelOptions(config, null, undefined, null, false, "/other").map((option) => option.key),
-    ).toEqual(["pi:openai/global"]);
-  });
-
   it("distinguishes same-name OpenCode models without changing their routing", () => {
     const sources = [
       { id: "anthropic", label: "Anthropic" },
@@ -106,44 +68,6 @@ describe("mobile model options", () => {
     );
     expect(groupByProvider(options)).toEqual([
       { providerKey: "opencode_work", providerLabel: "OpenCode Work", models: options },
-    ]);
-  });
-
-  it("keeps dynamically discovered Pi models and provider-instance routing generic", () => {
-    const config = {
-      providers: [
-        {
-          instanceId: "pi_work",
-          driver: "pi",
-          displayName: "Pi Work",
-          enabled: true,
-          installed: true,
-          auth: { status: "unknown" },
-          models: [
-            {
-              slug: "openrouter/anthropic/claude-sonnet-4",
-              name: "Claude Sonnet 4",
-              subProvider: "OpenRouter",
-              isCustom: false,
-              capabilities: null,
-            },
-          ],
-        },
-      ],
-    } as unknown as ServerConfig;
-
-    expect(buildModelOptions(config, null, undefined, null)).toMatchObject([
-      {
-        key: "pi_work:openrouter/anthropic/claude-sonnet-4",
-        label: "Claude Sonnet 4",
-        subtitle: "OpenRouter",
-        providerLabel: "Pi Work",
-        providerDriver: "pi",
-        selection: {
-          instanceId: "pi_work",
-          model: "openrouter/anthropic/claude-sonnet-4",
-        },
-      },
     ]);
   });
 
