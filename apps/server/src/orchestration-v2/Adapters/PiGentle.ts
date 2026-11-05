@@ -42,6 +42,10 @@ const CHILD_RESULT_ORDINAL = 1_000_000;
 const WAKE_TEXT = "A background subagent finished.";
 const JOB_WAKE_TEXT = "A background job finished.";
 
+/** Entries this adapter wrote to the background roster: subagents, jobs, and workflows. */
+const isGentleRosterTask = (taskId: string) =>
+  taskId.startsWith("gentle:") || taskId.startsWith("gentle-workflow:");
+
 function jobOutcome(job: GentleJob) {
   if (job.status === "stopped") return "cancelled" as const;
   if (job.status === "failed") return "failed" as const;
@@ -810,13 +814,25 @@ export function makePiGentle<Turn extends PiGentleTurn>(
     ...providerThread,
     pendingBackgroundTasks: [
       ...(providerThread.pendingBackgroundTasks ?? []).filter(
-        (task) => !task.taskId.startsWith("gentle:"),
+        (task) => !isGentleRosterTask(task.taskId),
       ),
-      ...[...live].map(([id, title]) => ({
-        taskId: `gentle:${id}`,
-        kind: "subagent" as const,
-        description: title,
-      })),
+      // A subagent's workflow is what the thread waits on, like Claude's: listed once under its
+      // turn item's id, so the workflow item is not counted again beside its members.
+      ...new Map(
+        [...live].map(([id, title]) => {
+          const workflow = tasks.get(id)?.workflow;
+          const entry =
+            workflow === undefined
+              ? { taskId: `gentle:${id}`, kind: "subagent" as const, description: title }
+              : {
+                  taskId: workflow.nativeId,
+                  kind: "subagent" as const,
+                  description: workflow.name,
+                  childThreadId: workflow.childThreadId,
+                };
+          return [entry.taskId, entry] as const;
+        }),
+      ).values(),
       ...liveJobs.map((job) => ({
         taskId: `gentle:job:${job.id}`,
         kind: job.kind,
@@ -869,7 +885,12 @@ export function makePiGentle<Turn extends PiGentleTurn>(
     const roster = withRoster(state.providerThread).pendingBackgroundTasks ?? [];
     if (
       roster.length !== current.length ||
-      roster.some((task, index) => task.taskId !== current[index]?.taskId)
+      roster.some(
+        (task, index) =>
+          task.taskId !== current[index]?.taskId ||
+          // A workflow takes its feature's name once a member reads the feature document.
+          task.description !== current[index]?.description,
+      )
     ) {
       yield* deps.updateProviderThread(state, { pendingBackgroundTasks: roster });
     }
@@ -1054,7 +1075,7 @@ export function makePiGentle<Turn extends PiGentleTurn>(
     hasPendingBackgroundWorkForThread: (providerThread: OrchestrationV2ProviderThread) =>
       Effect.sync(() =>
         (providerThread.pendingBackgroundTasks ?? []).some((task) =>
-          task.taskId.startsWith("gentle:"),
+          isGentleRosterTask(task.taskId),
         ),
       ),
   };

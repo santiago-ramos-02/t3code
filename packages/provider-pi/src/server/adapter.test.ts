@@ -809,6 +809,12 @@ describe("PiAdapterV2", () => {
       );
       const workflowThreadId =
         workflow.type === "app_thread.created" ? workflow.appThread.id : null;
+      const workflowItem = yield* takeEvent(
+        (event) =>
+          event.type === "turn_item.updated" &&
+          event.turnItem.threadId === THREAD_ID &&
+          event.turnItem.type === "subagent",
+      );
       const created = yield* takeEvent((event) => event.type === "app_thread.created");
       assert.isTrue(
         created.type === "app_thread.created" &&
@@ -855,9 +861,24 @@ describe("PiAdapterV2", () => {
           event.type === "provider_thread.updated" &&
           (event.providerThread.pendingBackgroundTasks?.length ?? 0) > 0,
       );
-      assert.isTrue(
-        roster.type === "provider_thread.updated" &&
-          roster.providerThread.pendingBackgroundTasks?.[0]?.taskId === "gentle:task-1",
+      // The workflow holding the subagent is the background work, listed once under the id of
+      // its turn item so the workflow is not counted again beside its members.
+      const workflowTurnItem =
+        workflowItem.type === "turn_item.updated" && workflowItem.turnItem.type === "subagent"
+          ? workflowItem.turnItem
+          : null;
+      assert.deepEqual<unknown>(
+        roster.type === "provider_thread.updated"
+          ? roster.providerThread.pendingBackgroundTasks
+          : undefined,
+        [
+          {
+            taskId: workflowTurnItem?.nativeItemRef?.nativeId,
+            kind: "subagent",
+            description: workflowTurnItem?.title,
+            childThreadId: workflowThreadId,
+          },
+        ],
       );
 
       yield* fake.emit({
