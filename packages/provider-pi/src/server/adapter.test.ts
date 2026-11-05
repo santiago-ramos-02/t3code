@@ -1031,10 +1031,10 @@ describe("PiAdapterV2", () => {
         memberThreads.set(title, member.childThreadId);
       }
       assert.equal(coordinator.parentNodeId, NodeId.make(`node:run:${THREAD_ID}:1:root`));
-      // The orchestrator reported planning itself, so that phase carries its own start.
+      // The orchestrator reported planning itself, so that phase carries its own open stretch.
       assert.deepStrictEqual(coordinator.workflow?.phases, [
         { index: 1, title: "Exploring" },
-        { index: 4, title: "Planning", startedAt: 0 },
+        { index: 4, title: "Planning", spans: [{ startedAt: 0 }] },
       ]);
       assert.deepStrictEqual(
         coordinator.workflow?.agents.map((agent) => ({

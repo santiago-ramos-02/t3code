@@ -100,7 +100,7 @@ export function ThreadWorkflowGroup(props: {
           >
             {rail.map((item) => {
               const count =
-                item.tone === "working" || item.tone === "failed"
+                item.members.length > 0 && (item.tone === "working" || item.tone === "failed")
                   ? `${item.completedCount}/${item.members.length}`
                   : null;
               return (
@@ -116,7 +116,7 @@ export function ThreadWorkflowGroup(props: {
             })}
           </ScrollView>
         ) : null}
-        {open === undefined ? null : open.members.length === 0 ? (
+        {open === undefined ? null : open.rows.length === 0 ? (
           <Text
             textRole="footnote"
             className="border-t border-border-subtle px-4 py-3 text-foreground-muted"
@@ -124,7 +124,7 @@ export function ThreadWorkflowGroup(props: {
             No agents yet
           </Text>
         ) : (
-          open.members.map((member) => (
+          open.rows.map((member) => (
             <WorkflowMemberRow
               key={member.id}
               environmentId={props.environmentId}

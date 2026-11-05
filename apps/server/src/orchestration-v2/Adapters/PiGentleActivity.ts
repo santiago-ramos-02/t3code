@@ -210,25 +210,19 @@ export function readGentleActivity(
 }
 
 const ODD_FEATURE_DOCUMENT = /odd\/tasks\/([\w.-]+?)\.md/;
-// The cap subagentThreadTitle puts on a thread title.
-const MAX_NAME_CHARS = 72;
 const DEFAULT_WORKFLOW_NAME = "ODD workflow";
 
 /**
  * What to call an ODD workflow: its feature, as the first member prompt to reference
- * `odd/tasks/<feature>.md` names it (`boat-fork-runtime` is "Boat fork runtime"), else the
- * first line of the request.
+ * `odd/tasks/<feature>.md` names it (`boat-fork-runtime` is "Boat fork runtime"). The request is
+ * no name: it opens with whatever the user typed first, such as a path to read.
  */
-export function gentleWorkflowName(prompts: ReadonlyArray<string>, request: string): string {
+export function gentleWorkflowName(prompts: ReadonlyArray<string>): string {
   for (const prompt of prompts) {
     const feature = ODD_FEATURE_DOCUMENT.exec(prompt)?.[1]?.replace(/[-_]+/g, " ").trim();
     if (feature) return `${feature.charAt(0).toUpperCase()}${feature.slice(1)}`;
   }
-  const firstLine = request.split("\n", 1)[0]?.trim();
-  if (!firstLine) return DEFAULT_WORKFLOW_NAME;
-  return firstLine.length > MAX_NAME_CHARS
-    ? `${firstLine.slice(0, MAX_NAME_CHARS - 3)}...`
-    : firstLine;
+  return DEFAULT_WORKFLOW_NAME;
 }
 
 /**

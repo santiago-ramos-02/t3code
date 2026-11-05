@@ -159,18 +159,15 @@ describe("gentleTodoSteps", () => {
 describe("gentleWorkflowName", () => {
   it("humanizes the feature a prompt's ODD document names", () => {
     expect(
-      gentleWorkflowName(
-        ["Look around", "Spec: odd/tasks/boat-fork-runtime.md, T2, S3-S4", "odd/tasks/other.md"],
-        "Add a runtime",
-      ),
+      gentleWorkflowName([
+        "Look around",
+        "Spec: odd/tasks/boat-fork-runtime.md, T2, S3-S4",
+        "odd/tasks/other.md",
+      ]),
     ).toBe("Boat fork runtime");
   });
 
-  it("uses the request's first line, capped, then the default", () => {
-    expect(gentleWorkflowName(["Look around"], "  Add dark mode \nplease")).toBe("Add dark mode");
-    const capped = gentleWorkflowName([], "x".repeat(200));
-    expect(capped).toHaveLength(72);
-    expect(capped.endsWith("...")).toBe(true);
-    expect(gentleWorkflowName([], " \n")).toBe("ODD workflow");
+  it("falls back to the default, never the request", () => {
+    expect(gentleWorkflowName(["Look around"])).toBe("ODD workflow");
   });
 });

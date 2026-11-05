@@ -315,7 +315,7 @@ export function makePiGentle<Turn extends PiGentleTurn>(
         nativeItemId: `${nativeId}:thread-root`,
       }),
       startedAt: now,
-      name: gentleWorkflowName([], turn.turnInput.message.text),
+      name: gentleWorkflowName([]),
       members: new Map(),
       thread: null,
       status: null,
@@ -347,24 +347,20 @@ export function makePiGentle<Turn extends PiGentleTurn>(
     });
     const phases = ODD_PHASES.flatMap((phase, index) => {
       const own = spans.filter((span) => span.phase === phase);
-      const first = own[0];
-      if (first === undefined) {
-        return members.some((member) => member.phase === phase)
-          ? [{ index, title: phaseTitle(phase) }]
-          : [];
-      }
-      const ends = own.map((span) => span.completedAt);
+      if (own.length === 0 && !members.some((member) => member.phase === phase)) return [];
       return [
         {
           index,
           title: phaseTitle(phase),
-          startedAt: DateTime.toEpochMillis(first.startedAt),
-          ...(ends.includes(null)
+          ...(own.length === 0
             ? {}
             : {
-                completedAt: Math.max(
-                  ...ends.flatMap((end) => (end === null ? [] : [DateTime.toEpochMillis(end)])),
-                ),
+                spans: own.map((span) => ({
+                  startedAt: DateTime.toEpochMillis(span.startedAt),
+                  ...(span.completedAt === null
+                    ? {}
+                    : { completedAt: DateTime.toEpochMillis(span.completedAt) }),
+                })),
               }),
         },
       ];
@@ -384,10 +380,7 @@ export function makePiGentle<Turn extends PiGentleTurn>(
       ...(task.result === null ? {} : { result: task.result }),
     }));
     const parent = workflow.turn.turnInput;
-    const name = gentleWorkflowName(
-      members.map(({ task }) => task.prompt),
-      parent.message.text,
-    );
+    const name = gentleWorkflowName(members.map(({ task }) => task.prompt));
     const encoded = fingerprint({ name, status, phases, agents });
     const spanMillis = spans.flatMap((span) => [
       DateTime.toEpochMillis(span.startedAt),

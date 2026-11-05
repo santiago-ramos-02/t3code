@@ -165,12 +165,21 @@ describe("deriveWorkflowGroups over a dynamic workflow", () => {
       const groups = groupsOf([
         subagent({
           status,
-          updatedAt: at("2026-08-01T10:05:00.000Z"),
+          updatedAt: at("2026-08-01T10:07:00.000Z"),
           workflow: {
             phases: [
               { index: 1, title: "Alpha" },
-              { index: 4, title: "Planning", startedAt: minute(1), completedAt: minute(2) },
-              { index: 6, title: "Checking", startedAt: minute(3) },
+              {
+                index: 4,
+                title: "Planning",
+                spans: [{ startedAt: minute(1), completedAt: minute(2) }],
+              },
+              // The coordinator left checking for a minute and came back.
+              {
+                index: 6,
+                title: "Checking",
+                spans: [{ startedAt: minute(3), completedAt: minute(4) }, { startedAt: minute(5) }],
+              },
               { index: 7, title: "Closing" },
             ],
             agents: [member({ state: "completed" })],
@@ -192,9 +201,28 @@ describe("deriveWorkflowGroups over a dynamic workflow", () => {
         startedAt: "2026-08-01T10:01:00.000Z",
         completedAt: "2026-08-01T10:02:00.000Z",
       });
-      expect(workflowPhaseSpan(phases[2]!).completedAt).toBe(
-        status === "running" ? null : "2026-08-01T10:05:00.000Z",
+      // Only the time spent in checking counts: the gap moves the start so the label reads 3m.
+      expect(workflowPhaseSpan(phases[2]!)).toEqual(
+        status === "running"
+          ? { status: "running", startedAt: "2026-08-01T10:04:00.000Z", completedAt: null }
+          : {
+              status: "completed",
+              startedAt: "2026-08-01T10:04:00.000Z",
+              completedAt: "2026-08-01T10:07:00.000Z",
+            },
       );
+      // The phases the coordinator worked in name it, so they never look agentless.
+      expect(phases.map((phase) => phase.coordinator?.title ?? null)).toEqual([
+        null,
+        "Orchestrator",
+        "Orchestrator",
+        null,
+      ]);
+      expect(phases[2]?.coordinator).toMatchObject({
+        status: status === "running" ? "running" : "completed",
+        childThreadId: null,
+      });
+      expect(phases[2]?.members).toEqual([]);
     },
   );
 

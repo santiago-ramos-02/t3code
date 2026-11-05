@@ -101,6 +101,11 @@ type WorkflowAgent = OrchestrationV2SubagentWorkflow["agents"][number];
 const workflowRailOf = (
   agents: ReadonlyArray<WorkflowAgent>,
   status: "running" | "completed" = "running",
+  phases: OrchestrationV2SubagentWorkflow["phases"] = [
+    { index: 0, title: "Inspect" },
+    { index: 1, title: "Verify" },
+    { index: 2, title: "Report" },
+  ],
 ) =>
   workflowRail(
     deriveWorkflowGroups(
@@ -115,14 +120,7 @@ const workflowRailOf = (
           startedAt: DateTime.makeUnsafe("2026-08-01T10:00:00.000Z"),
           completedAt: null,
           updatedAt: DateTime.makeUnsafe("2026-08-01T10:00:05.000Z"),
-          workflow: {
-            phases: [
-              { index: 0, title: "Inspect" },
-              { index: 1, title: "Verify" },
-              { index: 2, title: "Report" },
-            ],
-            agents,
-          },
+          workflow: { phases, agents },
         },
       ]),
     )[0]!,
@@ -155,6 +153,22 @@ describe("workflowRail", () => {
       ["Report", "queued", 0],
       ["Other", "queued", 1],
     ]);
+  });
+
+  it("lists the orchestrator in a phase it works in itself and opens that phase", () => {
+    const rail = workflowRailOf([agent(1, 0, "completed")], "running", [
+      { index: 0, title: "Inspect" },
+      { index: 1, title: "Verify", spans: [{ startedAt: Date.UTC(2026, 7, 1, 10, 0, 1) }] },
+    ]);
+
+    expect(
+      rail.map((item) => [item.title, item.tone, item.members.length, item.rows.length]),
+    ).toEqual([
+      ["Inspect", "completed", 1, 1],
+      ["Verify", "working", 0, 1],
+    ]);
+    expect(rail[1]?.rows[0]?.title).toBe("Orchestrator");
+    expect(nextWorkflowSelection(rail, null)).toBe("1");
   });
 
   it("counts only completed agents toward a failed phase's progress", () => {

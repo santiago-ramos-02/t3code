@@ -268,10 +268,10 @@ describe("makePiGentle", () => {
 
   it.effect("names the workflow after the feature its members' prompts reference", () =>
     Effect.gen(function* () {
-      const { events, show, workflow } = yield* harness("Add dark mode\nand keep contrast");
-      // The first member names no feature, so the request's first line stands in.
+      // A request opens with whatever the user typed first, so it never names the workflow.
+      const { events, show, workflow } = yield* harness("Read `C:\\plans\\themes.md`\nthen build");
       yield* show({ id: "a", agent: "explorer", label: "Map themes", status: "running" });
-      assert.equal(workflow().workflow?.name, "Add dark mode");
+      assert.equal(workflow().workflow?.name, "ODD workflow");
       yield* show(
         { id: "a", agent: "explorer", label: "Map themes", status: "running" },
         {
@@ -300,22 +300,7 @@ describe("makePiGentle", () => {
           ? [event.appThread.title]
           : [],
       );
-      assert.deepStrictEqual(titles, ["Add dark mode", "Boat fork runtime"]);
-    }).pipe(Effect.provide(IdAllocator.layer)),
-  );
-
-  it.effect("falls back to a short first line of the request, then to the default name", () =>
-    Effect.gen(function* () {
-      const long = `${"Refactor the settings panel ".repeat(5).trim()}\nsecond line`;
-      const first = yield* harness(long);
-      yield* first.show({ id: "a", agent: "explorer", label: "Map", status: "running" });
-      const name = first.workflow().workflow?.name ?? "";
-      assert.isTrue(name.length <= 72 && name.startsWith("Refactor the settings panel"));
-      assert.isFalse(name.includes("second line"));
-
-      const blank = yield* harness("  ");
-      yield* blank.show({ id: "a", agent: "explorer", label: "Map", status: "running" });
-      assert.equal(blank.workflow().workflow?.name, "ODD workflow");
+      assert.deepStrictEqual(titles, ["ODD workflow", "Boat fork runtime"]);
     }).pipe(Effect.provide(IdAllocator.layer)),
   );
 
@@ -344,11 +329,21 @@ describe("makePiGentle", () => {
           { id: "a", agent: "gentle-ai-explore", label: "Map themes", status: "completed" },
           { id: "b", agent: "review-risk", label: "Review plan", status: "completed" },
         );
+        // A failed check sends the orchestrator back to implementing, then to checking again.
+        yield* TestClock.adjust(MINUTE);
+        yield* phase("implementing");
+        yield* TestClock.adjust(MINUTE);
+        yield* phase("checking");
         const checking = workflow();
+        const span = (from: number, to?: number) => ({
+          startedAt: NOW + from * MINUTE,
+          ...(to === undefined ? {} : { completedAt: NOW + to * MINUTE }),
+        });
         assert.deepStrictEqual(checking.workflow?.phases, [
-          { index: 1, title: "Exploring", startedAt: NOW, completedAt: NOW + MINUTE },
-          { index: 4, title: "Planning", startedAt: NOW + MINUTE, completedAt: NOW + 2 * MINUTE },
-          { index: 6, title: "Checking", startedAt: NOW + 2 * MINUTE },
+          { index: 1, title: "Exploring", spans: [span(0, 1)] },
+          { index: 4, title: "Planning", spans: [span(1, 2)] },
+          { index: 5, title: "Implementing", spans: [span(3, 4)] },
+          { index: 6, title: "Checking", spans: [span(2, 3), span(4)] },
         ]);
         assert.deepStrictEqual(
           checking.workflow?.agents.map((agent) => [agent.label, agent.phaseTitle]),
@@ -367,12 +362,11 @@ describe("makePiGentle", () => {
         assert.deepStrictEqual(finished.workflow?.phases.at(-1), {
           index: 6,
           title: "Checking",
-          startedAt: NOW + 2 * MINUTE,
-          completedAt: NOW + 3 * MINUTE,
+          spans: [span(2, 3), span(4, 5)],
         });
         assert.deepStrictEqual(
           [millis(finished.startedAt), millis(finished.completedAt)],
-          [NOW, NOW + 3 * MINUTE],
+          [NOW, NOW + 5 * MINUTE],
         );
       }).pipe(Effect.provide(IdAllocator.layer)),
   );

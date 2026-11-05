@@ -36,9 +36,10 @@ export interface SubagentActivityEntry {
 export interface SubagentWorkflowPhase {
   readonly index: number;
   readonly title: string;
-  /** The coordinator's own work in the phase, in epoch milliseconds. */
-  readonly startedAt?: number | undefined;
-  readonly completedAt?: number | undefined;
+  /** Each stretch the coordinator itself worked in the phase, in epoch milliseconds. */
+  readonly spans?:
+    | ReadonlyArray<{ readonly startedAt: number; readonly completedAt?: number | undefined }>
+    | undefined;
 }
 
 export interface SubagentRunHandles {
@@ -108,9 +109,10 @@ export interface SubagentWorkflowGroup {
     readonly members: ReadonlyArray<RuntimeSubagent>;
     readonly state: "pending" | "running" | "done";
     readonly settledCount: number;
-    /** When the coordinator itself worked in the phase, apart from its members. */
-    readonly ownStartedAt: string | null;
-    readonly ownCompletedAt: string | null;
+    /** Each stretch the coordinator itself worked in the phase; only an open one has no end. */
+    readonly ownSpans: ReadonlyArray<WorkSpan>;
+    /** That work as a row beside the members, so a phase always shows who worked in it. */
+    readonly coordinator: RuntimeSubagent | null;
   }>;
   readonly unphasedMembers: ReadonlyArray<RuntimeSubagent>;
 }
@@ -275,13 +277,12 @@ export function deriveWorkflowGroups(
     const workflowActive = isActiveSubagentStatus(workflow.status);
 
     const phases = knownPhases.map((phase) => {
-      const own = declared.get(phase.index);
-      const ownStartedAt = isoFromEpochMillis(own?.startedAt);
-      // A coordinator that stopped mid-phase never closes it, so only a live workflow keeps it open.
-      const ownCompletedAt =
-        ownStartedAt === null
-          ? null
-          : (isoFromEpochMillis(own?.completedAt) ?? (workflowActive ? null : workflow.updatedAt));
+      const ownSpans = (declared.get(phase.index)?.spans ?? []).map((span) => ({
+        startedAt: span.startedAt,
+        // A coordinator that stopped mid-phase never closes it, so only a live workflow keeps it open.
+        completedAt: span.completedAt ?? (workflowActive ? null : Date.parse(workflow.updatedAt)),
+      }));
+      const own = elapsedAcross(ownSpans);
       const phaseMembers = workflowMembers
         .filter((member) => member.phaseIndex === phase.index)
         .sort((a, b) => (a.agentIndex ?? 0) - (b.agentIndex ?? 0));
@@ -293,21 +294,46 @@ export function deriveWorkflowGroups(
       const settledCount = phaseMembers.filter((member) =>
         isTerminalSubagentStatus(member.status),
       ).length;
-      const ownRunning = ownStartedAt !== null && ownCompletedAt === null;
       const state: "pending" | "running" | "done" =
-        hasActiveMember || ownRunning
+        hasActiveMember || own?.status === "running"
           ? "running"
-          : phaseMembers.length === 0 && ownStartedAt === null
+          : phaseMembers.length === 0 && own === null
             ? "pending"
             : "done";
+      const coordinator: RuntimeSubagent | null =
+        own === null
+          ? null
+          : {
+              ...workflow,
+              ...own,
+              id: `${workflow.id}:phase-${phase.index}`,
+              kind: "workflow_agent",
+              title: "Orchestrator",
+              role: null,
+              usage: null,
+              progress: null,
+              lastToolName: null,
+              result: null,
+              error: null,
+              outputFile: null,
+              parentAgentId: workflow.id,
+              agentIndex: null,
+              phaseIndex: phase.index,
+              phaseTitle: phase.title,
+              workflowName: null,
+              phases: [],
+              runHandles: null,
+              childThreadId: null,
+              recentActivity: [],
+            };
       return {
         index: phase.index,
         title: phase.title,
         members: phaseMembers,
         state,
         settledCount,
-        ownStartedAt,
-        ownCompletedAt,
+        ownSpans,
+        coordinator,
       };
     });
 
@@ -323,20 +349,73 @@ type WorkflowGroupPhase = SubagentWorkflowGroup["phases"][number];
 
 /** Whether a phase has anything to show: members, or the coordinator's own work. */
 export function isWorkflowPhaseStarted(phase: WorkflowGroupPhase): boolean {
-  return phase.members.length > 0 || phase.ownStartedAt !== null;
+  return phase.members.length > 0 || phase.coordinator !== null;
 }
 
-/** A phase's span across its members and the coordinator's own work, for an elapsed label. */
-export function workflowPhaseSpan(phase: WorkflowGroupPhase) {
-  const instants = (key: "startedAt" | "completedAt", own: string | null) =>
-    [...phase.members.map((member) => member[key]), own].filter((value) => value !== null).sort();
+/** Who worked in a phase, to list under it: the coordinator itself first, then its members. */
+export function workflowPhaseRows(phase: WorkflowGroupPhase): ReadonlyArray<RuntimeSubagent> {
+  return phase.coordinator === null ? phase.members : [phase.coordinator, ...phase.members];
+}
+
+/** A stretch of work in epoch milliseconds; an open one has no end yet. */
+interface WorkSpan {
+  readonly startedAt: number;
+  readonly completedAt: number | null;
+}
+
+type Elapsed = Pick<RuntimeSubagent, "status" | "startedAt" | "completedAt">;
+
+/**
+ * The time spent across spans, counting overlap once, shaped for an elapsed label: the start is
+ * moved forward by the gaps between them, so start to end (or to now, while open) reads the total.
+ */
+function elapsedAcross(spans: ReadonlyArray<WorkSpan>): Elapsed | null {
+  let gapsMs = 0;
+  let run: { readonly startedAt: number; endsAt: number } | null = null;
+  for (const span of [...spans].sort((a, b) => a.startedAt - b.startedAt)) {
+    const endsAt = span.completedAt ?? Number.POSITIVE_INFINITY;
+    if (run === null) run = { startedAt: span.startedAt, endsAt };
+    else if (span.startedAt > run.endsAt) {
+      gapsMs += span.startedAt - run.endsAt;
+      run.endsAt = endsAt;
+    } else run.endsAt = Math.max(run.endsAt, endsAt);
+  }
+  if (run === null) return null;
+  const iso = (ms: number) => DateTime.formatIso(DateTime.makeUnsafe(ms));
+  const startedAt = iso(run.startedAt + gapsMs);
+  return run.endsAt === Number.POSITIVE_INFINITY
+    ? { status: "running", startedAt, completedAt: null }
+    : { status: "completed", startedAt, completedAt: iso(run.endsAt) };
+}
+
+/** A phase's elapsed time across its members and the coordinator's own work. */
+export function workflowPhaseSpan(phase: WorkflowGroupPhase): Elapsed {
+  if (phase.ownSpans.length > 0) {
+    // The coordinator can leave a phase and come back, so only the time spent in it counts.
+    const memberSpans = phase.members.flatMap((member) => {
+      if (member.startedAt === null) return [];
+      const startedAt = Date.parse(member.startedAt);
+      const completedAt =
+        member.completedAt !== null
+          ? Date.parse(member.completedAt)
+          : isTerminalSubagentStatus(member.status)
+            ? startedAt
+            : null;
+      return [{ startedAt, completedAt }];
+    });
+    const elapsed = elapsedAcross([...phase.ownSpans, ...memberSpans]);
+    if (elapsed !== null) return elapsed;
+  }
+  const instants = (key: "startedAt" | "completedAt") =>
+    phase.members
+      .map((member) => member[key])
+      .filter((value) => value !== null)
+      .sort();
   const running = phase.state === "running";
-  const startedAt = instants("startedAt", phase.ownStartedAt)[0] ?? null;
-  const completedAt = running
-    ? null
-    : (instants("completedAt", phase.ownCompletedAt).at(-1) ?? null);
+  const startedAt = instants("startedAt")[0] ?? null;
+  const completedAt = running ? null : (instants("completedAt").at(-1) ?? null);
   return {
-    status: running ? ("running" as const) : ("completed" as const),
+    status: running ? "running" : "completed",
     startedAt: running || completedAt !== null ? startedAt : null,
     completedAt,
   };

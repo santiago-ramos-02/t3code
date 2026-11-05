@@ -5,6 +5,7 @@ import {
 } from "@t3tools/client-runtime/state/subagent-display";
 import {
   isActiveSubagentStatus,
+  workflowPhaseRows,
   type RuntimeSubagent,
   type SubagentWorkflowGroup,
 } from "@t3tools/client-runtime/state/subagentRuntime";
@@ -115,7 +116,10 @@ export type WorkflowRailTone = SubagentRowTone | "queued";
 export interface WorkflowRailItem {
   readonly key: string;
   readonly title: string;
+  /** The agents the phase's progress counts. */
   readonly members: ReadonlyArray<RuntimeSubagent>;
+  /** Who worked in the phase, to list: the coordinator itself, when it did, then the members. */
+  readonly rows: ReadonlyArray<RuntimeSubagent>;
   readonly completedCount: number;
   readonly tone: WorkflowRailTone;
 }
@@ -134,24 +138,17 @@ export function workflowRail(group: SubagentWorkflowGroup): ReadonlyArray<Workfl
     key: string,
     title: string,
     members: ReadonlyArray<RuntimeSubagent>,
-    tone: WorkflowRailTone = railTone(members),
+    rows: ReadonlyArray<RuntimeSubagent> = members,
   ): WorkflowRailItem => ({
     key,
     title,
     members,
+    rows,
     completedCount: members.filter((member) => member.status === "completed").length,
-    tone,
+    tone: railTone(rows),
   });
   const items = group.phases.map((phase) =>
-    // A phase the coordinator works in alone has no members to take its tone from.
-    phase.members.length === 0 && phase.state !== "pending"
-      ? item(
-          String(phase.index),
-          phase.title,
-          phase.members,
-          phase.state === "running" ? "working" : "completed",
-        )
-      : item(String(phase.index), phase.title, phase.members),
+    item(String(phase.index), phase.title, phase.members, workflowPhaseRows(phase)),
   );
   if (group.unphasedMembers.length > 0) {
     items.push(item("unphased", items.length === 0 ? "Agents" : "Other", group.unphasedMembers));
@@ -167,7 +164,7 @@ export function nextWorkflowSelection(
   const open = rail.some((item) => item.key === selected) ? selected : null;
   if (tapped !== undefined) return tapped === open ? null : tapped;
   if (open !== null) return null;
-  const filled = rail.filter((item) => item.members.length > 0);
+  const filled = rail.filter((item) => item.rows.length > 0);
   return (
     (
       filled.find((item) => item.tone === "working") ??
