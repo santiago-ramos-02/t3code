@@ -31,6 +31,8 @@ import { gentleAiReleaseAsset } from "./GentleAiBinary.ts";
 
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
+const SYSTEM_ROOT = process.env.SystemRoot ?? "C:\\Windows";
+
 const provider = (
   driver: string,
   extra: { readonly installed?: boolean; readonly gentleAi?: boolean } = {},
@@ -357,9 +359,7 @@ else line({ type: "error", error: { code: "unsupported", message: "unknown metho
             yield* fileSystem.makeDirectory(path.join(home, "build", folder), { recursive: true });
             yield* fileSystem.writeFileString(path.join(home, "build", folder, program), "program");
             const tar =
-              platform === "win32"
-                ? path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe")
-                : "tar";
+              platform === "win32" ? path.join(SYSTEM_ROOT, "System32", "tar.exe") : "tar";
             const archive = path.join(home, asset);
             const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
             yield* spawner.string(

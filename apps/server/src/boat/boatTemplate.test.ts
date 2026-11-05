@@ -19,6 +19,9 @@ import {
   type TemplateBoat,
 } from "./boatTemplate.ts";
 
+// Read before any Effect runs: the prep script must still find the host's tools.
+const HOST_PATH = process.env.PATH;
+
 describe("templateNameFor", () => {
   it("saves over the configured template, but never over a share code", () => {
     assert.strictEqual(templateNameFor("my-template"), "my-template");
@@ -71,7 +74,7 @@ describe("templatePrepScript", () => {
       const output = yield* spawner.string(
         ChildProcess.make("bash", ["-c", `PATH="$(pwd)/bin"\n${script!}`], {
           cwd: root,
-          env: { HOME: home, PATH: process.env.PATH },
+          env: { HOME: home, PATH: HOST_PATH },
         }),
       );
       const kept = (yield* fileSystem.readDirectory(userdata, { recursive: true }))

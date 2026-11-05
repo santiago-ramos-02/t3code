@@ -5,10 +5,10 @@
  * @module boat/boatTemplate
  */
 import { BoatError, GENTLE_PI_FORK_SOURCE } from "@t3tools/contracts";
-import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schedule from "effect/Schedule";
+import * as Schema from "effect/Schema";
 
 import { BOAT_READY_STATES, BOAT_START_FAILED_STATES, type BoatApi } from "./BoatApi.ts";
 import { forkRuntimeCommands } from "./forkRuntime.ts";
@@ -92,7 +92,7 @@ export type TemplateBoat = Pick<
   | "saveNamedSnapshot"
 >;
 
-class StillWaiting extends Data.TaggedError("StillWaiting")<{}> {}
+class StillWaiting extends Schema.TaggedError<StillWaiting>()("StillWaiting", {}) {}
 
 /** Repeats `check` every few seconds until it has an answer, failing after `minutes`. */
 const waitFor = <A, E>(
@@ -105,7 +105,7 @@ const waitFor = <A, E>(
       Option.match({ onNone: () => Effect.fail(new StillWaiting()), onSome: Effect.succeed }),
     ),
     Effect.retry({
-      while: (error) => error instanceof StillWaiting,
+      while: Schema.is(StillWaiting),
       schedule: Schedule.spaced("5 seconds"),
       times: minutes * 12,
     }),

@@ -58,6 +58,15 @@ const UsageResponse = Schema.Struct({
   usage: Schema.Struct({ rolling: UsageWindow, weekly: UsageWindow, monthly: UsageWindow }),
 });
 
+class OpenCodeCredentialReadError extends Schema.TaggedError<OpenCodeCredentialReadError>()(
+  "OpenCodeCredentialReadError",
+  { databasePath: Schema.String, cause: Schema.Defect() },
+) {
+  override get message(): string {
+    return `Could not read OpenCode credentials from ${this.databasePath}.`;
+  }
+}
+
 // Select before decoding so an OAuth or self-hosted connection cannot fall
 // through to another stored account. NULL-active rows predate the selection flag.
 const readStoredCredential = (
@@ -65,36 +74,39 @@ const readStoredCredential = (
   integrationId: "opencode" | "opencode-go",
   nowMs: number,
 ) =>
-  Effect.try((): GoCredential | undefined => {
-    const database = new NodeSqlite.DatabaseSync(databasePath, { readOnly: true });
-    try {
-      database.exec("PRAGMA busy_timeout = 100");
-      const row = database
-        .prepare(
-          `SELECT value FROM credential
-           WHERE integration_id = ? AND active IS NOT 0
-           ORDER BY active DESC, time_created DESC, id DESC LIMIT 1`,
-        )
-        .get(integrationId);
-      const stored =
-        typeof row?.value === "string"
-          ? Option.getOrUndefined(decodeStoredCredential(row.value))
-          : undefined;
-      if (stored === undefined) return undefined;
-      const server = stored.metadata?.server;
-      if (typeof server === "string") {
-        const url = new URL(server);
-        if (`${url.origin}${url.pathname.replace(/\/+$/, "")}` !== "https://opencode.ai/console")
-          return undefined;
+  Effect.try({
+    try: (): GoCredential | undefined => {
+      const database = new NodeSqlite.DatabaseSync(databasePath, { readOnly: true });
+      try {
+        database.exec("PRAGMA busy_timeout = 100");
+        const row = database
+          .prepare(
+            `SELECT value FROM credential
+             WHERE integration_id = ? AND active IS NOT 0
+             ORDER BY active DESC, time_created DESC, id DESC LIMIT 1`,
+          )
+          .get(integrationId);
+        const stored =
+          typeof row?.value === "string"
+            ? Option.getOrUndefined(decodeStoredCredential(row.value))
+            : undefined;
+        if (stored === undefined) return undefined;
+        const server = stored.metadata?.server;
+        if (typeof server === "string") {
+          const url = new URL(server);
+          if (`${url.origin}${url.pathname.replace(/\/+$/, "")}` !== "https://opencode.ai/console")
+            return undefined;
+        }
+        if (stored.type === "key") return { token: stored.key.trim() };
+        // OpenCode refreshes an expired token on its next request; until then it reads nothing.
+        const workspaceId = stored.metadata?.orgID;
+        if (typeof server !== "string" || typeof workspaceId !== "string") return undefined;
+        return stored.expires > nowMs ? { token: stored.access, workspaceId } : undefined;
+      } finally {
+        database.close();
       }
-      if (stored.type === "key") return { token: stored.key.trim() };
-      // OpenCode refreshes an expired token on its next request; until then it reads nothing.
-      const workspaceId = stored.metadata?.orgID;
-      if (typeof server !== "string" || typeof workspaceId !== "string") return undefined;
-      return stored.expires > nowMs ? { token: stored.access, workspaceId } : undefined;
-    } finally {
-      database.close();
-    }
+    },
+    catch: (cause) => new OpenCodeCredentialReadError({ databasePath, cause }),
   }).pipe(Effect.orElseSucceed(() => undefined));
 
 /** External OpenCode servers own their credentials; never read the host's account for them. */

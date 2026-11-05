@@ -343,10 +343,16 @@ export const makeGentleReviewers = Effect.gen(function* () {
     // A sliding slot of one coalesces a burst of appends into one catch-up read.
     const changes = yield* Queue.sliding<void>(1);
     const watcher = yield* Effect.acquireRelease(
-      Effect.try(() => {
-        const watcher = NodeFS.watch(directory.value, () => Queue.offerUnsafe(changes, undefined));
-        watcher.on("error", () => watcher.close());
-        return watcher;
+      Effect.try({
+        try: () => {
+          const watcher = NodeFS.watch(directory.value, () =>
+            Queue.offerUnsafe(changes, undefined),
+          );
+          watcher.on("error", () => watcher.close());
+          return watcher;
+        },
+        // An unwatchable folder only loses the live activity, so its reason is not kept.
+        catch: () => undefined,
       }),
       (watcher) => Effect.sync(() => watcher.close()),
     ).pipe(Effect.option);
