@@ -19,7 +19,7 @@ import { useEnvironmentQuery } from "../../state/query";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import {
-  AndroidSettingsEnvironmentFilter,
+  useSettingsEnvironmentMenu,
   SettingsEnvironmentFilterHeader,
 } from "./components/SettingsEnvironmentFilterHeader";
 import { SettingsScreen } from "./components/SettingsScreen";
@@ -36,12 +36,13 @@ const STATE_LABELS = {
 
 /** CLIProxyAPI on each selected environment; accounts, pools, and providers are edited on web or desktop. */
 export function SettingsCliProxyRouteScreen() {
+  const environmentMenu = useSettingsEnvironmentMenu();
   const insets = useSafeAreaInsets();
   const { selectedTargets } = useSettingsEnvironmentFilter();
   return (
     <>
       <SettingsEnvironmentFilterHeader />
-      <SettingsScreen title="CLIProxyAPI" trailing={<AndroidSettingsEnvironmentFilter />}>
+      <SettingsScreen title="CLIProxyAPI" menus={[environmentMenu]}>
         <ScrollView
           contentInsetAdjustmentBehavior="automatic"
           showsVerticalScrollIndicator={false}

@@ -45,7 +45,7 @@ import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { ChoiceMenu } from "./ChoiceMenu";
 import {
-  AndroidSettingsEnvironmentFilter,
+  useSettingsEnvironmentMenu,
   SettingsEnvironmentFilterHeader,
 } from "./components/SettingsEnvironmentFilterHeader";
 import { SettingsScreen } from "./components/SettingsScreen";
@@ -60,12 +60,13 @@ type GentleAiAction = GentleAiActionInput["action"];
  * backups. Setting agents up, per-phase models, and removal are on web and desktop.
  */
 export function SettingsGentleAiRouteScreen() {
+  const environmentMenu = useSettingsEnvironmentMenu();
   const insets = useSafeAreaInsets();
   const { selectedTargets } = useSettingsEnvironmentFilter();
   return (
     <>
       <SettingsEnvironmentFilterHeader />
-      <SettingsScreen title="Gentle AI" trailing={<AndroidSettingsEnvironmentFilter />}>
+      <SettingsScreen title="Gentle AI" menus={[environmentMenu]}>
         <ScrollView
           contentInsetAdjustmentBehavior="automatic"
           showsVerticalScrollIndicator={false}
