@@ -5,7 +5,6 @@ import {
   resolveWorkflowOpening,
   workflowOpeningHeadline,
   workflowOpeningParentThreadId,
-  workflowPhaseRows,
   type RuntimeSubagent,
 } from "@t3tools/client-runtime/state/subagentRuntime";
 import type { EnvironmentId, ScopedThreadRef, ThreadId } from "@t3tools/contracts";
@@ -138,7 +137,7 @@ export function ThreadWorkflowOpening(props: {
                     ? `${phase.title} · ${phase.settledCount}/${phase.members.length}`
                     : phase.title}
                 </Text>
-                {workflowPhaseRows(phase).map(renderMember)}
+                {phase.members.map(renderMember)}
               </View>
             ))
           : null}

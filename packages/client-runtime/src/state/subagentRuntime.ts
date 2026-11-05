@@ -111,8 +111,6 @@ export interface SubagentWorkflowGroup {
     readonly settledCount: number;
     /** Each stretch the coordinator itself worked in the phase; only an open one has no end. */
     readonly ownSpans: ReadonlyArray<WorkSpan>;
-    /** That work as a row beside the members, so a phase always shows who worked in it. */
-    readonly coordinator: RuntimeSubagent | null;
   }>;
   readonly unphasedMembers: ReadonlyArray<RuntimeSubagent>;
 }
@@ -300,32 +298,6 @@ export function deriveWorkflowGroups(
           : phaseMembers.length === 0 && own === null
             ? "pending"
             : "done";
-      const coordinator: RuntimeSubagent | null =
-        own === null
-          ? null
-          : {
-              ...workflow,
-              ...own,
-              id: `${workflow.id}:phase-${phase.index}`,
-              kind: "workflow_agent",
-              title: "Orchestrator",
-              role: null,
-              usage: null,
-              progress: null,
-              lastToolName: null,
-              result: null,
-              error: null,
-              outputFile: null,
-              parentAgentId: workflow.id,
-              agentIndex: null,
-              phaseIndex: phase.index,
-              phaseTitle: phase.title,
-              workflowName: null,
-              phases: [],
-              runHandles: null,
-              childThreadId: null,
-              recentActivity: [],
-            };
       return {
         index: phase.index,
         title: phase.title,
@@ -333,7 +305,6 @@ export function deriveWorkflowGroups(
         state,
         settledCount,
         ownSpans,
-        coordinator,
       };
     });
 
@@ -349,12 +320,7 @@ type WorkflowGroupPhase = SubagentWorkflowGroup["phases"][number];
 
 /** Whether a phase has anything to show: members, or the coordinator's own work. */
 export function isWorkflowPhaseStarted(phase: WorkflowGroupPhase): boolean {
-  return phase.members.length > 0 || phase.coordinator !== null;
-}
-
-/** Who worked in a phase, to list under it: the coordinator itself first, then its members. */
-export function workflowPhaseRows(phase: WorkflowGroupPhase): ReadonlyArray<RuntimeSubagent> {
-  return phase.coordinator === null ? phase.members : [phase.coordinator, ...phase.members];
+  return phase.members.length > 0 || phase.ownSpans.length > 0;
 }
 
 /** A stretch of work in epoch milliseconds; an open one has no end yet. */

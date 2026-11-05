@@ -211,17 +211,7 @@ describe("deriveWorkflowGroups over a dynamic workflow", () => {
               completedAt: "2026-08-01T10:07:00.000Z",
             },
       );
-      // The phases the coordinator worked in name it, so they never look agentless.
-      expect(phases.map((phase) => phase.coordinator?.title ?? null)).toEqual([
-        null,
-        "Orchestrator",
-        "Orchestrator",
-        null,
-      ]);
-      expect(phases[2]?.coordinator).toMatchObject({
-        status: status === "running" ? "running" : "completed",
-        childThreadId: null,
-      });
+      // The coordinator is not one of a phase's agents, even in a phase it works in alone.
       expect(phases[2]?.members).toEqual([]);
     },
   );

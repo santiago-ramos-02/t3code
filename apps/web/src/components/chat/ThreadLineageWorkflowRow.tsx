@@ -1,6 +1,5 @@
 import {
   isWorkflowPhaseStarted,
-  workflowPhaseRows,
   workflowPhaseSpan,
   type SubagentWorkflowGroup,
   type RuntimeSubagent,
@@ -50,8 +49,7 @@ function WorkflowMemberRow({
   providers: ReadonlyArray<ServerProvider> | undefined;
   providerEntries: ReadonlyArray<ProviderInstanceEntry>;
   driver: ProviderDriverKind | undefined;
-  /** Unset for the orchestrator's own work, which has no thread of its own to open. */
-  onOpen: ((threadId: string) => void) | undefined;
+  onOpen: (threadId: string) => void;
 }) {
   const threadId = member.childThreadId;
   const canOpen = threadId !== null;
@@ -61,16 +59,12 @@ function WorkflowMemberRow({
         <TooltipTrigger
           delay={200}
           render={
-            onOpen === undefined ? (
-              <ThreadDetailsControl part="row" render={<div />} className="cursor-default" />
-            ) : (
-              <ThreadDetailsControl
-                part="row"
-                aria-label={`Open ${member.title} chat`}
-                disabled={!canOpen}
-                onClick={() => canOpen && onOpen(threadId)}
-              />
-            )
+            <ThreadDetailsControl
+              part="row"
+              aria-label={`Open ${member.title} chat`}
+              disabled={!canOpen}
+              onClick={() => canOpen && onOpen(threadId)}
+            />
           }
         >
           <ThreadRelationshipIcon
@@ -189,36 +183,55 @@ export function ThreadLineageWorkflowRow({
           {phases.map((phase) => {
             const open = phaseOpen.get(phase.index) ?? phase.state === "running";
             const status = phaseStatusLabel(phase);
+            const tone = phase.state === "running" ? "emphasized" : "muted";
+            const accessory = (
+              <>
+                {status === "failed" ? <SectionHeaderStatus>Failed</SectionHeaderStatus> : null}
+                {phase.members.length > 0 ? (
+                  <span className="shrink-0 text-2xs font-normal tabular-nums">
+                    {phase.settledCount}/{phase.members.length}{" "}
+                    {phase.members.length === 1 ? "agent" : "agents"}
+                  </span>
+                ) : null}
+                <span className="shrink-0 text-2xs font-normal tabular-nums empty:hidden">
+                  <AgentElapsed agent={workflowPhaseSpan(phase)} />
+                </span>
+              </>
+            );
+            if (phase.members.length === 0) {
+              // The coordinator worked in this phase alone, so there is nothing to expand.
+              return (
+                <li
+                  key={phase.index}
+                  aria-label={`${phase.title} phase, ${status}`}
+                  className={cn(
+                    "flex h-8 items-center gap-2 ps-2 pe-2.5 text-xs font-medium",
+                    tone === "emphasized"
+                      ? "text-sidebar-foreground/80"
+                      : "text-sidebar-muted-foreground",
+                  )}
+                >
+                  <span className="min-w-0 flex-1 truncate">{phase.title}</span>
+                  {accessory}
+                  <span aria-hidden className="size-3 shrink-0" />
+                </li>
+              );
+            }
             return (
               <li key={phase.index}>
                 <CollapsibleSectionHeader
                   variant="panel"
-                  tone={phase.state === "running" ? "emphasized" : "muted"}
+                  tone={tone}
                   expanded={open}
                   aria-label={`${open ? "Collapse" : "Expand"} ${phase.title} phase, ${status}`}
                   onClick={() => setPhaseOpen((phases) => new Map(phases).set(phase.index, !open))}
-                  accessory={
-                    <>
-                      {status === "failed" ? (
-                        <SectionHeaderStatus>Failed</SectionHeaderStatus>
-                      ) : null}
-                      {phase.members.length > 0 ? (
-                        <span className="shrink-0 text-2xs font-normal tabular-nums">
-                          {phase.settledCount}/{phase.members.length}{" "}
-                          {phase.members.length === 1 ? "agent" : "agents"}
-                        </span>
-                      ) : null}
-                      <span className="shrink-0 text-2xs font-normal tabular-nums empty:hidden">
-                        <AgentElapsed agent={workflowPhaseSpan(phase)} />
-                      </span>
-                    </>
-                  }
+                  accessory={accessory}
                 >
                   {phase.title}
                 </CollapsibleSectionHeader>
                 {open ? (
                   <ul className="m-0 list-none p-0">
-                    {workflowPhaseRows(phase).map((member) => (
+                    {phase.members.map((member) => (
                       <WorkflowMemberRow
                         key={member.id}
                         member={member}
@@ -227,7 +240,7 @@ export function ThreadLineageWorkflowRow({
                         providers={providers}
                         providerEntries={providerEntries}
                         driver={driver}
-                        onOpen={member === phase.coordinator ? undefined : onOpenThread}
+                        onOpen={onOpenThread}
                       />
                     ))}
                   </ul>
