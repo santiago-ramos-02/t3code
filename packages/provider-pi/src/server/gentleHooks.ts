@@ -97,6 +97,9 @@ export interface PiGentleHooksShape {
   readonly usageLimits?: Effect.Effect<ServerProviderUsageLimits | undefined>;
 }
 
+/** gentle-shell publishes the orchestrator's ODD phase under this status key. */
+export const GENTLE_ODD_PHASE_STATUS_KEY = "gentle-odd-phase";
+
 /** Without gentle-pi: nothing handled, nothing pending. */
 export const noPiGentle: PiGentle<PiGentleTurn> = {
   onExtensionUiRequest: () => Effect.succeed(false),

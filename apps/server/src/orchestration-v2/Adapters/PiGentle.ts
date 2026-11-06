@@ -17,7 +17,12 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
 import type { ManagedServerProvider } from "@t3tools/provider-core/server/snapshot";
-import type { PiGentle, PiGentleDeps, PiGentleTurn } from "@t3tools/provider-pi/server/gentleHooks";
+import {
+  GENTLE_ODD_PHASE_STATUS_KEY,
+  type PiGentle,
+  type PiGentleDeps,
+  type PiGentleTurn,
+} from "@t3tools/provider-pi/server/gentleHooks";
 import { backgroundWorkNotification } from "@t3tools/provider-core/server/notification";
 import {
   makeSubagentChildThread,
@@ -73,9 +78,6 @@ const AGENT_PHASES = new Map<string, OddPhase>([
   ["gentle-ai-worker", "implementing"],
   ["gentle-ai-verify", "checking"],
 ]);
-
-// gentle-shell publishes the orchestrator's phase under this status key to an RPC host.
-const ODD_PHASE_STATUS_KEY = "gentle-odd-phase";
 
 /** One stretch of the orchestrator's own work in a phase. */
 interface PhaseSpan {
@@ -964,7 +966,7 @@ export function makePiGentle<Turn extends PiGentleTurn>(
   return {
     /** Handles gentle-pi's activity widget and ODD phase; false for every other UI request. */
     onExtensionUiRequest: Effect.fnUntraced(function* (event: Record<string, unknown>) {
-      if (event["method"] === "setStatus" && event["statusKey"] === ODD_PHASE_STATUS_KEY) {
+      if (event["method"] === "setStatus" && event["statusKey"] === GENTLE_ODD_PHASE_STATUS_KEY) {
         const turn = deps.threadState()?.activeTurn ?? null;
         const phase = event["statusText"];
         if (turn !== null) yield* enterPhase(turn, isOddPhase(phase) ? phase : null);
