@@ -23,11 +23,13 @@ import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
+import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
 import {
   isMachineRunTerminal,
+  MACHINE_UNREACHABLE,
   type MachineRun,
   type MachineRunItem,
   type MachineThreads,
@@ -183,6 +185,11 @@ export const BoatProviderCapabilitiesV2 = {
 
 const LOST_CONNECTION = "Lost the connection to the Boat machine before the task finished.";
 const UNEXPECTED_STOP = "The task on the Boat machine stopped unexpectedly.";
+// A busy machine can drop the connection while its agent keeps working, so following resumes
+// on a new connection for a while before the turn fails.
+const REFOLLOW = { schedule: Schedule.spaced("5 seconds"), times: 60 } as const;
+const isConnectionLoss = (error: BoatError) =>
+  error.detail === LOST_CONNECTION || error.detail === MACHINE_UNREACHABLE;
 const NO_ATTACHMENTS = "Boat machines cannot receive attachments yet.";
 
 type Outcome =
@@ -482,19 +489,38 @@ export const makeBoatAdapterV2 = (input: {
           yield* markAccepted();
 
           let last: MachineRun | undefined;
-          yield* machine
-            .follow({ threadId: machineThreadId, messageId: turn.message.messageId })
-            .pipe(
-              Stream.runForEach((run) =>
-                Effect.gen(function* () {
-                  last = run;
-                  const settledAs = isMachineRunTerminal(run)
-                    ? outcomeOfRun(run).status
-                    : undefined;
-                  for (const item of run.items) yield* mirrorItem(item, settledAs);
-                }),
-              ),
-            );
+          const follow = (connection: typeof machine) =>
+            connection
+              .follow({ threadId: machineThreadId, messageId: turn.message.messageId })
+              .pipe(
+                Stream.runForEach((run) =>
+                  Effect.gen(function* () {
+                    last = run;
+                    const settledAs = isMachineRunTerminal(run)
+                      ? outcomeOfRun(run).status
+                      : undefined;
+                    for (const item of run.items) yield* mirrorItem(item, settledAs);
+                  }),
+                ),
+                Effect.andThen(
+                  Effect.suspend(() =>
+                    last !== undefined && isMachineRunTerminal(last)
+                      ? Effect.void
+                      : Effect.fail(new BoatError({ detail: LOST_CONNECTION })),
+                  ),
+                ),
+              );
+          yield* follow(machine).pipe(
+            Effect.catchIf(isConnectionLoss, () =>
+              input.machines
+                .connect(input.sandboxId)
+                .pipe(
+                  Effect.flatMap(follow),
+                  Effect.scoped,
+                  Effect.retry({ ...REFOLLOW, while: isConnectionLoss }),
+                ),
+            ),
+          );
           return outcomeOfRun(last);
         }).pipe(
           Effect.scoped,

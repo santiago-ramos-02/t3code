@@ -16,7 +16,9 @@ import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter"
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as Stream from "effect/Stream";
+import * as TestClock from "effect/testing/TestClock";
 
 import type {
   MachineLaunchInput,
@@ -581,13 +583,35 @@ describe("BoatAdapterV2", () => {
     }).pipe(Effect.scoped),
   );
 
-  it.effect("fails the turn when the connection ends before the run does", () =>
+  it.effect("follows the run on a new connection when a busy machine drops it", () =>
+    Effect.gen(function* () {
+      const { runtime, turnInput, connections } = yield* open({
+        follows: [
+          Stream.make(run("running", [answer("a", "Working", true)])),
+          Stream.fail(new BoatError({ detail: "The Boat machine did not answer." })),
+          Stream.make(run("completed", [answer("a", "Done", false)])),
+        ],
+      });
+      yield* runtime.startTurn(turnInput(1));
+      const collecting = yield* Effect.forkChild(untilTerminal(runtime.events));
+      yield* TestClock.adjust("5 seconds");
+      const events = yield* Fiber.join(collecting);
+
+      const [terminal] = ofType(events, "turn.terminal");
+      assert.strictEqual(terminal?.status, "completed");
+      assert.strictEqual(connections.opened, 3);
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("fails the turn once the machine stays out of reach", () =>
     Effect.gen(function* () {
       const { runtime, turnInput } = yield* open({
         follows: [Stream.make(run("running", [answer("a", "Working", true)]))],
       });
       yield* runtime.startTurn(turnInput(1));
-      const events = yield* untilTerminal(runtime.events);
+      const collecting = yield* Effect.forkChild(untilTerminal(runtime.events));
+      yield* TestClock.adjust("10 minutes");
+      const events = yield* Fiber.join(collecting);
 
       const [terminal] = ofType(events, "turn.terminal");
       assert.strictEqual(
@@ -597,10 +621,10 @@ describe("BoatAdapterV2", () => {
     }).pipe(Effect.scoped),
   );
 
-  it.effect("fails the turn with the machine's error when following it fails", () =>
+  it.effect("fails the turn with the machine's own error without following again", () =>
     Effect.gen(function* () {
-      const { runtime, turnInput } = yield* open({
-        follows: [Stream.fail(new BoatError({ detail: "The Boat machine did not answer." }))],
+      const { runtime, turnInput, connections } = yield* open({
+        follows: [Stream.fail(new BoatError({ detail: "Thread not found on the machine." }))],
       });
       yield* runtime.startTurn(turnInput(1));
       const events = yield* untilTerminal(runtime.events);
@@ -608,8 +632,9 @@ describe("BoatAdapterV2", () => {
       const [terminal] = ofType(events, "turn.terminal");
       assert.strictEqual(
         terminal?.status === "failed" ? terminal.failure.message : null,
-        "The Boat machine did not answer.",
+        "Thread not found on the machine.",
       );
+      assert.strictEqual(connections.opened, 1);
     }).pipe(Effect.scoped),
   );
 

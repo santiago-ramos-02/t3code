@@ -155,6 +155,9 @@ export interface MachineThreads {
   ) => Effect.Effect<MachineThreadClient, BoatError, Scope.Scope>;
 }
 
+/** What a failure says when it came from the connection rather than from the machine. */
+export const MACHINE_UNREACHABLE = "The Boat machine did not answer.";
+
 const isBoatError = Schema.is(BoatError);
 const isLaunchError = Schema.is(OrchestrationV2ThreadLaunchError);
 const isDispatchError = Schema.is(OrchestrationV2DispatchCommandError);
@@ -169,7 +172,7 @@ const machineError = (error: unknown) =>
         detail:
           isLaunchError(error) || isDispatchError(error) || isProjectionError(error)
             ? error.message
-            : "The Boat machine did not answer.",
+            : MACHINE_UNREACHABLE,
       });
 
 const clip = (text: string, length: number) => {
