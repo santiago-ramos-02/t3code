@@ -1,5 +1,6 @@
 import {
   isWorkflowPhaseStarted,
+  workflowMemberModelSelection,
   workflowPhaseSpan,
   type SubagentWorkflowGroup,
   type RuntimeSubagent,
@@ -87,6 +88,7 @@ function WorkflowMemberRow({
             model={member.model}
             providerInstanceId={providerInstanceId}
             origin="provider_native"
+            modelSelection={workflowMemberModelSelection(member, providerInstanceId)}
             provider={provider}
             providers={providers}
             driver={driver}

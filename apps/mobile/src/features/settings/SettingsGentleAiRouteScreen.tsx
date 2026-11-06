@@ -44,10 +44,7 @@ import { useEnvironmentQuery } from "../../state/query";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { ChoiceMenu } from "./ChoiceMenu";
-import {
-  useSettingsEnvironmentMenu,
-  SettingsEnvironmentFilterHeader,
-} from "./components/SettingsEnvironmentFilterHeader";
+import { useSettingsEnvironmentMenu } from "./components/SettingsEnvironmentFilterHeader";
 import { SettingsScreen } from "./components/SettingsScreen";
 import { SettingsSection } from "./components/SettingsSection";
 import { useSettingsEnvironmentFilter, type SettingsTarget } from "./settings-environment-filter";
@@ -64,26 +61,23 @@ export function SettingsGentleAiRouteScreen() {
   const insets = useSafeAreaInsets();
   const { selectedTargets } = useSettingsEnvironmentFilter();
   return (
-    <>
-      <SettingsEnvironmentFilterHeader />
-      <SettingsScreen title="Gentle AI" menus={[environmentMenu]}>
-        <ScrollView
-          contentInsetAdjustmentBehavior="automatic"
-          showsVerticalScrollIndicator={false}
-          className="flex-1"
-          contentContainerClassName="gap-6 px-5 pt-4"
-          contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 18) + 18 }}
-        >
-          {selectedTargets.map((target) => (
-            <GentleAiEnvironmentSettings
-              key={target.environmentId}
-              target={target}
-              showLabel={selectedTargets.length > 1}
-            />
-          ))}
-        </ScrollView>
-      </SettingsScreen>
-    </>
+    <SettingsScreen title="Gentle AI" menus={[environmentMenu]}>
+      <ScrollView
+        contentInsetAdjustmentBehavior="automatic"
+        showsVerticalScrollIndicator={false}
+        className="flex-1"
+        contentContainerClassName="gap-6 px-5 pt-4"
+        contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 18) + 18 }}
+      >
+        {selectedTargets.map((target) => (
+          <GentleAiEnvironmentSettings
+            key={target.environmentId}
+            target={target}
+            showLabel={selectedTargets.length > 1}
+          />
+        ))}
+      </ScrollView>
+    </SettingsScreen>
   );
 }
 

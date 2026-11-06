@@ -160,6 +160,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv, Path.
       {
         scopedLimitNames,
         onUsageLimits: (update) => snapshot.applyUsageLimits(update),
+        modelCatalog,
         prepareSession: yield* makeClaudeGentleSession(DRIVER_KIND, config),
         gentleReviewers: yield* makeGentleReviewers,
       },

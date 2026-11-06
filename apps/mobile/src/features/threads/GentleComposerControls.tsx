@@ -35,7 +35,7 @@ import {
 } from "../../state/use-composer-drafts";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { useGentleAiQuery } from "../settings/SettingsGentleAiRouteScreen";
-import { useSelectWorkspaceDetail } from "../workspace/useSelectWorkspaceDetail";
+import { useSelectWorkspaceDetail } from "../layout/workspace/useSelectWorkspaceDetail";
 import { GentleRoseIcon } from "./GentleRoseIcon";
 import { useGentleProfileMenu } from "./useGentleProfileMenu";
 
