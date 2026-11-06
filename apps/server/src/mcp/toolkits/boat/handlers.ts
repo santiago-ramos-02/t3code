@@ -18,6 +18,7 @@ const machineList = (status: BoatStatus) => ({
   configured: status.configured,
   defaultSize: status.settings.defaultSize,
   machines: status.machines.map(labeled),
+  templateBuild: status.templateBuild,
 });
 const boatFailure = (error: BoatError) =>
   new OrchestratorMcpFailure({ code: "orchestration_error", message: error.detail });

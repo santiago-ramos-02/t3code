@@ -32,10 +32,9 @@ const LOG_PATH = "/tmp/t3-template.log";
 const STATUS_PATH = "/tmp/t3-template.status";
 
 /**
- * What runs on the scratch machine. Each tool already there is updated in place and a failure only
- * skips that tool; the last line lists what was updated and what failed. Then the T3 Code home
- * loses everything that belongs to one install, so machines started from the template do not share
- * an identity, signing keys, Boat, cloud, or GitHub credentials, or projects and threads.
+ * Updates each tool on the scratch machine (a failure only skips it; the last line lists both),
+ * then strips what belongs to one install: identity, signing keys, Boat, cloud, and GitHub
+ * credentials, GitHub Actions runner registrations, and projects and threads.
  */
 export const templatePrepScript = (t3Version: string): string | null => {
   const runtime = forkRuntimeCommands(t3Version);
@@ -55,8 +54,10 @@ export const templatePrepScript = (t3Version: string): string | null => {
     `  tag=$(curl -fsSL https://api.github.com/repos/${gentleAi}/releases/latest | sed -n 's/.*"tag_name": *"\\([^"]*\\)".*/\\1/p' | head -n 1)`,
     '  [ -n "$tag" ] || return 1',
     "  dir=$(mktemp -d) && bin=$(command -v gentle-ai) &&",
-    `  curl -fsSL "https://github.com/${gentleAi}/releases/download/$tag/gentle-ai_\${tag#v}_linux_amd64.tar.gz" | tar -xz -C "$dir" gentle-ai &&`,
-    '  install -m 755 "$dir/gentle-ai" "$bin"; status=$?; rm -rf "$dir"; return $status',
+    `  curl -fsSL "https://github.com/${gentleAi}/releases/download/$tag/gentle-ai_\${tag#v}_linux_amd64.tar.gz" | tar -xz -C "$dir" &&`,
+    // Release archives may keep the binary in a versioned folder; it may live in a root-owned bin.
+    '  src=$(find "$dir" -type f -name gentle-ai | head -n 1) && [ -n "$src" ] &&',
+    '  { install -m 755 "$src" "$bin" 2>/dev/null || sudo -n install -m 755 "$src" "$bin"; }; status=$?; rm -rf "$dir"; return $status',
     "}",
     `step "T3 Code ${t3Version}" update_t3`,
     'command -v claude >/dev/null 2>&1 && step "Claude Code" update_claude',
@@ -67,6 +68,10 @@ export const templatePrepScript = (t3Version: string): string | null => {
     'rm -rf "$home/environment-id" "$home/anonymous-id" "$home/server-runtime.json" "$home"/statev2.sqlite* "$home"/state.sqlite* "$home/logs" "$home/attachments" "$home"/secrets/*-signing-key.bin "$home"/secrets/boat-* "$home"/secrets/cloud-* "$home"/secrets/source-control-*',
     // T3 Code gives each new machine the host's GitHub token when it starts.
     'rm -rf "$HOME/.t3/worktrees" "$HOME/.git-credentials" "$HOME/.config/gh/hosts.yml"',
+    // A self-hosted GitHub Actions runner's registration belongs to one machine: every copy would
+    // take its jobs with its credentials. The runner stays installed, unregistered.
+    'find "$HOME" -maxdepth 3 -type f -name .runner 2>/dev/null | while read -r file; do dir="${file%/.runner}"; rm -f "$dir/.runner" "$dir/.credentials" "$dir/.credentials_rsaparams" "$dir/.service"; done',
+    "sudo -n rm -f /etc/systemd/system/actions.runner.*.service /etc/systemd/system/*.wants/actions.runner.*.service 2>/dev/null",
     'echo "updated=${updated#,};failed=${failed#,}"',
   ].join("\n");
 };

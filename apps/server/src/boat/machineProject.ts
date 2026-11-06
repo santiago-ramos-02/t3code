@@ -96,6 +96,43 @@ const checkoutName = (remoteUrl: string) => {
   return safe.length === 0 ? "project" : safe;
 };
 
+interface KnownProject {
+  readonly id: ProjectId;
+  readonly workspaceRoot: string;
+  readonly repositoryIdentity?:
+    | {
+        readonly locator: { readonly remoteUrl: string };
+        readonly origin?: { readonly remoteUrl?: string };
+      }
+    | null
+    | undefined;
+}
+
+/**
+ * The machine's project for `remoteUrl`: the one whose origin is that repository, else the
+ * checkout a clone would land in. The machine resolves a new project's repository in the
+ * background, so a checkout cloned moments ago has none yet.
+ */
+export const findMachineProject = <P extends KnownProject>(
+  projects: ReadonlyArray<P>,
+  remoteUrl: string,
+) => {
+  const wanted = normalizeGitRemoteUrl(remoteUrl);
+  const name = checkoutName(remoteUrl);
+  return (
+    projects.find((project) => {
+      const identity = project.repositoryIdentity;
+      return [identity?.locator.remoteUrl, identity?.origin?.remoteUrl].some(
+        (url) => url !== undefined && normalizeGitRemoteUrl(url) === wanted,
+      );
+    }) ??
+    projects.find(
+      (project) =>
+        project.repositoryIdentity == null && project.workspaceRoot.split("/").at(-1) === name,
+    )
+  );
+};
+
 const cloneProject = Effect.fn("MachineProject.clone")(function* (
   client: MachineProjectClient,
   remoteUrl: string,
@@ -132,8 +169,8 @@ const cloneProject = Effect.fn("MachineProject.clone")(function* (
 });
 
 /**
- * The machine's project for `remoteUrl`, found by its origin remote or cloned into the machine's
- * home, with `branch` known to exist on its origin. `syncBranch` brings the checkout's view of
+ * The machine's project for `remoteUrl`, found by `findMachineProject` or cloned into the
+ * machine's home, with `branch` known to exist on its origin. `syncBranch` brings the checkout's view of
  * that branch up to date and says whether origin has it.
  */
 export const ensureMachineProject = Effect.fn("MachineProject.ensure")(function* (input: {
@@ -143,7 +180,6 @@ export const ensureMachineProject = Effect.fn("MachineProject.ensure")(function*
   readonly syncBranch: (workspaceRoot: string) => Effect.Effect<boolean, BoatError>;
 }) {
   const { client, remoteUrl } = input;
-  const wanted = normalizeGitRemoteUrl(remoteUrl);
 
   const snapshot = yield* client[ORCHESTRATION_V2_WS_METHODS.subscribeShell]({
     omitIdleSubagents: true,
@@ -155,12 +191,7 @@ export const ensureMachineProject = Effect.fn("MachineProject.ensure")(function*
   const known =
     snapshot._tag === "None"
       ? undefined
-      : snapshot.value.snapshot.projects.find((project) => {
-          const identity = project.repositoryIdentity;
-          return [identity?.locator.remoteUrl, identity?.origin?.remoteUrl].some(
-            (url) => url !== undefined && normalizeGitRemoteUrl(url) === wanted,
-          );
-        });
+      : findMachineProject(snapshot.value.snapshot.projects, remoteUrl);
 
   const project: MachineProject = known
     ? { projectId: known.id, workspaceRoot: known.workspaceRoot }

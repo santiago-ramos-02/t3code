@@ -2,6 +2,7 @@ import {
   BoatMachine,
   BoatMachineActionInput,
   BoatSize,
+  BoatTemplateBuild,
   OrchestratorMcpFailure,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
@@ -24,6 +25,7 @@ const MachineList = Schema.Struct({
   configured: Schema.Boolean,
   defaultSize: BoatSize,
   machines: Schema.Array(LabeledMachine),
+  templateBuild: Schema.NullOr(BoatTemplateBuild),
 });
 
 const BoatMachineListTool = Tool.make("t3_boat_machine_list", {

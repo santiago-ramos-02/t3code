@@ -32,8 +32,9 @@ describe("templateNameFor", () => {
 
 describe("templatePrepScript", () => {
   // Runs the script in bash against a scratch home with a PATH of stubs only, so it can never
-  // reach a real tool. Each named tool succeeds unless listed in `failing`; curl always fails, so
-  // nothing downloads; the few system commands the script needs pass through to the real ones.
+  // reach a real tool. Each named tool succeeds unless listed in `failing`; curl serves only a
+  // local gentle-ai release, so nothing downloads; the few system commands the script needs pass
+  // through to the real ones.
   const runScript = (tools: ReadonlyArray<string>, failing: ReadonlyArray<string> = []) =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
@@ -58,6 +59,25 @@ describe("templatePrepScript", () => {
       ]) {
         yield* fileSystem.writeFileString(path.join(userdata, file), "x");
       }
+      const runner = path.join(home, "actions-runner");
+      yield* fileSystem.makeDirectory(runner);
+      for (const file of [".runner", ".credentials", ".credentials_rsaparams", "run.sh"]) {
+        yield* fileSystem.writeFileString(path.join(runner, file), "x");
+      }
+      // Like the real release, the archive keeps the binary in a versioned folder.
+      const release = path.join(root, "release", "gentle-ai_1.2.3_linux_amd64");
+      yield* fileSystem.makeDirectory(release, { recursive: true });
+      yield* fileSystem.writeFileString(path.join(release, "gentle-ai"), "new gentle-ai");
+      yield* spawner.string(
+        ChildProcess.make(
+          "bash",
+          ["-c", "PATH=/usr/bin:/bin tar -czf release.tar.gz -C release ."],
+          {
+            cwd: root,
+            env: { PATH: HOST_PATH },
+          },
+        ),
+      );
       const stub = Effect.fn(function* (name: string, body: string) {
         yield* fileSystem.writeFileString(path.join(bin, name), `#!/bin/sh\n${body}\n`);
         yield* fileSystem.chmod(path.join(bin, name), 0o755);
@@ -65,8 +85,17 @@ describe("templatePrepScript", () => {
       for (const tool of ["npm", ...tools]) {
         yield* stub(tool, `exit ${failing.includes(tool) ? 1 : 0}`);
       }
-      yield* stub("curl", "exit 1");
-      for (const command of ["rm", "sed", "head", "mktemp", "install", "tar", "cat"]) {
+      yield* stub(
+        "curl",
+        [
+          'case "$*" in',
+          `  *api.github.com/*) echo '"tag_name": "v1.2.3",' ;;`,
+          '  *releases/download/v1.2.3/gentle-ai_1.2.3_linux_amd64.tar.gz) cat "$(pwd)/release.tar.gz" ;;',
+          "  *) exit 1 ;;",
+          "esac",
+        ].join("\n"),
+      );
+      for (const command of ["rm", "sed", "head", "mktemp", "install", "tar", "cat", "find"]) {
         yield* stub(command, `PATH=/usr/bin:/bin exec ${command} "$@"`);
       }
       const script = templatePrepScript("0.1.3-nightly.20261026.1100");
@@ -80,22 +109,32 @@ describe("templatePrepScript", () => {
       const kept = (yield* fileSystem.readDirectory(userdata, { recursive: true }))
         .map((file) => file.replaceAll("\\", "/"))
         .toSorted();
-      return { summary: parsePrepSummary(output), kept };
+      return {
+        summary: parsePrepSummary(output),
+        kept,
+        runner: (yield* fileSystem.readDirectory(runner)).toSorted(),
+        gentleAi: tools.includes("gentle-ai")
+          ? yield* fileSystem.readFileString(path.join(bin, "gentle-ai"))
+          : null,
+      };
     }).pipe(Effect.scoped);
 
   it.effect("updates the tools it finds and reports each one that failed", () =>
     Effect.gen(function* () {
-      const { summary } = yield* runScript(["claude", "pi"], ["pi"]);
+      const { summary, gentleAi } = yield* runScript(["claude", "pi", "gentle-ai"], ["pi"]);
       assert.deepStrictEqual(summary, {
-        updated: ["Claude Code"],
+        updated: ["Claude Code", "gentle-ai"],
         failed: ["T3 Code 0.1.3-nightly.20261026.1100", "Pi with Gentle AI"],
       });
+      assert.strictEqual(gentleAi, "new gentle-ai");
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 
   it.effect("forgets the install's identity and credentials and keeps its settings", () =>
     Effect.gen(function* () {
-      const { kept } = yield* runScript([]);
+      const { kept, runner } = yield* runScript([]);
+      // The GitHub Actions runner stays installed, without the machine's registration.
+      assert.deepStrictEqual(runner, ["run.sh"]);
       assert.deepStrictEqual(kept, [
         "secrets",
         "secrets/provider-auth-claude.bin",

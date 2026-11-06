@@ -36,38 +36,43 @@ const machine: BoatMachine = {
   startId: null,
 };
 
+const layerFor = (boat: Partial<BoatMachines.BoatMachines["Service"]>) =>
+  McpToolAccess.HandlersLayer.layer(BoatHandlers.layer).pipe(
+    Layer.provideMerge(
+      Layer.mergeAll(
+        Layer.succeed(McpInvocationContext.McpInvocationContext, {
+          environmentId: EnvironmentId.make("environment:boat"),
+          requestNamespace: "provider:boat",
+          thread: {
+            threadId,
+            providerSessionId: "provider:boat",
+            providerInstanceId: ProviderInstanceId.make("codex"),
+          },
+          client: undefined,
+          capabilities: new Set(["orchestration" as const]),
+          issuedAt: 0,
+        }),
+        Layer.mock(ThreadManagement.ThreadManagementService)({
+          getThreadShell: () => Effect.succeed(liveThreadShell(threadId)),
+        }),
+        Layer.mock(BoatMachines.BoatMachines)(boat),
+      ),
+    ),
+  );
+
 const run = (boat: Partial<BoatMachines.BoatMachines["Service"]>) =>
   Effect.gen(function* () {
     const toolkit = yield* BoatToolkit;
     return yield* toolkit
       .handle("t3_boat_machine_start", { size: "default" })
       .pipe(Stream.unwrap, Stream.runCollect);
-  }).pipe(
-    Effect.provide(
-      McpToolAccess.HandlersLayer.layer(BoatHandlers.layer).pipe(
-        Layer.provideMerge(
-          Layer.mergeAll(
-            Layer.succeed(McpInvocationContext.McpInvocationContext, {
-              environmentId: EnvironmentId.make("environment:boat"),
-              requestNamespace: "provider:boat",
-              thread: {
-                threadId,
-                providerSessionId: "provider:boat",
-                providerInstanceId: ProviderInstanceId.make("codex"),
-              },
-              client: undefined,
-              capabilities: new Set(["orchestration" as const]),
-              issuedAt: 0,
-            }),
-            Layer.mock(ThreadManagement.ThreadManagementService)({
-              getThreadShell: () => Effect.succeed(liveThreadShell(threadId)),
-            }),
-            Layer.mock(BoatMachines.BoatMachines)(boat),
-          ),
-        ),
-      ),
-    ),
-  );
+  }).pipe(Effect.provide(layerFor(boat)));
+
+const list = (boat: Partial<BoatMachines.BoatMachines["Service"]>) =>
+  Effect.gen(function* () {
+    const toolkit = yield* BoatToolkit;
+    return yield* toolkit.handle("t3_boat_machine_list", {}).pipe(Stream.unwrap, Stream.runCollect);
+  }).pipe(Effect.provide(layerFor(boat)));
 
 it.effect("returns a one-time pairing link for a new Boat machine", () =>
   Effect.gen(function* () {
@@ -100,5 +105,26 @@ it.effect("returns Boat's reason when a machine cannot start", () =>
       code: "orchestration_error",
       message: "Add a Boat API key in Settings first.",
     });
+  }),
+);
+
+it.effect("lists the running template build so agents can follow it", () =>
+  Effect.gen(function* () {
+    const templateBuild = {
+      sandboxId: machine.sandboxId,
+      state: "running",
+      detail: "Updating tools",
+    } as const;
+    const result = yield* list({
+      current: Effect.succeed({
+        configured: true,
+        cli: null,
+        settings: { template: "t3-agent", defaultSize: "default", idleStopMinutes: 5 },
+        machines: [machine],
+        deleted: [],
+        templateBuild,
+      }),
+    });
+    expect(result.at(-1)?.result).toMatchObject({ templateBuild });
   }),
 );
