@@ -24,6 +24,7 @@ import { ThreadAutomationsPanel } from "./ThreadAutomationsPanel";
 import { ThreadRelationshipsPanel } from "./ThreadRelationshipsControl";
 import { ThreadMemoryPanel } from "../memory/ThreadMemoryPanel";
 import { ThreadFeaturePanel } from "./ThreadFeaturePanel";
+import { ThreadTasksPanel } from "./ThreadTasksPanel";
 import { ThreadServersPanel } from "./ThreadServersPanel";
 import {
   ThreadDetailsContext,
@@ -257,6 +258,10 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                   threadId={props.threadId}
                   cwd={props.gitCwd}
                 />
+              ) : null}
+
+              {density === "full" && !props.draftId && visible.tasks ? (
+                <ThreadTasksPanel environmentId={props.environmentId} threadId={props.threadId} />
               ) : null}
 
               {density === "full" && !props.draftId && visible.memory ? (

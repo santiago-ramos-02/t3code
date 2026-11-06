@@ -28,6 +28,7 @@ import {
   deriveTimelineEntriesFromVisibleTurnItemsWithState,
   deriveRevertTurnCountByUserMessageId,
   derivePhase,
+  findLatestTodoList,
   isLatestRunSettled,
   selectHandoffImageResources,
   selectMessageImageResources,
@@ -637,6 +638,80 @@ describe("V2 session presentation", () => {
       ]);
     },
   );
+
+  it("takes the thread's task list from its newest todo list, not an earlier one or a proposed plan", () => {
+    const fixture = makeThreadProjectionFixture();
+    const threadId = fixture.thread.id;
+    const runId = RunId.make("run-tasks");
+    const nodeId = NodeId.make("node-tasks");
+    const todoItem = (id: string, planId: PlanId, at: string) =>
+      ({
+        id: TurnItemId.make(id),
+        threadId,
+        runId,
+        nodeId,
+        providerThreadId: null,
+        providerTurnId: null,
+        nativeItemRef: null,
+        parentItemId: null,
+        ordinal: 0,
+        status: "completed" as const,
+        title: null,
+        startedAt: DateTime.makeUnsafe(at),
+        completedAt: DateTime.makeUnsafe(at),
+        updatedAt: DateTime.makeUnsafe(at),
+        type: "todo_list" as const,
+        planId,
+        steps: [],
+      }) satisfies OrchestrationV2TurnItem;
+    const earlier = PlanId.make("plan-b-earlier");
+    const newer = PlanId.make("plan-a-newer");
+    const newerSteps = [
+      { id: "step-1", text: "Write the test", status: "completed" as const },
+      { id: "step-2", text: "Fix the bug", status: "running" as const },
+      { id: "step-3", text: "Ship it", status: "pending" as const },
+    ];
+    const projection = {
+      ...fixture,
+      // The newer list sorts first by id, so only its item's time can pick it.
+      turnItems: [
+        todoItem("item-newer", newer, "2026-09-04T00:02:00.000Z"),
+        todoItem("item-earlier", earlier, "2026-09-04T00:01:00.000Z"),
+      ],
+      plans: [
+        {
+          id: earlier,
+          threadId,
+          runId,
+          nodeId,
+          kind: "todo_list" as const,
+          status: "superseded" as const,
+          steps: [{ id: "step-1", text: "Old task", status: "pending" as const }],
+        },
+        {
+          id: newer,
+          threadId,
+          runId,
+          nodeId,
+          kind: "todo_list" as const,
+          status: "active" as const,
+          steps: newerSteps,
+        },
+        {
+          id: PlanId.make("plan-proposed"),
+          threadId,
+          runId,
+          nodeId,
+          kind: "proposed_plan" as const,
+          markdown: "Later plan",
+          status: "active" as const,
+        },
+      ],
+    };
+
+    expect(findLatestTodoList(projection)).toEqual({ steps: newerSteps, done: 1 });
+    expect(findLatestTodoList({ ...fixture, plans: [] })).toBeNull();
+  });
 
   it("waits for a dispatched turn item before adding queued input to the timeline", () => {
     const projection = makeThreadProjectionFixture();
