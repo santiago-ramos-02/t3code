@@ -230,18 +230,20 @@ export function gentleWorkflowName(prompts: ReadonlyArray<string>): string {
  * replaces the turn's plan, including an empty list after `clear`.
  */
 const GENTLE_TODO_TOOL = "todo";
+// Status stays a string: one status this parser does not know must not hide the whole list.
 const decodeGentleTodo = Schema.decodeUnknownOption(
   Schema.Struct({
     gentleTodo: Schema.Struct({
-      tasks: Schema.Array(
-        Schema.Struct({
-          title: Schema.String,
-          status: Schema.Literals(["pending", "in_progress", "done"]),
-        }),
-      ),
+      tasks: Schema.Array(Schema.Struct({ title: Schema.String, status: Schema.String })),
     }),
   }),
 );
+
+/** gentle-pi's statuses in the steps every harness shares; `blocked` is still open. */
+const GENTLE_TODO_STATUS: Partial<Record<string, OrchestrationV2PlanStep["status"]>> = {
+  done: "completed",
+  in_progress: "running",
+};
 
 /** The plan steps a gentle-pi todo result sets, or undefined for any other tool result. */
 export function gentleTodoSteps(
@@ -251,10 +253,16 @@ export function gentleTodoSteps(
   if (toolName !== GENTLE_TODO_TOOL) return undefined;
   const todo = decodeGentleTodo(details);
   if (Option.isNone(todo)) return undefined;
-  return todo.value.gentleTodo.tasks.map((task, index) => ({
-    id: `todo-${index}`,
-    text: nonEmpty(task.title, "Task"),
-    status:
-      task.status === "done" ? "completed" : task.status === "in_progress" ? "running" : "pending",
-  }));
+  return todo.value.gentleTodo.tasks.flatMap((task, index) =>
+    // A dropped task will not be done on purpose, so it leaves the list.
+    task.status === "dropped"
+      ? []
+      : [
+          {
+            id: `todo-${index}`,
+            text: nonEmpty(task.title, "Task"),
+            status: GENTLE_TODO_STATUS[task.status] ?? "pending",
+          },
+        ],
+  );
 }

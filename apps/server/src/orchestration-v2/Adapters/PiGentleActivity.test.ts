@@ -152,6 +152,23 @@ describe("gentleTodoSteps", () => {
       { id: "todo-1", text: "Build", status: "running" },
       { id: "todo-2", text: "Ship", status: "pending" },
     ]);
+    // Statuses no other harness has: a blocked task is still open, a dropped one leaves the list.
+    expect(
+      gentleTodoSteps("todo", {
+        gentleTodo: {
+          tasks: [
+            { title: "Plan", status: "done" },
+            { title: "Wait for admin", status: "blocked", note: "waiting for an admin" },
+            { title: "Old idea", status: "dropped" },
+            { title: "Ship", status: "someday" },
+          ],
+        },
+      }),
+    ).toEqual([
+      { id: "todo-0", text: "Plan", status: "completed" },
+      { id: "todo-1", text: "Wait for admin", status: "pending" },
+      { id: "todo-3", text: "Ship", status: "pending" },
+    ]);
     expect(gentleTodoSteps("read", {})).toBeUndefined();
   });
 });
