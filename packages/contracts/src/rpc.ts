@@ -79,6 +79,8 @@ import {
   BoatConfigureInput,
   BoatError,
   BoatMachineActionInput,
+  BoatPairInput,
+  BoatPairResult,
   BoatSpawnInput,
   BoatSpawnResult,
   BoatStatus,
@@ -510,6 +512,7 @@ export const WS_METHODS = {
   boatSubscribeStatus: "boat.subscribeStatus",
   boatConfigure: "boat.configure",
   boatSpawn: "boat.spawn",
+  boatPair: "boat.pair",
   boatMachineAction: "boat.machineAction",
   memoryOverview: "memory.overview",
   memorySearch: "memory.search",
@@ -829,6 +832,12 @@ const WsBoatConfigureRpc = Rpc.make(WS_METHODS.boatConfigure, {
 const WsBoatSpawnRpc = Rpc.make(WS_METHODS.boatSpawn, {
   payload: BoatSpawnInput,
   success: BoatSpawnResult,
+  error: BoatRpcError,
+});
+
+const WsBoatPairRpc = Rpc.make(WS_METHODS.boatPair, {
+  payload: BoatPairInput,
+  success: BoatPairResult,
   error: BoatRpcError,
 });
 
@@ -2454,6 +2463,7 @@ export const ForkWsRpcGroup = RpcGroup.make(
   WsBoatSubscribeStatusRpc,
   WsBoatConfigureRpc,
   WsBoatSpawnRpc,
+  WsBoatPairRpc,
   WsBoatMachineActionRpc,
 ).middleware(RpcScopeAuthorization);
 

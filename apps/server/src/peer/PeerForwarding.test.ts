@@ -26,6 +26,7 @@ import * as ThreadSearch from "../orchestration-v2/ThreadSearch.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as SourceControlRepositoryService from "../sourceControl/SourceControlRepositoryService.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
+import * as BoatLinks from "../boat/BoatLinks.ts";
 import * as BoatMachines from "../boat/BoatMachines.ts";
 import * as GentleAi from "../gentleAi/GentleAi.ts";
 import * as ProviderAdapterRegistry from "../orchestration-v2/ProviderAdapterRegistry.ts";
@@ -222,6 +223,7 @@ const serveBox = (seen: Ref.Ref<Seen>, linkSession: Ref.Ref<string>) =>
       Layer.provide(
         Layer.mergeAll(
           Layer.mock(GitVcsDriver.GitVcsDriver)({}),
+          Layer.mock(BoatLinks.BoatLinks)({}),
           Layer.mock(BoatMachines.BoatMachines)({}),
           Layer.mock(GentleAi.GentleAi)({ current: Effect.succeed(GentleAi.NOT_INSTALLED) }),
         ),
@@ -282,6 +284,7 @@ const makeLaptop = Effect.gen(function* () {
     Layer.provide(
       Layer.mergeAll(
         Layer.mock(GitVcsDriver.GitVcsDriver)({}),
+        Layer.mock(BoatLinks.BoatLinks)({}),
         Layer.mock(BoatMachines.BoatMachines)({}),
         Layer.mock(GentleAi.GentleAi)({ current: Effect.succeed(GentleAi.NOT_INSTALLED) }),
       ),

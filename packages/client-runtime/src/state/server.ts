@@ -1503,6 +1503,10 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:boat:spawn",
       tag: WS_METHODS.boatSpawn,
     }),
+    pairBoatMachine: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:boat:pair",
+      tag: WS_METHODS.boatPair,
+    }),
     runBoatMachineAction: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:boat:machine-action",
       tag: WS_METHODS.boatMachineAction,

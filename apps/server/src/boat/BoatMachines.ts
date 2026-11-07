@@ -11,6 +11,8 @@ import {
   type BoatConfigureInput,
   type BoatStartStep,
   type BoatMachineActionInput,
+  type BoatPairInput,
+  type BoatPairResult,
   type BoatSpawnInput,
   type BoatSpawnResult,
   type ServerSettings,
@@ -111,6 +113,13 @@ const T3_SERVE = `sh -lc 'export ${BOAT_MACHINE_ENV}=1; exec ${T3_COMMAND} serve
 const T3_UP = `curl -sf -o /dev/null http://127.0.0.1:${BOAT_T3_PORT}/`;
 const T3_WAIT = `for i in $(seq 1 120); do ${T3_UP} && exit 0; sleep 1; done; exit 1`;
 const T3_PAIRING = `sh -lc '${T3_COMMAND} auth pairing create --json'`;
+// The machine accepts this server's link only with Linked environments on. The server reloads
+// its settings file, so a running machine takes the change without a restart.
+const ENABLE_LINKS = `python3 -c 'import json,os,sys
+p=os.path.expanduser("~/.t3/userdata/settings.json")
+d=json.load(open(p)) if os.path.exists(p) else {}
+if d.get("linkedEnvironmentsEnabled") is not True:
+    d["linkedEnvironmentsEnabled"]=True; json.dump(d,open(p+".tmp","w"),indent=2); os.replace(p+".tmp",p)'`;
 
 // T3 Code reads its name from /etc/machine-info at startup. Best effort: without it the machine
 // keeps Boat's hostname as its name.
@@ -151,6 +160,8 @@ export class BoatMachines extends Context.Service<
     readonly configure: (input: BoatConfigureInput) => Effect.Effect<BoatStatus, BoatError>;
     /** Starts a machine running T3 Code and returns a one-time pairing credential for it. */
     readonly spawn: (input: BoatSpawnInput) => Effect.Effect<BoatSpawnResult, BoatError>;
+    /** A new one-time pairing credential for a machine, resumed first if it is stopped. */
+    readonly pair: (input: BoatPairInput) => Effect.Effect<BoatPairResult, BoatError>;
     readonly machineAction: (input: BoatMachineActionInput) => Effect.Effect<BoatStatus, BoatError>;
     /**
      * Opens an RPC client to a machine's own T3 Code server for as long as the caller's scope
@@ -450,14 +461,34 @@ export const make = Effect.gen(function* () {
   ) {
     const { sandboxId } = machine;
     const notice = yield* serveT3(boat, machine);
+    const pairingCredential = yield* mintPairing(boat, sandboxId);
+    const httpBaseUrl = yield* boat.hostPublicPort(sandboxId, BOAT_T3_PORT);
+    return { httpBaseUrl, pairingCredential, notice };
+  });
+
+  const mintPairing = Effect.fn("BoatMachines.mintPairing")(function* (
+    boat: BoatApi,
+    sandboxId: string,
+  ) {
+    const enabled = yield* boat.runCommand(sandboxId, { command: ENABLE_LINKS });
+    if (enabled.exitCode !== 0) {
+      return yield* fail("T3 Code on the Boat machine could not turn on Linked environments.");
+    }
     const pairing = yield* boat.runCommand(sandboxId, { command: T3_PAIRING, timeoutSeconds: 120 });
     const json = pairing.stdout.slice(pairing.stdout.indexOf("{"));
     const credential = decodePairingCredential(json);
     if (pairing.exitCode !== 0 || Option.isNone(credential)) {
       return yield* fail("T3 Code on the Boat machine did not create a pairing link.");
     }
-    const httpBaseUrl = yield* boat.hostPublicPort(sandboxId, BOAT_T3_PORT);
-    return { httpBaseUrl, pairingCredential: credential.value.credential, notice };
+    return credential.value.credential;
+  });
+
+  const pair = Effect.fn("BoatMachines.pair")(function* (input: BoatPairInput) {
+    const boat = yield* api;
+    const machine = yield* ensureRunning(boat, input.sandboxId);
+    if (machine.httpBaseUrl === null) return yield* fail("That Boat machine has no address.");
+    const pairingCredential = yield* mintPairing(boat, machine.sandboxId);
+    return { httpBaseUrl: machine.httpBaseUrl, pairingCredential } satisfies BoatPairResult;
   });
 
   // A machine no client can reach would bill until Boat's TTL stops it, so it is deleted. When
@@ -1222,6 +1253,7 @@ export const make = Effect.gen(function* () {
     ),
     configure,
     spawn,
+    pair,
     machineAction,
     connect,
     ensureProject,

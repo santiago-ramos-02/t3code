@@ -32,6 +32,7 @@ import { RunningThreadKeepAlive } from "../components/desktop/RunningThreadKeepA
 import { ReopenClosedViewShortcut } from "../components/ReopenClosedViewShortcut";
 import { ProjectCloneToastCoordinator } from "../components/ProjectCloneToastCoordinator";
 import { BoatDeletedMachineCoordinator } from "../components/BoatDeletedMachineCoordinator";
+import { BoatMachinePairingCoordinator } from "../components/BoatMachinePairingCoordinator";
 import { ChatGptWelcomeCoordinator } from "../components/settings/ChatGptWelcomeCoordinator";
 import { ThemeEditorHost } from "../components/settings/ThemeEditorHost";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
@@ -203,6 +204,7 @@ function RootRouteBranch() {
           <DesktopWebLinkCoordinator />
         ) : null}
         {primaryEnvironmentAuthenticated ? <BoatDeletedMachineCoordinator /> : null}
+        {primaryEnvironmentAuthenticated ? <BoatMachinePairingCoordinator /> : null}
         {isElectron ? <RunningThreadKeepAlive /> : null}
         <RelayClientInstallDialog />
         <ConnectOnboardingDialog />

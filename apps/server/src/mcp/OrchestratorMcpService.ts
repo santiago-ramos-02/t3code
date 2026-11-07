@@ -3,6 +3,7 @@ import {
   type RunId,
   isProviderAvailable,
   MessageId,
+  type BoatError,
   type ModelSelection,
   NodeId,
   ORCHESTRATOR_MCP_RUNNING_TASK_NEXT,
@@ -88,9 +89,9 @@ import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
+import * as BoatLinks from "../boat/BoatLinks.ts";
 import * as BoatMachines from "../boat/BoatMachines.ts";
 import * as GentleAi from "../gentleAi/GentleAi.ts";
-import { boatDelegateModelSelection } from "../orchestration-v2/Adapters/BoatAdapterV2.ts";
 import * as ProviderAdapterRegistry from "../orchestration-v2/ProviderAdapterRegistry.ts";
 import {
   subagentResultForRun,
@@ -1069,6 +1070,7 @@ const make = Effect.gen(function* () {
   const boat = yield* BoatMachines.BoatMachines;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const remoteDelegation = yield* RemoteDelegation.RemoteDelegation;
+  const boatLinks = yield* BoatLinks.BoatLinks;
 
   const requireProject = (projectId: ProjectId) =>
     projects.getById(projectId).pipe(
@@ -1084,16 +1086,15 @@ const make = Effect.gen(function* () {
       ),
     );
 
-  // A machine task runs where the project's origin branch is checked out on the machine, so the
+  // A machine task runs in a worktree of the project's origin branch on the machine, so the
   // parent's checkout must have both before anything is created.
-  const resolveMachineModelSelection = Effect.fn("OrchestratorMcpService.resolveMachineSelection")(
+  const resolveMachineCheckout = Effect.fn("OrchestratorMcpService.resolveMachineCheckout")(
     function* (input: {
       readonly parentThread: {
         readonly projectId: ProjectId;
         readonly worktreePath: string | null;
       };
       readonly sandboxId: string;
-      readonly remote: ModelSelection;
     }) {
       const status = yield* boat.current;
       const machine = status.machines.find((entry) => entry.sandboxId === input.sandboxId);
@@ -1157,12 +1158,7 @@ const make = Effect.gen(function* () {
           "The parent project's origin remote embeds credentials, which are not passed to a Boat machine. Set origin to a URL without credentials and try again.",
         );
       }
-      return boatDelegateModelSelection({
-        sandboxId: input.sandboxId,
-        remote: input.remote,
-        remoteUrl: cloneUrl,
-        branch,
-      });
+      return { remoteUrl: cloneUrl, branch };
     },
   );
 
@@ -2526,6 +2522,35 @@ const make = Effect.gen(function* () {
       };
     }),
     delegateTask: Effect.fn("OrchestratorMcpService.delegateTask")(function* (callerScope, input) {
+      if (input.machine !== undefined) {
+        const { machine, isolation: _isolation, ...task } = input;
+        if (PeerForwarding.remoteTarget(callerScope, input.target?.environmentId) !== undefined) {
+          return yield* failure(
+            "invalid_request",
+            "Pass either machine or target.environmentId, not both.",
+          );
+        }
+        const { scope, parent } = yield* loadThreadCaller(callerScope, "delegate_task");
+        const checkout = yield* resolveMachineCheckout({
+          parentThread: parent.thread,
+          sandboxId: machine,
+        });
+        const asFailure = (error: BoatError) => failure("invalid_request", error.detail);
+        const project = yield* boat
+          .ensureProject({ sandboxId: machine, ...checkout })
+          .pipe(Effect.mapError(asFailure));
+        const environmentId = yield* boatLinks.link(machine).pipe(Effect.mapError(asFailure));
+        // The task runs as an ordinary thread in the machine's environment, in a worktree of the
+        // branch on origin, which the checks above confirmed.
+        const { taskId } = yield* remoteDelegation.delegate(
+          scope,
+          { ...task, target: { ...input.target, environmentId, projectId: project.projectId } },
+          { type: "worktree", baseRef: checkout.branch, startFromOrigin: true },
+        );
+        return yield* input.mode === "wait"
+          ? awaitTask(scope, taskId, input.timeoutMs)
+          : readTask(scope, taskId, false, true);
+      }
       const environmentId =
         input.target === undefined
           ? undefined
@@ -2566,11 +2591,7 @@ const make = Effect.gen(function* () {
         );
       }
       const providers = yield* loadProviders;
-      // Gentle AI's subagents run locally, so a Boat machine task stays with T3 Code.
-      if (
-        input.machine === undefined &&
-        gentleAiOwnsDelegation(parent.thread, providers, yield* gentleAi.current)
-      ) {
+      if (gentleAiOwnsDelegation(parent.thread, providers, yield* gentleAi.current)) {
         return yield* failure("delegation_owned_by_gentle_ai", GENTLE_AI_DELEGATION);
       }
       const key = yield* requestKey(input.clientRequestId);
@@ -2595,21 +2616,9 @@ const make = Effect.gen(function* () {
         parent.thread.interactionMode,
         input.interactionMode,
       );
-      const modelSelection =
-        input.machine === undefined
-          ? target.modelSelection
-          : yield* resolveMachineModelSelection({
-              parentThread: parent.thread,
-              sandboxId: input.machine,
-              remote: target.modelSelection,
-            });
-      // The machine makes its own worktree from origin, so `isolation` has no host effect there.
+      const modelSelection = target.modelSelection;
       let workspaceStrategy: OrchestrationV2ThreadLaunchWorkspaceStrategy | undefined;
-      if (
-        input.isolation === "worktree" &&
-        input.machine === undefined &&
-        !isRetryOfAcceptedDelegation
-      ) {
+      if (input.isolation === "worktree" && !isRetryOfAcceptedDelegation) {
         const project = yield* requireProject(parent.thread.projectId);
         const base = yield* gitDriver
           .resolveCommit({
@@ -3493,6 +3502,7 @@ export const layer: Layer.Layer<
   | ThreadLaunchService.ThreadLaunchService
   | GitVcsDriver.GitVcsDriver
   | BoatMachines.BoatMachines
+  | BoatLinks.BoatLinks
   | ProviderRegistry.ProviderRegistry
   | ProviderAdapterRegistry.ProviderAdapterRegistryV2
   | ScheduledTaskService.ScheduledTaskService

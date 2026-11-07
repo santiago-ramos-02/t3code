@@ -20,6 +20,7 @@ import { type FormEvent, type ReactNode, useId, useState } from "react";
 import { requestConfirmDialog } from "~/confirmDialog";
 import { environmentCatalog } from "~/connection/catalog";
 import { isBoatMachineAt } from "../../hooks/useBoat";
+import { pairBoatMachine } from "../../lib/boatMachine";
 import { cn } from "../../lib/utils";
 import { serverEnvironment } from "../../state/server";
 import { useEnvironmentScope } from "../../state/session";
@@ -127,7 +128,27 @@ export function useBoatMachineActions(
     if (paired) await removeEnvironment(paired.environmentId);
   };
 
-  return { act, busySandboxId };
+  const pair = async (machine: BoatMachine) => {
+    setBusySandboxId(machine.sandboxId);
+    const failure = await pairBoatMachine({
+      hostEnvironmentId,
+      sandboxId: machine.sandboxId,
+    }).then(
+      () => null,
+      (cause: unknown) => (cause instanceof Error ? cause.message : "An error occurred."),
+    );
+    setBusySandboxId(null);
+    if (failure === null) return;
+    toastManager.add(
+      stackedThreadToast({
+        type: "error",
+        title: `Could not pair with ${boatMachineLabel(machine)}`,
+        description: failure,
+      }),
+    );
+  };
+
+  return { act, pair, busySandboxId };
 }
 
 /** Stop or resume, save as the template, then delete; for a machine's row menu. */
@@ -428,7 +449,7 @@ export function BoatEnvironmentRows({
   ) => ReactNode;
 }) {
   const [editing, setEditing] = useState(false);
-  const { act, busySandboxId } = useBoatMachineActions(hostEnvironmentId, savedEnvironments);
+  const { act, pair, busySandboxId } = useBoatMachineActions(hostEnvironmentId, savedEnvironments);
   const { settings, machines, templateBuild } = status;
   const running = machines.filter((machine) => machine.state === "running").length;
 
@@ -516,6 +537,14 @@ export function BoatEnvironmentRows({
                 <EllipsisIcon className="size-3.5" />
               </MenuTrigger>
               <MenuPopup align="end">
+                {machine.state === "running" || machine.state === "stopped" ? (
+                  <MenuItem
+                    disabled={busySandboxId === machine.sandboxId}
+                    onClick={() => void pair(machine)}
+                  >
+                    Pair with this device
+                  </MenuItem>
+                ) : null}
                 <BoatMachineMenuItems
                   machine={machine}
                   busy={busySandboxId === machine.sandboxId}

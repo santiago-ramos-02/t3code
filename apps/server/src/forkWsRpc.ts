@@ -36,6 +36,7 @@ export const layer = ServerForkWsRpcGroup.toLayer(
       [WS_METHODS.boatSubscribeStatus]: () => boat.streamChanges,
       [WS_METHODS.boatConfigure]: (input) => boat.configure(input),
       [WS_METHODS.boatSpawn]: (input) => boat.spawn(input),
+      [WS_METHODS.boatPair]: (input) => boat.pair(input),
       [WS_METHODS.boatMachineAction]: (input) => boat.machineAction(input),
       [WS_METHODS.memoryOverview]: () => engram.overview,
       [WS_METHODS.memorySearch]: (input) => engram.search(input),

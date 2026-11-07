@@ -155,3 +155,40 @@ export function wakeBoatMachine(input: {
   wakes.set(input.sandboxId, wake);
   return wake;
 }
+
+// One pairing per machine, however many places ask for it.
+const pairings = new Map<string, Promise<EnvironmentId>>();
+
+/**
+ * Pairs this client with a machine the host already runs, such as one an agent started, and
+ * resolves once it is connected. A stopped machine is resumed first.
+ */
+export function pairBoatMachine(input: {
+  readonly hostEnvironmentId: EnvironmentId;
+  readonly sandboxId: string;
+}): Promise<EnvironmentId> {
+  const pending = pairings.get(input.sandboxId);
+  if (pending) return pending;
+  const pairing = (async () => {
+    const minted = await runAtomCommand(
+      appAtomRegistry,
+      serverEnvironment.pairBoatMachine,
+      { environmentId: input.hostEnvironmentId, input: { sandboxId: input.sandboxId } },
+      { label: "Pair with Boat machine", reportFailure: false },
+    );
+    if (minted._tag === "Failure") throw new Error(failureMessage(minted));
+    const paired = await runAtomCommand(
+      appAtomRegistry,
+      connectPairing,
+      { host: minted.value.httpBaseUrl, pairingCode: minted.value.pairingCredential },
+      { label: "Pair with Boat machine", reportFailure: false },
+    );
+    if (paired._tag === "Failure") {
+      throw new Error(`Could not pair with the Boat machine: ${failureMessage(paired)}`);
+    }
+    await waitForConnection(paired.value);
+    return paired.value;
+  })().finally(() => pairings.delete(input.sandboxId));
+  pairings.set(input.sandboxId, pairing);
+  return pairing;
+}

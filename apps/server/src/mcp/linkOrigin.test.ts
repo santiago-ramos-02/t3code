@@ -41,6 +41,7 @@ import * as SecretRequests from "../secrets/SecretRequests.ts";
 import * as RemoteDelegation from "../peer/RemoteDelegation.ts";
 import * as SourceControlRepositoryService from "../sourceControl/SourceControlRepositoryService.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
+import * as BoatLinks from "../boat/BoatLinks.ts";
 import * as BoatMachines from "../boat/BoatMachines.ts";
 import * as GentleAi from "../gentleAi/GentleAi.ts";
 import * as McpHttpServer from "./McpHttpServer.ts";
@@ -173,6 +174,7 @@ const layerTools = Layer.mergeAll(
   Layer.provide(
     Layer.mergeAll(
       Layer.mock(GitVcsDriver.GitVcsDriver)({}),
+      Layer.mock(BoatLinks.BoatLinks)({}),
       Layer.mock(BoatMachines.BoatMachines)({}),
       Layer.mock(GentleAi.GentleAi)({ current: Effect.succeed(GentleAi.NOT_INSTALLED) }),
     ),

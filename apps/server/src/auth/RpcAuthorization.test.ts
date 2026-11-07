@@ -73,7 +73,11 @@ describe("RPC authorization scopes", () => {
       AuthOrchestrationReadScope,
     );
     expect(requiredScopeForRpcMethod(WS_METHODS.boatConfigure)).toBe(AuthSettingsWriteScope);
-    for (const method of [WS_METHODS.boatSpawn, WS_METHODS.boatMachineAction]) {
+    for (const method of [
+      WS_METHODS.boatSpawn,
+      WS_METHODS.boatPair,
+      WS_METHODS.boatMachineAction,
+    ]) {
       expect(requiredScopeForRpcMethod(method)).toBe(AuthOrchestrationOperateScope);
     }
   });

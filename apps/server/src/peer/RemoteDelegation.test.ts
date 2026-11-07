@@ -60,6 +60,7 @@ import * as ServerSettings from "../serverSettings.ts";
 import * as CommandReceiptStore from "../orchestration-v2/CommandReceiptStore.ts";
 import * as SourceControlRepositoryService from "../sourceControl/SourceControlRepositoryService.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
+import * as BoatLinks from "../boat/BoatLinks.ts";
 import * as BoatMachines from "../boat/BoatMachines.ts";
 import * as GentleAi from "../gentleAi/GentleAi.ts";
 import * as PeerForwarding from "./PeerForwarding.ts";
@@ -94,6 +95,8 @@ interface BoxThread {
   readonly delegatedFrom: Ref.Ref<ThreadLaunch.ThreadLaunchInput["delegatedFrom"] | null>;
   /** The model and modes it was launched with. */
   readonly launchedWith: Ref.Ref<LaunchedWith | null>;
+  /** The checkout it was launched in. */
+  readonly launchedIn: Ref.Ref<ThreadLaunch.ThreadLaunchInput["workspaceStrategy"] | null>;
   /** The first message the thread there was launched with. */
   readonly message: Ref.Ref<string | null>;
   readonly status: Ref.Ref<OrchestrationV2Run["status"]>;
@@ -141,6 +144,7 @@ const makeBoxThread = Effect.gen(function* () {
     ),
     delegatedFrom: yield* Ref.make<ThreadLaunch.ThreadLaunchInput["delegatedFrom"] | null>(null),
     launchedWith: yield* Ref.make<LaunchedWith | null>(null),
+    launchedIn: yield* Ref.make<ThreadLaunch.ThreadLaunchInput["workspaceStrategy"] | null>(null),
     message: yield* Ref.make<string | null>(null),
     status: yield* Ref.make<OrchestrationV2Run["status"]>("running"),
     reply: yield* Ref.make<string | null>("Working…"),
@@ -422,12 +426,14 @@ const boxToolkitLayer = (thread: BoxThread) => {
       ),
   });
   const layerBoxLaunches = Layer.mock(ThreadLaunch.ThreadLaunchService)({
+    checkWorktreeBase: () => Effect.void,
     launch: (input) =>
       Ref.get(thread.runless).pipe(
         Effect.flatMap((runless) =>
           Ref.set(thread.launched, input.threadId!).pipe(
             Effect.andThen(Ref.set(thread.linkOrigin, input.linkOrigin ?? null)),
             Effect.andThen(Ref.set(thread.delegatedFrom, input.delegatedFrom ?? null)),
+            Effect.andThen(Ref.set(thread.launchedIn, input.workspaceStrategy)),
             Effect.andThen(Ref.set(thread.message, input.initialMessage?.text ?? null)),
             Effect.andThen(
               Ref.set(thread.launchedWith, {
@@ -481,6 +487,7 @@ const boxToolkitLayer = (thread: BoxThread) => {
     Layer.provide(
       Layer.mergeAll(
         Layer.mock(GitVcsDriver.GitVcsDriver)({}),
+        Layer.mock(BoatLinks.BoatLinks)({}),
         Layer.mock(BoatMachines.BoatMachines)({}),
         Layer.mock(GentleAi.GentleAi)({ current: Effect.succeed(GentleAi.NOT_INSTALLED) }),
       ),
@@ -613,6 +620,7 @@ const makeLaptop = (
       Layer.provide(
         Layer.mergeAll(
           Layer.mock(GitVcsDriver.GitVcsDriver)({}),
+          Layer.mock(BoatLinks.BoatLinks)({}),
           Layer.mock(BoatMachines.BoatMachines)({}),
           Layer.mock(GentleAi.GentleAi)({ current: Effect.succeed(GentleAi.NOT_INSTALLED) }),
         ),
@@ -1150,6 +1158,35 @@ it.effect("refuses worktree isolation for a task there before launching anything
       expect(result.isError).toBe(true);
       expect(JSON.stringify(result.content)).toContain("isolation");
       expect(yield* Ref.get(thread.launched)).toBeNull();
+    }),
+  ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+);
+
+it.effect("launches the task there in the checkout its caller names", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const thread = yield* makeBoxThread;
+      const b = yield* serveBox(thread);
+      const offers = yield* SubscriptionRef.make<
+        ReadonlyArray<ProviderContinuationRequests.ProviderContinuationRequest>
+      >([]);
+      const database = yield* SqlitePersistence.layerMemory.pipe(Layer.build);
+      const a = yield* makeLaptop(database, offers);
+      yield* linkTo(a.links, b, "full-access");
+      yield* seedParent(a);
+
+      // A Boat machine task names a worktree of the branch its origin has.
+      const workspaceStrategy = {
+        type: "worktree",
+        baseRef: "feat/x",
+        startFromOrigin: true,
+      } as const;
+      yield* a.remote.delegate(
+        { ...parentScope, thread: parentScope.thread! },
+        { task: "Run the suite on the box.", target: { environmentId: box.environmentId } },
+        workspaceStrategy,
+      );
+      expect(yield* Ref.get(thread.launchedIn)).toEqual(workspaceStrategy);
     }),
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );

@@ -210,6 +210,7 @@ const makeFakeBoat = (options: {
 `,
         );
       if (command.includes("seq 1 120")) return result(control.serverStarts ? 0 : 1, "");
+      if (command.includes("linkedEnvironmentsEnabled")) return result(0, "");
       if (command.includes("auth pairing create")) {
         if (options.pairingReached) {
           const reached = Deferred.succeed(options.pairingReached, undefined);
@@ -867,6 +868,30 @@ describe("BoatMachines", () => {
         (call) => call.body?.detached === true,
       );
       assert.strictEqual(serves.length, 2);
+    }).pipe(Effect.provide(layerEnvironment)),
+  );
+
+  it.effect("pairs again with a stopped machine by resuming it with links turned on", () =>
+    Effect.gen(function* () {
+      const boat = makeFakeBoat({ pairing: PAIRING_OUTPUT });
+      const service = yield* makeService(boat);
+      yield* service.configure({ apiKey: "boat_test_key" });
+      yield* service.spawn({});
+      yield* service.machineAction({ sandboxId: SANDBOX_ID, action: "stop" });
+
+      const paired = yield* service.pair({ sandboxId: SANDBOX_ID });
+      assert.deepStrictEqual(paired, { httpBaseUrl: MACHINE_URL, pairingCredential: "PAIR-CODE" });
+      assert.strictEqual((yield* service.current).machines[0]?.state, "running");
+      const commands = callsTo(boat.calls, "POST", "/commands").map((call) =>
+        String(call.body?.command ?? ""),
+      );
+      const lastLinks = commands.findLastIndex((command) =>
+        command.includes("linkedEnvironmentsEnabled"),
+      );
+      const lastPairing = commands.findLastIndex((command) =>
+        command.includes("auth pairing create"),
+      );
+      assert.isTrue(lastLinks !== -1 && lastLinks < lastPairing);
     }).pipe(Effect.provide(layerEnvironment)),
   );
 

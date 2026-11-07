@@ -195,6 +195,7 @@ import * as ResourceMonitorBinary from "./resourceTelemetry/ResourceMonitorBinar
 import * as ProcessGroupMetrics from "./resourceTelemetry/ProcessGroupMetrics.ts";
 import * as ResourceTelemetry from "./resourceTelemetry/ResourceTelemetry.ts";
 import * as GentleAi from "./gentleAi/GentleAi.ts";
+import * as BoatLinks from "./boat/BoatLinks.ts";
 import * as BoatMachines from "./boat/BoatMachines.ts";
 import * as MachineGitTools from "./boat/machineGitTools.ts";
 import * as CliProxy from "./cliProxy/CliProxy.ts";
@@ -837,6 +838,8 @@ const layerMakeRoutes = Layer.mergeAll(
   ),
   // delegate_task to a linked environment, from /mcp and the follower above.
   Layer.provide(RemoteDelegation.layer.pipe(Layer.provide(ProjectionStoreV2.layer))),
+  // Links to Boat machines, so delegate_task with a machine runs a thread there.
+  Layer.provide(BoatLinks.layer),
   // Links agents ask for: shown in a thread from /mcp, answered over WebSocket.
   Layer.provide(PeerLinkRequests.layer),
   // Share the service so HTTP/WS clients single-flight reads and invalidate each other's cached patches.

@@ -54,6 +54,7 @@ import * as ServerSettings from "../serverSettings.ts";
 import * as CommandReceiptStore from "../orchestration-v2/CommandReceiptStore.ts";
 import * as ThreadLaunch from "../orchestration-v2/ThreadLaunchService.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
+import * as BoatLinks from "../boat/BoatLinks.ts";
 import * as BoatMachines from "../boat/BoatMachines.ts";
 import * as GentleAi from "../gentleAi/GentleAi.ts";
 import * as PeerForwarding from "./PeerForwarding.ts";
@@ -170,6 +171,7 @@ const makeLaptop = Effect.gen(function* () {
     Layer.provide(
       Layer.mergeAll(
         Layer.mock(GitVcsDriver.GitVcsDriver)({}),
+        Layer.mock(BoatLinks.BoatLinks)({}),
         Layer.mock(BoatMachines.BoatMachines)({}),
         Layer.mock(GentleAi.GentleAi)({ current: Effect.succeed(GentleAi.NOT_INSTALLED) }),
       ),

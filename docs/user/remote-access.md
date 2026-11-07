@@ -315,11 +315,16 @@ environment of an already running T3 server.
 
 ## Run delegated tasks on a Boat machine
 
-An agent that orchestrates others can start a Boat machine and hand it a delegated task. It is woken with
-the result like any other delegated task, and you can follow up on or cancel the task as usual. The
-machine works on the project's current branch as pushed to origin, so unpushed commits and uncommitted
-edits are not visible to it. Attachments are not supported, and the machine's approval prompts are not
-forwarded; they show as needing attention on the machine.
+An agent that orchestrates others can start a Boat machine and hand it a delegated task. The task runs
+as an ordinary thread on the machine, which this server links as a
+[linked environment](#link-another-environment), so **Linked environments** must be on in
+**Settings → Labs**. Your devices pair with the machines this server runs on their own, so the thread
+shows under the machine like any other, and its questions and approvals are answered there. The agent
+is woken with the result like any other delegated task, and can follow up on or cancel it as usual.
+
+The machine works in a new worktree of the project's current branch as pushed to origin, so unpushed
+commits and uncommitted edits are not visible to it. Attachments are not supported. If a device did not
+pair with a machine, choose **Pair with this device** from the machine's menu under Boat in **Settings → Connections**.
 
 ## Connect an outside agent
 

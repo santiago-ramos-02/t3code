@@ -2,6 +2,7 @@ import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import {
+  BoatError,
   CommandId,
   ContextTransferId,
   EnvironmentId,
@@ -39,11 +40,8 @@ import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
+import * as BoatLinks from "../boat/BoatLinks.ts";
 import * as BoatMachines from "../boat/BoatMachines.ts";
-import {
-  boatDelegateModelSelection,
-  boatInstanceId,
-} from "../orchestration-v2/Adapters/BoatAdapterV2.ts";
 import { CodexProviderCapabilitiesV2 } from "../orchestration-v2/Adapters/CodexAdapterV2.ts";
 import * as CommandReceiptStore from "../orchestration-v2/CommandReceiptStore.ts";
 import * as EffectWorker from "../orchestration-v2/EffectWorker.ts";
@@ -84,6 +82,7 @@ const layerOrchestratorServiceWithoutGentleAi = OrchestratorMcpService.layer.pip
   Layer.provide(Layer.mock(ThreadLaunchService.ThreadLaunchService)({})),
   Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
   Layer.provide(Layer.mock(BoatMachines.BoatMachines)({})),
+  Layer.provide(Layer.mock(BoatLinks.BoatLinks)({})),
 );
 
 // Gentle AI is not installed unless a test sets it up.
@@ -2938,6 +2937,7 @@ describe("OrchestratorMcpService provider resolution", () => {
         Layer.provide(Layer.mock(ThreadLaunchService.ThreadLaunchService)({})),
         Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)(git)),
         Layer.provide(Layer.mock(BoatMachines.BoatMachines)({})),
+        Layer.provide(Layer.mock(BoatLinks.BoatLinks)({})),
         Layer.provide(
           Layer.mock(GentleAi.GentleAi)({ current: Effect.succeed(GentleAi.NOT_INSTALLED) }),
         ),
@@ -3523,6 +3523,14 @@ describe("OrchestratorMcpService Boat machine delegation", () => {
   const sandboxId = "bx_test0001";
   const remoteUrl = "git@github.com:acme/app.git";
   const branch = "feat/x";
+  const machineEnvironmentId = EnvironmentId.make("environment:boat-machine");
+  const machineProjectId = ProjectId.make("project:on-machine");
+
+  interface MachineCall {
+    readonly call: "ensureProject" | "link" | "delegate";
+    readonly input: unknown;
+    readonly workspaceStrategy?: unknown;
+  }
 
   const scope: McpInvocationScope = {
     environmentId: EnvironmentId.make("environment:mcp-boat"),
@@ -3619,24 +3627,33 @@ describe("OrchestratorMcpService Boat machine delegation", () => {
       /** What `git ls-remote --exit-code` answers; absent means the test never expects the call. */
       readonly lsRemoteExitCode?: number;
       readonly gentleAi?: GentleAiStatus;
+      /** Why linking the machine fails; absent means it links. */
+      readonly linkFailure?: string;
     },
     body: (
       service: OrchestratorMcpService.OrchestratorMcpService["Service"],
       dispatched: Ref.Ref<ReadonlyArray<OrchestrationV2ServerCommand>>,
+      calls: Ref.Ref<ReadonlyArray<MachineCall>>,
     ) => Effect.Effect<A, E, never>,
   ) =>
     Effect.gen(function* () {
       const dispatched = yield* Ref.make<ReadonlyArray<OrchestrationV2ServerCommand>>([]);
+      const calls = yield* Ref.make<ReadonlyArray<MachineCall>>([]);
+      const record = (call: MachineCall) => Ref.update(calls, (all) => [...all, call]);
       const layerDependencies = Layer.mergeAll(
         NodeServices.layer,
         NodeCrypto.layer,
         Layer.mock(ThreadManagementService.ThreadManagementService)({
           hasReceipt: () => Effect.succeed(false),
           getThreadRecords: (threadId) =>
-            Ref.get(dispatched).pipe(
-              Effect.map((commands) =>
+            Effect.all([Ref.get(dispatched), Ref.get(calls)]).pipe(
+              Effect.map(([commands, made]) =>
                 threadId === parentThreadId
-                  ? parentProjection(commands.length > 0 ? [task] : [])
+                  ? parentProjection(
+                      commands.length > 0 || made.some((call) => call.call === "delegate")
+                        ? [task]
+                        : [],
+                    )
                   : childProjection,
               ),
             ),
@@ -3676,8 +3693,27 @@ describe("OrchestratorMcpService Boat machine delegation", () => {
         Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),
         Layer.mock(BoatMachines.BoatMachines)({
           current: Effect.succeed({ machines: input.machines } as never),
+          ensureProject: (project) =>
+            record({ call: "ensureProject", input: project }).pipe(
+              Effect.as({ projectId: machineProjectId, workspaceRoot: "/home/user/app" }),
+            ),
         }),
-        Layer.mock(RemoteDelegation.RemoteDelegation)({}),
+        Layer.mock(BoatLinks.BoatLinks)({
+          link: (machine) =>
+            record({ call: "link", input: machine }).pipe(
+              Effect.andThen(
+                input.linkFailure === undefined
+                  ? Effect.succeed(machineEnvironmentId)
+                  : Effect.fail(new BoatError({ detail: input.linkFailure })),
+              ),
+            ),
+        }),
+        Layer.mock(RemoteDelegation.RemoteDelegation)({
+          delegate: (_scope, delegated, workspaceStrategy) =>
+            record({ call: "delegate", input: delegated, workspaceStrategy }).pipe(
+              Effect.as({ taskId }),
+            ),
+        }),
         Layer.mock(GitVcsDriver.GitVcsDriver)({
           readConfigValue: (_cwd, key) =>
             Effect.succeed(key === "remote.origin.url" ? (input.origin ?? null) : null),
@@ -3692,7 +3728,7 @@ describe("OrchestratorMcpService Boat machine delegation", () => {
       );
       return yield* Effect.gen(function* () {
         const service = yield* OrchestratorMcpService.OrchestratorMcpService;
-        return yield* body(service, dispatched);
+        return yield* body(service, dispatched, calls);
       }).pipe(
         Effect.provide(
           OrchestratorMcpService.layer.pipe(
@@ -3717,33 +3753,41 @@ describe("OrchestratorMcpService Boat machine delegation", () => {
     });
 
   type DelegatedRequest = Extract<OrchestrationV2ServerCommand, { type: "delegated_task.request" }>;
+  const delegated = (made: ReadonlyArray<MachineCall>) =>
+    made.find((call) => call.call === "delegate");
 
-  it.effect("creates the child on the machine with the resolved target, origin and branch", () =>
+  it.effect("runs the task as a thread in the machine's environment, from the origin branch", () =>
     run(
       {
         machines: [{ sandboxId, state: "stopped" }],
         origin: remoteUrl,
         currentBranch: branch,
       },
-      (service, dispatched) =>
+      (service, dispatched, calls) =>
         Effect.gen(function* () {
           const result = yield* delegate(service);
           assert.equal(result.status, "running");
-          const commands = yield* Ref.get(dispatched);
-          assert.equal(commands.length, 1);
-          const request = commands[0] as DelegatedRequest;
-          assert.equal(request.type, "delegated_task.request");
+          const made = yield* Ref.get(calls);
           assert.deepEqual(
-            request.modelSelection,
-            boatDelegateModelSelection({
-              sandboxId,
-              remote: { instanceId: codexInstanceId, model: "gpt-5.4" },
-              remoteUrl,
-              branch,
-            }),
+            made.map((call) => call.call),
+            ["ensureProject", "link", "delegate"],
           );
-          // The machine makes its own worktree, so the host prepares none.
-          assert.isUndefined(request.workspaceStrategy);
+          assert.deepEqual(made[0]?.input, { sandboxId, remoteUrl, branch });
+          assert.equal(made[1]?.input, sandboxId);
+          const remote = delegated(made);
+          assert.deepEqual(remote?.input, {
+            task: "Run the suite.",
+            mode: "async",
+            clientRequestId: "delegate-boat-1",
+            target: { environmentId: machineEnvironmentId, projectId: machineProjectId },
+          });
+          assert.deepEqual(remote?.workspaceStrategy, {
+            type: "worktree",
+            baseRef: branch,
+            startFromOrigin: true,
+          });
+          // Nothing runs here: the host keeps only the task.
+          assert.deepEqual(yield* Ref.get(dispatched), []);
         }),
     ),
   );
@@ -3756,7 +3800,7 @@ describe("OrchestratorMcpService Boat machine delegation", () => {
         currentBranch: branch,
         gentleAi: { ...GentleAi.NOT_INSTALLED, installed: true, drivers: [codexProvider.driver] },
       },
-      (service, dispatched) =>
+      (service, _dispatched, calls) =>
         Effect.gen(function* () {
           const local = yield* service
             .delegateTask(scope, {
@@ -3768,23 +3812,19 @@ describe("OrchestratorMcpService Boat machine delegation", () => {
           assert.equal(local.code, "delegation_owned_by_gentle_ai");
           const result = yield* delegate(service);
           assert.equal(result.status, "running");
-          const [request] = yield* Ref.get(dispatched);
-          assert.equal(
-            (request as DelegatedRequest).modelSelection.instanceId,
-            boatInstanceId(sandboxId),
-          );
+          assert.isDefined(delegated(yield* Ref.get(calls)));
         }),
     ),
   );
 
-  it.effect("ignores isolation worktree for a machine task", () =>
+  it.effect("keeps the origin worktree when the caller asks for isolation", () =>
     run(
       {
         machines: [{ sandboxId, state: "running" }],
         origin: remoteUrl,
         currentBranch: branch,
       },
-      (service, dispatched) =>
+      (service, _dispatched, calls) =>
         Effect.gen(function* () {
           yield* service.delegateTask(scope, {
             task: "Run the suite.",
@@ -3793,8 +3833,50 @@ describe("OrchestratorMcpService Boat machine delegation", () => {
             mode: "async",
             clientRequestId: "delegate-boat-isolation",
           });
-          const [request] = yield* Ref.get(dispatched);
-          assert.isUndefined((request as DelegatedRequest).workspaceStrategy);
+          const remote = delegated(yield* Ref.get(calls));
+          assert.notProperty(remote?.input, "isolation");
+          assert.deepEqual(remote?.workspaceStrategy, {
+            type: "worktree",
+            baseRef: branch,
+            startFromOrigin: true,
+          });
+        }),
+    ),
+  );
+
+  it.effect("refuses a machine together with another environment", () =>
+    run(
+      { machines: [{ sandboxId, state: "running" }], origin: remoteUrl, currentBranch: branch },
+      (service, _dispatched, calls) =>
+        Effect.gen(function* () {
+          const failure = yield* service
+            .delegateTask(scope, {
+              task: "Run the suite.",
+              machine: sandboxId,
+              target: { environmentId: EnvironmentId.make("environment:elsewhere") },
+              mode: "async",
+            })
+            .pipe(Effect.flip);
+          assert.equal(failure.code, "invalid_request");
+          assert.deepEqual(yield* Ref.get(calls), []);
+        }),
+    ),
+  );
+
+  it.effect("says why when the machine cannot be linked, before any thread starts", () =>
+    run(
+      {
+        machines: [{ sandboxId, state: "running" }],
+        origin: remoteUrl,
+        currentBranch: branch,
+        linkFailure: BoatLinks.BOAT_LINKS_OFF,
+      },
+      (service, _dispatched, calls) =>
+        Effect.gen(function* () {
+          const failure = yield* delegate(service).pipe(Effect.flip);
+          assert.equal(failure.code, "invalid_request");
+          assert.equal(failure.message, BoatLinks.BOAT_LINKS_OFF);
+          assert.isUndefined(delegated(yield* Ref.get(calls)));
         }),
     ),
   );
@@ -3806,13 +3888,13 @@ describe("OrchestratorMcpService Boat machine delegation", () => {
         origin: remoteUrl,
         currentBranch: branch,
       },
-      (service, dispatched) =>
+      (service, _dispatched, calls) =>
         Effect.gen(function* () {
           const failure = yield* delegate(service).pipe(Effect.flip);
           assert.equal(failure.code, "invalid_request");
           assert.include(failure.message, sandboxId);
           assert.include(failure.message, "t3_boat_machine_list");
-          assert.deepEqual(yield* Ref.get(dispatched), []);
+          assert.deepEqual(yield* Ref.get(calls), []);
         }),
     ),
   );
@@ -3820,12 +3902,12 @@ describe("OrchestratorMcpService Boat machine delegation", () => {
   it.effect("fails a machine that is being deleted before creating a thread", () =>
     run(
       { machines: [{ sandboxId, state: "deleting" }], origin: remoteUrl, currentBranch: branch },
-      (service, dispatched) =>
+      (service, _dispatched, calls) =>
         Effect.gen(function* () {
           const failure = yield* delegate(service).pipe(Effect.flip);
           assert.equal(failure.code, "invalid_request");
           assert.include(failure.message, "deleted");
-          assert.deepEqual(yield* Ref.get(dispatched), []);
+          assert.deepEqual(yield* Ref.get(calls), []);
         }),
     ),
   );
@@ -3833,12 +3915,12 @@ describe("OrchestratorMcpService Boat machine delegation", () => {
   it.effect("fails when the project has no origin remote", () =>
     run(
       { machines: [{ sandboxId, state: "running" }], origin: null, currentBranch: branch },
-      (service, dispatched) =>
+      (service, _dispatched, calls) =>
         Effect.gen(function* () {
           const failure = yield* delegate(service).pipe(Effect.flip);
           assert.equal(failure.code, "invalid_request");
           assert.include(failure.message, "origin");
-          assert.deepEqual(yield* Ref.get(dispatched), []);
+          assert.deepEqual(yield* Ref.get(calls), []);
         }),
     ),
   );
@@ -3846,12 +3928,12 @@ describe("OrchestratorMcpService Boat machine delegation", () => {
   it.effect("fails on a detached HEAD", () =>
     run(
       { machines: [{ sandboxId, state: "running" }], origin: remoteUrl, currentBranch: null },
-      (service, dispatched) =>
+      (service, _dispatched, calls) =>
         Effect.gen(function* () {
           const failure = yield* delegate(service).pipe(Effect.flip);
           assert.equal(failure.code, "invalid_request");
           assert.include(failure.message, "detached");
-          assert.deepEqual(yield* Ref.get(dispatched), []);
+          assert.deepEqual(yield* Ref.get(calls), []);
         }),
     ),
   );
@@ -3865,12 +3947,12 @@ describe("OrchestratorMcpService Boat machine delegation", () => {
         branchOnOrigin: false,
         lsRemoteExitCode: 2,
       },
-      (service, dispatched) =>
+      (service, _dispatched, calls) =>
         Effect.gen(function* () {
           const failure = yield* delegate(service).pipe(Effect.flip);
           assert.equal(failure.code, "invalid_request");
           assert.include(failure.message, `git push -u origin ${branch}`);
-          assert.deepEqual(yield* Ref.get(dispatched), []);
+          assert.deepEqual(yield* Ref.get(calls), []);
         }),
     ),
   );
@@ -3884,10 +3966,10 @@ describe("OrchestratorMcpService Boat machine delegation", () => {
         branchOnOrigin: false,
         lsRemoteExitCode: 0,
       },
-      (service, dispatched) =>
+      (service, _dispatched, calls) =>
         Effect.gen(function* () {
           yield* delegate(service);
-          assert.equal((yield* Ref.get(dispatched)).length, 1);
+          assert.isDefined(delegated(yield* Ref.get(calls)));
         }),
     ),
   );
@@ -3901,10 +3983,10 @@ describe("OrchestratorMcpService Boat machine delegation", () => {
         branchOnOrigin: false,
         lsRemoteExitCode: 128,
       },
-      (service, dispatched) =>
+      (service, _dispatched, calls) =>
         Effect.gen(function* () {
           yield* delegate(service);
-          assert.equal((yield* Ref.get(dispatched)).length, 1);
+          assert.isDefined(delegated(yield* Ref.get(calls)));
         }),
     ),
   );
@@ -3916,20 +3998,16 @@ describe("OrchestratorMcpService Boat machine delegation", () => {
         origin: "https://octocat:ghp_secret@github.com/acme/app.git",
         currentBranch: branch,
       },
-      (service, dispatched) =>
+      (service, _dispatched, calls) =>
         Effect.gen(function* () {
           yield* delegate(service);
-          const [request] = yield* Ref.get(dispatched);
-          assert.deepEqual(
-            (request as DelegatedRequest).modelSelection,
-            boatDelegateModelSelection({
-              sandboxId,
-              remote: { instanceId: codexInstanceId, model: "gpt-5.4" },
-              remoteUrl: "https://github.com/acme/app.git",
-              branch,
-            }),
-          );
-          assert.notInclude(JSON.stringify(request), "ghp_secret");
+          const made = yield* Ref.get(calls);
+          assert.deepEqual(made[0]?.input, {
+            sandboxId,
+            remoteUrl: "https://github.com/acme/app.git",
+            branch,
+          });
+          assert.notInclude(JSON.stringify(made), "ghp_secret");
         }),
     ),
   );
@@ -3943,13 +4021,13 @@ describe("OrchestratorMcpService Boat machine delegation", () => {
           origin: "ssh://octocat:ghp_secret@git.example.com/acme/app.git",
           currentBranch: branch,
         },
-        (service, dispatched) =>
+        (service, _dispatched, calls) =>
           Effect.gen(function* () {
             const failure = yield* delegate(service).pipe(Effect.flip);
             assert.equal(failure.code, "invalid_request");
             assert.include(failure.message, "credentials");
             assert.notInclude(failure.message, "ghp_secret");
-            assert.deepEqual(yield* Ref.get(dispatched), []);
+            assert.deepEqual(yield* Ref.get(calls), []);
           }),
       ),
   );

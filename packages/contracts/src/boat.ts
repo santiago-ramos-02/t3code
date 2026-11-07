@@ -178,6 +178,16 @@ export const BoatSpawnResult = Schema.Struct({
 });
 export type BoatSpawnResult = typeof BoatSpawnResult.Type;
 
+export const BoatPairInput = Schema.Struct({ sandboxId: Schema.String });
+export type BoatPairInput = typeof BoatPairInput.Type;
+
+// A fresh one-time pairing credential for a machine this server already runs.
+export const BoatPairResult = Schema.Struct({
+  httpBaseUrl: Schema.String,
+  pairingCredential: Schema.String,
+});
+export type BoatPairResult = typeof BoatPairResult.Type;
+
 // `make-template` saves the machine's setup as the template new machines start from.
 export const BoatMachineAction = Schema.Literals(["stop", "resume", "delete", "make-template"]);
 export type BoatMachineAction = typeof BoatMachineAction.Type;
