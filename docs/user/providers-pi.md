@@ -82,11 +82,6 @@ profiles, the persona, and command rules. When Pi loads gentle-pi from another s
 such as `npm:gentle-pi`, **Use T3 Code's build** replaces it. On mobile, the same choice
 is in a project's settings. **Update** keeps whichever source is installed current.
 
-With gentle-pi, Pi shows the Claude and Codex subscription limits of the accounts it signs in
-with, one row per window and provider, such as `Weekly · Codex`. They appear after Pi or one of
-its subagents gets a response from that provider, and update as it works. Providers used with an
-API key have no subscription limits to show.
-
 ## Troubleshooting
 
 - If Pi is unavailable, confirm that the configured binary runs on the server machine, then refresh

@@ -1,24 +1,19 @@
 /**
- * PiGentleDriver — upstream's Pi driver plus the fork's Gentle AI session launch, gentle-pi's
- * subagents, todo list and provider limits, claude-bridge cache lifetimes, and gentle-pi's
- * settings. All but the settings go through the PiGentleHooks service, so
- * @t3tools/provider-pi stays upstream's.
+ * PiGentleDriver — upstream's Pi driver plus what the fork adds to it: Gentle AI's session
+ * launch hook, gentle-pi's subagents and todo list, the cache lifetime Claude Code reports for
+ * claude-bridge calls, and gentle-pi's settings on the instance. The Pi adapter takes the first
+ * three through its PiGentleHooks service, so @t3tools/provider-pi stays upstream's.
  */
-import type { ServerProviderUsageLimits } from "@t3tools/contracts";
 import type { PiSettings } from "@t3tools/provider-pi/settings";
 import type { ProviderDriver, ProviderUsageReaderEnv } from "@t3tools/provider-core/server/driver";
 import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment";
-import type { ManagedServerProvider } from "@t3tools/provider-core/server/snapshot";
-import { applyUsageLimitsUpdate } from "@t3tools/provider-core/server/usageLimits";
 import { PiDriver, type PiDriverEnv } from "@t3tools/provider-pi/server";
 import { PiGentleHooks } from "@t3tools/provider-pi/server/gentleHooks";
 import type * as SecureRandom from "effect/crypto/SecureRandom";
-import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import { HttpClient } from "effect/http";
-import * as Ref from "effect/Ref";
 import { ChildProcessSpawner } from "effect/process";
 
 import { makePiGentleSession } from "../../gentleAi/GentleAiSessions.ts";
@@ -37,16 +32,6 @@ export const PiGentleDriver: ProviderDriver<
   ...PiDriver,
   create: Effect.fn("PiGentleDriver.create")(function* (input) {
     const claudeCacheLifetime = yield* ClaudeCacheLifetime.ClaudeCacheLifetime;
-    // Pi's own probe reports no limits, so the instance keeps gentle-pi's and every probe reattaches them.
-    const gentleLimits = yield* Ref.make<ServerProviderUsageLimits | undefined>(undefined);
-    const instanceSnapshot = yield* Deferred.make<ManagedServerProvider>();
-    const onUsageLimits: ManagedServerProvider["applyUsageLimits"] = (update) =>
-      Ref.update(gentleLimits, (previous) =>
-        applyUsageLimitsUpdate({ previous, update, checkedAt: update.checkedAt }),
-      ).pipe(
-        Effect.andThen(Deferred.await(instanceSnapshot)),
-        Effect.flatMap((snapshot) => snapshot.applyUsageLimits(update)),
-      );
     const instance = yield* PiDriver.create(input).pipe(
       Effect.provideService(PiGentleHooks, {
         prepareSession: yield* makePiGentleSession(PiDriver.driverKind),
@@ -56,11 +41,9 @@ export const PiGentleDriver: ProviderDriver<
               piCallCacheTtlSeconds(usage, call, claudeCodeTtlSeconds),
             ),
           ),
-        makeGentle: (deps) => makePiGentle(deps, onUsageLimits),
-        usageLimits: Ref.get(gentleLimits),
+        makeGentle: makePiGentle,
       }),
     );
-    yield* Deferred.succeed(instanceSnapshot, instance.snapshot);
     // gentle-pi settings, profiles, and setup, read through its own API.
     const piGentle = yield* makePiGentleSettings({
       environment: yield* mergeProviderInstanceEnvironment(input.environment),
