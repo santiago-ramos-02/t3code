@@ -30,23 +30,6 @@ if (!TELEMETRY_CHANNELS.includes(telemetryChannel)) {
   );
 }
 
-// dev-electron.mjs watches `dist` while the watcher child rebuilds this bundle; a watch-mode
-// clean would remove `dist` under that watcher, so the flagged process alone skips `pack.clean`.
-export const SERVER_BUNDLE_WATCH_ENV_VAR = "T3CODE_SERVER_BUNDLE_WATCH";
-export const SERVER_BUNDLE_WATCH_ENV_VALUE = "1";
-
-export function isServerBundleWatcherBuild(
-  env: Record<string, string | undefined> = process.env,
-): boolean {
-  return env[SERVER_BUNDLE_WATCH_ENV_VAR] === SERVER_BUNDLE_WATCH_ENV_VALUE;
-}
-
-export function resolveServerPackClean(
-  env: Record<string, string | undefined> = process.env,
-): boolean {
-  return !isServerBundleWatcherBuild(env);
-}
-
 // tsdown SEA needs one chunk (sourcemaps count) and Node >=25.7, so package separately.
 // "bundle" emits the embedded CLI. "1" builds dist-exe/t3 from the bootstrap.
 // TEMPORARY one-time Node fix. Remove when fixed: https://github.com/nodejs/node/issues/67048
@@ -113,7 +96,7 @@ export default mergeConfig(
           : ["src/bin.ts", "src/claude-history-worker.ts"],
       outDir: packBootstrap ? "dist-exe" : packExecutable ? cliAssetDir : "dist",
       sourcemap: !packExecutable,
-      clean: resolveServerPackClean(),
+      clean: true,
       // SEA can only resolve built-ins; keep dynamic imports inside each emitted module.
       ...(packExecutable ? { outputOptions: { codeSplitting: false } } : {}),
       ...(packMode === "1"
