@@ -33,24 +33,7 @@ function quoteProviderBinary(
   return fallback;
 }
 
-export type OnboardingProviderState =
-  | "checking"
-  | "disabled"
-  | "install"
-  | "attention"
-  | "signIn"
-  | "ready";
-
-export type OnboardingProviderSetup = "terminal" | "settings";
-
-export type OnboardingProviderAction =
-  | { readonly kind: "terminal"; readonly label: "Install" | "Sign in" }
-  | { readonly kind: "settings"; readonly label: "Set up in Settings" }
-  | null;
-
-export function getOnboardingProviderState(
-  provider: ServerProvider | undefined,
-): OnboardingProviderState {
+export function getOnboardingProviderState(provider: ServerProvider | undefined) {
   if (provider === undefined) return "checking";
   if (!provider.enabled || provider.status === "disabled") return "disabled";
   // Pi uses the installation and credentials already configured on the
@@ -62,49 +45,6 @@ export function getOnboardingProviderState(
   if (provider.auth.status === "unauthenticated") return "signIn";
   if (provider.status === "ready") return "ready";
   return "attention";
-}
-
-/** Keep managed terminal actions separate from providers configured on their host. */
-export function resolveOnboardingProviderAction(
-  setup: OnboardingProviderSetup,
-  state: OnboardingProviderState,
-): OnboardingProviderAction {
-  if (setup === "settings") {
-    return state === "ready" || state === "checking"
-      ? null
-      : { kind: "settings", label: "Set up in Settings" };
-  }
-  if (state === "install") return { kind: "terminal", label: "Install" };
-  if (state === "signIn") return { kind: "terminal", label: "Sign in" };
-  return null;
-}
-
-const PROVIDER_STATE_PRIORITY = {
-  checking: 0,
-  disabled: 1,
-  install: 2,
-  attention: 3,
-  signIn: 4,
-  ready: 5,
-} as const;
-
-export function selectOnboardingProvidersByDriver(
-  providers: ReadonlyArray<ServerProvider> | null | undefined,
-) {
-  const providersByDriver = new Map<string, ServerProvider>();
-
-  for (const provider of providers ?? []) {
-    const existing = providersByDriver.get(provider.driver);
-    if (
-      existing === undefined ||
-      PROVIDER_STATE_PRIORITY[getOnboardingProviderState(provider)] >
-        PROVIDER_STATE_PRIORITY[getOnboardingProviderState(existing)]
-    ) {
-      providersByDriver.set(provider.driver, provider);
-    }
-  }
-
-  return providersByDriver;
 }
 
 // These need no Node/npm and install where provider maintenance recognizes native binaries.

@@ -8,9 +8,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   getOnboardingProviderState,
-  resolveOnboardingProviderAction,
   resolveOnboardingProviderLoginCommand,
-  selectOnboardingProvidersByDriver,
 } from "./providerReadiness.logic";
 
 const readyCodex: ServerProvider = {
@@ -88,75 +86,6 @@ describe("getOnboardingProviderState", () => {
       }),
     ).toBe("attention");
     expect(getOnboardingProviderState(pi)).toBe("ready");
-  });
-});
-
-describe("resolveOnboardingProviderAction", () => {
-  it("routes host-configured Pi setup to settings without a terminal command", () => {
-    expect(resolveOnboardingProviderAction("settings", "attention")).toEqual({
-      kind: "settings",
-      label: "Set up in Settings",
-    });
-    expect(resolveOnboardingProviderAction("settings", "disabled")).toEqual({
-      kind: "settings",
-      label: "Set up in Settings",
-    });
-    expect(resolveOnboardingProviderAction("settings", "ready")).toBeNull();
-  });
-
-  it("preserves managed terminal setup for Claude and Codex states", () => {
-    expect(resolveOnboardingProviderAction("terminal", "install")).toEqual({
-      kind: "terminal",
-      label: "Install",
-    });
-    expect(resolveOnboardingProviderAction("terminal", "signIn")).toEqual({
-      kind: "terminal",
-      label: "Sign in",
-    });
-    expect(resolveOnboardingProviderAction("terminal", "attention")).toBeNull();
-  });
-});
-
-describe("selectOnboardingProvidersByDriver", () => {
-  it("prefers a ready instance with unknown authentication to an unauthenticated instance", () => {
-    const signedOutCodex: ServerProvider = {
-      ...readyCodex,
-      instanceId: ProviderInstanceId.make("codex_work"),
-      status: "error",
-      auth: { status: "unauthenticated" },
-    };
-
-    expect(selectOnboardingProvidersByDriver([signedOutCodex, readyCodex]).get("codex")).toBe(
-      readyCodex,
-    );
-  });
-
-  it("prefers a provider with an actionable sign-in over a failed provider", () => {
-    const failedCodex: ServerProvider = { ...readyCodex, status: "error" };
-    const signedOutCodex: ServerProvider = {
-      ...readyCodex,
-      instanceId: ProviderInstanceId.make("codex_work"),
-      status: "error",
-      auth: { status: "unauthenticated" },
-    };
-
-    expect(selectOnboardingProvidersByDriver([failedCodex, signedOutCodex]).get("codex")).toBe(
-      signedOutCodex,
-    );
-  });
-
-  it("prefers installed providers over missing or disabled instances", () => {
-    const disabledCodex: ServerProvider = { ...readyCodex, enabled: false };
-    const missingCodex: ServerProvider = {
-      ...readyCodex,
-      instanceId: ProviderInstanceId.make("codex_work"),
-      installed: false,
-      status: "error",
-    };
-
-    expect(
-      selectOnboardingProvidersByDriver([disabledCodex, missingCodex, readyCodex]).get("codex"),
-    ).toBe(readyCodex);
   });
 });
 
