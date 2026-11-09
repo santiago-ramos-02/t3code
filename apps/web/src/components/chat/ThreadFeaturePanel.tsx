@@ -100,7 +100,7 @@ export function ThreadFeaturePanel(props: {
           {feature.title}
         </button>
         {feature.tasksTotal > 0 ? (
-          <TaskProgressRing done={feature.tasksDone} total={feature.tasksTotal} />
+          <FeatureProgressRing done={feature.tasksDone} total={feature.tasksTotal} />
         ) : null}
       </div>
     </ThreadDetailsSection>
@@ -111,10 +111,10 @@ const RING_RADIUS = 9;
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 
 /**
- * How many tasks are done, as a ring that fills green and becomes a check once
+ * How many of the feature's tasks are done, as a ring that fills green and becomes a check once
  * all are, with the count on hover.
  */
-export function TaskProgressRing(props: { readonly done: number; readonly total: number }) {
+function FeatureProgressRing(props: { readonly done: number; readonly total: number }) {
   const complete = props.done >= props.total;
   const label = complete
     ? props.total === 1

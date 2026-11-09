@@ -290,24 +290,6 @@ export function findLatestProposedPlan(
   return plan === undefined ? null : toLatestProposedPlanState(projection, plan);
 }
 
-/** The thread's newest todo list from any provider, which the agent rewrites as its tasks move. */
-export function findLatestTodoList(projection: ThreadStructure | null) {
-  if (projection === null) return null;
-  const plan = projection.plans
-    .filter((candidate) => candidate.kind === "todo_list")
-    .toSorted(
-      (left, right) =>
-        planItemTime(projection, left).localeCompare(planItemTime(projection, right)) ||
-        left.id.localeCompare(right.id),
-    )
-    .at(-1);
-  if (plan === undefined || plan.steps.length === 0) return null;
-  return {
-    steps: plan.steps,
-    done: plan.steps.filter((step) => step.status === "completed").length,
-  };
-}
-
 export function hasActionableProposedPlan(plan: LatestProposedPlanState | null): boolean {
   return plan?.status === "active";
 }
