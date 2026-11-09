@@ -596,6 +596,16 @@ export function makePiGentle<Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>
     if (entry === undefined) {
       const turn = state.activeTurn ?? lastTurn;
       if (turn === null) return;
+      // After a T3 restart gentle-pi still lists earlier turns' subagents, which those turns recorded.
+      const turnStartedAt = turn.providerTurn.startedAt;
+      if (
+        task.terminal &&
+        task.endedAt !== null &&
+        turnStartedAt !== null &&
+        task.endedAt < DateTime.toEpochMillis(turnStartedAt)
+      ) {
+        return;
+      }
       const workflow = workflowFor(turn, now);
       entry = {
         workflow,

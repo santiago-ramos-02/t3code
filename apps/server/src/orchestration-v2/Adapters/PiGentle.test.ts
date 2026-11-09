@@ -171,49 +171,49 @@ const millis = (value: DateTime.Utc | null | undefined) =>
   value == null ? null : DateTime.toEpochMillis(value);
 
 describe("makePiGentle", () => {
-  it.effect("keeps the times gentle-pi reports when T3 first sees finished subagents", () =>
-    Effect.gen(function* () {
-      const { show, workflow, member } = yield* harness("Add dark mode");
-      yield* show(
-        {
+  it.effect(
+    "keeps gentle-pi's times and leaves out subagents that finished before the turn started",
+    () =>
+      Effect.gen(function* () {
+        const { show, workflow, member, events } = yield* harness("Add dark mode");
+        // gentle-pi's snapshot still lists an earlier turn's subagent after T3 restarts.
+        const earlier = {
           id: "a",
           agent: "gentle-ai-explore",
           label: "Map themes",
           status: "completed",
           startedAt: NOW - 90 * MINUTE,
           endedAt: NOW - 80 * MINUTE,
-        },
-        {
+        };
+        const writer = {
           id: "b",
           agent: "gentle-ai-worker",
           label: "Write theme",
-          status: "completed",
           startedAt: NOW - 70 * MINUTE,
-          endedAt: NOW - 60 * MINUTE,
-        },
-      );
-      assert.deepStrictEqual(
-        [millis(member("Map themes").startedAt), millis(member("Map themes").completedAt)],
-        [NOW - 90 * MINUTE, NOW - 80 * MINUTE],
-      );
-      assert.deepStrictEqual(
-        [millis(member("Write theme").startedAt), millis(member("Write theme").completedAt)],
-        [NOW - 70 * MINUTE, NOW - 60 * MINUTE],
-      );
-      const coordinator = workflow();
-      assert.equal(coordinator.status, "completed");
-      assert.deepStrictEqual(
-        [millis(coordinator.startedAt), millis(coordinator.completedAt)],
-        [NOW - 90 * MINUTE, NOW - 60 * MINUTE],
-      );
-      assert.deepStrictEqual(
-        coordinator.workflow?.agents.map((agent) => [agent.startedAt, agent.completedAt]),
-        [
-          [NOW - 90 * MINUTE, NOW - 80 * MINUTE],
-          [NOW - 70 * MINUTE, NOW - 60 * MINUTE],
-        ],
-      );
-    }).pipe(Effect.provide(IdAllocator.layer)),
+        };
+        yield* show(earlier, { ...writer, status: "running", endedAt: null });
+        yield* TestClock.adjust(5 * MINUTE);
+        yield* show(earlier, { ...writer, status: "completed", endedAt: NOW + 5 * MINUTE });
+        assert.isFalse(
+          events.some(
+            (event) => event.type === "subagent.updated" && event.subagent.title === "Map themes",
+          ),
+        );
+        assert.deepStrictEqual(
+          [millis(member("Write theme").startedAt), millis(member("Write theme").completedAt)],
+          [NOW - 70 * MINUTE, NOW + 5 * MINUTE],
+        );
+        const coordinator = workflow();
+        assert.equal(coordinator.status, "completed");
+        assert.deepStrictEqual(
+          [millis(coordinator.startedAt), millis(coordinator.completedAt)],
+          [NOW - 70 * MINUTE, NOW + 5 * MINUTE],
+        );
+        assert.deepStrictEqual(
+          coordinator.workflow?.agents.map((agent) => [agent.startedAt, agent.completedAt]),
+          [[NOW - 70 * MINUTE, NOW + 5 * MINUTE]],
+        );
+      }).pipe(Effect.provide(IdAllocator.layer)),
   );
 
   it.effect("times a subagent from when T3 saw it when gentle-pi sends no times", () =>
