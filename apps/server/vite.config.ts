@@ -38,6 +38,10 @@ const packMode = process.env.T3CODE_PACK_EXE;
 const packBootstrap = packMode === "1" || packMode === "bootstrap";
 const packExecutable = packBootstrap || packMode === "bundle";
 const cliAssetDir = process.env.T3CODE_CLI_ASSET_DIR ?? "";
+// The executable imports only built-ins; Effect's Undici client imports undici, so it goes inside.
+// Code that loads undici with createRequire still gets the copy staged beside the executable.
+const bundledInExecutable = (id: string) =>
+  packExecutable && (id === "undici" || id.startsWith("undici/"));
 if (packExecutable && !cliAssetDir) throw new Error("Build the executable with build:exe.");
 // TEMPORARY one-time Node fix. Remove when fixed: https://github.com/nodejs/node/issues/67048
 // No linux-arm64: --build-sea output cannot load on 16/64 KiB page kernels, so it builds natively.
@@ -117,9 +121,10 @@ export default mergeConfig(
         : {}),
       deps: {
         // alwaysBundle=false has no opinion; neverBundle must retain transitive native acceleration.
-        alwaysBundle: shouldBundleCliDependency,
+        alwaysBundle: (id: string) => bundledInExecutable(id) || shouldBundleCliDependency(id),
         neverBundle: (id: string) =>
-          (packBootstrap && id === "./binMain.ts") || isExternalCliDependency(id),
+          (packBootstrap && id === "./binMain.ts") ||
+          (isExternalCliDependency(id) && !bundledInExecutable(id)),
         onlyBundle: false,
       },
       banner: {
