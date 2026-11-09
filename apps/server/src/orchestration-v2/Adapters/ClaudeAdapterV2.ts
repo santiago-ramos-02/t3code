@@ -128,6 +128,7 @@ import {
   type RunId,
   type ThreadId,
   resolveIdleCompaction,
+  isDelegatedAppThread,
 } from "@t3tools/contracts";
 
 import { FILE_HEADERS_ONLY, formatPatch, structuredPatch } from "diff";
@@ -1765,6 +1766,7 @@ export function makeClaudeQueryOptions(input: {
   readonly cwd: string | null;
   readonly attachmentsDir?: string;
   readonly settings?: ClaudeSettings;
+  readonly promptSuggestions?: boolean;
   readonly sdkSettings?: string | ClaudeSdkSettings;
   readonly environment?: NodeJS.ProcessEnv;
   readonly mcpServers?: ClaudeQueryOptions["mcpServers"];
@@ -1851,6 +1853,7 @@ export function makeClaudeQueryOptions(input: {
         ? "bypassPermissions"
         : (input.permissionMode ?? "default")),
     includePartialMessages: true,
+    promptSuggestions: input.promptSuggestions === true,
     ...(compiledSelection.effort === undefined
       ? {}
       : {
@@ -5135,6 +5138,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
         const launch = adapterOptions.prepareSession
           ? yield* adapterOptions.prepareSession(input, baseLaunch)
           : baseLaunch;
+        const promptSuggestionsEnabled = input.promptSuggestions ?? Effect.succeed(false);
         const sessionScope = yield* Effect.scope;
         const now = yield* DateTime.now;
         const session = providerSession({
@@ -8875,6 +8879,27 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           }
 
           const message = input.message;
+          if (message.type === "prompt_suggestion") {
+            // Arrives after `result`; offer it only while the completed turn is still the latest.
+            // A continuation can settle from buffered frames first, so its suggestion may be a user turn's.
+            const settled = settledTurnByNativeThread.get(liveQuery.nativeThreadId);
+            const text = message.suggestion.trim();
+            if (
+              settled !== undefined &&
+              !isClaudeProviderContinuationTurn(settled.input) &&
+              text.length > 0 &&
+              (yield* Ref.get(activeTurn)) === null
+            ) {
+              yield* emitProviderEvent({
+                type: "prompt_suggestion.updated",
+                driver: CLAUDE_PROVIDER,
+                threadId: settled.input.threadId,
+                runId: settled.input.runId,
+                text,
+              });
+            }
+            return;
+          }
           // Track before routing: idle-wake Monitors report tasks before replaying their tool calls.
           yield* trackClaudeMonitorCalls(message);
           // Update before routing because the idle wake gate reads this.
@@ -10978,6 +11003,9 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             cwd: turnInput.runtimePolicy.cwd,
             attachmentsDir,
             settings: adapterOptions.settings,
+            // Delegated threads have no one typing, so they never ask for suggestions.
+            promptSuggestions:
+              !isDelegatedAppThread(turnInput.appThread) && (yield* promptSuggestionsEnabled),
             ...(launchArgSettings === undefined
               ? {}
               : { sdkSettings: claudeSdkLaunchArgSettings(launchArgSettings) }),

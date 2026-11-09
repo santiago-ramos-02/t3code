@@ -26,6 +26,22 @@ We wanted something performant, remote-ready, and truly open. If we ever go the 
 > - Antigravity: enable it in Settings, then use **Install Antigravity** and **Sign in with Google**. No CLI is required.
 > - fx: install [fx](https://fx.sh) and run `fx login` on the machine running the T3 Code server ([setup guide](./docs/user/providers-fx.md))
 
+### Command line
+
+```bash
+curl -fsSL https://t3.codes/install.sh | sh
+```
+
+On Windows, in PowerShell:
+
+```powershell
+irm https://t3.codes/install.ps1 | iex
+```
+
+Then run `t3` to start the server and open the local web app. `t3 service install` keeps it running in the background, `t3 update` moves to a newer release, and `t3 --help` has the full reference.
+
+To try it once without installing, run `npx t3@latest`. It offers to install the `t3` command for you.
+
 ### Desktop app
 
 Download the latest **Nightly** for your system from [this fork's releases](https://github.com/santiago-ramos-02/t3code/releases):
