@@ -21,6 +21,7 @@ import {
   type OrchestrationV2UserInputQuestion,
   type ProviderApprovalDecision,
   type ProviderInstanceId,
+  type MessageId,
   type OrchestrationV2ProviderTurnTokenUsage,
   type TurnTokenUsage,
 } from "@t3tools/contracts";
@@ -66,8 +67,9 @@ import {
 } from "@t3tools/provider-core/server/failure";
 import { turnScopedSelectionTransition } from "@t3tools/provider-core/server/selectionTransition";
 import {
+  findReportedPiModel,
   makePiRpcConnection,
-  parsePiModelSlug,
+  resolvePiModelSlug,
   piRecordField as recordField,
   piRecordNumber as recordNumber,
   piRecordString as recordString,
@@ -399,6 +401,8 @@ interface ActivePiTurn {
   activeProviderRetry: PiProviderRetryState | null;
   failure: ReturnType<typeof makeProviderFailure> | null;
   rejectedPromptFailure: ReturnType<typeof makeProviderFailure> | null;
+  /** Steers Pi queued in send order; it reads them at a step boundary, after running tools return. */
+  readonly unreadSteers: Array<MessageId>;
   stopTreeRefs?: PiTurnTreeRefs | null;
 }
 
@@ -478,6 +482,7 @@ interface PiPromptSend {
   readonly providerTurnId: OrchestrationV2ProviderTurn["id"];
   readonly kind: "turn_start" | "steer";
   readonly record: PiRpcRecord;
+  readonly messageId?: MessageId;
 }
 
 interface PiThreadState {
@@ -660,7 +665,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
       let baselineThinking: string | null = null;
       let contextWindow: number | null = null;
       const modelContextWindows = new Map<string, number>();
-      let modelsDiscovered = false;
+      let discoveredModels: ReadonlyArray<unknown> | null = null;
       // Prompt ACKs lack IDs; retain session send order and ownership so late ACKs cannot affect new turns.
       const pendingPromptResponses: Array<PiPromptSend> = [];
       const pendingCompactResponses: Array<{
@@ -694,6 +699,20 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
 
       const emit = (event: ProviderAdapter.ProviderAdapterV2Event) =>
         Queue.offer(events, event).pipe(Effect.asVoid);
+
+      const emitSteerStatus = (
+        turn: ActivePiTurn,
+        messageId: MessageId,
+        status: "pending" | "completed" | "cancelled",
+      ) =>
+        emit({
+          type: "steer.updated",
+          driver: PI_PROVIDER,
+          threadId: turn.turnInput.threadId,
+          runId: turn.turnInput.runId,
+          messageId,
+          status,
+        });
 
       const updateProviderSession =
         /* Provider events include streaming deltas; avoid a span for each update. */
@@ -1804,6 +1823,10 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
           }
         }
         yield* cancelPendingPrompts(completedAt);
+        // Stop clears Pi's queue, so an unread steer was dropped; otherwise Pi read it before settling.
+        for (const messageId of turn.unreadSteers.splice(0)) {
+          yield* emitSteerStatus(turn, messageId, interrupted ? "cancelled" : "completed");
+        }
         const treeRefs =
           turn.stopTreeRefs !== undefined ? turn.stopTreeRefs : yield* captureTurnTreeRefs();
         const tokenUsage = readUsage
@@ -2039,9 +2062,14 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
             return;
           }
           case "message_start": {
-            if (turn !== null && recordString(event["message"], "role") === "assistant") {
+            const role = recordString(event["message"], "role");
+            if (turn !== null && role === "assistant") {
               turn.sawAgentActivity = true;
               turn.messageOrdinal += 1;
+            }
+            const readSteer = role === "user" ? turn?.unreadSteers.shift() : undefined;
+            if (turn !== null && readSteer !== undefined) {
+              yield* emitSteerStatus(turn, readSteer, "completed");
             }
             return;
           }
@@ -2351,6 +2379,14 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
               yield* scheduleSettleProbe(responseTurn, true);
             }
             if (event["success"] === true) {
+              if (
+                pendingPrompt?.messageId !== undefined &&
+                responseTurn !== null &&
+                recordString(recordField(event, "data"), "disposition") === "queued"
+              ) {
+                responseTurn.unreadSteers.push(pendingPrompt.messageId);
+                yield* emitSteerStatus(responseTurn, pendingPrompt.messageId, "pending");
+              }
               // Command-only prompts emit no agent_settled; probe idle and re-queue behind preceding native events.
               if (
                 pendingPrompt?.kind === "turn_start" &&
@@ -2545,6 +2581,17 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         Effect.forkIn(scope),
       );
 
+      const discoverModels = Effect.fnUntraced(function* () {
+        const modelsData = yield* request({ type: "get_available_models" }).pipe(
+          Effect.orElseSucceed(() => undefined),
+        );
+        const models = recordField(modelsData, "models");
+        if (Array.isArray(models)) {
+          for (const model of models) rememberModelContextWindow(model);
+          discoveredModels = models;
+        }
+      });
+
       const registerThread = Effect.fnUntraced(function* (
         threadInput: ProviderAdapter.ProviderAdapterV2EnsureThreadInput,
         publish = true,
@@ -2594,16 +2641,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
           }
         }
         const stateData = yield* request({ type: "get_state" });
-        if (!modelsDiscovered) {
-          const modelsData = yield* request({ type: "get_available_models" }).pipe(
-            Effect.orElseSucceed(() => undefined),
-          );
-          const models = recordField(modelsData, "models");
-          if (Array.isArray(models)) {
-            for (const model of models) rememberModelContextWindow(model);
-            modelsDiscovered = true;
-          }
-        }
+        if (discoveredModels === null) yield* discoverModels();
         contextWindow = rememberModelContextWindow(recordField(stateData, "model"));
         // Capture each baseline before applying selections so our own choices cannot become Pi defaults.
         if (baselineModel === null && appliedModel === null) {
@@ -2699,7 +2737,11 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
             appliedThinking = baselineThinking;
           }
         } else if (modelSelection.model !== appliedModel) {
-          const parsed = parsePiModelSlug(modelSelection.model);
+          // Extensions and models.json edits can add providers after the first discovery.
+          if (findReportedPiModel(modelSelection.model, discoveredModels) === undefined) {
+            yield* discoverModels();
+          }
+          const parsed = resolvePiModelSlug(modelSelection.model, discoveredModels);
           if (parsed === null) {
             return yield* protocolError(
               `Pi model '${modelSelection.model}' must use provider/model format`,
@@ -2929,6 +2971,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
               activeProviderRetry: null,
               failure: null,
               rejectedPromptFailure: null,
+              unreadSteers: [],
             };
             // Lock only install/send/start events; correlated setup must leave the pump free for dialogs.
             yield* Effect.gen(function* () {
@@ -3055,6 +3098,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
                   yield* sendPrompt({
                     providerTurnId: turn.providerTurn.id,
                     kind: "steer",
+                    messageId: steerInput.message.messageId,
                     record: {
                       type: "prompt",
                       message: payload.message,

@@ -7,7 +7,6 @@ vi.mock("../settings/appearance/AppearancePreferencesProvider", () => ({
 import {
   PROVIDER_LABEL,
   PROVIDER_ORDER,
-  providerDriverLabel,
   usageProviderKind,
   useProviderColors,
 } from "./usageProviders";
@@ -28,12 +27,9 @@ describe("mobile usage provider presentation", () => {
     expect(PROVIDER_LABEL.pi).toBe("Pi");
   });
 
-  it("shares first-class Pi labels and usage colors with live provider limits", () => {
+  it("gives Pi its own usage kind and color", () => {
     const colors = useProviderColors();
 
-    expect(providerDriverLabel("pi")).toBe("Pi");
-    expect(providerDriverLabel("opencode")).toBe("OpenCode");
-    expect(providerDriverLabel("fork-driver")).toBe("fork-driver");
     expect(usageProviderKind("pi")).toBe("pi");
     expect(colors.pi).not.toBe(colors.codex);
   });
