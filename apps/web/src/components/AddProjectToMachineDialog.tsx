@@ -216,7 +216,6 @@ function AddProjectToMachineDialog({ request }: { request: AddProjectToMachineRe
       setError(`Choose a folder on ${targetLabel}.`);
       return;
     }
-    const projectId = newProjectId();
     const startedAt = router.state.location.href;
     startAddProjectToMachine({
       source: request.projectRef,
@@ -229,7 +228,7 @@ function AddProjectToMachineDialog({ request }: { request: AddProjectToMachineRe
           project.repositoryIdentity?.rootPath,
           project.workspaceRoot,
         ),
-        projectId,
+        projectId: newProjectId(),
         title: project.title,
         remoteUrl,
         destinationPath: destinationPath.trim(),

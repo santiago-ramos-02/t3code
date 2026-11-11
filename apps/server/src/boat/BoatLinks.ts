@@ -1,9 +1,4 @@
-import {
-  BoatError,
-  type BoatDeletedMachine,
-  type EnvironmentId,
-  type PeerLink,
-} from "@t3tools/contracts";
+import { BoatError, type BoatDeletedMachine, type EnvironmentId } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -44,16 +39,16 @@ const make = Effect.gen(function* () {
   // Two tasks for one machine would each spend a pairing on the same link.
   const linking = yield* Semaphore.make(1);
 
+  // The stored link to this machine's address; using it still checks who answers there.
   const heldLink = Effect.fn("BoatLinks.heldLink")(function* (httpBaseUrl: string) {
-    const answering = yield* links.describe(httpBaseUrl);
-    if (Option.isNone(answering)) return Option.none<EnvironmentId>();
-    const stored = yield* links
-      .get(answering.value.environmentId)
-      .pipe(Effect.orElseSucceed(() => Option.none<PeerLink>()));
+    const origin = originOf(httpBaseUrl);
     const now = yield* DateTime.now;
-    return Option.isSome(stored) && DateTime.isGreaterThan(stored.value.expiresAt, now)
-      ? Option.some(stored.value.environmentId)
-      : Option.none<EnvironmentId>();
+    const stored = (yield* links.list.pipe(Effect.orElseSucceed(() => []))).find(
+      (link) =>
+        link.urls.some((url) => originOf(url) === origin) &&
+        DateTime.isGreaterThan(link.expiresAt, now),
+    );
+    return Option.fromNullishOr(stored?.environmentId);
   });
 
   const link = Effect.fn("BoatLinks.link")(function* (sandboxId: string) {

@@ -6,7 +6,6 @@ import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 
@@ -40,7 +39,6 @@ const statusWith = (input: Partial<BoatStatus>) =>
 const run = <A, E>(
   input: {
     readonly enabled?: boolean;
-    readonly stored?: PeerLink;
     readonly status?: BoatStatus;
     readonly listed?: ReadonlyArray<PeerLink>;
   },
@@ -69,8 +67,6 @@ const run = <A, E>(
       Layer.provide(
         Layer.mock(PeerLinks.PeerLinks)({
           enabled: Effect.succeed(input.enabled ?? true),
-          describe: () => Effect.succeedSome({ environmentId: machineEnvironment, label: "Boat" }),
-          get: () => Effect.succeed(Option.fromNullishOr(input.stored)),
           link: (linking) =>
             record(`link ${linking.url} ${linking.pairingCode} ${linking.access}`).pipe(
               Effect.as(storedLink(machineEnvironment, machineUrl, "2026-12-31T00:00:00.000Z")),
@@ -89,9 +85,9 @@ const run = <A, E>(
   }).pipe(Effect.scoped);
 
 describe("BoatLinks", () => {
-  it.effect("keeps a link the machine still answers to, without a new pairing", () =>
+  it.effect("keeps the link stored for the machine's address, without a new pairing", () =>
     run(
-      { stored: storedLink(machineEnvironment, machineUrl, "2099-01-01T00:00:00.000Z") },
+      { listed: [storedLink(machineEnvironment, machineUrl, "2099-01-01T00:00:00.000Z")] },
       (links, calls) =>
         Effect.gen(function* () {
           assert.strictEqual(yield* links.link(sandboxId), machineEnvironment);
@@ -103,7 +99,7 @@ describe("BoatLinks", () => {
   it.effect("links the machine with a new pairing when its link expired", () =>
     run(
       // The test clock starts at the epoch.
-      { stored: storedLink(machineEnvironment, machineUrl, "1969-12-31T00:00:00.000Z") },
+      { listed: [storedLink(machineEnvironment, machineUrl, "1969-12-31T00:00:00.000Z")] },
       (links, calls) =>
         Effect.gen(function* () {
           assert.strictEqual(yield* links.link(sandboxId), machineEnvironment);
