@@ -206,9 +206,10 @@ export function backgroundWorkNowItem(input: {
     };
   });
   const [only] = rows.length === 1 ? rows : [];
-  const newest = rows
+  // Each running workflow reports its own progress, so every one shows, newest first.
+  const reporting = rows
     .filter((row) => row.activity)
-    .toSorted((left, right) => right.updatedAtMs - left.updatedAtMs)[0];
+    .toSorted((left, right) => right.updatedAtMs - left.updatedAtMs);
   const isCommand = (row: (typeof rows)[number]) => row.task.kind !== "subagent";
   const onlyThreadId = only?.childThreadId;
   const startedAtMs = only?.startedAtMs ?? null;
@@ -223,20 +224,21 @@ export function backgroundWorkNowItem(input: {
       ) : (
         presentation.title
       ),
-    description: only ? (
-      only.activity
-    ) : newest ? (
-      <>
-        {newest.label}: {newest.activity}
-      </>
-    ) : (
-      rows.map((row, index) => (
-        <Fragment key={row.task.taskId}>
-          {index > 0 ? ", " : null}
-          {row.label}
-        </Fragment>
-      ))
-    ),
+    description: only
+      ? only.activity
+      : reporting.length > 0
+        ? reporting.map((row, index) => (
+            <Fragment key={row.task.taskId}>
+              {index > 0 ? " · " : null}
+              {row.label}: {row.activity}
+            </Fragment>
+          ))
+        : rows.map((row, index) => (
+            <Fragment key={row.task.taskId}>
+              {index > 0 ? ", " : null}
+              {row.label}
+            </Fragment>
+          )),
     actions: (
       <>
         {startedAtMs === null ? null : (

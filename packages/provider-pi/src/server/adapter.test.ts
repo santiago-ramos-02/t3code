@@ -1352,6 +1352,7 @@ describe("PiAdapterV2", () => {
             kind: "subagent",
             description: workflowTurnItem?.title,
             childThreadId: workflowThreadId,
+            agents: 1,
           },
         ],
       );
@@ -1487,14 +1488,23 @@ describe("PiAdapterV2", () => {
       const threadParents = new Map<ThreadId, ThreadId | null>();
       let opening: OrchestrationV2ConversationMessage | null = null;
       let latestCoordinator: OrchestrationV2Subagent | null = null;
-      while (memberRecords.size < 2 || latestCoordinator?.workflow?.agents.length !== 2) {
+      let roster: OrchestrationV2ProviderThread["pendingBackgroundTasks"] = undefined;
+      while (
+        memberRecords.size < 2 ||
+        latestCoordinator?.workflow?.agents.length !== 2 ||
+        roster === undefined
+      ) {
         const event = yield* takeEvent(
           (candidate) =>
             candidate.type === "subagent.updated" ||
             candidate.type === "app_thread.created" ||
+            (candidate.type === "provider_thread.updated" &&
+              (candidate.providerThread.pendingBackgroundTasks?.length ?? 0) > 0) ||
             (candidate.type === "message.updated" && candidate.message.workflowScript === true),
         );
-        if (event.type === "app_thread.created") {
+        if (event.type === "provider_thread.updated") {
+          roster = event.providerThread.pendingBackgroundTasks;
+        } else if (event.type === "app_thread.created") {
           threadParents.set(event.appThread.id, event.appThread.lineage.parentThreadId);
         } else if (event.type === "message.updated") {
           opening = event.message;
@@ -1527,6 +1537,11 @@ describe("PiAdapterV2", () => {
         memberThreads.set(title, member.childThreadId);
       }
       assert.equal(coordinator.parentNodeId, NodeId.make(`node:run:${THREAD_ID}:1:root`));
+      // The thread waits on the workflow once, counting both of its running members.
+      assert.deepStrictEqual(
+        roster?.map((task) => (task.kind === "subagent" ? task.agents : undefined)),
+        [2],
+      );
       // The orchestrator reported planning itself, so that phase carries its own open stretch.
       assert.deepStrictEqual(coordinator.workflow?.phases, [
         { index: 1, title: "Exploring" },

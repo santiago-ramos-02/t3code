@@ -645,4 +645,14 @@ describe("presentPendingBackgroundWork", () => {
     ]);
     expect(presentation?.items[0]?.label).toBe("mv a.ts b.ts\ncat > b.ts <<'EOF'\nexport {};\nEOF");
   });
+
+  it("counts a workflow as the agents it still runs", () => {
+    const presentation = presentPendingBackgroundWork([
+      { taskId: "workflow-a", kind: "subagent", description: "ODD workflow", agents: 3 },
+      { taskId: "workflow-b", kind: "subagent", description: "ODD workflow", agents: 1 },
+      { taskId: "task-1", kind: "subagent", description: "Map the repo" },
+      { taskId: "call_1", kind: "command", description: "vp run dev" },
+    ]);
+    expect(presentation?.title).toBe("Waiting on 5 subagents and 1 command");
+  });
 });

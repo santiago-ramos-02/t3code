@@ -532,6 +532,8 @@ export interface PendingBackgroundWorkItem {
   readonly kind: BackgroundWorkKind;
   readonly label: string;
   readonly childThreadId: ThreadId | undefined;
+  /** Agents this item still runs: a workflow counts its unfinished members. */
+  readonly agents: number;
 }
 
 export interface PendingBackgroundWorkPresentation {
@@ -589,6 +591,7 @@ export function presentPendingBackgroundWork(
             ? BACKGROUND_WORK_KINDS[task.kind].singular
             : label,
         childThreadId: task.kind === "subagent" ? task.childThreadId : undefined,
+        agents: task.kind === "subagent" ? (task.agents ?? 1) : 1,
       };
     })
     // `map` returned a new array; Hermes has no `toSorted`.
@@ -597,9 +600,10 @@ export function presentPendingBackgroundWork(
         BACKGROUND_WORK_KINDS[left.kind].order - BACKGROUND_WORK_KINDS[right.kind].order,
     );
   const [only] = items;
-  if (items.length === 1 && only !== undefined) {
-    const noun = BACKGROUND_WORK_KINDS[only.kind].singular;
-    const named = only.label !== noun;
+  const noun = only === undefined ? undefined : BACKGROUND_WORK_KINDS[only.kind].singular;
+  const named = only !== undefined && only.label !== noun;
+  // An unnamed workflow reads as its agents, like several items do.
+  if (items.length === 1 && only !== undefined && (named || only.agents === 1)) {
     const title = named
       ? `${waiting ? "Waiting" : "Running"} · ${only.label}`
       : waiting
@@ -608,7 +612,7 @@ export function presentPendingBackgroundWork(
     return { title, items, waiting };
   }
   const counts = new Map<BackgroundWorkKind, number>();
-  for (const item of items) counts.set(item.kind, (counts.get(item.kind) ?? 0) + 1);
+  for (const item of items) counts.set(item.kind, (counts.get(item.kind) ?? 0) + item.agents);
   const groups = Array.from(counts, ([kind, count]) => {
     const { singular, plural } = BACKGROUND_WORK_KINDS[kind];
     return `${count} ${count === 1 ? singular : plural}`;

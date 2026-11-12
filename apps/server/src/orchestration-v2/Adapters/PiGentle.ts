@@ -2,6 +2,7 @@ import type {
   NodeId,
   OrchestrationV2AppThread,
   OrchestrationV2ExecutionNode,
+  OrchestrationV2PendingBackgroundTask,
   OrchestrationV2PlanArtifact,
   OrchestrationV2PlanStep,
   OrchestrationV2ProviderRef,
@@ -814,36 +815,50 @@ export function makePiGentle<Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>
    * Unfinished subagents keep the thread working through this background roster, which also
    * covers redraws after the turn settles.
    */
-  const withRoster = (providerThread: OrchestrationV2ProviderThread) => ({
-    ...providerThread,
-    pendingBackgroundTasks: [
-      ...(providerThread.pendingBackgroundTasks ?? []).filter(
-        (task) => !isGentleRosterTask(task.taskId),
-      ),
-      // A subagent's workflow is what the thread waits on, like Claude's: listed once under its
-      // turn item's id, so the workflow item is not counted again beside its members.
-      ...new Map(
-        [...live].map(([id, title]) => {
-          const workflow = tasks.get(id)?.workflow;
-          const entry =
-            workflow === undefined
-              ? { taskId: `gentle:${id}`, kind: "subagent" as const, description: title }
-              : {
-                  taskId: workflow.nativeId,
-                  kind: "subagent" as const,
-                  description: workflow.name,
-                  childThreadId: workflow.childThreadId,
-                };
-          return [entry.taskId, entry] as const;
-        }),
-      ).values(),
-      ...liveJobs.map((job) => ({
-        taskId: `gentle:job:${job.id}`,
-        kind: job.kind,
-        description: job.label,
-      })),
-    ],
-  });
+  const withRoster = (providerThread: OrchestrationV2ProviderThread) => {
+    const workflowAgents = new Map<string, number>();
+    for (const id of live.keys()) {
+      const workflow = tasks.get(id)?.workflow;
+      if (workflow !== undefined) {
+        workflowAgents.set(workflow.nativeId, (workflowAgents.get(workflow.nativeId) ?? 0) + 1);
+      }
+    }
+    return {
+      ...providerThread,
+      pendingBackgroundTasks: [
+        ...(providerThread.pendingBackgroundTasks ?? []).filter(
+          (task) => !isGentleRosterTask(task.taskId),
+        ),
+        // A subagent's workflow is what the thread waits on, like Claude's: listed once under its
+        // turn item's id, so the workflow item is not counted again beside its members, which
+        // `agents` counts instead.
+        ...new Map(
+          [...live].map(([id, title]) => {
+            const workflow = tasks.get(id)?.workflow;
+            const entry =
+              workflow === undefined
+                ? { taskId: `gentle:${id}`, kind: "subagent" as const, description: title }
+                : {
+                    taskId: workflow.nativeId,
+                    kind: "subagent" as const,
+                    description: workflow.name,
+                    childThreadId: workflow.childThreadId,
+                    agents: workflowAgents.get(workflow.nativeId) ?? 1,
+                  };
+            return [entry.taskId, entry] as const;
+          }),
+        ).values(),
+        ...liveJobs.map((job) => ({
+          taskId: `gentle:job:${job.id}`,
+          kind: job.kind,
+          description: job.label,
+        })),
+      ],
+    };
+  };
+
+  const agentsOf = (task: OrchestrationV2PendingBackgroundTask | undefined) =>
+    task?.kind === "subagent" ? task.agents : undefined;
 
   const onActivity = Effect.fnUntraced(function* (widgetLines: ReadonlyArray<string> | undefined) {
     const state = deps.threadState();
@@ -885,7 +900,8 @@ export function makePiGentle<Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>
         (task, index) =>
           task.taskId !== current[index]?.taskId ||
           // A workflow takes its feature's name once a member reads the feature document.
-          task.description !== current[index]?.description,
+          task.description !== current[index]?.description ||
+          agentsOf(task) !== agentsOf(current[index]),
       )
     ) {
       yield* deps.updateProviderThread(state, { pendingBackgroundTasks: roster });
