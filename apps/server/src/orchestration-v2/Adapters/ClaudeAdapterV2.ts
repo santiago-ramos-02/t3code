@@ -353,6 +353,10 @@ const CLAUDE_SCRIPT_EXTENSIONS = [".js", ".mjs", ".tsx", ".ts", ".jsx"];
 // The SDK has no control-request deadline; the CLI waits up to 30 s per MCP server.
 const CLAUDE_MCP_REGISTRATION_TIMEOUT = "90 seconds";
 const CLAUDE_BOOT_TIMEOUT = "5 minutes";
+const CLAUDE_GOAL_CLEAR_TIMEOUT = "2 minutes";
+const CLAUDE_CLEAR_GOAL_COMMAND = "/goal clear";
+// What the local command answers when it clears a goal, or when none was set.
+const CLAUDE_CLEAR_GOAL_REPLY = /^(Goal cleared|No goal set)/;
 // Claude can consume a subagent result before the launching turn ends, leaving
 // its notification with no native wake turn to answer the continuation.
 const CLAUDE_WAKE_TURN_START_DEADLINE = "2 minutes";
@@ -746,6 +750,13 @@ export interface ClaudeAgentSdkQueryRunnerShape {
     ForkSessionResult & { readonly headMessageId?: string },
     ClaudeAgentSdkQueryRunnerError
   >;
+  /**
+   * Runs `/goal clear` against a session, which Claude Code answers locally without a model call.
+   * Resolves to the session's message head after the command when it can be read.
+   */
+  readonly clearSessionGoal: (
+    input: ClaudeAgentSdkSessionGoalClearInput,
+  ) => Effect.Effect<string | undefined, ClaudeAgentSdkQueryRunnerError>;
   readonly subagentLaunchToolUseId: (
     input: ClaudeAgentSdkSubagentLookupInput,
   ) => Effect.Effect<string | null, ClaudeAgentSdkQueryRunnerError>;
@@ -760,6 +771,15 @@ export class ClaudeAgentSdkQueryRunner extends Context.Service<
 export interface ClaudeAgentSdkSessionForkInput {
   readonly sessionId: string;
   readonly options: ForkSessionOptions;
+  readonly environment: NodeJS.ProcessEnv;
+  readonly threadId: ThreadId;
+  readonly providerSessionId: OrchestrationV2ProviderSession["id"];
+}
+
+export interface ClaudeAgentSdkSessionGoalClearInput {
+  readonly sessionId: string;
+  readonly cwd: string | null;
+  readonly pathToClaudeCodeExecutable?: string;
   readonly environment: NodeJS.ProcessEnv;
   readonly threadId: ThreadId;
   readonly providerSessionId: OrchestrationV2ProviderSession["id"];
@@ -1091,6 +1111,14 @@ export type ClaudeAgentSdkProtocolLogEvent =
       readonly direction: "outgoing";
       readonly stage: "decoded";
       readonly payload: {
+        readonly type: "session.clear_goal";
+        readonly sessionId: string;
+      };
+    }
+  | {
+      readonly direction: "outgoing";
+      readonly stage: "decoded";
+      readonly payload: {
         readonly type: "subagent.lookup";
         readonly sessionId: string;
         readonly agentId: string;
@@ -1294,6 +1322,26 @@ export const layerQueryRunner: Layer.Layer<
       );
       return { refresh: refresh(true).pipe(Effect.asVoid), stop };
     };
+
+    // The SDK reads history from the host process's CLAUDE_CONFIG_DIR; only a matching config dir can be read in process.
+    const usesHostClaudeConfig = Effect.fn("ClaudeAgentSdkQueryRunner.usesHostClaudeConfig")(
+      function* (environment: NodeJS.ProcessEnv) {
+        const hostEnvironment = yield* HostProcess.Environment;
+        const homeDirectory = yield* HostProcess.HomeDirectory;
+        return (
+          claudeConfigDirOf(path, environment, homeDirectory) ===
+          claudeConfigDirOf(path, hostEnvironment, homeDirectory)
+        );
+      },
+    );
+    const readSessionHead = (sessionId: string, dir: string | undefined) =>
+      Effect.tryPromise({
+        try: () => getSessionMessages(sessionId, dir === undefined ? {} : { dir }),
+        catch: (cause) => queryRunnerError(cause, "getSessionMessages"),
+      }).pipe(
+        Effect.map((messages) => messages.at(-1)?.uuid),
+        Effect.orElseSucceed(() => undefined),
+      );
 
     return ClaudeAgentSdkQueryRunner.of({
       allocateSessionId: random.uuidV4(),
@@ -1735,11 +1783,7 @@ export const layerQueryRunner: Layer.Layer<
             options: input.options,
           },
         });
-        const hostEnvironment = yield* HostProcess.Environment;
-        const homeDirectory = yield* HostProcess.HomeDirectory;
-        const usesHostConfig =
-          claudeConfigDirOf(path, input.environment, homeDirectory) ===
-          claudeConfigDirOf(path, hostEnvironment, homeDirectory);
+        const usesHostConfig = yield* usesHostClaudeConfig(input.environment);
         const fork: Effect.Effect<
           ForkSessionResult & { readonly headMessageId?: string },
           unknown
@@ -1766,19 +1810,81 @@ export const layerQueryRunner: Layer.Layer<
         // The SDK remaps copied UUIDs. Capture the inherited head before the
         // fork's first run appends messages.
         const headMessageId = usesHostConfig
-          ? yield* Effect.tryPromise({
-              try: () =>
-                getSessionMessages(
-                  result.sessionId,
-                  input.options.dir === undefined ? {} : { dir: input.options.dir },
-                ),
-              catch: (cause) => queryRunnerError(cause, "getSessionMessages"),
-            }).pipe(
-              Effect.map((messages) => messages.at(-1)?.uuid),
-              Effect.orElseSucceed(() => undefined),
-            )
+          ? yield* readSessionHead(result.sessionId, input.options.dir)
           : result.headMessageId;
         return headMessageId === undefined ? result : { ...result, headMessageId };
+      }),
+      // The SDK takes env per query, so unlike forkSession this needs no worker for a custom config dir.
+      clearSessionGoal: Effect.fn("ClaudeAgentSdkQueryRunner.clearSessionGoal")(function* (
+        input: ClaudeAgentSdkSessionGoalClearInput,
+      ) {
+        const protocolLogger = makeClaudeAgentSdkProtocolLogger({
+          nativeEventLogger,
+          threadId: input.threadId,
+          providerSessionId: input.providerSessionId,
+        });
+        const logProtocolEvent = (event: ClaudeAgentSdkProtocolLogEvent) =>
+          protocolLogger === undefined ? Effect.void : protocolLogger(event);
+        yield* logProtocolEvent({
+          direction: "outgoing",
+          stage: "decoded",
+          payload: { type: "session.clear_goal", sessionId: input.sessionId },
+        });
+        const results = yield* Effect.acquireUseRelease(
+          Effect.try({
+            try: () =>
+              query({
+                prompt: CLAUDE_CLEAR_GOAL_COMMAND,
+                options: {
+                  resume: input.sessionId,
+                  env: input.environment,
+                  // A local command needs neither the user's hooks nor their MCP servers.
+                  settingSources: [],
+                  ...(input.cwd === null ? {} : { cwd: input.cwd }),
+                  ...(input.pathToClaudeCodeExecutable === undefined
+                    ? {}
+                    : { pathToClaudeCodeExecutable: input.pathToClaudeCodeExecutable }),
+                },
+              }),
+            catch: (cause) => queryRunnerError(cause, "query"),
+          }),
+          (queryRuntime) =>
+            Stream.fromAsyncIterable(claudeQueryMessages(queryRuntime), (cause) =>
+              queryRunnerError(cause, "clearSessionGoal"),
+            ).pipe(
+              Stream.tap((message) =>
+                logProtocolEvent({ direction: "incoming", stage: "decoded", payload: message }),
+              ),
+              Stream.filter((message): message is SDKResultMessage => message.type === "result"),
+              Stream.runCollect,
+            ),
+          (queryRuntime) => closeClaudeQuery(queryRuntime).pipe(Effect.ignore),
+        ).pipe(
+          Effect.timeoutOrElse({
+            duration: CLAUDE_GOAL_CLEAR_TIMEOUT,
+            orElse: () =>
+              Effect.fail(
+                queryRunnerError("Claude did not answer /goal clear in time.", "clearSessionGoal"),
+              ),
+          }),
+        );
+        const reply = results.at(-1);
+        if (
+          reply?.subtype !== "success" ||
+          reply.is_error ||
+          !CLAUDE_CLEAR_GOAL_REPLY.test(reply.result)
+        ) {
+          return yield* queryRunnerError(
+            reply === undefined
+              ? "Claude ended without answering /goal clear."
+              : `Unexpected /goal clear reply: ${reply.subtype === "success" ? reply.result : reply.subtype}`,
+            "clearSessionGoal",
+          );
+        }
+        // The command appends past the head the fork reported, so a rollback to the fork's start must resume after it.
+        return (yield* usesHostClaudeConfig(input.environment))
+          ? yield* readSessionHead(input.sessionId, undefined)
+          : undefined;
       }),
       subagentLaunchToolUseId: Effect.fn("ClaudeAgentSdkQueryRunner.subagentLaunchToolUseId")(
         function* (input: ClaudeAgentSdkSubagentLookupInput) {
@@ -13302,6 +13408,34 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                 updated.add(forked.sessionId);
                 return updated;
               });
+              // The copied transcript keeps the source's /goal Stop hook, but T3 gives a fork no goal.
+              const sourceGoal = goalsByNativeThread.has(sourceNativeThreadId)
+                ? goalsByNativeThread.get(sourceNativeThreadId)
+                : forkInput.sourceProviderThread.goal;
+              // A failed clear must not block the fork; the goal then keeps blocking its replies.
+              const clearedHeadMessageId =
+                sourceGoal?.status === "active"
+                  ? yield* queryRunner
+                      .clearSessionGoal({
+                        sessionId: forked.sessionId,
+                        cwd: forkInput.runtimePolicy?.cwd ?? input.runtimePolicy.cwd,
+                        ...(adapterOptions.settings.binaryPath
+                          ? { pathToClaudeCodeExecutable: adapterOptions.settings.binaryPath }
+                          : {}),
+                        environment: adapterOptions.environment,
+                        threadId: forkInput.targetThreadId,
+                        providerSessionId: input.providerSessionId,
+                      })
+                      .pipe(
+                        Effect.catch((error) =>
+                          Effect.logWarning("orchestration-v2.claude-fork-goal-clear-failed", {
+                            threadId: forkInput.targetThreadId,
+                            error,
+                          }).pipe(Effect.as(undefined)),
+                        ),
+                      )
+                  : undefined;
+              const forkHeadMessageId = clearedHeadMessageId ?? forked.headMessageId;
               const now = yield* DateTime.now;
               // Native forks retain document/image history. Inherit full current
               // usage even at an earlier fork point; this is conservative.
@@ -13320,13 +13454,11 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                     ? {}
                     : { providerTurnId: forkInput.providerTurnId }),
                 },
-                ...(forked.headMessageId === undefined && claudeAttachmentBudget === undefined
+                ...(forkHeadMessageId === undefined && claudeAttachmentBudget === undefined
                   ? {}
                   : {
                       nativeMetadata: {
-                        ...(forked.headMessageId === undefined
-                          ? {}
-                          : { forkHeadMessageId: forked.headMessageId }),
+                        ...(forkHeadMessageId === undefined ? {} : { forkHeadMessageId }),
                         ...(claudeAttachmentBudget === undefined ? {} : { claudeAttachmentBudget }),
                       },
                     }),

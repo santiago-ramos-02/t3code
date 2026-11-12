@@ -41,6 +41,7 @@ import {
   NodeId,
   type OrchestrationV2AppThread,
   type OrchestrationV2PendingBackgroundTask,
+  type OrchestrationV2ProviderGoal,
   OrchestrationV2ProviderThread,
   ProjectId,
   ProviderInstanceId,
@@ -997,6 +998,7 @@ describe("ClaudeAdapterV2 Auto-accept edits", () => {
                 };
               }),
             forkSession: () => Effect.die("unused"),
+            clearSessionGoal: () => Effect.die("unused clearSessionGoal"),
             subagentLaunchToolUseId: () => Effect.succeed(null),
             assertComplete: Effect.void,
           },
@@ -1123,6 +1125,7 @@ describe("ClaudeAdapterV2 append-system-prompt-file launch argument", () => {
             };
           }),
         forkSession: () => Effect.die("unused"),
+        clearSessionGoal: () => Effect.die("unused clearSessionGoal"),
         subagentLaunchToolUseId: () => Effect.succeed(null),
         assertComplete: Effect.void,
       },
@@ -1389,6 +1392,7 @@ describe("ClaudeAdapterV2 provider installation gate", () => {
                 };
               }),
             forkSession: () => Effect.die("unused"),
+            clearSessionGoal: () => Effect.die("unused clearSessionGoal"),
             subagentLaunchToolUseId: () => Effect.succeed(null),
             assertComplete: Effect.void,
           },
@@ -1576,6 +1580,7 @@ const captureSdkExecutablePaths = Effect.fn("captureSdkExecutablePaths")(functio
           };
         }),
       forkSession: () => Effect.die("unused"),
+      clearSessionGoal: () => Effect.die("unused clearSessionGoal"),
       subagentLaunchToolUseId: () => Effect.succeed(null),
       assertComplete: Effect.void,
     }),
@@ -1670,6 +1675,7 @@ describe("ClaudeAdapterV2 resumeThread", () => {
             allocateSessionId: Effect.succeed("native-thread-empty"),
             open: () => Effect.die("unused"),
             forkSession: () => Effect.die("unused"),
+            clearSessionGoal: () => Effect.die("unused clearSessionGoal"),
             subagentLaunchToolUseId: () => Effect.succeed(null),
             assertComplete: Effect.void,
           },
@@ -1768,6 +1774,7 @@ describe("ClaudeAdapterV2 resume compaction", () => {
                 };
               }),
             forkSession: () => Effect.die("unused"),
+            clearSessionGoal: () => Effect.die("unused clearSessionGoal"),
             subagentLaunchToolUseId: () => Effect.succeed(null),
             assertComplete: Effect.void,
           },
@@ -2158,6 +2165,7 @@ describe("ClaudeAdapterV2 attachments", () => {
                   };
                 }),
               forkSession: () => Effect.die("unused forkSession"),
+              clearSessionGoal: () => Effect.die("unused clearSessionGoal"),
               subagentLaunchToolUseId: () => Effect.succeed(null),
               assertComplete: Effect.void,
             },
@@ -2712,6 +2720,7 @@ describe("ClaudeAdapterV2 native fork", () => {
                 forkCalls.push(input);
                 return yield* realRunner.forkSession(input);
               }),
+            clearSessionGoal: () => Effect.die("unused clearSessionGoal"),
             subagentLaunchToolUseId: () => Effect.succeed(null),
             assertComplete: Effect.void,
           },
@@ -3056,6 +3065,7 @@ describe("ClaudeAdapterV2 native session identity", () => {
                 };
               }),
             forkSession: () => Effect.die("unused forkSession"),
+            clearSessionGoal: () => Effect.die("unused clearSessionGoal"),
             subagentLaunchToolUseId: () => Effect.succeed(null),
             assertComplete: Effect.void,
           },
@@ -3395,6 +3405,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
     readonly modelCatalog?: Effect.Effect<ClaudeModelCatalog>;
     readonly freshQueueOnReopen?: boolean;
     readonly forkSession?: ClaudeAdapterV2.ClaudeAgentSdkQueryRunnerShape["forkSession"];
+    readonly clearSessionGoal?: ClaudeAdapterV2.ClaudeAgentSdkQueryRunnerShape["clearSessionGoal"];
     readonly allocateSessionId?: Effect.Effect<string>;
     readonly offer?: (message: SDKUserMessage) => Effect.Effect<void>;
     readonly promptSuggestions?: boolean;
@@ -3561,6 +3572,8 @@ describe("ClaudeAdapterV2 background wake turns", () => {
               };
             }),
           forkSession: options?.forkSession ?? (() => Effect.die("unused forkSession")),
+          clearSessionGoal:
+            options?.clearSessionGoal ?? (() => Effect.die("unused clearSessionGoal")),
           subagentLaunchToolUseId: () => Effect.succeed(options?.subagentLaunchToolUseId ?? null),
           assertComplete: Effect.void,
         },
@@ -12199,6 +12212,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
                 };
               }),
             forkSession: () => Effect.die("unused forkSession"),
+            clearSessionGoal: () => Effect.die("unused clearSessionGoal"),
             subagentLaunchToolUseId: () => Effect.succeed(null),
             assertComplete: Effect.void,
           },
@@ -12392,6 +12406,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
             };
           }),
         forkSession: () => Effect.die("unused forkSession"),
+        clearSessionGoal: () => Effect.die("unused clearSessionGoal"),
         subagentLaunchToolUseId: () => Effect.succeed(null),
         assertComplete: Effect.void,
       },
@@ -12526,6 +12541,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
                   };
                 }),
               forkSession: () => Effect.die("unused forkSession"),
+              clearSessionGoal: () => Effect.die("unused clearSessionGoal"),
               subagentLaunchToolUseId: () => Effect.succeed(null),
               assertComplete: Effect.void,
             },
@@ -15805,6 +15821,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
               };
             }),
           forkSession: () => Effect.die("unused forkSession"),
+          clearSessionGoal: () => Effect.die("unused clearSessionGoal"),
           subagentLaunchToolUseId: () => Effect.succeed(null),
           assertComplete: Effect.void,
         },
@@ -18743,6 +18760,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
                 };
               }),
             forkSession: () => Effect.die("unused forkSession"),
+            clearSessionGoal: () => Effect.die("unused clearSessionGoal"),
             subagentLaunchToolUseId: () => Effect.succeed(null),
             assertComplete: Effect.void,
           },
@@ -18921,6 +18939,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
                   };
                 }),
               forkSession: () => Effect.die("unused forkSession"),
+              clearSessionGoal: () => Effect.die("unused clearSessionGoal"),
               subagentLaunchToolUseId: () => Effect.succeed(null),
               assertComplete: Effect.void,
             },
@@ -19102,6 +19121,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
                 };
               }),
             forkSession: () => Effect.die("unused forkSession"),
+            clearSessionGoal: () => Effect.die("unused clearSessionGoal"),
             subagentLaunchToolUseId: () => Effect.succeed(null),
             assertComplete: Effect.void,
           },
@@ -19303,6 +19323,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
                 };
               }),
             forkSession: () => Effect.die("unused forkSession"),
+            clearSessionGoal: () => Effect.die("unused clearSessionGoal"),
             subagentLaunchToolUseId: () => Effect.succeed(null),
             assertComplete: Effect.void,
           },
@@ -19449,6 +19470,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
                 });
               },
               forkSession: () => Effect.die("unused forkSession"),
+              clearSessionGoal: () => Effect.die("unused clearSessionGoal"),
               subagentLaunchToolUseId: () => Effect.succeed(null),
               assertComplete: Effect.void,
             },
@@ -19571,6 +19593,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
                 close: Queue.shutdown(sdkMessages),
               }),
             forkSession: () => Effect.die("unused forkSession"),
+            clearSessionGoal: () => Effect.die("unused clearSessionGoal"),
             subagentLaunchToolUseId: () => Effect.succeed(null),
             assertComplete: Effect.void,
           },
@@ -21754,6 +21777,152 @@ describe("ClaudeAdapterV2 background wake turns", () => {
           },
           { objective: condition, status: "complete", checks: 1 },
         ]);
+      }).pipe(
+        Effect.scoped,
+        Effect.provide(
+          Layer.mergeAll(
+            IdAllocator.layer,
+            McpProviderSessions.layer,
+            NodeServices.layer,
+            NodeCrypto.layer,
+          ),
+        ),
+      ),
+    );
+
+    // A native fork copies the source transcript, which still carries the source's /goal Stop hook.
+    it.effect("clears an active goal a fork inherits, and only an active one", () =>
+      Effect.gen(function* () {
+        const forkedSessionId = "forked-goal-session";
+        const clearCalls: Array<ClaudeAdapterV2.ClaudeAgentSdkSessionGoalClearInput> = [];
+        const harness = yield* makeWakeHarnessWithOptions({
+          forkSession: () =>
+            Effect.succeed({ sessionId: forkedSessionId, headMessageId: "fork-head" }),
+          clearSessionGoal: (input) =>
+            Effect.sync(() => {
+              clearCalls.push(input);
+              return "cleared-head";
+            }),
+        });
+        const targetThreadId = ThreadId.make("thread-claude-goal-fork");
+        const forkWith = (goal: OrchestrationV2ProviderGoal | undefined) =>
+          harness.runtime.forkThread({
+            sourceProviderThread: {
+              ...harness.providerThread,
+              ...(goal === undefined ? {} : { goal }),
+            },
+            targetThreadId,
+          });
+
+        yield* forkWith(undefined);
+        yield* forkWith({ objective: "all tests pass", status: "complete", checks: 1 });
+        assert.deepEqual(clearCalls, []);
+
+        const forked = yield* forkWith({
+          objective: "all tests pass",
+          status: "active",
+          checks: 2,
+        });
+        assert.deepEqual(
+          clearCalls.map(({ sessionId, threadId }) => ({ sessionId, threadId })),
+          [{ sessionId: forkedSessionId, threadId: targetThreadId }],
+        );
+        assert.isUndefined(forked.goal);
+        assert.equal(forked.nativeMetadata?.forkHeadMessageId, "cleared-head");
+      }).pipe(
+        Effect.scoped,
+        Effect.provide(
+          Layer.mergeAll(
+            IdAllocator.layer,
+            McpProviderSessions.layer,
+            NodeServices.layer,
+            NodeCrypto.layer,
+          ),
+        ),
+      ),
+    );
+
+    it.effect("trusts the goal the live session tracked over a stale stored one", () =>
+      Effect.gen(function* () {
+        const clearCalls: Array<string> = [];
+        const harness = yield* makeWakeHarnessWithOptions({
+          close: (sdkMessages) => Queue.shutdown(sdkMessages),
+          forkSession: () => Effect.succeed({ sessionId: "forked-live-goal-session" }),
+          clearSessionGoal: (input) =>
+            Effect.sync(() => {
+              clearCalls.push(input.sessionId);
+              return undefined;
+            }),
+        });
+        const condition = "all tests pass";
+        yield* harness.runtime.startTurn(
+          makeClaudeTestTurnInput({
+            threadId: harness.threadId,
+            providerThread: harness.providerThread,
+            now: yield* DateTime.now,
+            attemptId: RunAttemptId.make("goal-fork-attempt"),
+            text: `/goal ${condition}`,
+            attachments: [],
+          }),
+        );
+        for (const frame of [
+          syntheticFrame("goal-fork-set", `Goal set: ${condition}`),
+          makeAssistantTextFrame({ uuid: "goal-fork-work-1", text: "Fixing the first test." }),
+          stopHookFeedback("goal-fork-check", condition, "One test still fails."),
+          makeAssistantTextFrame({ uuid: "goal-fork-work-2", text: "All tests pass now." }),
+          makeResultFrame({ uuid: "goal-fork-result", result: "All tests pass now." }),
+        ]) {
+          yield* Queue.offer(harness.sdkMessages, frame);
+        }
+        assert.equal((yield* Queue.take(harness.terminalReceipts)).status, "completed");
+        assert.equal(goalStatuses(harness.events).at(-1)?.status, "complete");
+
+        yield* harness.runtime.forkThread({
+          sourceProviderThread: {
+            ...harness.providerThread,
+            goal: { objective: condition, status: "active", checks: 0 },
+          },
+          targetThreadId: ThreadId.make("thread-claude-live-goal-fork"),
+        });
+        assert.deepEqual(clearCalls, []);
+      }).pipe(
+        Effect.scoped,
+        Effect.provide(
+          Layer.mergeAll(
+            IdAllocator.layer,
+            McpProviderSessions.layer,
+            NodeServices.layer,
+            NodeCrypto.layer,
+          ),
+        ),
+      ),
+    );
+
+    it.effect("still forks when clearing the inherited goal fails", () =>
+      Effect.gen(function* () {
+        const harness = yield* makeWakeHarnessWithOptions({
+          forkSession: () =>
+            Effect.succeed({
+              sessionId: "forked-failed-clear-session",
+              headMessageId: "fork-head",
+            }),
+          clearSessionGoal: () =>
+            Effect.fail(
+              new ClaudeAdapterV2.ClaudeAgentSdkQueryRunnerError({
+                cause: "No conversation found",
+                method: "clearSessionGoal",
+              }),
+            ),
+        });
+        const forked = yield* harness.runtime.forkThread({
+          sourceProviderThread: {
+            ...harness.providerThread,
+            goal: { objective: "all tests pass", status: "active", checks: 0 },
+          },
+          targetThreadId: ThreadId.make("thread-claude-failed-clear-fork"),
+        });
+        assert.equal(forked.nativeThreadRef?.nativeId, "forked-failed-clear-session");
+        assert.equal(forked.nativeMetadata?.forkHeadMessageId, "fork-head");
       }).pipe(
         Effect.scoped,
         Effect.provide(
