@@ -1637,6 +1637,7 @@ it.layer(layerTest)("OrchestrationV2LayerLive", (it) => {
             providerTurnId: providerTurn.id,
             messageId: steerMessageId,
             modelSelection: run.modelSelection,
+            steerFollowUpAfterRunOrdinal: run.ordinal,
           },
         ],
       );
