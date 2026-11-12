@@ -404,6 +404,8 @@ interface ActivePiTurn {
   /** Steers Pi queued in send order; it reads them at a step boundary, after running tools return. */
   readonly unreadSteers: Array<MessageId>;
   stopTreeRefs?: PiTurnTreeRefs | null;
+  /** The provider/model Pi reported on its latest assistant message. */
+  reportedModel?: string;
 }
 
 /** Token counts as Pi reports them per model call: `input` leaves out cache reads and writes. */
@@ -1852,6 +1854,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
             ...(turn.callUsage === null
               ? {}
               : { turnTokenUsage: piTurnTokenUsage(turn.callUsage) }),
+            ...(turn.reportedModel === undefined ? {} : { model: turn.reportedModel }),
           },
         });
         yield* updateProviderThread(
@@ -2132,6 +2135,11 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
                 )) ?? turn.cacheTtlSeconds;
             }
             yield* completeOpenStreamItems(turn);
+            const reportedProvider = recordString(message, "provider");
+            const reportedModelId = recordString(message, "model");
+            if (reportedProvider && reportedModelId) {
+              turn.reportedModel = `${reportedProvider}/${reportedModelId}`;
+            }
             if (recordString(message, "stopReason") === "error" && turn.failure === null) {
               turn.failure = modelFailure(
                 recordString(message, "errorMessage") ?? "Pi reported a model error.",

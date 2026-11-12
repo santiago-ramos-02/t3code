@@ -1005,6 +1005,7 @@ const layerSharedApplicationDataPlaneTest = Layer.mergeAll(
           repositoryIdentityResolved: false,
         }),
       invalidate: () => Effect.void,
+      refreshRepositoryIdentity: () => Effect.void,
       subscribeChanges: Effect.never,
     }),
   ),
