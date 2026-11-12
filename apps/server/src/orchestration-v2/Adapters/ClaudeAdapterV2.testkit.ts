@@ -944,6 +944,7 @@ function replayQueryRunnerService(
     forkSession: (input) => replay(() => queryRunner.forkSession(input)),
     clearSessionGoal: () => Effect.die("unexpected goal clear in replay"),
     subagentLaunchToolUseId: (input) => replay(() => queryRunner.subagentLaunchToolUseId(input)),
+    subagentModel: () => Effect.succeed(null),
     assertComplete: replay(() => queryRunner.assertComplete()),
   });
 }
