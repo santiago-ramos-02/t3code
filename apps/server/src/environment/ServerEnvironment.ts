@@ -228,6 +228,7 @@ export const make = Effect.gen(function* () {
       pullRequests: true,
       memory: true,
       pullRequestChecks: true,
+      linkedThreadRefreshes: true,
       sideChats: true,
       vcsBranchStatus: true,
       inlineMessageContext: true,
