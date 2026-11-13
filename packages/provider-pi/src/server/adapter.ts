@@ -2622,12 +2622,20 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
                 );
               pendingWake = null;
               const interrupted = state?.activeTurn?.interrupted === true;
+              // The transport detail carries the exit code and Pi's last error headline, never raw stderr.
+              const transportError = Option.getOrUndefined(Cause.findErrorOption(cause));
+              const transportDetail =
+                transportError?._tag === "PiRpcError" ? transportError.detail : undefined;
+              const exitMessage =
+                transportDetail === undefined
+                  ? "Pi process exited unexpectedly."
+                  : `Pi process exited unexpectedly (${transportDetail}).`;
               if (state?.activeTurn != null) {
                 state.activeTurn.failure = interrupted
                   ? null
                   : makeProviderFailure({
                       cause,
-                      message: "Pi process exited unexpectedly.",
+                      message: exitMessage,
                       class: "transport_error",
                     });
                 yield* finalizeTurn(state, false);
@@ -2643,7 +2651,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
               } else {
                 yield* updateProviderSession(
                   "error",
-                  interrupted ? "Pi process was stopped." : "Pi process exited unexpectedly.",
+                  interrupted ? "Pi process was stopped." : exitMessage,
                 );
                 yield* Queue.fail(
                   events,

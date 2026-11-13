@@ -171,12 +171,32 @@ function summarizePiError(error: unknown): string {
     : text;
 }
 
-// Pi 0.84+ may exit 1 during import without any protocol output.
-function describePiStdoutClosure(exitCode: number | undefined): string {
-  if (exitCode === undefined || !Number.isFinite(exitCode)) {
-    return "pi process closed stdout";
+// Only an error headline is kept from stderr; the rest may carry credentials or prompts.
+const PI_STDERR_ERROR_HEADLINE =
+  /^\s*(?:Uncaught\s+)?((?:[A-Z][\w$]*)?(?:Error|Exception)(?:\s*\[[A-Z0-9_]+\])?:\s.*|FATAL ERROR:.*)$/;
+
+function lastPiErrorHeadline(text: string): string | undefined {
+  let headline: string | undefined;
+  for (const line of text.split(/\r?\n/)) {
+    const match = PI_STDERR_ERROR_HEADLINE.exec(line);
+    if (match?.[1] !== undefined) headline = match[1].trim();
   }
-  return `pi process exited with code ${exitCode}`;
+  if (headline === undefined) return undefined;
+  return headline.length > PI_ERROR_DETAIL_MAX_CHARS
+    ? `${headline.slice(0, PI_ERROR_DETAIL_MAX_CHARS)}…`
+    : headline;
+}
+
+// Pi 0.84+ may exit 1 during import without any protocol output.
+function describePiStdoutClosure(
+  exitCode: number | undefined,
+  errorHeadline: string | undefined,
+): string {
+  const closure =
+    exitCode === undefined || !Number.isFinite(exitCode)
+      ? "pi process closed stdout"
+      : `pi process exited with code ${exitCode}`;
+  return errorHeadline === undefined ? closure : `${closure}: ${errorHeadline}`;
 }
 
 function parsePiRecord(line: string): PiRpcRecord | undefined {
@@ -273,6 +293,8 @@ export const makePiRpcConnection = Effect.fnUntraced(function* (options: PiRpcSp
   const outgoing = yield* Queue.unbounded<Uint8Array, PiRpcError>();
   const transportDown = yield* Deferred.make<never, PiRpcError>();
   const exitDeferred = yield* Deferred.make<number, PiRpcError>();
+  const stderrDrained = yield* Deferred.make<void>();
+  let stderrErrorHeadline: string | undefined;
   let nextRequestId = 0;
 
   const failTransport = Effect.fn("PiRpc.failTransport")(function* (error: PiRpcError) {
@@ -371,11 +393,17 @@ export const makePiRpcConnection = Effect.fnUntraced(function* (options: PiRpcSp
               Effect.provideService(Clock.Clock, Clock.Clock.defaultValue()),
               Effect.orElseSucceed(() => Option.none<number>()),
             );
+        // The exit can land before stderr is read; give its last lines the same short window.
+        yield* Deferred.await(stderrDrained).pipe(
+          Effect.timeoutOption(Duration.millis(250)),
+          Effect.provideService(Clock.Clock, Clock.Clock.defaultValue()),
+        );
         return yield* failTransport(
           new PiRpcError({
             operation: "read",
             detail: describePiStdoutClosure(
               Option.isSome(maybeExitCode) ? maybeExitCode.value : undefined,
+              stderrErrorHeadline,
             ),
           }),
         );
@@ -389,10 +417,14 @@ export const makePiRpcConnection = Effect.fnUntraced(function* (options: PiRpcSp
     Stream.runForEach((chunk) =>
       chunk.trim().length === 0
         ? Effect.void
-        : // Log stderr length only; unbounded text may contain credentials or prompts.
-          Effect.logDebug("pi stderr", { stderrLength: chunk.length }),
+        : Effect.suspend(() => {
+            stderrErrorHeadline = lastPiErrorHeadline(chunk) ?? stderrErrorHeadline;
+            // Log stderr length only; unbounded text may contain credentials or prompts.
+            return Effect.logDebug("pi stderr", { stderrLength: chunk.length });
+          }),
     ),
     Effect.ignore,
+    Effect.ensuring(Deferred.succeed(stderrDrained, undefined)),
     Effect.forkIn(scope),
   );
 

@@ -6856,6 +6856,40 @@ describe("PiRpc early process exit", () => {
       assert.isFalse(error.message.includes("super-secret"));
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
+
+  it.effect("names the last error headline Pi wrote to stderr, and nothing else from it", () =>
+    Effect.gen(function* () {
+      const stderr = [
+        "API_KEY=super-secret\n",
+        "TypeError: Cannot read properties of undefined (reading 'id')\n",
+        "    at handleEvent (file:///pi/dist/agent.js:10:5)\n",
+        "prompt text the user typed\n",
+      ].join("");
+      const spawner = ChildProcessSpawner.make(() =>
+        Effect.succeed(
+          makeHandle({
+            exitCode: Effect.succeed(ChildProcessSpawner.ExitCode(4294967295)),
+            stderr: Stream.fromIterable([new TextEncoder().encode(stderr)]),
+          }),
+        ),
+      );
+      const connection = yield* makePiRpcConnection({
+        command: "pi",
+        args: ["--mode", "rpc"],
+        cwd: undefined,
+        env: {},
+      }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner));
+
+      const error = yield* Queue.take(connection.events).pipe(Effect.flip);
+      assert.equal(
+        error.detail,
+        "pi process exited with code 4294967295: TypeError: Cannot read properties of undefined (reading 'id')",
+      );
+      assert.isFalse(error.message.includes("super-secret"));
+      assert.isFalse(error.message.includes("prompt text"));
+      assert.isFalse(error.message.includes("handleEvent"));
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
 });
 
 describe("PiRpc teardown", () => {
