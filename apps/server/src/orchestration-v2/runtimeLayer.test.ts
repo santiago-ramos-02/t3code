@@ -8228,6 +8228,118 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
       }),
   );
 
+  it.effect("queues a provider wake behind a usage limit instead of starting it", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const eventSink = yield* EventSink.EventSinkV2;
+      const threadId = ThreadId.make("runtime-layer-wake-after-limit");
+      yield* orchestrator.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make(`${threadId}:create`),
+        threadId,
+        createdBy: "user",
+        creationSource: "web",
+        projectId: ProjectId.make(`${threadId}:project`),
+        title: "Wake after a limit",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: process.cwd(),
+      });
+      const send = (index: number, source: "web" | "provider") =>
+        orchestrator.dispatch({
+          type: "message.dispatch",
+          commandId: CommandId.make(`${threadId}:${index}`),
+          threadId,
+          messageId: MessageId.make(`${threadId}:${index}`),
+          text: source === "web" ? `Prompt ${index}` : "Background agents failed.",
+          attachments: [],
+          createdBy: source === "web" ? "user" : "agent",
+          creationSource: source,
+          modelSelection,
+          dispatchMode: { type: index === 0 ? "start_immediately" : "queue_after_active" },
+        });
+      yield* send(0, "web");
+      const [limited] = (yield* orchestrator.getThreadProjection(threadId)).runs;
+      assert.isDefined(limited);
+      const now = yield* DateTime.now;
+      yield* eventSink.write({
+        events: [
+          {
+            id: EventId.make(`${threadId}:error`),
+            type: "turn-item.updated",
+            threadId,
+            runId: limited.id,
+            nodeId: limited.rootNodeId!,
+            providerInstanceId: limited.providerInstanceId,
+            occurredAt: now,
+            payload: {
+              id: TurnItemId.make(`${threadId}:error`),
+              type: "error",
+              threadId,
+              runId: limited.id,
+              nodeId: limited.rootNodeId!,
+              providerThreadId: limited.providerThreadId,
+              providerTurnId: null,
+              nativeItemRef: null,
+              parentItemId: null,
+              ordinal: 2,
+              status: "failed",
+              title: "Usage limit reached",
+              startedAt: now,
+              completedAt: now,
+              updatedAt: now,
+              failure: {
+                class: "usage_limit",
+                message: "Claude API rate limit reached. Try again later.",
+                code: "api_error_429",
+                retryable: true,
+                resetAt: DateTime.formatIso(DateTime.add(now, { hours: 1 })),
+              },
+            },
+          },
+          {
+            id: EventId.make(`${threadId}:failed`),
+            type: "run.updated",
+            threadId,
+            runId: limited.id,
+            providerInstanceId: limited.providerInstanceId,
+            occurredAt: now,
+            payload: { ...limited, status: "failed", completedAt: now },
+          },
+        ],
+      });
+
+      // Starting it would end with no API call, and that completed run would clear the limit.
+      yield* send(1, "provider");
+      yield* orchestrator.resumeQueuedRuns;
+      const held = yield* orchestrator.getThreadProjection(threadId);
+      const wake = held.runs.find((run) => run.userMessageId === `${threadId}:1`);
+      assert.equal(wake?.status, "queued");
+      assert.notEqual(wake?.queueHeld, true);
+      assert.equal(held.runs.find((run) => run.id === limited.id)?.status, "failed");
+      const shell = (yield* orchestrator.getShellSnapshot()).threads.find(
+        (thread) => thread.id === threadId,
+      )!;
+      yield* orchestrator.dispatch(limitRecoveryCommand(shell, true, DateTime.toEpochMillis(now))!);
+      const armed = (yield* orchestrator.getShellSnapshot()).threads.find(
+        (thread) => thread.id === threadId,
+      )!;
+      const resetMs = DateTime.toEpochMillis(DateTime.add(now, { hours: 1 }));
+      assert.equal(limitRecoveryCommand(armed, true, resetMs)?.type, "message.dispatch");
+
+      // The user's own send still starts at once, and the wake follows it.
+      yield* send(2, "web");
+      const sent = yield* orchestrator.getThreadProjection(threadId);
+      assert.equal(
+        sent.runs.find((run) => run.userMessageId === `${threadId}:2`)?.status,
+        "starting",
+      );
+      assert.equal(sent.runs.find((run) => run.id === wake?.id)?.status, "queued");
+    }),
+  );
+
   it.effect("keeps a model picked ahead of a queued agent message that names none", () =>
     Effect.gen(function* () {
       const orchestrator = yield* Orchestrator.OrchestratorV2;
