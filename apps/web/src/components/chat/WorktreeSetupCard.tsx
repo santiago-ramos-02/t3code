@@ -194,7 +194,7 @@ export function SetupStepRow({
       trailing={
         <>
           {detail ? (
-            <span className="min-w-0 truncate text-xs text-muted-foreground tabular-nums">
+            <span className="max-w-1/2 min-w-0 truncate text-xs text-muted-foreground tabular-nums">
               {detail}
             </span>
           ) : null}

@@ -51,3 +51,5 @@ node_modules/
 .pnpm-store/
 # Local Pi runtime state
 .atl/
+
+/packages/ssh/.ssh-launcher-test-*/

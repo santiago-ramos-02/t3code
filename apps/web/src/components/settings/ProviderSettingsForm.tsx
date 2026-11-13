@@ -389,6 +389,7 @@ function SecretSettingsControl({
         value={reference ?? ""}
         configured={reference === undefined && configured}
         sources={sources}
+        environmentId={environmentId}
         onCommit={(next) => onChange(nextProviderConfigWithFieldValue(value, field, next))}
         onSecretChange={(secret) =>
           onChange(nextProviderConfigWithFieldValue(value, field, secret ?? ""))

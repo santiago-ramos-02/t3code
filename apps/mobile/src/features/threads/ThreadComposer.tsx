@@ -59,13 +59,11 @@ import { scopedThreadKey } from "../../lib/scopedEntities";
 import type { ThreadFeedEntry } from "../../lib/threadActivity";
 import {
   getComposerDraftSnapshot,
-  composerDraftsAtom,
   setComposerDraftText,
   composerContextImportsAtom,
   countComposerDraftAttachmentsAfterSelection,
   useComposerDraft,
 } from "../../state/use-composer-drafts";
-import { appAtomRegistry } from "../../state/atom-registry";
 import { selectThreadModel } from "../../state/thread-model-selection";
 import type { ComposerDocumentAttachment } from "../../lib/composerContext";
 import { useProject, useVisibleThreadShells } from "../../state/entities";
@@ -587,7 +585,6 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
     ownerKey: composerDraftKey,
     label: props.selectedThread.title || "Untitled thread",
     readDraftMessage: () => getComposerDraftSnapshot(composerDraftKey).text,
-    subscribeToDraftChanges: (onChange) => appAtomRegistry.subscribe(composerDraftsAtom, onChange),
     selection: composerMenu.selection,
     onChangeDraftMessage: (text) => setComposerDraftText(composerDraftKey, text),
     onChangeSelection: composerMenu.onSelectionChange,

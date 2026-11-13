@@ -1,3 +1,4 @@
+import { resolveProviderProbeTimeoutMs } from "@t3tools/provider-core/server/snapshotProbe";
 import { CodexSettings, ProviderDriverKind } from "@t3tools/contracts";
 import { makeCodexGentleOffSession } from "../../gentleAi/GentleAiSessions.ts";
 import * as Digest from "effect/crypto/Digest";
@@ -252,6 +253,9 @@ export const CodexDriver: ProviderDriver<
         onUsageLimits: (update) => snapshot.applyUsageLimits(update),
         prepareSession: yield* makeCodexGentleOffSession(DRIVER_KIND),
         gentleReviewers: yield* makeGentleReviewers,
+        models: Effect.suspend(() => snapshot.getSnapshot).pipe(
+          Effect.map((value) => value.models),
+        ),
         compatibility: installation.compatibility,
       },
     ).pipe(
@@ -334,7 +338,7 @@ export const CodexDriver: ProviderDriver<
               environment: processEnv,
             }).pipe(
               Effect.scoped,
-              Effect.timeout("20 seconds"),
+              Effect.timeout(resolveProviderProbeTimeoutMs("codex", 20_000, processEnv)),
               Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
             ),
           ]).pipe(
