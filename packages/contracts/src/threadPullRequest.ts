@@ -116,6 +116,11 @@ export const ThreadPullRequestWatch = Schema.Struct({
    * watch keep its thread waiting; absent on watches not read since it existed.
    */
   checksPending: Schema.optional(Schema.Boolean),
+  /**
+   * When a failure the agent was not told of was first seen while other checks on the head still
+   * ran. Held failures wake together once the run finishes; null or absent when none is held.
+   */
+  failuresHeldSince: Schema.optional(Schema.NullOr(IsoDateTime)),
 });
 export type ThreadPullRequestWatch = typeof ThreadPullRequestWatch.Type;
 

@@ -11,6 +11,8 @@ import * as DateTime from "effect/DateTime";
 export const PULL_REQUEST_WATCH_WAKE_LIMIT = 10;
 /** How long a head may go without any check before the agent is told none reported. */
 export const PULL_REQUEST_WATCH_NO_CHECKS_MS = 15 * 60_000;
+/** How long a failure waits for the head's other checks, so one that never finishes cannot hold it. */
+export const PULL_REQUEST_WATCH_FAILURE_HOLD_MS = 20 * 60_000;
 const LISTED_ITEMS = 10;
 const SNIPPET_LENGTH = 200;
 
@@ -67,6 +69,8 @@ export function evaluatePullRequestWatch(
   // A watch with no answer (saved before the field, or since a push) waits only while the clock
   // below runs.
   let checksPending = headMoved ? false : (watch.checksPending ?? watch.checksAwaitedSince != null);
+  // A failure held for an old head is never reported: the agent already pushed past it.
+  let failuresHeldSince = headMoved ? null : (watch.failuresHeldSince ?? null);
   // An unavailable approval read cannot establish success or that no checks exist.
   const unread = detail.checks.some((check) => check.placeholder === true);
   const checks = detail.checks.filter((check) => check.placeholder !== true);
@@ -76,14 +80,35 @@ export function evaluatePullRequestWatch(
     // A run awaiting approval waits on a person, like a review, so only running checks count.
     checksPending = checks.some((check) => check.status === "pending");
     const newlyFailed = failed.filter((check) => !failedChecks.includes(check.name));
-    if (!checksBaseline && newlyFailed.length > 0) {
+    // A job that aggregates others, such as a quality gate, fails after them in the same workflow
+    // run, sometimes only after the run looked finished. It is part of the failure already told.
+    const toldRuns = new Set(
+      failed
+        .filter((check) => failedChecks.includes(check.name))
+        .map((check) => workflowRunOf(check.url)),
+    );
+    const news = newlyFailed.some((check) => {
+      const run = workflowRunOf(check.url);
+      return run === null || !toldRuns.has(run);
+    });
+    // Failures wait for the rest of the run, so the agent hears of them all at once.
+    const heldSince = failuresHeldSince ?? DateTime.formatIso(DateTime.makeUnsafe(now));
+    const hold =
+      !checksBaseline &&
+      news &&
+      checksPending &&
+      now - Date.parse(heldSince) < PULL_REQUEST_WATCH_FAILURE_HOLD_MS;
+    if (!checksBaseline && news && !hold) {
       changes.push({ kind: "checks-failed", failed: newlyFailed });
     }
     if (!approvalAnnounced && awaiting.length > 0) {
       if (!checksBaseline) changes.push({ kind: "checks-awaiting-approval", checks: awaiting });
       approvalAnnounced = true;
     }
-    failedChecks = failed.map((check) => check.name);
+    failuresHeldSince = hold ? heldSince : null;
+    failedChecks = hold
+      ? failedChecks.filter((name) => failed.some((check) => check.name === name))
+      : failed.map((check) => check.name);
 
     // Approval reads can omit gated runs. Keep each hold until its jobs finish.
     const awaitingNow = [...new Set(awaiting.map(approvalKey))];
@@ -248,6 +273,7 @@ export function evaluatePullRequestWatch(
         }),
       checksAwaitedSince,
       checksPending,
+      ...(failuresHeldSince !== null && { failuresHeldSince }),
     },
     exhausted: commentsOnly && wakes >= PULL_REQUEST_WATCH_WAKE_LIMIT,
   };

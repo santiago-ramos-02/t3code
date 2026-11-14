@@ -6,6 +6,7 @@ import {
 import { assert, describe, it } from "@effect/vitest";
 
 import {
+  PULL_REQUEST_WATCH_FAILURE_HOLD_MS,
   PULL_REQUEST_WATCH_WAKE_LIMIT,
   evaluatePullRequestWatch as evaluate,
   pullRequestWatchMessage,
@@ -137,10 +138,16 @@ describe("evaluatePullRequestWatch", () => {
     ]);
     const clean = evaluatePullRequestWatch(failed.next, detail(), noRemarks);
     assert.deepEqual(clean.changes, []);
-    assert.deepEqual(evaluatePullRequestWatch(clean.next, broken, noRemarks).changes, [
-      { kind: "checks-failed", failed: [check("lint", "failure")] },
-      { kind: "conflicting" },
-    ]);
+    const rebroken = evaluatePullRequestWatch(clean.next, broken, noRemarks);
+    assert.deepEqual(rebroken.changes, [{ kind: "conflicting" }]);
+    assert.deepEqual(
+      evaluatePullRequestWatch(
+        rebroken.next,
+        { ...broken, checks: [check("lint", "failure"), check("test", "success")] },
+        noRemarks,
+      ).changes,
+      [{ kind: "checks-failed", failed: [check("lint", "failure")] }],
+    );
   });
 
   it("baselines checks already awaiting approval", () => {
@@ -409,21 +416,150 @@ describe("evaluatePullRequestWatch", () => {
     );
   });
 
-  it("reports each failure at once, even while another check never finishes", () => {
+  it("wakes once per finished run, listing every failed check", () => {
+    const lintFailed = detail({
+      checks: [check("lint", "failure"), check("test", "pending"), check("e2e", "pending")],
+    });
+    const lint = evaluatePullRequestWatch(watch(), lintFailed, noRemarks);
+    assert.deepEqual(lint.changes, []);
+    const both = detail({
+      checks: [check("lint", "failure"), check("test", "failure"), check("e2e", "pending")],
+    });
+    const test = evaluatePullRequestWatch(lint.next, both, noRemarks);
+    assert.deepEqual(test.changes, []);
+    const done = detail({
+      checks: [check("lint", "failure"), check("test", "failure"), check("e2e", "success")],
+    });
+    const finished = evaluatePullRequestWatch(test.next, done, noRemarks);
+    assert.deepEqual(finished.changes, [
+      { kind: "checks-failed", failed: [check("lint", "failure"), check("test", "failure")] },
+    ]);
+    assert.deepEqual(evaluatePullRequestWatch(finished.next, done, noRemarks).changes, []);
+  });
+
+  it("drops a held failure once the head moves on before its run finishes", () => {
+    const lintFailed = detail({ checks: [check("lint", "failure"), check("test", "pending")] });
+    const held = evaluatePullRequestWatch(watch(), lintFailed, noRemarks);
+    assert.deepEqual(held.changes, []);
+    const pushed = evaluatePullRequestWatch(
+      held.next,
+      detail({
+        headSha: "bbbbbbbbbb",
+        checks: [check("lint", "pending"), check("test", "pending")],
+      }),
+      noRemarks,
+    );
+    assert.deepEqual(pushed.changes, []);
+    assert.isUndefined(pushed.next.failuresHeldSince);
+    const green = detail({
+      headSha: "bbbbbbbbbb",
+      checks: [check("lint", "success"), check("test", "success")],
+    });
+    assert.deepEqual(evaluatePullRequestWatch(pushed.next, green, noRemarks).changes, [
+      { kind: "checks-passed", count: 2, required: false },
+    ]);
+  });
+
+  it("folds a gate's failure into the failure of the jobs it aggregates", () => {
+    const job = (name: string, status: PullRequestCheck["status"], id: number) => ({
+      ...check(name, status),
+      url: `${run(7)}/job/${id}`,
+    });
+    const testFailed = detail({
+      checks: [
+        job("lint", "success", 1),
+        job("test", "failure", 2),
+        job("Quality Gate", "pending", 3),
+      ],
+    });
+    const held = evaluatePullRequestWatch(watch(), testFailed, noRemarks);
+    assert.deepEqual(held.changes, []);
+    const gateFailed = detail({
+      checks: [
+        job("lint", "success", 1),
+        job("test", "failure", 2),
+        job("Quality Gate", "failure", 3),
+      ],
+    });
+    assert.deepEqual(evaluatePullRequestWatch(held.next, gateFailed, noRemarks).changes, [
+      {
+        kind: "checks-failed",
+        failed: [job("test", "failure", 2), job("Quality Gate", "failure", 3)],
+      },
+    ]);
+
+    // A gate whose check appears only after the jobs it needs finished stays quiet too.
+    const early = detail({ checks: [job("lint", "success", 1), job("test", "failure", 2)] });
+    const told = evaluatePullRequestWatch(watch(), early, noRemarks);
+    assert.deepEqual(told.changes, [
+      { kind: "checks-failed", failed: [job("test", "failure", 2)] },
+    ]);
+    const lateGate = evaluatePullRequestWatch(told.next, gateFailed, noRemarks);
+    assert.deepEqual(lateGate.changes, []);
+    assert.deepEqual(lateGate.next.failedChecks, ["test", "Quality Gate"]);
+    // A failure in another workflow run is still news.
+    const other = detail({
+      checks: [...gateFailed.checks, { ...check("e2e", "failure"), url: `${run(8)}/job/4` }],
+    });
+    assert.equal(evaluatePullRequestWatch(lateGate.next, other, noRemarks).changes.length, 1);
+  });
+
+  it("keeps other wakes immediate while a failure waits for its run", () => {
+    const comment = remark("reviewer", "2026-10-02T12:05:00Z");
+    const held = evaluatePullRequestWatch(
+      watch(),
+      detail({
+        checks: [check("lint", "failure"), check("test", "pending")],
+        mergeability: "conflicting",
+      }),
+      [comment],
+    );
+    assert.deepEqual(held.changes, [
+      { kind: "remarks", remarks: [comment] },
+      { kind: "conflicting" },
+    ]);
+    // A failure that recovers on a rerun before the run finishes is never news.
+    const rerun = evaluatePullRequestWatch(
+      held.next,
+      detail({ checks: [check("lint", "pending"), check("test", "pending")] }),
+      [comment],
+    );
+    assert.deepEqual(rerun.changes, []);
+    assert.isUndefined(rerun.next.failuresHeldSince);
+    assert.deepEqual(
+      evaluatePullRequestWatch(
+        rerun.next,
+        detail({ checks: [check("lint", "success"), check("test", "success")] }),
+        [comment],
+      ).changes,
+      [{ kind: "checks-passed", count: 2, required: false }],
+    );
+  });
+
+  it("reports held failures after a bounded wait while another check never finishes", () => {
     const bot = check("CodeRabbit", "pending");
     const first = detail({ checks: [check("lint", "failure"), check("test", "pending"), bot] });
-    const lint = evaluatePullRequestWatch(watch(), first, noRemarks);
+    const held = evaluate(watch(), first, noRemarks, 0);
+    assert.deepEqual(held.changes, []);
+    const waiting = evaluate(held.next, first, noRemarks, PULL_REQUEST_WATCH_FAILURE_HOLD_MS - 1);
+    assert.deepEqual(waiting.changes, []);
+    const lint = evaluate(waiting.next, first, noRemarks, PULL_REQUEST_WATCH_FAILURE_HOLD_MS);
     assert.deepEqual(lint.changes, [{ kind: "checks-failed", failed: [check("lint", "failure")] }]);
     assert.deepEqual(evaluatePullRequestWatch(lint.next, first, noRemarks).changes, []);
 
     const second = detail({ checks: [check("lint", "failure"), check("test", "failure"), bot] });
-    const test = evaluatePullRequestWatch(lint.next, second, noRemarks);
+    const testHeld = evaluate(lint.next, second, noRemarks, PULL_REQUEST_WATCH_FAILURE_HOLD_MS);
+    assert.deepEqual(testHeld.changes, []);
+    const test = evaluate(testHeld.next, second, noRemarks, 2 * PULL_REQUEST_WATCH_FAILURE_HOLD_MS);
     assert.deepEqual(test.changes, [{ kind: "checks-failed", failed: [check("test", "failure")] }]);
 
+    const settled = detail({
+      checks: [check("lint", "failure"), check("test", "failure"), check("CodeRabbit", "success")],
+    });
     const rerun = evaluatePullRequestWatch(test.next, first, noRemarks);
-    assert.equal(evaluatePullRequestWatch(rerun.next, second, noRemarks).changes.length, 1);
+    assert.equal(evaluatePullRequestWatch(rerun.next, settled, noRemarks).changes.length, 1);
 
-    const pushed = detail({ ...second, headSha: "bbbbbbbbbb" });
+    const pushed = detail({ ...settled, headSha: "bbbbbbbbbb" });
     assert.equal(evaluatePullRequestWatch(test.next, pushed, noRemarks).changes.length, 1);
 
     const approval = { ...check("CI", "action-required"), url: run(1) };
