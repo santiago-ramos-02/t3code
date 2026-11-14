@@ -44,7 +44,7 @@ async function renderCard(
       driverOption={undefined}
       liveProvider={liveProvider}
       mode={mode}
-      onUpdate={() => undefined}
+      onUpdate={() => Promise.resolve(true)}
       hiddenModels={[]}
       favoriteModels={[]}
       modelOrder={[]}
@@ -86,7 +86,7 @@ describe("ProviderInstanceCard status truthfulness", () => {
     readonly mode?: "list" | "editor";
     readonly isChecking?: boolean;
     readonly onRefresh?: (() => void) | undefined;
-    readonly onUpdate?: (next: ProviderInstanceConfig) => void;
+    readonly onUpdate?: (next: ProviderInstanceConfig) => Promise<boolean>;
   }) {
     return (
       <ProviderInstanceCard
@@ -95,7 +95,7 @@ describe("ProviderInstanceCard status truthfulness", () => {
         driverOption={providerClients.get(piDriver)}
         liveProvider={options.liveProvider}
         mode={options.mode ?? "list"}
-        onUpdate={options.onUpdate ?? (() => undefined)}
+        onUpdate={options.onUpdate ?? (() => Promise.resolve(true))}
         hiddenModels={[]}
         favoriteModels={[]}
         modelOrder={[]}
@@ -135,7 +135,7 @@ describe("ProviderInstanceCard status truthfulness", () => {
   });
 
   it("writes the toggle through onUpdate so the panel can coordinate the refresh", async () => {
-    const onUpdate = vi.fn();
+    const onUpdate = vi.fn(() => Promise.resolve(true));
     await using _screen = await render(piCard({ liveProvider: piSnapshot(), onUpdate }));
     await userEvent.click(page.getByRole("switch", { name: "Enable Pi" }));
     expect(onUpdate).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ enabled: false }));
