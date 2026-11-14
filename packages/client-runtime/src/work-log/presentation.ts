@@ -552,6 +552,7 @@ function summaryActionPriority(action: ToolGroupAction | T3McpToolSummaryAction)
     case "environment-update":
     case "boat-start":
     case "boat-action":
+    case "theme-set":
     case "attachment-prepare":
     case "attachment-discard":
     case "attachment-send":

@@ -18,6 +18,7 @@ import {
   PreviewAutomationTabNotFoundError,
   PreviewAutomationTargetNotEditableError,
   PreviewAutomationTimeoutError,
+  PreviewAutomationTimeoutDetail,
   PreviewAutomationUnsupportedClientError,
   PreviewTabId,
   type PreviewAutomationError,
@@ -216,6 +217,7 @@ const readRemoteReason = (detail: unknown): string | undefined =>
     : undefined;
 
 const MAX_REASON_CHARS = 500;
+const decodeTimeoutDetail = Schema.decodeUnknownOption(PreviewAutomationTimeoutDetail);
 
 const classifyResponseError = (
   context: PreviewAutomationRequestErrorContext,
@@ -265,6 +267,7 @@ const classifyResponseError = (
       });
     case "PreviewAutomationTimeoutError": {
       const remoteTimeoutMs = readRemoteTimeoutMs(error.detail);
+      const detail = decodeTimeoutDetail(error.detail);
       const remoteReason = readRemoteReason(error.detail);
       return new PreviewAutomationTimeoutError({
         ...context,
@@ -275,6 +278,7 @@ const classifyResponseError = (
         ...(remoteTimeoutMs === undefined
           ? {}
           : { timeoutMs: Math.min(context.timeoutMs, remoteTimeoutMs) }),
+        ...(Option.isSome(detail) ? { pendingStages: detail.value.pendingStages } : {}),
       });
     }
     case "PreviewAutomationControlInterruptedError": {
@@ -673,9 +677,11 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
           // Metadata reads do not invalidate a host. For actions, evict only a host that
           // answered nothing since this request went out; other threads may still be using it.
           // Do not replay actions: the host may have applied them before the timeout.
+          // The in-process server browser is shared by every thread and cannot hang its stream.
           const host = (yield* SynchronizedRef.get(state)).clients.get(connection.clientId);
           if (
             input.updateCurrentTab !== false &&
+            connection.clientId !== SERVER_BROWSER_AUTOMATION_CLIENT_ID &&
             (host?.queue !== connection.queue || host.answered === offered)
           ) {
             yield* disconnect(connection.clientId, connection.queue, true);
