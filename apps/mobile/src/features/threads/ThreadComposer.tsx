@@ -84,7 +84,12 @@ import { GentleComposerControls } from "./GentleComposerControls";
 import { GlassSurface } from "../../components/ui/GlassSurface";
 import { ComposerEditor, type ComposerEditorHandle } from "../../components/ComposerEditor";
 import { fileRoutePathSegments } from "../files/filePath";
-import { ComposerActionButton, ComposerToolbarRow } from "../../components/ComposerToolbar";
+import {
+  ComposerActionButton,
+  ComposerInlineControl,
+  ComposerToolbarRow,
+} from "../../components/ComposerToolbar";
+import { formatTokens } from "@t3tools/shared/usageFormat";
 import { ComposerModelControl } from "../../components/ComposerModelControl";
 import {
   composerStripAttachments,
@@ -225,6 +230,12 @@ export interface ThreadComposerProps {
   readonly threadFeed: ReadonlyArray<ThreadFeedEntry>;
   readonly reportedModelSelection?: ModelSelection | null;
   readonly hasCompactableConversation: boolean;
+  /** Set while the next send compacts the thread first. */
+  readonly compactBeforeSend?: {
+    readonly tokens: number;
+    readonly keepFullHistory: boolean;
+    readonly toggleKeepFullHistory: () => void;
+  } | null;
   /** Arms a fresh session for the next message; absent where `/clear` is unavailable. */
   readonly onFreshSession?: () => void;
   readonly offersSideChat?: boolean;
@@ -829,6 +840,32 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
     </View>
   );
 
+  const compactBeforeSend =
+    props.compactBeforeSend && !showResumeAction && queuedEdit === null
+      ? props.compactBeforeSend
+      : null;
+  const compactTokens = compactBeforeSend ? formatTokens(compactBeforeSend.tokens) : null;
+  const compactControl =
+    compactBeforeSend && compactTokens !== null ? (
+      <ComposerInlineControl
+        size={usesLargeControls ? "large" : "regular"}
+        icon="arrow.down.right.and.arrow.up.left"
+        label={compactTokens}
+        selected={!compactBeforeSend.keepFullHistory}
+        showChevron={false}
+        disabled={!props.canOperateThread}
+        accessibilityLabel={
+          compactBeforeSend.keepFullHistory
+            ? `Next send keeps all ${compactTokens} tokens of history`
+            : `Next send compacts ${compactTokens} tokens of history first`
+        }
+        accessibilityHint={
+          compactBeforeSend.keepFullHistory ? "Compacts first" : "Keeps the full history"
+        }
+        onPress={compactBeforeSend.toggleKeepFullHistory}
+      />
+    ) : null;
+
   return (
     <Animated.View
       onLayout={(event) => props.onHeightChange?.(event.nativeEvent.layout.height)}
@@ -1125,6 +1162,7 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
                   compactEditor.isExpanded ? { flex: 1, justifyContent: "flex-end" } : undefined
                 }
               >
+                {compactControl}
                 {modelControl}
                 <ComposerDictationStartAction
                   size={usesLargeControls ? "large" : "regular"}
