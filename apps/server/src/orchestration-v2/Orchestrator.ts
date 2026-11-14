@@ -4988,6 +4988,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                     ...(existing.endedWatch?.checksAwaitedSince !== undefined && {
                       checksAwaitedSince: existing.endedWatch.checksAwaitedSince,
                     }),
+                    ...(existing.endedWatch?.failuresHeldSince != null && {
+                      failuresHeldSince: existing.endedWatch.failuresHeldSince,
+                    }),
                     remarksThrough: startedAt,
                     remarkIds: [],
                     wakes: 0,

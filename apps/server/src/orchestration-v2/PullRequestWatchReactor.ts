@@ -40,6 +40,7 @@ import * as ProjectionStore from "./ProjectionStore.ts";
 import {
   combinePullRequestWatchWakes,
   evaluatePullRequestWatch,
+  PULL_REQUEST_WATCH_FAILURE_HOLD_MS,
   PULL_REQUEST_WATCH_NO_CHECKS_MS,
   pullRequestWatchMessage,
 } from "./pullRequestWatch.ts";
@@ -165,13 +166,15 @@ function planRead(
   if (last === undefined || group.targets.some((target) => !last.watches.has(watchKey(target)))) {
     return { detail: true, activity: true };
   }
-  // Nothing on the host changes when the no-checks deadline passes, or when a push to another
-  // branch clears a watch's answer, so either alone prompts a read.
+  // Nothing on the host changes when the no-checks deadline or a failure hold passes, or when a
+  // push to another branch clears a watch's answer, so each alone prompts a read.
   const checksDue = group.targets.some(
     ({ watch }) =>
       watch.checksPending === undefined ||
       (watch.checksAwaitedSince != null &&
-        now - Date.parse(watch.checksAwaitedSince) >= PULL_REQUEST_WATCH_NO_CHECKS_MS),
+        now - Date.parse(watch.checksAwaitedSince) >= PULL_REQUEST_WATCH_NO_CHECKS_MS) ||
+      (watch.failuresHeldSince != null &&
+        now - Date.parse(watch.failuresHeldSince) >= PULL_REQUEST_WATCH_FAILURE_HOLD_MS),
   );
   if (fingerprint === null) {
     const read =
@@ -212,7 +215,8 @@ function watchesEqual(left: ThreadPullRequestWatch, right: ThreadPullRequestWatc
     left.wakes === right.wakes &&
     left.awaitingBaseline === right.awaitingBaseline &&
     left.checksAwaitedSince === right.checksAwaitedSince &&
-    left.checksPending === right.checksPending
+    left.checksPending === right.checksPending &&
+    (left.failuresHeldSince ?? null) === (right.failuresHeldSince ?? null)
   );
 }
 
