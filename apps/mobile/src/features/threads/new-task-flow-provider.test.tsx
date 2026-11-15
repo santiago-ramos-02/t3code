@@ -4,6 +4,7 @@ import { EnvironmentRegistry } from "@t3tools/client-runtime/connection";
 import { createEnvironmentSubscriptionAtomFamily } from "@t3tools/client-runtime/state/runtime";
 import {
   AuthFilesystemReadScope,
+  DEFAULT_BOAT_SETTINGS,
   DEFAULT_SERVER_SETTINGS,
   EnvironmentId,
   ProjectId,
@@ -17,6 +18,7 @@ import { AsyncResult, Atom, AtomRegistry } from "effect/reactivity";
 import { act, useLayoutEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vite-plus/test";
+import * as Dialog from "../../components/ui/Dialog";
 import type { ComposerDraft } from "../../state/use-composer-drafts";
 
 const mocks = vi.hoisted(() => ({
@@ -36,6 +38,8 @@ const mocks = vi.hoisted(() => ({
   serverConfig: vi.fn(),
   openScratch: vi.fn(),
   prepareTriage: vi.fn(),
+  boatHost: vi.fn(),
+  startOnBoat: vi.fn(),
 }));
 vi.mock("../../state/atom-registry", () => ({
   appAtomRegistry: {
@@ -63,6 +67,7 @@ vi.mock("../../state/presentation", () => ({
   useEnvironmentPresentation: mocks.presentation,
 }));
 vi.mock("../../state/orchestration", () => ({ orchestrationEnvironment: {} }));
+vi.mock("../../state/server", () => ({ serverEnvironment: { refreshProviders: {} } }));
 vi.mock("../../state/threads", () => ({ olderSettledThreads: {}, threadFamilies: {} }));
 vi.mock("../../state/pull-requests", () => ({ composerPullRequests: {} }));
 vi.mock("../../state/olderSettledShelf", () => ({ useOlderSettledCount: () => 0 }));
@@ -110,6 +115,7 @@ vi.mock("../../state/workspace", () => ({
 }));
 vi.mock("../../state/shell", () => ({ useEnvironmentShellReadiness: () => ({}) }));
 vi.mock("../../lib/clock", () => ({ useNowMinuteMs: () => 0 }));
+vi.mock("../boat/boat", () => ({ useBoatHost: mocks.boatHost, startOnBoat: mocks.startOnBoat }));
 
 import { NewTaskFlowProvider, useNewTaskFlow } from "./new-task-flow-provider";
 
@@ -132,6 +138,7 @@ function setup() {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   vi.useFakeTimers();
   vi.clearAllMocks();
+  mocks.boatHost.mockReturnValue(null);
   const registry = AtomRegistry.make();
   mocks.registry.mockReturnValue(registry);
   const projects = [project("one", "a"), project("one", "b"), project("two", "b")];
@@ -366,6 +373,180 @@ it("uses cached repository capability and branch defaults while offline", async 
   await screen.render(true);
   expect(screen.current.draftKey).toBe(draftKey);
   expect(screen.current.selectedBranchName).toBe("main");
+});
+
+const boatHost = {
+  environmentId: EnvironmentId.make("one"),
+  status: {
+    configured: true,
+    cli: null,
+    settings: DEFAULT_BOAT_SETTINGS,
+    machines: [],
+    deleted: [],
+    templateBuild: null,
+  },
+};
+const boatRepositoryIdentity = {
+  canonicalKey: "github.com/pingdotgg/t3code",
+  locator: {
+    source: "git-remote" as const,
+    remoteName: "upstream",
+    remoteUrl: "https://github.com/pingdotgg/t3code.git",
+  },
+  origin: {
+    canonicalKey: "github.com/fork/t3code",
+    remoteUrl: "https://github.com/fork/t3code.git",
+  },
+};
+
+/** A draft on environment one's project a, with a Boat machine's project t3code listed on vm. */
+async function renderBoatDraft(screen: ReturnType<typeof setup>) {
+  const local = { ...screen.projects[0]!, repositoryIdentity: boatRepositoryIdentity };
+  const vm = { ...project("vm", "t3code"), repositoryIdentity: boatRepositoryIdentity };
+  mocks.projects.mockReturnValue([local, vm]);
+  mocks.boatHost.mockReturnValue(boatHost);
+  await screen.render(true);
+  return { local, vm };
+}
+
+it("starts a Boat machine only when the first send asks, always in a new worktree", async () => {
+  using screen = setup();
+  const { local, vm } = await renderBoatDraft(screen);
+  const draftKey = screen.current.draftKey!;
+  act(() => screen.current.setWorkspaceMode("local"));
+  expect(screen.current.workspaceMode).toBe("local");
+  expect(screen.current.boat).toMatchObject({ selected: false, startsOnSend: false });
+
+  act(() => void screen.current.chooseBoat());
+  expect(mocks.startOnBoat).not.toHaveBeenCalled();
+  expect(screen.current.selectedProject).toEqual(local);
+  expect(screen.current.boat).toMatchObject({ selected: true, startsOnSend: true });
+  expect(screen.current.workspaceMode).toBe("worktree");
+  expect(screen.current.startFromOrigin).toBe(true);
+  // Only the base branch stays a choice.
+  act(() => screen.current.setWorkspaceMode("local"));
+  act(() => screen.current.setStartFromOrigin(false));
+  expect(screen.current.workspaceMode).toBe("worktree");
+  expect(screen.current.startFromOrigin).toBe(true);
+
+  mocks.startOnBoat.mockResolvedValue({ _tag: "ready", project: vm });
+  await act(async () => screen.current.startBoat());
+  expect(mocks.startOnBoat).toHaveBeenCalledWith(
+    expect.objectContaining({
+      hostEnvironmentId: "one",
+      remoteUrl: "https://github.com/fork/t3code.git",
+      branch: "main",
+    }),
+  );
+  expect(mocks.writeSettings).toHaveBeenCalledWith(draftKey, {
+    workspaceSelection: {
+      mode: "worktree",
+      branch: "main",
+      worktreePath: null,
+      startFromOrigin: true,
+    },
+  });
+  expect(mocks.retargetDraft).toHaveBeenCalledWith(
+    draftKey,
+    { environmentId: "vm", projectId: "t3code" },
+    { keepBranch: true },
+  );
+  expect(screen.current.draftKey).toBe(draftKey);
+  expect(screen.current.selectedProject).toEqual(vm);
+  expect(screen.current.submitting).toBe(false);
+  expect(screen.current.boat).toMatchObject({ startsOnSend: false, sendPending: true });
+
+  act(() => screen.current.finishBoatSend());
+  expect(screen.current.boat).toMatchObject({ selected: false, sendPending: false, start: null });
+});
+
+it("drops a Boat choice when an environment is picked before sending", async () => {
+  using screen = setup();
+  await renderBoatDraft(screen);
+  act(() => void screen.current.chooseBoat());
+  expect(screen.current.boat?.selected).toBe(true);
+  await act(async () => void (await screen.current.switchEnvironment(EnvironmentId.make("one"))));
+  expect(screen.current.boat).toMatchObject({ selected: false, startsOnSend: false });
+  expect(mocks.startOnBoat).not.toHaveBeenCalled();
+});
+
+it("offers Boat only while a connected environment has it set up", async () => {
+  using screen = setup();
+  await screen.render(true);
+  expect(screen.current.boat).toBeNull();
+  let chosen: boolean | undefined;
+  act(() => {
+    chosen = screen.current.chooseBoat();
+  });
+  expect(chosen).toBe(false);
+  expect(Dialog.alert).toHaveBeenCalledWith(
+    "Boat is not set up",
+    "Connect Boat in Settings, Connections.",
+  );
+  expect(screen.current.boat).toBeNull();
+});
+
+it("explains why a Boat draft cannot start before any machine does", async () => {
+  using screen = setup();
+  mocks.boatHost.mockReturnValue(boatHost);
+  await screen.render(true);
+  act(() => void screen.current.chooseBoat());
+  await act(async () => screen.current.startBoat());
+  expect(Dialog.alert).toHaveBeenCalledWith(
+    "Boat needs a git remote",
+    "Push this project to a remote Boat can clone.",
+  );
+  expect(mocks.startOnBoat).not.toHaveBeenCalled();
+});
+
+it("keeps a failed Boat start's steps and error until retried or dismissed", async () => {
+  using screen = setup();
+  const { local } = await renderBoatDraft(screen);
+  act(() => void screen.current.chooseBoat());
+  const failed = { step: "connect", failed: true, machineSteps: [], repository: "git@x:y.git" };
+  mocks.startOnBoat.mockImplementation(
+    async (input: { onProgress: (progress: typeof failed) => void }) => {
+      input.onProgress({ ...failed, failed: false });
+      input.onProgress(failed);
+      return { _tag: "failed", message: "Could not pair with the Boat machine: boom" };
+    },
+  );
+  await act(async () => screen.current.startBoat());
+  expect(screen.current.boat?.start).toEqual({
+    progress: failed,
+    error: "Could not pair with the Boat machine: boom",
+  });
+  expect(screen.current.submitting).toBe(false);
+  expect(screen.current.selectedProject).toEqual(local);
+  expect(screen.current.boat).toMatchObject({ selected: true, startsOnSend: true });
+
+  act(() => screen.current.dismissBoatStart());
+  expect(screen.current.boat?.start).toBeNull();
+});
+
+it("drops a Boat send when another environment is picked while the machine starts", async () => {
+  using screen = setup();
+  const { vm } = await renderBoatDraft(screen);
+  act(() => void screen.current.chooseBoat());
+  let finish: (value: { _tag: "ready"; project: typeof vm }) => void = () => undefined;
+  mocks.startOnBoat.mockReturnValue(new Promise((resolve) => (finish = resolve)));
+  let started: Promise<void> = Promise.resolve();
+  act(() => {
+    started = screen.current.startBoat();
+  });
+  await act(async () => void (await screen.current.switchEnvironment(EnvironmentId.make("vm"))));
+  await act(async () => {
+    finish({ _tag: "ready", project: vm });
+    await started;
+  });
+  // Only the picked environment moved the draft; the finished start did not.
+  expect(mocks.retargetDraft).toHaveBeenCalledTimes(1);
+  expect(mocks.retargetDraft).not.toHaveBeenCalledWith(expect.anything(), expect.anything(), {
+    keepBranch: true,
+  });
+  expect(screen.current.submitting).toBe(false);
+  expect(screen.current.boat).toMatchObject({ sendPending: false, start: null });
+  expect(screen.current.selectedProject).toEqual(vm);
 });
 
 const playbookPrompt = (machine: string) =>

@@ -1,4 +1,5 @@
 import * as Dialog from "../../components/ui/Dialog";
+import { useBoatMachineSleep } from "../boat/boat";
 import { useRememberThreadProject } from "./useRememberThreadProject";
 import { useOpenPullRequest } from "../../native/useOpenPullRequest";
 import { makeTurnCommandMetadata } from "../../lib/commandMetadata";
@@ -516,6 +517,7 @@ function ThreadRouteContent(
   const routeConnectionState =
     routeEnvironmentRuntime?.connectionState ?? (environmentId ? "available" : connectionState);
   const routeConnectionError = routeEnvironmentRuntime?.connectionError ?? null;
+  const boatSleep = useBoatMachineSleep(environmentId, routeConnectionState);
   const selectedThreadWithDraftSettings = selectedThread
     ? {
         ...selectedThread,
@@ -1098,7 +1100,16 @@ function ThreadRouteContent(
           serverConfig={serverConfig}
           onStopThread={awaitingBootstrapTurn ? handleCancelWorktreeSetup : handleStopThread}
           onResumeQueue={composer.canResume ? handleResumeQueue : null}
-          onSendMessage={composer.onSendMessage}
+          onSendMessage={
+            boatSleep
+              ? (...args) => {
+                  // The message waits in the queue until the machine it wakes is connected.
+                  boatSleep.wake();
+                  return composer.onSendMessage(...args);
+                }
+              : composer.onSendMessage
+          }
+          boatSleep={boatSleep?.state ?? null}
           offersSideChat={composer.sideChatUnavailableReason === null}
           onReconnectEnvironment={handleReconnectEnvironment}
           canSwitchThreadProvider={composer.canSwitchThreadProvider}

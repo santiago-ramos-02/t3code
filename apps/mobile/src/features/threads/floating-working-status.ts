@@ -1,6 +1,8 @@
 import type { EnvironmentConnectionPhase } from "@t3tools/client-runtime/connection";
 import type { EnvironmentId } from "@t3tools/contracts";
 
+import type { BoatSleep } from "../boat/boat-draft";
+
 export interface FloatingStatusAction {
   readonly label: string;
   readonly accessibilityLabel: string;
@@ -42,7 +44,7 @@ export type FloatingWorkingStatus =
   | { readonly kind: "preparing"; readonly label: string }
   | {
       readonly kind: "connection";
-      readonly tone: "reconnecting" | "unavailable";
+      readonly tone: "reconnecting" | "unavailable" | "sleeping";
       readonly label: string;
       readonly onPress: () => void;
     };
@@ -53,6 +55,8 @@ export function connectionFloatingStatus(input: {
   readonly connectionAwaitingApproval?: boolean;
   readonly environmentLabel: string | null;
   readonly onReconnect: () => void;
+  /** Set while the thread's Boat machine is stopped; it reads as asleep, not disconnected. */
+  readonly boatSleep?: BoatSleep | null;
 }): FloatingWorkingStatus | null {
   const environmentLabel = input.environmentLabel ?? "Environment";
   const unavailable = (label: string): FloatingWorkingStatus => ({
@@ -67,6 +71,24 @@ export function connectionFloatingStatus(input: {
       kind: "connection",
       tone: "reconnecting",
       label: `Waiting for ${environmentLabel} to approve this device`,
+      onPress: input.onReconnect,
+    };
+  }
+  // A stopped Boat machine reads as asleep in any other unconnected phase.
+  const diagnosed = input.connectionState === "offline" || input.connectionState === "unsupported";
+  if (!diagnosed && input.boatSleep === "waking") {
+    return {
+      kind: "connection",
+      tone: "reconnecting",
+      label: `Waking ${environmentLabel}...`,
+      onPress: input.onReconnect,
+    };
+  }
+  if (!diagnosed && input.boatSleep === "sleeping") {
+    return {
+      kind: "connection",
+      tone: "sleeping",
+      label: "Sleeping. Your next message wakes it.",
       onPress: input.onReconnect,
     };
   }

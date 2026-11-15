@@ -213,6 +213,7 @@ export function NewTaskDraftRouteScreen({ route }: StaticScreenProps<NewTaskDraf
               : params.incomingShareId
           }
           draftId={draftId}
+          startOnBoat={(Array.isArray(params.boat) ? params.boat[0] : params.boat) === "1"}
         />
       )}
     </>

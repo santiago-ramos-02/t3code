@@ -6,6 +6,8 @@ export type NewTaskDraftRouteParams = {
   readonly worktreePath?: string | null;
   readonly title?: string | string[];
   readonly cloning?: string | string[];
+  /** "1" opens the draft already set to run on Boat. */
+  readonly boat?: string | string[];
   readonly draftId?: string | string[];
   readonly incomingShareId?: string | string[];
 };

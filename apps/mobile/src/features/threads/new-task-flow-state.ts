@@ -30,6 +30,11 @@ export interface NewTaskFlowState {
   readonly draftKey: string | null;
   readonly submitting: boolean;
   readonly expandedProvider: string | null;
+  /**
+   * `chosen`: the draft stays where it is until its first send starts work on a Boat machine.
+   * `send`: the draft just moved onto the machine's project, and that send continues there.
+   */
+  readonly boat: "off" | "chosen" | "send";
 }
 
 export const INITIAL_NEW_TASK_FLOW_STATE: NewTaskFlowState = {
@@ -38,7 +43,23 @@ export const INITIAL_NEW_TASK_FLOW_STATE: NewTaskFlowState = {
   draftKey: null,
   submitting: false,
   expandedProvider: null,
+  boat: "off",
 };
+
+/**
+ * Whether a Boat start that began on `started` may still move its draft: the user did not pick
+ * another project, machine or draft while the machine started. The machine stays up either way.
+ */
+export function boatStartStillApplies(
+  started: Pick<NewTaskFlowState, "projectKey" | "draftKey">,
+  current: NewTaskFlowState,
+): boolean {
+  return (
+    current.boat === "chosen" &&
+    current.projectKey === started.projectKey &&
+    current.draftKey === started.draftKey
+  );
+}
 
 // Every draft route on the stack keeps its flow, not just the one the provider
 // currently serves: a draft Thread pushed above draft A must not drop A's

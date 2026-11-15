@@ -28,6 +28,21 @@ export const connectPairingUrl = createRuntimeCommand(connectionAtomRuntime, {
     ),
 });
 
+/** Pairs with a server from its address and a one-time code, such as a Boat machine's. */
+export const connectPairingCode = createRuntimeCommand(connectionAtomRuntime, {
+  label: "mobile:connection:connect-pairing-code",
+  scheduler: onboardingScheduler,
+  concurrency: {
+    mode: "singleFlight",
+    key: (input: { readonly host: string; readonly pairingCode: string }) =>
+      JSON.stringify([input.host, input.pairingCode]),
+  },
+  execute: (input: { readonly host: string; readonly pairingCode: string }) =>
+    ConnectionOnboarding.ConnectionOnboarding.pipe(
+      Effect.flatMap((onboarding) => onboarding.registerPairing(input)),
+    ),
+});
+
 export const updateBearerConnection = createRuntimeCommand(connectionAtomRuntime, {
   label: "mobile:connection:update-bearer",
   scheduler: onboardingScheduler,

@@ -190,6 +190,7 @@ import {
   FloatingWorkingControl,
 } from "./floating-working-control";
 import { connectionFloatingStatus, type FloatingWorkingStatus } from "./floating-working-status";
+import type { BoatSleep } from "../boat/boat-draft";
 import {
   derivePendingUserInputMaxHeight,
   ESTIMATED_KEYBOARD_HEIGHT,
@@ -308,6 +309,8 @@ export interface ThreadDetailScreenProps {
     onWillEnqueue?: () => void,
   ) => Promise<MessageId | null>;
   readonly onReconnectEnvironment: () => void;
+  /** Set while the thread's Boat machine is stopped; it reads as asleep, not disconnected. */
+  readonly boatSleep?: BoatSleep | null;
   readonly canSwitchThreadProvider: boolean;
   readonly onRespondToApproval: ApprovalResponder;
   readonly onSelectUserInputOption: (
@@ -754,6 +757,7 @@ function ThreadDetailBody(
       connectionAwaitingApproval: props.connectionAwaitingApproval === true,
       environmentLabel: props.environmentLabel,
       onReconnect: props.onReconnectEnvironment,
+      boatSleep: props.boatSleep ?? null,
     });
     if (connectionStatus !== null && !props.draftMode) {
       return connectionStatus;

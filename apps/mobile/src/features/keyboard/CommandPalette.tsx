@@ -58,6 +58,8 @@ import { useSavedRemoteConnections } from "../../state/use-remote-environment-re
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { ThreadSearchMatchExcerpt } from "../threads/thread-search-match";
 import { pickTriageEnvironment } from "../triage/triageTarget";
+import { useBoatHost } from "../boat/boat";
+import { boatRepositoryUrl } from "../boat/boat-draft";
 import { useStartTriage } from "../triage/useStartTriage";
 import { useNewTaskFlow } from "../threads/new-task-flow-provider";
 import { useActiveNewTask } from "../../state/active-new-task";
@@ -270,8 +272,18 @@ export function CommandPalette(props: {
   const serverConfigs = useServerConfigs();
   const startTriage = useStartTriage();
   const newTaskFlow = useNewTaskFlow();
-  const draftEnvironmentId =
-    useActiveNewTask() === null ? null : (newTaskFlow.selectedProject?.environmentId ?? null);
+  const draftOpen = useActiveNewTask() !== null;
+  const draftEnvironmentId = draftOpen
+    ? (newTaskFlow.selectedProject?.environmentId ?? null)
+    : null;
+  const boatAvailable = useBoatHost() !== null;
+  // An open draft that is not on Boat yet can switch to it; its first send starts the machine.
+  const canChooseBoatOnDraft =
+    draftOpen &&
+    newTaskFlow.boat !== null &&
+    !newTaskFlow.boat.selected &&
+    boatRepositoryUrl(newTaskFlow.selectedProject?.repositoryIdentity ?? null) !== null;
+  const chooseBoat = newTaskFlow.chooseBoat;
   const triageEnvironmentId = pickTriageEnvironment({
     // The route names the machine even before the thread shell loads.
     onScreen: activeThreadRef?.environmentId ?? draftEnvironmentId,
@@ -384,6 +396,38 @@ export function CommandPalette(props: {
           }),
       });
     }
+    if (boatAvailable) {
+      if (canChooseBoatOnDraft) {
+        actions.unshift({
+          key: "newBoatThread",
+          kind: "action",
+          title: "New Boat thread",
+          searchTerms: ["boat", "cloud", "remote", "machine", "new task"],
+          run: () => void chooseBoat(),
+        });
+      } else if (activeProject && boatRepositoryUrl(activeProject.repositoryIdentity) !== null) {
+        actions.unshift({
+          key: "newBoatThread",
+          kind: "action",
+          title: "New Boat thread",
+          detail: activeProject.title,
+          searchTerms: ["boat", "cloud", "remote", "machine", "new task"],
+          run: () =>
+            selectDetail({
+              name: "Thread",
+              params: {
+                draft: {
+                  requestId: uuidv4(),
+                  environmentId: activeProject.environmentId,
+                  projectId: activeProject.id,
+                  title: activeProject.title,
+                  boat: "1",
+                },
+              },
+            }),
+        });
+      }
+    }
     if (activeThreadRef) {
       const threadActions = [
         ["files", "Go to file", ["open", "files", "browse", "search"]],
@@ -464,6 +508,9 @@ export function CommandPalette(props: {
     selectTab,
     activeThread,
     activeThreadRef,
+    boatAvailable,
+    canChooseBoatOnDraft,
+    chooseBoat,
     environments.length,
     canTriage,
     navigation,

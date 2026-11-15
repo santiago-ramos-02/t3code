@@ -27,6 +27,7 @@ import { AppBar } from "../../components/ui/AppBar";
 import { ScreenContent } from "../../components/ui/ScreenContent";
 import { SymbolView } from "../../components/ui/AppSymbol";
 import { AppText as Text } from "../../components/ui/AppText";
+import { BoatIcon } from "../../components/BoatIcon";
 import { EnvironmentMachineSymbol } from "../../components/EnvironmentMachineSymbol";
 import { ThemedSwitch } from "../../components/ui/ThemedSwitch";
 import { cn } from "../../lib/cn";
@@ -137,6 +138,33 @@ function EnvironmentPickerRow(props: {
   );
 }
 
+function BoatPickerRow(props: {
+  readonly selected: boolean;
+  readonly disabled: boolean;
+  readonly onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="radio"
+      accessibilityLabel="Boat"
+      accessibilityState={{ checked: props.selected, disabled: props.disabled }}
+      disabled={props.disabled}
+      onPress={props.onPress}
+      className="min-h-16 flex-row items-center gap-3 bg-grouped-card px-4 py-3 active:bg-subtle"
+    >
+      <BoatIcon size={20} colorClassName="accent-icon-muted" />
+      <View className="min-w-0 flex-1">
+        <Text className="text-base font-t3-medium text-foreground" numberOfLines={1}>
+          Boat
+        </Text>
+      </View>
+      {props.selected ? (
+        <SymbolView name="checkmark" size={16} tintColorClassName="accent-icon" />
+      ) : null}
+    </Pressable>
+  );
+}
+
 function ToggleRow(props: {
   readonly title: string;
   readonly value: boolean;
@@ -198,7 +226,7 @@ export function NewTaskEnvironmentPickerRouteScreen() {
               <EnvironmentPickerRow
                 key={String(environment.environmentId)}
                 environmentId={environment.environmentId}
-                isLast={index === flow.environments.length - 1}
+                isLast={index === flow.environments.length - 1 && flow.boat === null}
                 disabled={flow.switchingToEnvironmentId !== null}
                 onPress={() => {
                   void Haptics.selectionAsync();
@@ -206,10 +234,23 @@ export function NewTaskEnvironmentPickerRouteScreen() {
                     if (switched) navigation.goBack();
                   });
                 }}
-                selected={flow.selectedEnvironmentId === environment.environmentId}
+                selected={
+                  flow.boat?.selected !== true &&
+                  flow.selectedEnvironmentId === environment.environmentId
+                }
                 title={environment.environmentLabel}
               />
             ))}
+            {flow.boat ? (
+              <BoatPickerRow
+                selected={flow.boat.selected}
+                disabled={flow.switchingToEnvironmentId !== null}
+                onPress={() => {
+                  void Haptics.selectionAsync();
+                  if (flow.chooseBoat()) navigation.goBack();
+                }}
+              />
+            ) : null}
           </PickerSurface>
         </ScrollView>
       </ScreenContent>

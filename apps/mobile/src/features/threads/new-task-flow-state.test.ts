@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import { appAtomRegistry } from "../../state/atom-registry";
 import {
+  boatStartStillApplies,
   INITIAL_NEW_TASK_FLOW_STATE,
   newTaskFlowKey,
   newTaskFlowStateAtom,
@@ -18,6 +19,20 @@ function draftRoute(key: string, draftId: string) {
 }
 
 describe("new task flow state", () => {
+  it("lets a Boat start move its draft only while the user stays on the draft that began it", () => {
+    const started = { projectKey: "env:project-a", draftKey: "draft-a" };
+    const chosen = { ...INITIAL_NEW_TASK_FLOW_STATE, ...started, boat: "chosen" as const };
+
+    expect(INITIAL_NEW_TASK_FLOW_STATE.boat).toBe("off");
+    expect(boatStartStillApplies(started, chosen)).toBe(true);
+    // Another machine or environment was picked, which turns Boat off.
+    expect(boatStartStillApplies(started, { ...chosen, boat: "off" })).toBe(false);
+    expect(boatStartStillApplies(started, { ...chosen, projectKey: "env:project-b" })).toBe(false);
+    expect(boatStartStillApplies(started, { ...chosen, draftKey: "draft-b" })).toBe(false);
+    // The send already moved onto the machine.
+    expect(boatStartStillApplies(started, { ...chosen, boat: "send" })).toBe(false);
+  });
+
   it("keeps a covered draft route's flow while another draft route is pushed above it", () => {
     const routeA = draftRoute("route-a", "draft-a");
     const routeB = draftRoute("route-b", "draft-b");

@@ -4,6 +4,8 @@ import { useNowMinuteMs } from "../../lib/clock";
 import * as Dialog from "../../components/ui/Dialog";
 import React, { useEffect, useRef, useState } from "react";
 
+import { boatDraftBlocker, boatReadyProviders } from "@t3tools/client-runtime/boat";
+import type { BoatDraftStartProgress } from "@t3tools/client-runtime/boat";
 import type {
   EnvironmentId,
   ModelSelection,
@@ -95,6 +97,7 @@ import { useNewTaskProjectDefaults } from "./use-new-task-project-defaults";
 import { resolveNewThreadRuntimeMode } from "./thread-settings-options";
 import { resolveProjectThreadCreationBranch } from "./projectThreadCreationValidation";
 import {
+  boatStartStillApplies,
   INACTIVE_FLOW_KEY,
   type NewTaskFlowState,
   newTaskFlowStateAtom,
@@ -107,6 +110,8 @@ import {
 import { usePrepareTriage } from "../triage/usePrepareTriage";
 import { useEnvironmentShellReadiness } from "../../state/shell";
 import { useConnectionsReady, useWorkspaceEnvironments } from "../../state/workspace";
+import { boatRepositoryUrl, restrictProvidersToBoat } from "../boat/boat-draft";
+import { startOnBoat, useBoatHost } from "../boat/boat";
 
 type WorkspaceMode = "local" | "worktree";
 
@@ -185,6 +190,25 @@ type NewTaskFlowContextValue = {
   readonly selectEnvironment: (environmentId: EnvironmentId) => void;
   readonly switchEnvironment: (environmentId: EnvironmentId) => Promise<boolean>;
   readonly switchingToEnvironmentId: EnvironmentId | null;
+  /** Null when no connected environment offers Boat and the draft is not on it. */
+  readonly boat: {
+    readonly selected: boolean;
+    /** Chosen while the draft is still where it was: the first send starts the machine. */
+    readonly startsOnSend: boolean;
+    /** The draft moved onto the machine's project and its first send continues there now. */
+    readonly sendPending: boolean;
+    /** The start's progress, kept after a failure so the user sees which step and why. */
+    readonly start: {
+      readonly progress: BoatDraftStartProgress;
+      readonly error: string | null;
+    } | null;
+  } | null;
+  /** Picks Boat; nothing starts until the first send. */
+  readonly chooseBoat: () => boolean;
+  /** Finds a machine, opens the repository there and moves the draft onto its project. */
+  readonly startBoat: () => Promise<void>;
+  readonly finishBoatSend: () => void;
+  readonly dismissBoatStart: () => void;
   readonly setSelectedModelKey: (
     key: string | null,
     options?: ReadonlyArray<ProviderOptionSelection>,
@@ -310,6 +334,8 @@ export function NewTaskFlowProvider(
     projects.some((project) => project.environmentId === selectedEnvironmentIdOverride)
       ? selectedEnvironmentIdOverride
       : (projects[0]?.environmentId ?? null);
+  const boatHost = useBoatHost();
+  const boatSelected = flowState.boat !== "off";
   const projectsForEnvironment = pipe(
     projects,
     Arr.filter((project) => project.environmentId === selectedEnvironmentId),
@@ -420,8 +446,8 @@ export function NewTaskFlowProvider(
     Arr.filter((branch) => !branch.isRemote),
   );
 
-  const resolveWorkspaceSelection = (selection: ComposerDraftWorkspaceSelection | undefined) =>
-    resolveNewTaskDraftWorkspace({
+  const resolveWorkspaceSelection = (selection: ComposerDraftWorkspaceSelection | undefined) => {
+    const resolved = resolveNewTaskDraftWorkspace({
       selection,
       canChooseWorkspace,
       defaultMode: defaultWorkspaceMode,
@@ -430,6 +456,12 @@ export function NewTaskFlowProvider(
       branches: allBranchRefs,
       projectCwd: selectedProject?.workspaceRoot ?? null,
     });
+    // A Boat machine's checkout is a fresh clone with none of this machine's local branches, so
+    // each thread gets its own worktree started from the remote branch.
+    return boatSelected
+      ? { ...resolved, mode: "worktree" as const, worktreePath: null, startFromOrigin: true }
+      : resolved;
+  };
   const workspaceSelection = resolveWorkspaceSelection(selectedProjectDraft.workspaceSelection);
   const workspaceMode = workspaceSelection.mode;
   const selectedBranchName = workspaceSelection.branch;
@@ -439,16 +471,21 @@ export function NewTaskFlowProvider(
     (workspaceMode === "worktree"
       ? selectedProject?.workspaceRoot
       : (selectedWorktreePath ?? selectedProject?.workspaceRoot)) || null;
-  const selectedEnvironmentServerConfig = serverConfigForCwd(
-    projectDefaults.serverConfig,
-    workspaceCwd,
-  );
+  const environmentServerConfig = serverConfigForCwd(projectDefaults.serverConfig, workspaceCwd);
+  const selectedEnvironmentServerConfig =
+    boatSelected && environmentServerConfig
+      ? restrictProvidersToBoat(
+          environmentServerConfig,
+          boatReadyProviders(boatHost?.status ?? null),
+        )
+      : environmentServerConfig;
   // Keep the user's explicit choice separate from the resolved display value:
   // only the explicit flag is ever written back to the draft, so the resolved
   // value keeps tracking the server setting when the config loads late.
   const draftStartFromOrigin = selectedProjectDraft.workspaceSelection?.startFromOrigin;
   const startFromOrigin =
-    isGitRepo && (draftStartFromOrigin ?? projectSettings.settings.newWorktreesStartFromOrigin);
+    boatSelected ||
+    (isGitRepo && (draftStartFromOrigin ?? projectSettings.settings.newWorktreesStartFromOrigin));
   const defaultRuntimeMode = projectSettings.settings.defaultRuntimeMode;
   const managedPolicy = selectedEnvironmentServerConfig?.managedPolicy;
   const runtimeMode = resolveNewThreadRuntimeMode(
@@ -631,8 +668,14 @@ export function NewTaskFlowProvider(
   const [switchingToEnvironmentId, setSwitchingToEnvironmentId] = useState<EnvironmentId | null>(
     null,
   );
+  const [boatStart, setBoatStart] = useState<{
+    readonly progress: BoatDraftStartProgress;
+    readonly error: string | null;
+  } | null>(null);
   const latestSwitchRef = useRef<object | null>(null);
   const switchEnvironment = async (environmentId: EnvironmentId): Promise<boolean> => {
+    if (readFlow().boat !== "off") updateFlow({ boat: "off" });
+    setBoatStart(null);
     if (environmentId === selectedEnvironmentId) {
       latestSwitchRef.current = null;
       setSwitchingToEnvironmentId(null);
@@ -683,8 +726,85 @@ export function NewTaskFlowProvider(
     return false;
   };
 
+  const chooseBoat = (): boolean => {
+    if (boatSelected) return true;
+    if (boatHost === null) {
+      const blocker = boatDraftBlocker({ status: null, remoteUrl: null, baseBranch: null });
+      if (blocker) Dialog.alert(blocker.title, blocker.description);
+      return false;
+    }
+    setBoatStart(null);
+    updateFlow({ boat: "chosen" });
+    return true;
+  };
+  const startBoat = async (): Promise<void> => {
+    const remoteUrl = boatRepositoryUrl(selectedProject?.repositoryIdentity ?? null);
+    const blocker = boatDraftBlocker({
+      status: boatHost?.status ?? null,
+      remoteUrl,
+      baseBranch: selectedBranchName,
+    });
+    if (blocker !== null) {
+      Dialog.alert(blocker.title, blocker.description);
+      return;
+    }
+    const started = readFlow();
+    if (
+      boatHost === null ||
+      remoteUrl === null ||
+      selectedBranchName === null ||
+      started.draftKey === null
+    ) {
+      return;
+    }
+    const draftKey = started.draftKey;
+    updateFlow({ submitting: true });
+    const result = await startOnBoat({
+      hostEnvironmentId: boatHost.environmentId,
+      remoteUrl,
+      branch: selectedBranchName,
+      onProgress: (progress) => setBoatStart({ progress, error: null }),
+    });
+    // A project, machine or draft picked while the machine started stands; the machine stays up
+    // for the next send.
+    if (!boatStartStillApplies(started, readFlow())) {
+      setBoatStart(null);
+      updateFlow({ submitting: false });
+      return;
+    }
+    if (result._tag === "failed") {
+      setBoatStart((current) => (current ? { ...current, error: result.message } : current));
+      updateFlow({ submitting: false });
+      return;
+    }
+    const { project } = result;
+    const pullRequestReference =
+      getComposerDraftSnapshot(draftKey).workspaceSelection?.pullRequestReference;
+    // The machine's own branches are not the user's choice, so the base branch moves with the draft.
+    updateComposerDraftSettings(draftKey, {
+      workspaceSelection: {
+        mode: "worktree",
+        branch: selectedBranchName,
+        worktreePath: null,
+        startFromOrigin: true,
+        ...(pullRequestReference ? { pullRequestReference } : {}),
+      },
+    });
+    updateFlow({
+      draftKey: carryDraftContentTo(project, { keepBranch: true }),
+      environmentId: project.environmentId,
+      projectKey: scopedProjectKey(project.environmentId, project.id),
+      submitting: false,
+      boat: "send",
+    });
+  };
+  const finishBoatSend = () => {
+    updateFlow({ boat: "off" });
+    setBoatStart(null);
+  };
+
   const setWorkspaceMode = (mode: WorkspaceMode) => {
-    if (!selectedProjectDraftKey) {
+    if (!selectedProjectDraftKey || boatSelected) {
       return;
     }
     if (!selectedProject) {
@@ -727,7 +847,7 @@ export function NewTaskFlowProvider(
   };
 
   const setStartFromOrigin = (value: boolean) => {
-    if (!selectedProjectDraftKey) {
+    if (!selectedProjectDraftKey || boatSelected) {
       return;
     }
     updateComposerDraftSettings(selectedProjectDraftKey, {
@@ -931,6 +1051,19 @@ export function NewTaskFlowProvider(
     selectEnvironment,
     switchEnvironment,
     switchingToEnvironmentId,
+    boat:
+      !isScratchDraft && (boatSelected || boatHost !== null)
+        ? {
+            selected: boatSelected,
+            startsOnSend: flowState.boat === "chosen",
+            sendPending: flowState.boat === "send",
+            start: boatStart,
+          }
+        : null,
+    chooseBoat,
+    startBoat,
+    finishBoatSend,
+    dismissBoatStart: () => setBoatStart(null),
     setSelectedModelKey,
     setWorkspaceMode,
     selectBranch,
