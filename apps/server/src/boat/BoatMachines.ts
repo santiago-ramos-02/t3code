@@ -621,10 +621,12 @@ export const make = Effect.gen(function* () {
     );
 
   // The machine for a request, claimed, or undefined when a new machine is due. Machines that are
-  // starting, failed, or already claimed are not candidates.
+  // starting, failed, or already claimed are not candidates. The claim goes into `taken` in the
+  // same step, so the caller's cleanup releases it however the request ends.
   const claimMachine = Effect.fn("BoatMachines.claimMachine")(function* (
     boat: BoatApi,
     input: BoatAcquireInput,
+    taken: Set<string>,
   ) {
     return yield* choosing.withPermits(1)(
       Effect.gen(function* () {
@@ -652,6 +654,7 @@ export const make = Effect.gen(function* () {
         );
         const picked = pickMachine(candidates.flat());
         if (picked === undefined) return undefined;
+        taken.add(picked.sandboxId);
         acquiring.add(picked.sandboxId);
         lastBusy.set(picked.sandboxId, DateTime.toEpochMillis(yield* DateTime.now));
         yield* changeMachine(picked.sandboxId, (machine) => ({
@@ -666,10 +669,10 @@ export const make = Effect.gen(function* () {
 
   const acquire = Effect.fn("BoatMachines.acquire")(function* (input: BoatAcquireInput) {
     const boat = yield* api;
-    const claimed = yield* claimMachine(boat, input);
-    // A resume can bring the machine back on a new sandbox, so cleanup covers both.
-    const taken = new Set(claimed === undefined ? [] : [claimed.sandboxId]);
+    // Every machine this request claimed or started; a resume can bring one back on a new sandbox.
+    const taken = new Set<string>();
     return yield* Effect.gen(function* () {
+      const claimed = yield* claimMachine(boat, input, taken);
       let machine: BoatMachine;
       let steps: ReadonlyArray<BoatStartStep>;
       if (claimed === undefined) {
@@ -680,8 +683,8 @@ export const make = Effect.gen(function* () {
         steps = claimed.state === "stopped" ? ["starting"] : [];
       }
       const { sandboxId, httpBaseUrl } = machine;
-      if (httpBaseUrl === null) return yield* fail("That Boat machine has no address.");
       taken.add(sandboxId);
+      if (httpBaseUrl === null) return yield* fail("That Boat machine has no address.");
       acquiring.add(sandboxId);
       const startSteps: ReadonlyArray<BoatStartStep> = [...steps, "cloning"];
       yield* changeMachine(sandboxId, (current) => ({
@@ -1380,7 +1383,12 @@ export const make = Effect.gen(function* () {
     if (yield* applyCleanup(boat, machine, report, settings, now)) return;
     const busyAt = lastBusy.get(sandboxId) ?? now;
     if (now - busyAt >= status.settings.idleStopMinutes * MINUTE_MS) {
-      yield* stopMachine(boat, machine);
+      // Holding `choosing` keeps an acquire from claiming the machine while it stops.
+      yield* choosing.withPermits(1)(
+        Effect.suspend(() =>
+          acquiring.has(sandboxId) ? Effect.void : Effect.asVoid(stopMachine(boat, machine)),
+        ),
+      );
       return;
     }
     yield* boat.extendSandbox(sandboxId, BOAT_MACHINE_TTL_SECONDS);
