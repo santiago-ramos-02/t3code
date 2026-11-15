@@ -119,7 +119,7 @@ jobs:
   build_wsl_runtime:
     name: Build JS bundle and WSL runtime
     needs: [sync, prepare]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
       # Public T3 Connect configuration is compiled into the shared JS bundle.
@@ -224,7 +224,7 @@ jobs:
             target: dmg
             arch: x64
           - label: Linux x64
-            runner: ubuntu-latest
+            runner: ubuntu-24.04
             platform: linux
             target: AppImage
             arch: x64
