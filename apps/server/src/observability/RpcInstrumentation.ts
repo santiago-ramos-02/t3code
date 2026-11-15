@@ -53,6 +53,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.boatSubscribeStatus]: "boat",
   [WS_METHODS.boatConfigure]: "boat",
   [WS_METHODS.boatSpawn]: "boat",
+  [WS_METHODS.boatAcquire]: "boat",
   [WS_METHODS.boatPair]: "boat",
   [WS_METHODS.boatMachineAction]: "boat",
   [WS_METHODS.memoryOverview]: "memory",

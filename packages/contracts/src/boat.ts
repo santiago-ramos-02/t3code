@@ -2,6 +2,7 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
 import { ProjectId } from "./baseSchemas.ts";
+import { ProviderDriverKind } from "./providerInstance.ts";
 
 /**
  * Boat (boat.dev) machines: the environment holds a Boat API key and starts one short-lived
@@ -51,7 +52,8 @@ export type BoatMachineState = typeof BoatMachineState.Type;
 
 // The steps a new machine goes through before a client can pair with it. Steps that do not apply
 // to a start, such as installing when the machine already runs this server's build, are skipped.
-export const BoatStartStep = Schema.Literals(["starting", "installing", "signing-in"]);
+// `cloning` is the last step of an acquire, which clones or updates the project on the machine.
+export const BoatStartStep = Schema.Literals(["starting", "installing", "signing-in", "cloning"]);
 export type BoatStartStep = typeof BoatStartStep.Type;
 
 // Absent from machines saved before the field existed.
@@ -81,6 +83,10 @@ export const BoatMachineReport = Schema.Struct({
   merged: Schema.Boolean,
   // Null when the checkouts may have changed since they were read.
   checkouts: Schema.NullOr(BoatMachineCheckouts),
+  // The provider drivers signed in and ready on the machine.
+  providers: Schema.Array(ProviderDriverKind).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed([])),
+  ),
 });
 export type BoatMachineReport = typeof BoatMachineReport.Type;
 
@@ -187,6 +193,29 @@ export const BoatPairResult = Schema.Struct({
   pairingCredential: Schema.String,
 });
 export type BoatPairResult = typeof BoatPairResult.Type;
+
+// Finds a machine for a new thread on the project and opens the project there: a running machine
+// with room that has the checkout, then a stopped one with it, then any machine with room, then any
+// stopped machine, and only then a new one.
+export const BoatAcquireInput = Schema.Struct({
+  remoteUrl: Schema.String,
+  // The base branch the thread's worktree starts from; it must be on the remote.
+  branch: Schema.String,
+  // A random id the client picks, which the machine carries while it starts and clones.
+  startId: Schema.String,
+});
+export type BoatAcquireInput = typeof BoatAcquireInput.Type;
+
+export const BoatAcquireResult = Schema.Struct({
+  machine: BoatMachine,
+  httpBaseUrl: Schema.String,
+  // A one-time pairing credential for the machine's T3 Code server.
+  pairingCredential: Schema.String,
+  // The project on the machine's own server, and its checkout's path there.
+  projectId: ProjectId,
+  workspaceRoot: Schema.String,
+});
+export type BoatAcquireResult = typeof BoatAcquireResult.Type;
 
 // `make-template` saves the machine's setup as the template new machines start from.
 export const BoatMachineAction = Schema.Literals(["stop", "resume", "delete", "make-template"]);

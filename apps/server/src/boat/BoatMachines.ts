@@ -6,8 +6,11 @@ import {
   BoatStatus,
   type BoatTemplateBuild,
   DEFAULT_BOAT_SETTINGS,
+  WS_METHODS,
   boatMachineLabel,
   type AuthEnvironmentScope,
+  type BoatAcquireInput,
+  type BoatAcquireResult,
   type BoatConfigureInput,
   type BoatStartStep,
   type BoatMachineActionInput,
@@ -17,6 +20,7 @@ import {
   type BoatSpawnResult,
   type ServerSettings,
 } from "@t3tools/contracts";
+import { normalizeGitRemoteUrl } from "@t3tools/shared/git";
 import { resolveWorktreeCleanup } from "@t3tools/shared/projectSettings";
 import * as Context from "effect/Context";
 import * as SecureRandom from "effect/crypto/SecureRandom";
@@ -64,6 +68,8 @@ import {
   ensureMachineProject,
   type MachineProject,
 } from "./machineProject.ts";
+import { parseUsage, pickMachine, usageCommand, type PickCandidate } from "./machinePick.ts";
+import { MACHINE_CONFIG_SCOPES, MachineConfigRpcs, readyDrivers } from "./machineProviders.ts";
 import { openMachineRpc } from "./machineRpc.ts";
 import { BOAT_MACHINE_ENV } from "./machineGitTools.ts";
 import { buildTemplate, saveNamedSnapshotAndWait, templateNameFor } from "./boatTemplate.ts";
@@ -98,6 +104,8 @@ export const BOAT_T3_PORT = 3773;
 // trial refuses anything longer.
 export const BOAT_MACHINE_TTL_SECONDS = 2 * 60 * 60;
 const MINUTE_MS = 60 * 1000;
+// How often a running machine's ready providers are read from its own server.
+const PROVIDERS_READ_INTERVAL_MS = 10 * MINUTE_MS;
 // How often a running machine's usage is copied to this server; stops and deletes copy first.
 const USAGE_COPY_INTERVAL_MS = 15 * MINUTE_MS;
 const DAY_MS = 24 * 60 * MINUTE_MS;
@@ -130,6 +138,10 @@ const PersistedState = Schema.Struct({
   settings: BoatSettings,
   machines: Schema.Array(BoatMachine),
   deleted: BoatStatus.fields.deleted,
+  // The normalized remote URLs each machine has opened, by sandbox ID; absent from older files.
+  remotes: Schema.Record(Schema.String, Schema.Array(Schema.String)).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed({})),
+  ),
 });
 type PersistedState = typeof PersistedState.Type;
 const decodePersistedState = Schema.decodeUnknownOption(Schema.fromJsonString(PersistedState));
@@ -160,6 +172,13 @@ export class BoatMachines extends Context.Service<
     readonly configure: (input: BoatConfigureInput) => Effect.Effect<BoatStatus, BoatError>;
     /** Starts a machine running T3 Code and returns a one-time pairing credential for it. */
     readonly spawn: (input: BoatSpawnInput) => Effect.Effect<BoatSpawnResult, BoatError>;
+    /**
+     * Opens the repository on a machine for a new thread and returns it with a pairing
+     * credential: a running machine with room that has the checkout, else a stopped one with it,
+     * else any machine with room, else any stopped one, and only then a new machine. The machine
+     * shows the `cloning` step under `startId` meanwhile.
+     */
+    readonly acquire: (input: BoatAcquireInput) => Effect.Effect<BoatAcquireResult, BoatError>;
     /** A new one-time pairing credential for a machine, resumed first if it is stopped. */
     readonly pair: (input: BoatPairInput) => Effect.Effect<BoatPairResult, BoatError>;
     readonly machineAction: (input: BoatMachineActionInput) => Effect.Effect<BoatStatus, BoatError>;
@@ -218,14 +237,19 @@ export const make = Effect.gen(function* () {
         settings: DEFAULT_BOAT_SETTINGS,
         machines: [],
         deleted: [],
+        remotes: {},
       })),
     ),
     Effect.orElseSucceed((): PersistedState => ({
       settings: DEFAULT_BOAT_SETTINGS,
       machines: [],
       deleted: [],
+      remotes: {},
     })),
   );
+  const { remotes: savedRemotes, ...savedStatus } = initial;
+  // What each machine's disk has a checkout of, which survives the machine stopping.
+  const remotes = new Map(Object.entries(savedRemotes));
   const readApiKey = secrets.get(API_KEY_SECRET).pipe(
     Effect.map(Option.map((bytes) => new TextDecoder().decode(bytes))),
     Effect.orElseSucceed(() => Option.none<string>()),
@@ -234,7 +258,7 @@ export const make = Effect.gen(function* () {
     configured: Option.isSome(yield* readApiKey),
     cli: null,
     templateBuild: null,
-    ...initial,
+    ...savedStatus,
   });
   // One writer at a time, so a slow spawn cannot overwrite a newer machine list.
   const writes = yield* Semaphore.make(1);
@@ -247,6 +271,12 @@ export const make = Effect.gen(function* () {
           settings: status.settings,
           machines: status.machines,
           deleted: status.deleted,
+          remotes: Object.fromEntries(
+            status.machines.flatMap((machine) => {
+              const urls = remotes.get(machine.sandboxId);
+              return urls === undefined ? [] : [[machine.sandboxId, urls]];
+            }),
+          ),
         }),
       )
       .pipe(Effect.mapError(() => fail("T3 Code could not save its Boat machines.")));
@@ -573,6 +603,127 @@ export const make = Effect.gen(function* () {
     );
   }
 
+  // Machines an acquire has claimed: the idle stop leaves them alone and no other acquire takes them.
+  const acquiring = new Set<string>();
+  // Choosing and claiming happen together, so two requests never claim the same machine.
+  const choosing = yield* Semaphore.make(1);
+
+  // Null when the machine cannot be measured, which counts as busy.
+  const measureUsage = (boat: BoatApi, sandboxId: string) =>
+    boat.runCommand(sandboxId, { command: usageCommand, timeoutSeconds: 10 }).pipe(
+      Effect.map((result) =>
+        result.exitCode === 0 ? parseUsage(result.stdout) : Option.none<number>(),
+      ),
+      Effect.timeoutOption("15 seconds"),
+      Effect.map(Option.flatten),
+      Effect.orElseSucceed(() => Option.none<number>()),
+      Effect.map(Option.getOrNull),
+    );
+
+  // The machine for a request, claimed, or undefined when a new machine is due. Machines that are
+  // starting, failed, or already claimed are not candidates.
+  const claimMachine = Effect.fn("BoatMachines.claimMachine")(function* (
+    boat: BoatApi,
+    input: BoatAcquireInput,
+  ) {
+    return yield* choosing.withPermits(1)(
+      Effect.gen(function* () {
+        const wanted = normalizeGitRemoteUrl(input.remoteUrl);
+        const { machines } = yield* SubscriptionRef.get(state);
+        const candidates = yield* Effect.forEach(
+          machines,
+          (machine): Effect.Effect<ReadonlyArray<PickCandidate>> => {
+            const { sandboxId } = machine;
+            if (
+              (machine.state !== "running" && machine.state !== "stopped") ||
+              machine.startSteps.length > 0 ||
+              acquiring.has(sandboxId)
+            ) {
+              return Effect.succeed([]);
+            }
+            const hasCheckout = remotes.get(sandboxId)?.includes(wanted) === true;
+            return machine.state === "stopped"
+              ? Effect.succeed([{ sandboxId, state: "stopped", hasCheckout, usage: null }])
+              : measureUsage(boat, sandboxId).pipe(
+                  Effect.map((usage) => [{ sandboxId, state: "running", hasCheckout, usage }]),
+                );
+          },
+          { concurrency: "unbounded" },
+        );
+        const picked = pickMachine(candidates.flat());
+        if (picked === undefined) return undefined;
+        acquiring.add(picked.sandboxId);
+        lastBusy.set(picked.sandboxId, DateTime.toEpochMillis(yield* DateTime.now));
+        yield* changeMachine(picked.sandboxId, (machine) => ({
+          ...machine,
+          startId: input.startId,
+          startSteps: picked.state === "stopped" ? ["starting"] : [],
+        }));
+        return picked;
+      }),
+    );
+  });
+
+  const acquire = Effect.fn("BoatMachines.acquire")(function* (input: BoatAcquireInput) {
+    const boat = yield* api;
+    const claimed = yield* claimMachine(boat, input);
+    // A resume can bring the machine back on a new sandbox, so cleanup covers both.
+    const taken = new Set(claimed === undefined ? [] : [claimed.sandboxId]);
+    return yield* Effect.gen(function* () {
+      let machine: BoatMachine;
+      let steps: ReadonlyArray<BoatStartStep>;
+      if (claimed === undefined) {
+        machine = (yield* spawn({ startId: input.startId })).machine;
+        steps = machine.startSteps;
+      } else {
+        machine = yield* ensureRunning(boat, claimed.sandboxId);
+        steps = claimed.state === "stopped" ? ["starting"] : [];
+      }
+      const { sandboxId, httpBaseUrl } = machine;
+      if (httpBaseUrl === null) return yield* fail("That Boat machine has no address.");
+      taken.add(sandboxId);
+      acquiring.add(sandboxId);
+      const startSteps: ReadonlyArray<BoatStartStep> = [...steps, "cloning"];
+      yield* changeMachine(sandboxId, (current) => ({
+        ...current,
+        startId: input.startId,
+        startSteps,
+      }));
+      const project = yield* ensureProject({
+        sandboxId,
+        remoteUrl: input.remoteUrl,
+        branch: input.branch,
+      });
+      const pairingCredential = yield* mintPairing(boat, sandboxId);
+      // The idle stop counts from here, not from before the clone.
+      lastBusy.set(sandboxId, DateTime.toEpochMillis(yield* DateTime.now));
+      // The saved machine is past its start; the result keeps the steps for the client to show.
+      return {
+        machine: { ...machine, startId: input.startId, startSteps },
+        httpBaseUrl,
+        pairingCredential,
+        projectId: project.projectId,
+        workspaceRoot: project.workspaceRoot,
+      } satisfies BoatAcquireResult;
+    }).pipe(
+      // Whatever happens, the machine is released as it was: a failed request is not a failed machine.
+      Effect.ensuring(
+        Effect.forEach(
+          taken,
+          (sandboxId) => {
+            acquiring.delete(sandboxId);
+            return changeMachine(sandboxId, (current) => ({
+              ...current,
+              startId: null,
+              startSteps: [],
+            })).pipe(Effect.ignore);
+          },
+          { discard: true },
+        ),
+      ),
+    );
+  });
+
   const changeKey = Effect.fn("BoatMachines.changeKey")(function* (input: BoatConfigureInput) {
     if (input.useCliLogin === true) {
       const login = yield* cli.login();
@@ -717,7 +868,14 @@ export const make = Effect.gen(function* () {
     return copyUsage(boat, machine, "30 minutes").pipe(Effect.forkDetach, Effect.asVoid);
   };
 
-  const readReport = (boat: BoatApi, sandboxId: string, withCheckouts: boolean) =>
+  // The report script reads the machine's database, which does not know its providers, so the
+  // caller passes the ones it already has.
+  const readReport = (
+    boat: BoatApi,
+    sandboxId: string,
+    withCheckouts: boolean,
+    providers: BoatMachineReport["providers"],
+  ) =>
     boat
       .runCommand(sandboxId, {
         command: reportCommand(withCheckouts),
@@ -725,8 +883,58 @@ export const make = Effect.gen(function* () {
       })
       .pipe(
         Effect.map(parseReport),
+        Effect.map(Option.map((report): BoatMachineReport => ({ ...report, providers }))),
         Effect.orElseSucceed(() => Option.none<BoatMachineReport>()),
       );
+
+  // An RPC client to a running machine's own server, for as long as the caller's scope lives.
+  const openRpc = <Rpcs extends Rpc.Any>(
+    boat: BoatApi,
+    machine: BoatMachine,
+    input: Omit<MachineConnection<Rpcs>, "sandboxId">,
+    label: string,
+  ) =>
+    openMachineRpc({
+      boat,
+      sandboxId: machine.sandboxId,
+      machineUrl: machine.httpBaseUrl ?? "",
+      t3Command: T3_COMMAND,
+      group: input.group,
+      scopes: input.scopes,
+      ttl: "5m",
+      label,
+    }).pipe(
+      Effect.provideService(HttpClient.HttpClient, httpClient),
+      Effect.provideService(Socket.WebSocketConstructor, webSocket),
+    );
+
+  const providersReadAt = new Map<string, number>();
+  // The providers ready on a running machine, read from its own server at most every few minutes;
+  // a read that fails keeps what the report already had.
+  const readProviders = Effect.fn("BoatMachines.readProviders")(function* (
+    boat: BoatApi,
+    machine: BoatMachine,
+    now: number,
+  ) {
+    const known = machine.report?.providers ?? [];
+    const readAt = providersReadAt.get(machine.sandboxId) ?? Number.NEGATIVE_INFINITY;
+    if (now - readAt < PROVIDERS_READ_INTERVAL_MS) return known;
+    providersReadAt.set(machine.sandboxId, now);
+    return yield* Effect.gen(function* () {
+      const client = yield* openRpc(
+        boat,
+        machine,
+        { group: MachineConfigRpcs, scopes: MACHINE_CONFIG_SCOPES },
+        "T3 Code Boat report",
+      );
+      return readyDrivers(yield* client[WS_METHODS.serverGetConfig]({}));
+    }).pipe(
+      Effect.scoped,
+      // The RPC client dies on a configuration it cannot decode, such as from a much newer machine.
+      Effect.catchDefect(() => Effect.succeed(known)),
+      Effect.orElseSucceed(() => known),
+    );
+  });
 
   const withoutCheckouts = (report: BoatMachineReport | null) =>
     report === null ? null : { ...report, checkouts: null };
@@ -736,7 +944,12 @@ export const make = Effect.gen(function* () {
     boat: BoatApi,
     machine: BoatMachine,
   ) {
-    const report = yield* readReport(boat, machine.sandboxId, true);
+    const report = yield* readReport(
+      boat,
+      machine.sandboxId,
+      true,
+      machine.report?.providers ?? [],
+    );
     yield* keepUsage(boat, machine);
     yield* boat.stopSandbox(machine.sandboxId);
     const stoppedAt = DateTime.formatIso(yield* DateTime.now);
@@ -804,6 +1017,8 @@ export const make = Effect.gen(function* () {
     );
     yield* boat.deleteNamedSnapshot(snapshot).pipe(Effect.ignore);
     lastBusy.set(sandbox.id, DateTime.toEpochMillis(yield* DateTime.now));
+    const checkedOut = remotes.get(machine.sandboxId);
+    if (checkedOut !== undefined) remotes.set(sandbox.id, checkedOut);
     return yield* update((status) => ({
       ...status,
       machines: status.machines.map((m) =>
@@ -999,19 +1214,7 @@ export const make = Effect.gen(function* () {
   ) {
     const boat = yield* api;
     const machine = yield* ensureRunning(boat, input.sandboxId);
-    const client = yield* openMachineRpc({
-      boat,
-      sandboxId: machine.sandboxId,
-      machineUrl: machine.httpBaseUrl ?? "",
-      t3Command: T3_COMMAND,
-      group: input.group,
-      scopes: input.scopes,
-      ttl: "5m",
-      label: "T3 Code delegated task",
-    }).pipe(
-      Effect.provideService(HttpClient.HttpClient, httpClient),
-      Effect.provideService(Socket.WebSocketConstructor, webSocket),
-    );
+    const client = yield* openRpc(boat, machine, input, "T3 Code delegated task");
     return { client, sandboxId: machine.sandboxId };
   });
 
@@ -1054,6 +1257,16 @@ export const make = Effect.gen(function* () {
     return created;
   };
 
+  // Failing to save this only costs the preference for this machine next time, not the project.
+  const rememberRemote = (sandboxId: string, remoteUrl: string) => {
+    const url = normalizeGitRemoteUrl(remoteUrl);
+    if (remotes.get(sandboxId)?.includes(url)) return Effect.void;
+    return update((status) => {
+      remotes.set(sandboxId, [...(remotes.get(sandboxId) ?? []), url]);
+      return status;
+    }).pipe(Effect.ignore);
+  };
+
   const ensureProject = Effect.fn("BoatMachines.ensureProject")(function* (input: {
     readonly sandboxId: string;
     readonly remoteUrl: string;
@@ -1068,12 +1281,14 @@ export const make = Effect.gen(function* () {
             group: MachineProjectRpcs,
           });
           const boat = yield* api;
-          return yield* ensureMachineProject({
+          const project = yield* ensureMachineProject({
             client,
             remoteUrl: input.remoteUrl,
             branch: input.branch,
             syncBranch: (workspaceRoot) => syncBranch(boat, sandboxId, workspaceRoot, input.branch),
           }).pipe(Effect.provideService(SecureRandom.SecureRandom, random));
+          yield* rememberRemote(sandboxId, input.remoteUrl);
+          return project;
         }),
       ),
     );
@@ -1092,10 +1307,13 @@ export const make = Effect.gen(function* () {
     if (boatCleanupRule(report, rules, now) === null) return false;
     const checked =
       machine.state === "running"
-        ? Option.getOrElse(yield* readReport(boat, machine.sandboxId, true), () => ({
-            ...report,
-            checkouts: null,
-          }))
+        ? Option.getOrElse(
+            yield* readReport(boat, machine.sandboxId, true, report.providers),
+            () => ({
+              ...report,
+              checkouts: null,
+            }),
+          )
         : report;
     const rule = boatCleanupRule(checked, rules, now);
     if (rule === null) return false;
@@ -1119,7 +1337,7 @@ export const make = Effect.gen(function* () {
     now: number,
   ) {
     const { sandboxId } = machine;
-    const read = yield* readReport(boat, sandboxId, false);
+    const read = yield* readReport(boat, sandboxId, false, machine.report?.providers ?? []);
     if (Option.isNone(read)) {
       // Boat stops a machine itself once T3 Code stops renewing it, such as while this server was
       // off.
@@ -1143,12 +1361,20 @@ export const make = Effect.gen(function* () {
       // the machine, and Boat stops it when its life runs out.
       return yield* Effect.logWarning("Could not read a Boat machine's activity", { sandboxId });
     }
-    const report = read.value;
+    const report: BoatMachineReport = {
+      ...read.value,
+      providers: yield* readProviders(boat, machine, now),
+    };
     const settingUp =
       report.threads === 0 &&
       report.deletedThreads === 0 &&
       now - Date.parse(machine.createdAt) < BOAT_SETUP_GRACE_MS;
-    if (report.activeTurns > 0 || settingUp || !lastBusy.has(sandboxId)) {
+    if (
+      report.activeTurns > 0 ||
+      settingUp ||
+      acquiring.has(sandboxId) ||
+      !lastBusy.has(sandboxId)
+    ) {
       lastBusy.set(sandboxId, now);
     }
     if (yield* applyCleanup(boat, machine, report, settings, now)) return;
@@ -1253,6 +1479,7 @@ export const make = Effect.gen(function* () {
     ),
     configure,
     spawn,
+    acquire,
     pair,
     machineAction,
     connect,

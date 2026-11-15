@@ -11,6 +11,10 @@
       "types": "./src/gentleAi.ts",
       "default": "./src/gentleAi.ts"
     },
+    "./boat": {
+      "types": "./src/boat.ts",
+      "default": "./src/boat.ts"
+    },
     "./cli-proxy": {
       "types": "./src/cliProxy.ts",
       "default": "./src/cliProxy.ts"

@@ -345,6 +345,28 @@ For a systemd service, add `Environment=T3CODE_SERVER_BROWSER_SANDBOX=0` under
 your T3 service. Setting the variable in an agent's terminal does not change the
 environment of an already running T3 server.
 
+## Run a thread on Boat
+
+[Boat](https://boat.dev) runs threads on cloud machines that Boat bills by the second while they run.
+To set it up, open **Settings → Connections**, choose **Edit** on the Boat row, and paste a Boat API key
+or use the Boat CLI's login. The server you set it up on holds the key and starts every machine.
+
+To run a new thread on Boat, choose **Boat** under **Run on** in the new thread's toolbar, or
+**New Boat thread** in the command palette, on web or mobile. Pick the base branch and send. The first
+send finds a machine, clones or updates the repository there, connects your device, and starts the
+thread in a new worktree of the base branch as pushed to the project's remote. Unpushed commits and
+uncommitted edits are not visible to it. A machine that is already running with room to spare, or that
+already has the repository, is used before a new one starts.
+
+A Boat thread can only use providers that are signed in on Boat machines. Machines start from the
+template in Boat's settings, so sign providers in on a machine and save it with **Use as template…** to
+add them.
+
+A machine with no running turn for the idle time in Boat's settings stops, which stops its billing. Its
+threads show it as sleeping, and sending a message wakes it, or choose **Resume**. Stop, resume, and
+delete machines from their menu under Boat in **Settings → Connections**. Deleting a machine deletes
+its disk, including work that was not pushed.
+
 ## Run delegated tasks on a Boat machine
 
 An agent that orchestrates others can start a Boat machine and hand it a delegated task. The task runs

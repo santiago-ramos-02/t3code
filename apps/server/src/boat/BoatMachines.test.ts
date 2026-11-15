@@ -6,6 +6,7 @@ import {
   AuthOrchestrationReadScope,
   DEFAULT_BOAT_SETTINGS,
   EnvironmentAuthorizationError,
+  ProviderDriverKind,
   WS_METHODS,
 } from "@t3tools/contracts";
 import * as Deferred from "effect/Deferred";
@@ -36,6 +37,14 @@ import { HostVersion } from "./forkRuntime.ts";
 const SANDBOX_ID = "bx_test0001";
 const HOST_VERSION = "0.9.0-nightly.20261026.1";
 const MACHINE_URL = "https://box-node-test-3773.on.boat.dev";
+// A second machine, which Boat gives its own address.
+const OTHER_ID = "bx_test0004";
+const OTHER_URL = "https://box-node-other-3773.on.boat.dev";
+// Load per core and memory in use both at 10%, and both at 30%.
+const IDLE_USAGE = "0.40 4 8000 7200\n";
+const BUSIER_USAGE = "1.20 4 8000 5600\n";
+// Exactly at the limit a machine no longer takes a thread.
+const HALF_USAGE = "2.00 4 8000 4000\n";
 // The machine Boat creates from a named snapshot after the stopped disk expired.
 const RESTORED_ID = "bx_test0002";
 const BUILD_ID = "bx_build0003";
@@ -91,6 +100,10 @@ const makeFakeBoat = (options: {
     originBranches: [] as string[],
     // The fork published a release for this server's build.
     releasePublished: true,
+    // The id Boat gives the next new machine.
+    nextSandboxId: SANDBOX_ID,
+    // What each machine prints for its load and memory; unlisted machines are idle.
+    usage: {} as Record<string, string>,
     report: {
       activeTurns: 0,
       threads: 1,
@@ -117,7 +130,7 @@ const makeFakeBoat = (options: {
     Effect.succeed(HttpClientResponse.fromWeb(request, Response.json(body, { status })));
   const client = HttpClient.make((request) => {
     const url = new URL(request.url);
-    if (url.origin === MACHINE_URL) {
+    if (url.hostname.endsWith(".on.boat.dev")) {
       machine.tickets.push({ path: url.pathname, authorization: request.headers.authorization });
       return control.rejectsAccessToken
         ? json(request, { error: "Unauthorized" }, 401)
@@ -139,7 +152,7 @@ const makeFakeBoat = (options: {
         ? RESTORED_ID
         : from.endsWith("-source")
           ? BUILD_ID
-          : SANDBOX_ID;
+          : control.nextSandboxId;
       return json(request, { sandbox: { id, state: "provisioning" } });
     }
     if (path === "/named-snapshots") {
@@ -186,6 +199,7 @@ const makeFakeBoat = (options: {
         const checkouts = command.includes("REPORT=checkouts") ? control.checkouts : null;
         return result(0, `login noise\n${JSON.stringify({ ...control.report, checkouts })}\n`);
       }
+      if (command.includes("/proc/loadavg")) return result(0, control.usage[id] ?? IDLE_USAGE);
       if (command.includes("echo up || echo down")) {
         return result(0, control.t3Up ? "up\n" : "down\n");
       }
@@ -227,7 +241,8 @@ const makeFakeBoat = (options: {
       }
       return result(127, "");
     }
-    if (action === "/host") return json(request, { url: MACHINE_URL });
+    if (action === "/host")
+      return json(request, { url: id === OTHER_ID ? OTHER_URL : MACHINE_URL });
     if (action === "/resume" && control.expired) {
       return json(
         request,
@@ -1674,6 +1689,185 @@ describe("BoatMachines.ensureProject", () => {
       );
       assert.deepStrictEqual(first, second);
       assert.strictEqual(first.projectId, startedId);
+    }).pipe(Effect.provide(layerEnvironment)),
+  );
+});
+
+describe("BoatMachines.acquire", () => {
+  const input = { remoteUrl: REMOTE_URL, branch: "main", startId: "start-1" };
+
+  /** A configured service with two running machines; the second one has opened the repository. */
+  const makeFleet = (boat: FakeBoat) =>
+    Effect.gen(function* () {
+      boat.control.t3Up = true;
+      boat.control.originBranches = ["main"];
+      boat.machine.reply = () => ({
+        stream: shellItems([machineProject(MACHINE_PROJECT_ID, REMOTE_URL, CHECKOUT)]),
+      });
+      const service = yield* makeServiceWithMachine(boat);
+      boat.control.nextSandboxId = OTHER_ID;
+      yield* service.spawn({});
+      yield* service.ensureProject({ sandboxId: OTHER_ID, remoteUrl: REMOTE_URL, branch: "main" });
+      return service;
+    });
+
+  const sandboxCreations = (boat: FakeBoat) => callsTo(boat.calls, "POST", "/sandboxes").length;
+
+  it.effect("reuses a running machine that has the checkout, even when another has more room", () =>
+    Effect.gen(function* () {
+      const boat = makeFakeBoat({ pairing: PAIRING_OUTPUT });
+      const service = yield* makeFleet(boat);
+      boat.control.usage[OTHER_ID] = BUSIER_USAGE;
+      const created = sandboxCreations(boat);
+
+      const result = yield* service.acquire(input);
+
+      assert.strictEqual(result.machine.sandboxId, OTHER_ID);
+      assert.deepStrictEqual(
+        {
+          httpBaseUrl: result.httpBaseUrl,
+          pairingCredential: result.pairingCredential,
+          projectId: result.projectId,
+          workspaceRoot: result.workspaceRoot,
+        },
+        {
+          httpBaseUrl: OTHER_URL,
+          pairingCredential: "PAIR-CODE",
+          projectId: MACHINE_PROJECT_ID,
+          workspaceRoot: CHECKOUT,
+        },
+      );
+      assert.strictEqual(sandboxCreations(boat), created);
+    }).pipe(Effect.provide(layerEnvironment)),
+  );
+
+  it.effect("resumes a stopped machine that has the checkout before using one without it", () =>
+    Effect.gen(function* () {
+      const boat = makeFakeBoat({ pairing: PAIRING_OUTPUT });
+      const service = yield* makeFleet(boat);
+      yield* service.machineAction({ sandboxId: OTHER_ID, action: "stop" });
+      const created = sandboxCreations(boat);
+
+      const result = yield* service.acquire(input);
+
+      assert.strictEqual(result.machine.sandboxId, OTHER_ID);
+      assert.strictEqual(callsTo(boat.calls, "POST", `${OTHER_ID}/resume`).length, 1);
+      assert.strictEqual(sandboxCreations(boat), created);
+      assert.deepStrictEqual(
+        (yield* service.current).machines.map((machine) => machine.state),
+        ["running", "running"],
+      );
+    }).pipe(Effect.provide(layerEnvironment)),
+  );
+
+  it.effect("starts a new machine when every running machine is at half its capacity", () =>
+    Effect.gen(function* () {
+      const boat = makeFakeBoat({ pairing: PAIRING_OUTPUT });
+      const service = yield* makeFleet(boat);
+      boat.control.usage[SANDBOX_ID] = HALF_USAGE;
+      boat.control.usage[OTHER_ID] = HALF_USAGE;
+      boat.control.nextSandboxId = "bx_test0005";
+      const created = sandboxCreations(boat);
+
+      const result = yield* service.acquire(input);
+
+      assert.strictEqual(result.machine.sandboxId, "bx_test0005");
+      assert.strictEqual(sandboxCreations(boat), created + 1);
+      assert.strictEqual((yield* service.current).machines.length, 3);
+    }).pipe(Effect.provide(layerEnvironment)),
+  );
+
+  it.effect("shows cloning under the request's id while it works, then clears it", () =>
+    Effect.gen(function* () {
+      const boat = makeFakeBoat({ pairing: PAIRING_OUTPUT });
+      const service = yield* makeFleet(boat);
+      const seen: Array<{
+        readonly startId: string | null;
+        readonly steps: ReadonlyArray<string>;
+      }> = [];
+      const watching = yield* Deferred.make<void>();
+      const fiber = yield* service.streamChanges.pipe(
+        Stream.runForEach((status) =>
+          Effect.gen(function* () {
+            yield* Deferred.succeed(watching, undefined);
+            const machine = status.machines.find((m) => m.sandboxId === OTHER_ID);
+            const last = seen.at(-1);
+            if (
+              machine &&
+              (machine.startId !== last?.startId || machine.startSteps.length !== last.steps.length)
+            ) {
+              seen.push({ startId: machine.startId, steps: machine.startSteps });
+            }
+          }),
+        ),
+        Effect.forkChild,
+      );
+      yield* Deferred.await(watching);
+
+      yield* service.acquire(input);
+      yield* Fiber.interrupt(fiber);
+
+      assert.deepStrictEqual(seen, [
+        { startId: null, steps: [] },
+        { startId: "start-1", steps: [] },
+        { startId: "start-1", steps: ["cloning"] },
+        { startId: null, steps: [] },
+      ]);
+    }).pipe(Effect.provide(layerEnvironment)),
+  );
+
+  it.effect("keeps a reused machine running when it cannot open the project", () =>
+    Effect.gen(function* () {
+      const boat = makeFakeBoat({ pairing: PAIRING_OUTPUT });
+      const service = yield* makeFleet(boat);
+      boat.control.originBranches = [];
+
+      const error = yield* service.acquire(input).pipe(Effect.flip);
+
+      assert.include(error.detail, 'The branch "main" is not on origin');
+      const machine = (yield* service.current).machines.find((m) => m.sandboxId === OTHER_ID);
+      assert.deepStrictEqual(
+        [machine?.state, machine?.startId, machine?.startSteps],
+        ["running", null, []],
+      );
+    }).pipe(Effect.provide(layerEnvironment)),
+  );
+});
+
+describe("BoatMachines machine report", () => {
+  it.effect("lists the providers that are enabled, ready and signed in on the machine", () =>
+    Effect.gen(function* () {
+      const boat = makeFakeBoat({ pairing: PAIRING_OUTPUT });
+      const service = yield* makeServiceWithMachine(boat);
+      const provider = (
+        driver: string,
+        state: { enabled?: boolean; status?: string; auth?: string } = {},
+      ) => ({
+        driver,
+        enabled: state.enabled ?? true,
+        status: state.status ?? "ready",
+        auth: { status: state.auth ?? "authenticated" },
+      });
+      boat.machine.reply = (tag) =>
+        tag === WS_METHODS.serverGetConfig
+          ? {
+              value: {
+                providers: [
+                  provider("claudeAgent"),
+                  provider("claudeAgent"),
+                  provider("codex", { auth: "unauthenticated" }),
+                  provider("opencode", { enabled: false }),
+                  provider("cursor", { status: "error" }),
+                ],
+              },
+            }
+          : { value: {} };
+
+      yield* service.checkMachines;
+
+      assert.deepStrictEqual((yield* service.current).machines[0]?.report?.providers, [
+        ProviderDriverKind.make("claudeAgent"),
+      ]);
     }).pipe(Effect.provide(layerEnvironment)),
   );
 });
