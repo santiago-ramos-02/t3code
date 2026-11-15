@@ -59,7 +59,7 @@ import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "./u
 import { Toggle, ToggleGroup } from "./ui/toggle-group";
 
 /** Picks a new Boat machine, started for this project, as the target. */
-export const BOAT_TARGET = "boat" as const;
+const BOAT_TARGET = "boat" as const;
 
 interface AddProjectToMachineRequest {
   readonly projectRef: ScopedProjectRef;

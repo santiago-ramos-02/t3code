@@ -9,6 +9,7 @@ import {
   scopeProjectRef,
   scopeThreadRef,
 } from "@t3tools/client-runtime/environment";
+import type { BoatStatus } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
 import { DEFAULT_UNIFIED_SETTINGS } from "@t3tools/contracts/settings";
 import {
@@ -29,6 +30,18 @@ const resources = vi.hoisted(() => ({
   projects: [] as EnvironmentProject[],
   pickedEnvironmentId: null as EnvironmentId | null,
   refreshSelection: vi.fn<(ids: readonly EnvironmentId[]) => Promise<EnvironmentId | null>>(),
+  boatHost: null as EnvironmentId | null,
+  boatStatus: null as BoatStatus | null,
+  startBoat: vi.fn<() => Promise<{ environmentId: EnvironmentId; projectId: ProjectId } | null>>(),
+}));
+vi.mock("../../hooks/useBoat", () => ({
+  useBoat: () => ({ hostEnvironmentId: resources.boatHost, status: resources.boatStatus }),
+  useBoatHostFor: () => resources.boatHost,
+}));
+vi.mock("../../lib/boatDraftStart", () => ({
+  startBoatDraft: resources.startBoat,
+  clearBoatDraftStart: () => {},
+  markBoatDraftSending: () => {},
 }));
 vi.mock("../../hooks/useLoadBalancedEnvironment", () => ({
   useLoadBalancedEnvironment: () => ({
@@ -44,6 +57,9 @@ vi.mock("../../hooks/useScratchProject", () => ({ useScratchProject: () => ({}) 
 
 function setup() {
   resources.refreshSelection.mockReset();
+  resources.startBoat.mockReset();
+  resources.boatHost = null;
+  resources.boatStatus = null;
   resources.projects = [];
   resources.pickedEnvironmentId = null;
   const a = EnvironmentId.make("machine-a");
@@ -313,4 +329,99 @@ it("keeps the selected models when automatic routing picks another machine", asy
   );
   await expect.element(screen.getByText(b)).toBeInTheDocument();
   await expect.element(screen.getByText("gpt-6.1-sol, gpt-6.1-luna")).toBeInTheDocument();
+});
+
+function boatSetup(remoteUrl: string | null) {
+  const routing = setup();
+  const { a, draftId, store } = routing;
+  const machine = EnvironmentId.make("boat-machine");
+  const machineProjectId = ProjectId.make("machine-project");
+  resources.boatHost = a;
+  // Only `configured` is read by the pre-send checks.
+  resources.boatStatus = { configured: true, machines: [] } as never;
+  resources.projects = [
+    {
+      environmentId: a,
+      id: ProjectId.make("project"),
+      repositoryIdentity: remoteUrl
+        ? { locator: { source: "git-remote", remoteName: "origin", remoteUrl } }
+        : undefined,
+    } as never,
+  ];
+  store.setDraftThreadContext(draftId, {
+    environmentSelection: "boat",
+    envMode: "worktree",
+    branch: "main",
+  });
+  return { ...routing, machine, machineProjectId };
+}
+
+it("moves a Boat draft onto the machine's project on its first send", async () => {
+  const { draftId, input, store, machine, machineProjectId } = boatSetup(
+    "git@github.com:acme/app.git",
+  );
+  resources.startBoat.mockResolvedValue({ environmentId: machine, projectId: machineProjectId });
+  const onPrepared = vi.fn();
+  await using screen = await render(
+    <Harness
+      input={{ ...input, draftThread: store.getDraftSession(draftId) }}
+      onPrepared={onPrepared}
+    />,
+  );
+  await screen.getByRole("button", { name: "Send" }).click();
+  await vi.waitFor(() => expect(onPrepared).toHaveBeenCalledWith(true));
+  expect(resources.startBoat).toHaveBeenCalledWith(
+    expect.objectContaining({ remoteUrl: "git@github.com:acme/app.git", branch: "main" }),
+  );
+  expect(store.getDraftSession(draftId)).toMatchObject({
+    environmentId: machine,
+    projectId: machineProjectId,
+    environmentSelection: "boat",
+    envMode: "worktree",
+    startFromOrigin: true,
+    branch: "main",
+    worktreePath: null,
+  });
+  expect(store.getComposerDraft(draftId)?.prompt).toBe("Keep this prompt");
+});
+
+it("stops a Boat draft without a git remote before anything starts", async () => {
+  const { draftId, input, store } = boatSetup(null);
+  const onPrepared = vi.fn();
+  await using screen = await render(
+    <Harness
+      input={{ ...input, draftThread: store.getDraftSession(draftId) }}
+      onPrepared={onPrepared}
+    />,
+  );
+  await screen.getByRole("button", { name: "Send" }).click();
+  await vi.waitFor(() => expect(onPrepared).toHaveBeenCalledWith(false));
+  expect(resources.startBoat).not.toHaveBeenCalled();
+  expect(store.getDraftSession(draftId)?.environmentSelection).toBe("boat");
+});
+
+it("drops a Boat send when the draft leaves Boat while the machine starts", async () => {
+  const { a, draftId, input, store, machine, machineProjectId } = boatSetup(
+    "git@github.com:acme/app.git",
+  );
+  let finish!: (target: { environmentId: EnvironmentId; projectId: ProjectId }) => void;
+  resources.startBoat.mockReturnValue(
+    new Promise((done) => {
+      finish = done;
+    }),
+  );
+  const onPrepared = vi.fn();
+  await using screen = await render(
+    <Harness
+      input={{ ...input, draftThread: store.getDraftSession(draftId) }}
+      onPrepared={onPrepared}
+    />,
+  );
+  await screen.getByRole("button", { name: "Send" }).click();
+  await act(async () => {
+    store.setDraftThreadContext(draftId, { environmentSelection: "manual" });
+    finish({ environmentId: machine, projectId: machineProjectId });
+  });
+  await vi.waitFor(() => expect(onPrepared).toHaveBeenCalledWith(false));
+  expect(store.getDraftSession(draftId)?.environmentId).toBe(a);
 });

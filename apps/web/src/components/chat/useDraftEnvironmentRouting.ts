@@ -1,3 +1,5 @@
+import { boatMachineAt } from "@t3tools/client-runtime/boat";
+import { useBoat, useBoatHostFor } from "../../hooks/useBoat";
 import { useLoadBalancedEnvironment } from "../../hooks/useLoadBalancedEnvironment";
 import { useLogicalProjectEnvironments } from "../../hooks/useLogicalProjectEnvironments";
 import { useScratchProject } from "../../hooks/useScratchProject";
@@ -6,6 +8,7 @@ import {
   type EnvironmentId,
   type ProviderDriverKind,
   ProviderInstanceId,
+  repositoryGroupingDisplayNameOf,
   resolveProjectProviderInstanceEnabled,
   type ThreadContextRecord,
 } from "@t3tools/contracts";
@@ -36,6 +39,13 @@ import type { DraftSessionState } from "../../composerDraftStore";
 import { loadBalancingSendWarning } from "./composerSend.logic";
 import { appAtomRegistry } from "../../rpc/atomRegistry";
 import { draftFanoutSelectionsAtom } from "./chatViewSend";
+import type { BoatEnvironmentOption } from "../BranchToolbar.logic";
+import { boatDraftStillCurrent, planBoatDraftSend } from "../../lib/boatDraftStart.logic";
+import {
+  clearBoatDraftStart,
+  markBoatDraftSending,
+  startBoatDraft,
+} from "../../lib/boatDraftStart";
 
 interface DraftEnvironmentRoutingInput {
   readonly draftId: DraftId | null;
@@ -146,7 +156,93 @@ export function useDraftEnvironmentRouting(input: DraftEnvironmentRoutingInput) 
     loadBalancingSettings.loadBalancingWeights,
   );
   const readRouting = useStableCallback(() => ({ input, loadBalancingCandidates }));
+  const { hostEnvironmentId: boatHostEnvironmentId, status: boatStatus } = useBoat();
+  const draftProject =
+    draftThread === null
+      ? null
+      : (allProjects.find(
+          (candidate) =>
+            candidate.environmentId === draftThread.environmentId &&
+            candidate.id === draftThread.projectId,
+        ) ?? null);
+  const boatHost = useBoatHostFor(draftProject);
+  // The Boat start this view has in flight, so a draft that moved on while it ran drops its send.
+  const boatStartRef = useRef<{ readonly scope: string } | null>(null);
+  /**
+   * The first send of a Boat draft: has the host pick and open a machine for the repository, then
+   * moves the draft onto the machine's project, keeping its model, base branch, attachments and
+   * access settings. Boat threads always start in a new worktree from the remote branch.
+   */
+  const moveToBoat = async () => {
+    if (!draftId) return false;
+    const originalDraft = getDraftSession(draftId);
+    const project = originalDraft
+      ? allProjects.find(
+          (candidate) =>
+            candidate.environmentId === originalDraft.environmentId &&
+            candidate.id === originalDraft.projectId,
+        )
+      : undefined;
+    const identity = project?.repositoryIdentity;
+    const draftEnvironment = originalDraft
+      ? environmentById.get(originalDraft.environmentId)
+      : null;
+    const plan = planBoatDraftSend({
+      draft: originalDraft ?? null,
+      onBoatMachine: boatMachineAt(boatStatus, draftEnvironment?.displayUrl ?? null) !== null,
+      status: boatStatus,
+      // A fork's own remote, where the agent can push, rather than the upstream it groups under.
+      remoteUrl: identity?.origin?.remoteUrl ?? identity?.locator.remoteUrl ?? null,
+    });
+    if (plan.kind === "send") return true;
+    if (plan.kind === "blocked") {
+      toastManager.add({ type: "warning", id: "boat-draft-send", ...plan.blocker });
+      return false;
+    }
+    if (plan.kind === "drop" || !originalDraft || boatHostEnvironmentId === null) return false;
+    const request = { scope: environmentChangeScope };
+    boatStartRef.current = request;
+    const target = await startBoatDraft({
+      draftId,
+      hostEnvironmentId: boatHostEnvironmentId,
+      remoteUrl: plan.remoteUrl,
+      branch: plan.branch,
+      repository: (identity && repositoryGroupingDisplayNameOf(identity)) ?? null,
+    });
+    if (!target) return false;
+    const currentDraft = getDraftSession(draftId) ?? null;
+    if (boatStartRef.current !== request || !boatDraftStillCurrent(originalDraft, currentDraft)) {
+      // The draft moved on while the machine started; the machine stays up for the next send.
+      clearBoatDraftStart(draftId);
+      return false;
+    }
+    carryFanoutSelections(originalDraft, target.environmentId);
+    // The send must read the machine project's composer and provider context after retargeting.
+    // Attachments stay on the draft; the send uploads them to the machine it now targets.
+    flushSync(() =>
+      setDraftThreadContext(draftId, {
+        projectRef: scopeProjectRef(target.environmentId, target.projectId),
+        environmentSelection: "boat",
+        loadBalancedEnvironmentId: null,
+        envMode: "worktree",
+        branch: currentDraft?.branch ?? plan.branch,
+        // The machine's clone has none of this machine's local branches, so it starts from the remote one.
+        startFromOrigin: true,
+        // A checkout path on this machine does not exist on the Boat machine.
+        worktreePath: null,
+      }),
+    );
+    markBoatDraftSending(draftId);
+    return true;
+  };
+  /** The send that followed a move to Boat went out, so its start is over. */
+  const onRoutedSendDispatched = () => {
+    if (draftId) clearBoatDraftStart(draftId);
+  };
   const refreshBeforeSend = () => {
+    if (draftId && draftThread?.environmentSelection === "boat" && !draftThread.promotedTo) {
+      return moveToBoat();
+    }
     if (
       !automaticEnvironment ||
       !draftId ||
@@ -248,6 +344,32 @@ export function useDraftEnvironmentRouting(input: DraftEnvironmentRoutingInput) 
     });
   };
   const onAutoEnvironmentStable = useStableCallback(onAutoEnvironment);
+  const onBoatEnvironment = () => {
+    if (envLocked || !draftId || sendInFlightRef.current) return;
+    setDraftThreadContext(draftId, {
+      environmentSelection: "boat",
+      loadBalancedEnvironmentId: null,
+      envMode: "worktree",
+      worktreePath: null,
+    });
+  };
+  const onBoatEnvironmentStable = useStableCallback(onBoatEnvironment);
+  const onLeaveBoatEnvironment = () => {
+    if (!draftId || sendInFlightRef.current) return;
+    clearBoatDraftStart(draftId);
+    setDraftThreadContext(draftId, { environmentSelection: "manual" });
+  };
+  const onLeaveBoatEnvironmentStable = useStableCallback(onLeaveBoatEnvironment);
+  const boatSelected = draftThread?.environmentSelection === "boat";
+  // Offered on an unsent draft whose host can run Boat; kept visible while chosen.
+  const boatEnvironment: BoatEnvironmentOption | undefined =
+    draftId && !envLocked && !draftThread?.promotedTo && (boatSelected || boatHost !== null)
+      ? {
+          selected: boatSelected,
+          onSelect: onBoatEnvironmentStable,
+          onLeave: onLeaveBoatEnvironmentStable,
+        }
+      : undefined;
   const autoEnvironmentLabel = automaticEnvironment
     ? draftThread?.loadBalancedEnvironmentId
       ? "Auto balance"
@@ -276,6 +398,14 @@ export function useDraftEnvironmentRouting(input: DraftEnvironmentRoutingInput) 
       if (environmentChangeRef.current?.scope === environmentChangeScope) {
         environmentChangeRef.current = null;
       }
+    },
+    [environmentChangeScope],
+  );
+  // Leaving the scope, or unmounting, abandons a Boat start still in flight.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- abandons an in-flight Boat start when the draft or project scope changes or unmounts
+  useLayoutEffect(
+    () => () => {
+      if (boatStartRef.current?.scope === environmentChangeScope) boatStartRef.current = null;
     },
     [environmentChangeScope],
   );
@@ -388,8 +518,10 @@ export function useDraftEnvironmentRouting(input: DraftEnvironmentRoutingInput) 
     needsLoadBalancing,
     loadBalancing,
     refreshBeforeSend,
+    onRoutedSendDispatched,
     onAutoEnvironmentStable,
     autoEnvironmentLabel,
+    boatEnvironment,
     isEnvironmentChanging,
     readPendingEnvironmentChange,
     onEnvironmentChangeStable,

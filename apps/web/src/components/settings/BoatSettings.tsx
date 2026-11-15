@@ -19,7 +19,7 @@ import { type FormEvent, type ReactNode, useId, useState } from "react";
 
 import { requestConfirmDialog } from "~/confirmDialog";
 import { environmentCatalog } from "~/connection/catalog";
-import { isBoatMachineAt } from "../../hooks/useBoat";
+import { isBoatMachineAt } from "@t3tools/client-runtime/boat";
 import { pairBoatMachine } from "../../lib/boatMachine";
 import { cn } from "../../lib/utils";
 import { serverEnvironment } from "../../state/server";

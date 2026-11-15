@@ -1,6 +1,15 @@
-import type { EnvironmentPresentation } from "@t3tools/client-runtime/connection";
+import {
+  connectionCatalogDisplayUrl,
+  type EnvironmentPresentation,
+} from "@t3tools/client-runtime/connection";
+import { isBoatMachineAt } from "@t3tools/client-runtime/boat";
 import { runAtomCommand, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
-import type { BoatSize, EnvironmentId, ProjectId } from "@t3tools/contracts";
+import {
+  AuthOrchestrationOperateScope,
+  type BoatSize,
+  type EnvironmentId,
+  type ProjectId,
+} from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import { AsyncResult } from "effect/reactivity";
 
@@ -8,7 +17,10 @@ import { environmentCatalog } from "../connection/catalog";
 import { connectPairing } from "../connection/onboarding";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { environmentPresentations } from "../state/presentation";
+import { environmentProjects } from "../state/projects";
 import { serverEnvironment } from "../state/server";
+import { environmentSession, sessionHasScope } from "../state/session";
+import { waitForAtomValue } from "../state/waitForAtomValue";
 import { startStepsFor, type MachineStartStep } from "./machineStartSteps";
 import { randomUUID } from "./utils";
 
@@ -20,15 +32,18 @@ function failureMessage(result: Parameters<typeof squashAtomCommandFailure>[0]):
   return error instanceof Error ? error.message : "An error occurred.";
 }
 
-/** Resolves once the environment is connected and has sent its config. */
-function waitForConnection(environmentId: EnvironmentId) {
+/**
+ * Resolves once the environment is connected and has sent its config. `timeoutMessage` says what
+ * state the machine is in when it does not, since only the caller knows.
+ */
+function waitForConnection(environmentId: EnvironmentId, timeoutMessage: string) {
   return new Promise<EnvironmentPresentation>((resolve, reject) => {
     const atom = environmentPresentations.presentationsAtom;
     let unsubscribe: (() => void) | null = null;
     let settled = false;
     const timeout = setTimeout(() => {
       settle();
-      reject(new Error("The Boat machine started but did not connect within a minute."));
+      reject(new Error(timeoutMessage));
     }, CONNECT_TIMEOUT_MS);
     const settle = () => {
       settled = true;
@@ -114,9 +129,15 @@ export async function startBoatMachine(input: {
       },
       { label: "Delete unpaired Boat machine", reportFailure: false },
     );
-    throw new Error(`Could not pair with the Boat machine: ${failureMessage(paired)}`);
+    throw new Error(
+      `Could not pair with the Boat machine, so it was deleted: ${failureMessage(paired)}`,
+    );
   }
-  const presentation = await waitForConnection(paired.value);
+  // It paired, so it is kept: it is running and billing, and the user can stop it from Settings.
+  const presentation = await waitForConnection(
+    paired.value,
+    "The Boat machine started and paired, but this client did not reach it within a minute. It is still running; check it in Settings, Connections.",
+  );
   return { environmentId: paired.value, label: presentation.entry.target.label };
 }
 
@@ -150,7 +171,13 @@ export function wakeBoatMachine(input: {
       label: "Reconnect to Boat machine",
       reportFailure: false,
     });
-    await waitForConnection(input.environmentId);
+    await waitForConnection(
+      input.environmentId,
+      "The Boat machine resumed, but this client did not reach it within a minute. It is running; try Resume again.",
+    );
+    // The message that wakes it is sent right after, and its send needs the grant, which loads
+    // just after the connection does.
+    await waitForOperateGrant(input.environmentId);
   })().finally(() => wakes.delete(input.sandboxId));
   wakes.set(input.sandboxId, wake);
   return wake;
@@ -158,6 +185,32 @@ export function wakeBoatMachine(input: {
 
 // One pairing per machine, however many places ask for it.
 const pairings = new Map<string, Promise<EnvironmentId>>();
+
+function pairOnce(sandboxId: string, pair: () => Promise<EnvironmentId>): Promise<EnvironmentId> {
+  const pending = pairings.get(sandboxId);
+  if (pending) return pending;
+  const pairing = pair().finally(() => pairings.delete(sandboxId));
+  pairings.set(sandboxId, pairing);
+  return pairing;
+}
+
+/** Pairs with a machine's server using a credential the host minted, and waits for the connection. */
+async function pairWithCredential(input: {
+  readonly httpBaseUrl: string;
+  readonly pairingCredential: string;
+  readonly failure: (reason: string) => string;
+  readonly unreachable: string;
+}): Promise<EnvironmentId> {
+  const paired = await runAtomCommand(
+    appAtomRegistry,
+    connectPairing,
+    { host: input.httpBaseUrl, pairingCode: input.pairingCredential },
+    { label: "Pair with Boat machine", reportFailure: false },
+  );
+  if (paired._tag === "Failure") throw new Error(input.failure(failureMessage(paired)));
+  await waitForConnection(paired.value, input.unreachable);
+  return paired.value;
+}
 
 /**
  * Pairs this client with a machine the host already runs, such as one an agent started, and
@@ -167,9 +220,7 @@ export function pairBoatMachine(input: {
   readonly hostEnvironmentId: EnvironmentId;
   readonly sandboxId: string;
 }): Promise<EnvironmentId> {
-  const pending = pairings.get(input.sandboxId);
-  if (pending) return pending;
-  const pairing = (async () => {
+  return pairOnce(input.sandboxId, async () => {
     const minted = await runAtomCommand(
       appAtomRegistry,
       serverEnvironment.pairBoatMachine,
@@ -177,18 +228,100 @@ export function pairBoatMachine(input: {
       { label: "Pair with Boat machine", reportFailure: false },
     );
     if (minted._tag === "Failure") throw new Error(failureMessage(minted));
-    const paired = await runAtomCommand(
-      appAtomRegistry,
-      connectPairing,
-      { host: minted.value.httpBaseUrl, pairingCode: minted.value.pairingCredential },
-      { label: "Pair with Boat machine", reportFailure: false },
+    return pairWithCredential({
+      httpBaseUrl: minted.value.httpBaseUrl,
+      pairingCredential: minted.value.pairingCredential,
+      failure: (reason) => `Could not pair with the Boat machine: ${reason}`,
+      unreachable: "The Boat machine is running, but this client did not reach it within a minute.",
+    });
+  });
+}
+
+/**
+ * Connects this client to the machine the host's acquire picked, with the credential it returned,
+ * and resolves once it is connected. A machine this client already knows is not paired again: it
+ * is reconnected, since a machine the host resumed has a connection backing off. The machine is
+ * never deleted here, since an acquire may pick one that already holds other work.
+ */
+export function connectAcquiredBoatMachine(input: {
+  readonly sandboxId: string;
+  readonly httpBaseUrl: string;
+  readonly pairingCredential: string;
+}): Promise<EnvironmentId> {
+  return pairOnce(input.sandboxId, async () => {
+    const known = [...appAtomRegistry.get(environmentPresentations.presentationsAtom)].find(
+      ([, presentation]) =>
+        isBoatMachineAt(
+          { httpBaseUrl: input.httpBaseUrl },
+          connectionCatalogDisplayUrl(presentation.entry),
+        ),
     );
-    if (paired._tag === "Failure") {
-      throw new Error(`Could not pair with the Boat machine: ${failureMessage(paired)}`);
+    const unreachable =
+      "The Boat machine is running, but this client did not reach it within a minute. Try again.";
+    if (known) {
+      const [knownEnvironmentId, presentation] = known;
+      if (presentation.connection.phase !== "connected") {
+        await runAtomCommand(appAtomRegistry, environmentCatalog.retryNow, knownEnvironmentId, {
+          label: "Reconnect to Boat machine",
+          reportFailure: false,
+        });
+      }
+      await waitForConnection(knownEnvironmentId, unreachable);
+      return knownEnvironmentId;
     }
-    await waitForConnection(paired.value);
-    return paired.value;
-  })().finally(() => pairings.delete(input.sandboxId));
-  pairings.set(input.sandboxId, pairing);
-  return pairing;
+    return pairWithCredential({
+      httpBaseUrl: input.httpBaseUrl,
+      pairingCredential: input.pairingCredential,
+      failure: (reason) =>
+        `Could not pair with the Boat machine, which is still running: ${reason}`,
+      unreachable,
+    });
+  });
+}
+
+const GRANT_TIMEOUT_MS = 60_000;
+
+function waitForOperateGrantArrived(environmentId: EnvironmentId) {
+  return waitForAtomValue({
+    registry: appAtomRegistry,
+    atom: environmentSession.sessionStateAtom(environmentId),
+    predicate: (result) => sessionHasScope(result, AuthOrchestrationOperateScope),
+    timeoutMs: GRANT_TIMEOUT_MS,
+  });
+}
+
+const NO_GRANT_MESSAGE =
+  "The Boat machine is running, but it did not give this client access within a minute.";
+
+async function waitForOperateGrant(environmentId: EnvironmentId): Promise<void> {
+  if (!(await waitForOperateGrantArrived(environmentId))) throw new Error(NO_GRANT_MESSAGE);
+}
+
+/**
+ * Resolves once this client holds the operate grant on the machine and its server lists the
+ * project, which a thread started there needs. Throws what is missing when they do not arrive.
+ */
+export async function waitForBoatProject(input: {
+  readonly environmentId: EnvironmentId;
+  readonly projectId: ProjectId;
+}): Promise<void> {
+  const [granted, listed] = await Promise.all([
+    waitForOperateGrantArrived(input.environmentId),
+    waitForAtomValue({
+      registry: appAtomRegistry,
+      atom: environmentProjects.projectsAtom,
+      predicate: (projects) =>
+        projects.some(
+          (project) =>
+            project.environmentId === input.environmentId && project.id === input.projectId,
+        ),
+      timeoutMs: GRANT_TIMEOUT_MS,
+    }),
+  ]);
+  if (!granted) throw new Error(NO_GRANT_MESSAGE);
+  if (!listed) {
+    throw new Error(
+      "The Boat machine is running, but it did not open the project within a minute.",
+    );
+  }
 }

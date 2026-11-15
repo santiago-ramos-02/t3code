@@ -8,8 +8,15 @@ import type { EnvironmentId } from "@t3tools/contracts";
 import { PlusIcon, ScaleIcon } from "lucide-react";
 import { memo } from "react";
 
-import { ADD_TO_MACHINE_LABEL_CLASS, type EnvironmentOption } from "./BranchToolbar.logic";
+import {
+  ADD_TO_MACHINE_LABEL_CLASS,
+  BOAT_LABEL,
+  BOAT_VALUE,
+  type BoatEnvironmentOption,
+  type EnvironmentOption,
+} from "./BranchToolbar.logic";
 import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
+import { BoatIcon } from "./Icons";
 import { useComposerMenuProps } from "./chat/composerEventScope";
 import {
   Select,
@@ -23,29 +30,28 @@ import {
 interface BranchToolbarEnvironmentSelectorProps {
   autoEnvironmentLabel?: string | undefined;
   onAutoEnvironment?: (() => void) | undefined;
+  boatEnvironment?: BoatEnvironmentOption | undefined;
   envLocked: boolean;
   environmentId: EnvironmentId;
   availableEnvironments: readonly EnvironmentOption[];
   onEnvironmentChange?: (environmentId: EnvironmentId) => void;
   onAddToMachine?: (() => void) | undefined;
-  onNewBoatMachine?: (() => void) | undefined;
 }
 
 // Action values cannot collide with server-minted environment IDs.
 const AUTO_VALUE = "action:auto";
 const ADD_MACHINE_VALUE = "action:add-machine";
-const NEW_BOAT_MACHINE_VALUE = "action:new-boat-machine";
 const environmentValue = (id: EnvironmentId) => `env:${id}`;
 
 export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvironmentSelector({
   autoEnvironmentLabel,
   onAutoEnvironment,
+  boatEnvironment,
   envLocked,
   environmentId,
   availableEnvironments,
   onEnvironmentChange,
   onAddToMachine,
-  onNewBoatMachine,
 }: BranchToolbarEnvironmentSelectorProps) {
   const composerFloatingLayerProps = useComposerMenuProps();
   const shortcutLabel = shortcutLabelForCommand(
@@ -54,6 +60,7 @@ export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvir
   );
   const activeEnvironment =
     availableEnvironments.find((env) => env.environmentId === environmentId) ?? null;
+  const boatSelected = boatEnvironment?.selected === true;
 
   const environmentItems = [
     ...(onAutoEnvironment
@@ -63,8 +70,8 @@ export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvir
       value: environmentValue(env.environmentId),
       label: env.label,
     })),
+    ...(boatEnvironment ? [{ value: BOAT_VALUE, label: BOAT_LABEL }] : []),
     ...(onAddToMachine ? [{ value: ADD_MACHINE_VALUE, label: "Add to another machine" }] : []),
-    ...(onNewBoatMachine ? [{ value: NEW_BOAT_MACHINE_VALUE, label: "New Boat machine" }] : []),
   ];
 
   // Match the xs control's height and padding: the composer strip has no min-height,
@@ -73,7 +80,7 @@ export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvir
     envLocked ||
     (onEnvironmentChange === undefined &&
       onAddToMachine === undefined &&
-      onNewBoatMachine === undefined)
+      boatEnvironment === undefined)
   ) {
     const lockedRow = (
       <span
@@ -98,15 +105,23 @@ export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvir
   return (
     <Select
       modal={false}
-      value={autoEnvironmentLabel ? AUTO_VALUE : environmentValue(environmentId)}
+      value={
+        boatSelected
+          ? BOAT_VALUE
+          : autoEnvironmentLabel
+            ? AUTO_VALUE
+            : environmentValue(environmentId)
+      }
       onValueChange={(value) => {
         if (value === ADD_MACHINE_VALUE) {
           onAddToMachine?.();
-        } else if (value === NEW_BOAT_MACHINE_VALUE) {
-          onNewBoatMachine?.();
+        } else if (value === BOAT_VALUE) {
+          boatEnvironment?.onSelect();
         } else if (value === AUTO_VALUE) {
+          if (boatSelected) boatEnvironment?.onLeave();
           onAutoEnvironment?.();
         } else if (value?.startsWith("env:")) {
+          if (boatSelected) boatEnvironment?.onLeave();
           onEnvironmentChange?.(value.slice(4) as EnvironmentId);
         }
       }}
@@ -124,7 +139,9 @@ export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvir
             />
           }
         >
-          {autoEnvironmentLabel ? (
+          {boatSelected ? (
+            <BoatIcon className="size-3 shrink-0" aria-hidden="true" />
+          ) : autoEnvironmentLabel ? (
             <ScaleIcon className="size-3 shrink-0" aria-hidden="true" />
           ) : (
             <EnvironmentMachineIcon
@@ -137,7 +154,9 @@ export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvir
           </ComposerContextLabel>
         </TooltipTrigger>
         <TooltipPopup>
-          {autoEnvironmentLabel ?? activeEnvironment?.label ?? "Run on"}
+          {boatSelected
+            ? BOAT_LABEL
+            : (autoEnvironmentLabel ?? activeEnvironment?.label ?? "Run on")}
           {shortcutLabel ? ` · ${shortcutLabel}` : null}
         </TooltipPopup>
       </Tooltip>
@@ -169,19 +188,19 @@ export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvir
               </span>
             </SelectItem>
           ))}
+          {boatEnvironment ? (
+            <SelectItem value={BOAT_VALUE} disabled={envLocked}>
+              <span className="inline-flex items-center gap-1.5">
+                <BoatIcon className="size-3" aria-hidden="true" />
+                {BOAT_LABEL}
+              </span>
+            </SelectItem>
+          ) : null}
           {onAddToMachine ? (
             <SelectItem value={ADD_MACHINE_VALUE}>
               <span className={ADD_TO_MACHINE_LABEL_CLASS}>
                 <PlusIcon aria-hidden="true" className="size-3" />
                 Add to another machine
-              </span>
-            </SelectItem>
-          ) : null}
-          {onNewBoatMachine ? (
-            <SelectItem value={NEW_BOAT_MACHINE_VALUE}>
-              <span className={ADD_TO_MACHINE_LABEL_CLASS}>
-                <PlusIcon aria-hidden="true" className="size-3" />
-                New Boat machine
               </span>
             </SelectItem>
           ) : null}

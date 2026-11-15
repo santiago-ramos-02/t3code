@@ -12,6 +12,7 @@ const STEP_LABELS: Record<MachineStartStep, string> = {
   starting: "Starting machine",
   installing: "Installing T3 Code",
   "signing-in": "Signing in to GitHub",
+  cloning: "Clone repository",
   connecting: "Connecting",
 };
 

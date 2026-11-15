@@ -143,7 +143,8 @@ import {
 } from "./SavedEnvironmentRows";
 import { AddEnvironmentDialog } from "./AddEnvironmentDialog";
 import { BoatEnvironmentRows } from "./BoatSettings";
-import { boatMachineAt, useBoat } from "../../hooks/useBoat";
+import { boatMachineAt } from "@t3tools/client-runtime/boat";
+import { useBoat } from "../../hooks/useBoat";
 import {
   type ConnectDeviceRevokeRequest,
   RevokeConnectDeviceDialog,

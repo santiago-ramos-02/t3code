@@ -19,9 +19,13 @@ import { flushSync } from "react-dom";
 
 import { useComposerDraftStore, type DraftId } from "../composerDraftStore";
 import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
+import { BoatIcon } from "./Icons";
 import { useProject, useThreadShellsForProjectRefs } from "../state/entities";
 import {
   ADD_TO_MACHINE_LABEL_CLASS,
+  BOAT_LABEL,
+  BOAT_VALUE,
+  type BoatEnvironmentOption,
   type EnvMode,
   type EnvironmentOption,
   resolveContextStripLabelsCompact,
@@ -37,9 +41,9 @@ import {
   type BranchToolbarBranchSelectorHandle,
 } from "./BranchToolbarBranchSelector";
 import { BranchToolbarEnvironmentSelector } from "./BranchToolbarEnvironmentSelector";
-import { BOAT_TARGET, openAddProjectToMachine } from "./AddProjectToMachineDialog";
+import { openAddProjectToMachine } from "./AddProjectToMachineDialog";
 import { type AddProjectTarget, useAddProjectTargets } from "../hooks/useAddProjectTargets";
-import { useBoatHostFor, useBoatMachineOf } from "../hooks/useBoat";
+import { useBoatMachineOf } from "../hooks/useBoat";
 import { BoatMachineMenuSection } from "./BoatMachineMenuSection";
 import { BranchToolbarEnvModeSelector } from "./BranchToolbarEnvModeSelector";
 import { PreviousWorktreeItemContent } from "./PreviousWorktreeItemContent";
@@ -96,6 +100,7 @@ interface BranchToolbarProps {
   onStartFromOriginChange: (startFromOrigin: boolean) => void;
   autoEnvironmentLabel?: string | undefined;
   onAutoEnvironment?: (() => void) | undefined;
+  boatEnvironment?: BoatEnvironmentOption | undefined;
   envLocked: boolean;
   onCheckoutPullRequestRequest?: (reference: string) => void;
   onComposerFocusRequest?: () => void;
@@ -139,6 +144,7 @@ interface RunContextSelectorProps {
   forceNewWorktree: boolean;
   autoEnvironmentLabel?: string | undefined;
   onAutoEnvironment?: (() => void) | undefined;
+  boatEnvironment?: BoatEnvironmentOption | undefined;
   envLocked: boolean;
   envModeLocked: boolean;
   environmentId: EnvironmentId;
@@ -154,7 +160,6 @@ interface RunContextSelectorProps {
   onUsePreviousWorktree: () => void;
   addTargets: readonly AddProjectTarget[];
   onAddToMachine: (environmentId: EnvironmentId) => void;
-  onNewBoatMachine: (() => void) | undefined;
 }
 
 const RunContextSelector = memo(function RunContextSelector({
@@ -163,6 +168,7 @@ const RunContextSelector = memo(function RunContextSelector({
   forceNewWorktree,
   autoEnvironmentLabel,
   onAutoEnvironment,
+  boatEnvironment,
   envLocked,
   envModeLocked,
   environmentId,
@@ -178,12 +184,15 @@ const RunContextSelector = memo(function RunContextSelector({
   onUsePreviousWorktree,
   addTargets,
   onAddToMachine,
-  onNewBoatMachine,
 }: RunContextSelectorProps) {
-  const canAddToMachine = addTargets.length > 0 || onNewBoatMachine !== undefined;
+  const canAddToMachine = addTargets.length > 0;
+  const boatSelected = boatEnvironment?.selected === true;
   const composerFloatingLayerProps = useComposerMenuProps();
   const activeEnvironment =
     availableEnvironments?.find((env) => env.environmentId === environmentId) ?? null;
+  const machineLabel = boatSelected
+    ? BOAT_LABEL
+    : (autoEnvironmentLabel ?? activeEnvironment?.label);
   const WorkspaceIcon =
     effectiveEnvMode === "worktree"
       ? FolderGit2Icon
@@ -230,7 +239,12 @@ const RunContextSelector = memo(function RunContextSelector({
   const environmentIcon = (
     <Tooltip>
       <TooltipTrigger render={<span className="inline-flex shrink-0" />}>
-        {autoEnvironmentLabel ? (
+        {boatSelected ? (
+          <BoatIcon
+            className={isPanel ? THREAD_DETAILS_PANEL_ICON_CLASS : "size-3 shrink-0"}
+            aria-hidden="true"
+          />
+        ) : autoEnvironmentLabel ? (
           <ScaleIcon
             className={isPanel ? THREAD_DETAILS_PANEL_ICON_CLASS : "size-3 shrink-0"}
             aria-hidden="true"
@@ -245,7 +259,7 @@ const RunContextSelector = memo(function RunContextSelector({
           />
         )}
       </TooltipTrigger>
-      <TooltipPopup>{autoEnvironmentLabel ?? activeEnvironment?.label ?? "Run on"}</TooltipPopup>
+      <TooltipPopup>{machineLabel ?? "Run on"}</TooltipPopup>
     </Tooltip>
   );
   const icon = showEnvironmentIndicator ? environmentIcon : workspaceIcon;
@@ -253,8 +267,10 @@ const RunContextSelector = memo(function RunContextSelector({
     <>
       {icon}
       <ComposerContextLabel displayMode={displayMode}>
-        {autoEnvironmentLabel ??
-          (showEnvironmentIndicator ? (activeEnvironment?.label ?? "Run on") : workspaceLabel)}
+        {boatSelected
+          ? BOAT_LABEL
+          : (autoEnvironmentLabel ??
+            (showEnvironmentIndicator ? (activeEnvironment?.label ?? "Run on") : workspaceLabel))}
       </ComposerContextLabel>
       {/* Trailing in the panel, so every row label starts on the same edge. */}
       {isPanel && showEnvironmentIndicator ? workspaceIcon : null}
@@ -296,7 +312,7 @@ const RunContextSelector = memo(function RunContextSelector({
         onContextMenu={handleContextMenu}
         aria-label={
           isPanel
-            ? `Run context: ${[autoEnvironmentLabel ?? activeEnvironment?.label, workspaceLabel].filter(Boolean).join(", ")}`
+            ? `Run context: ${[machineLabel, workspaceLabel].filter(Boolean).join(", ")}`
             : undefined
         }
         data-composer-context-control
@@ -321,7 +337,7 @@ const RunContextSelector = memo(function RunContextSelector({
         }
         aria-label={
           isPanel
-            ? `Run context: ${[autoEnvironmentLabel ?? activeEnvironment?.label, workspaceLabel].filter(Boolean).join(", ")}`
+            ? `Run context: ${[machineLabel, workspaceLabel].filter(Boolean).join(", ")}`
             : undefined
         }
         data-composer-context-control
@@ -345,17 +361,20 @@ const RunContextSelector = memo(function RunContextSelector({
         {...(!isPanel ? composerFloatingLayerProps : {})}
       >
         {availableEnvironments &&
-        ((showEnvironmentPicker && onEnvironmentChange) || canAddToMachine) ? (
+        ((showEnvironmentPicker && onEnvironmentChange) ||
+          canAddToMachine ||
+          boatEnvironment !== undefined) ? (
           <>
             <MenuGroup>
               <MenuGroupLabel>Run on</MenuGroupLabel>
               <MenuRadioGroup
-                value={autoEnvironmentLabel ? "auto" : environmentId}
-                onValueChange={(value) =>
-                  value === "auto"
-                    ? onAutoEnvironment?.()
-                    : onEnvironmentChange?.(value as EnvironmentId)
-                }
+                value={boatSelected ? BOAT_VALUE : autoEnvironmentLabel ? "auto" : environmentId}
+                onValueChange={(value) => {
+                  if (value === BOAT_VALUE) return boatEnvironment?.onSelect();
+                  if (boatSelected) boatEnvironment?.onLeave();
+                  if (value === "auto") onAutoEnvironment?.();
+                  else onEnvironmentChange?.(value as EnvironmentId);
+                }}
               >
                 {onAutoEnvironment && (
                   <MenuRadioItem
@@ -389,6 +408,14 @@ const RunContextSelector = memo(function RunContextSelector({
                     </span>
                   </MenuRadioItem>
                 ))}
+                {boatEnvironment ? (
+                  <MenuRadioItem value={BOAT_VALUE} disabled={envLocked} closeOnClick>
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      <BoatIcon className="size-3 shrink-0" aria-hidden="true" />
+                      <span className="min-w-0 truncate">{BOAT_LABEL}</span>
+                    </span>
+                  </MenuRadioItem>
+                ) : null}
               </MenuRadioGroup>
               {canAddToMachine ? (
                 <MenuSub>
@@ -410,14 +437,6 @@ const RunContextSelector = memo(function RunContextSelector({
                         </span>
                       </MenuItem>
                     ))}
-                    {onNewBoatMachine ? (
-                      <MenuItem onClick={onNewBoatMachine}>
-                        <span className="flex min-w-0 items-center gap-1.5">
-                          <EnvironmentMachineIcon kind="cloud" className="size-3" />
-                          <span className="min-w-0 truncate">New Boat machine</span>
-                        </span>
-                      </MenuItem>
-                    ) : null}
                   </MenuSubPopup>
                 </MenuSub>
               ) : null}
@@ -635,7 +654,7 @@ function useLabelsOverflow(): readonly [
 export const BranchToolbar = memo(function BranchToolbar({
   layout = "composer",
   panelSection = "all",
-  forceNewWorktree = false,
+  forceNewWorktree: forceNewWorktreeProp = false,
   ref,
   environmentId,
   threadId,
@@ -652,6 +671,7 @@ export const BranchToolbar = memo(function BranchToolbar({
   onStartFromOriginChange,
   autoEnvironmentLabel,
   onAutoEnvironment,
+  boatEnvironment,
   envLocked,
   onCheckoutPullRequestRequest,
   onComposerFocusRequest,
@@ -665,6 +685,8 @@ export const BranchToolbar = memo(function BranchToolbar({
   // The composer retains resolved thread details while bootstrap cleanup can remove its shell.
   const activeProjectRef = scopeProjectRef(environmentId, projectId);
   const activeProject = useProject(activeProjectRef);
+  // A Boat thread always starts in a new worktree on its machine; only the base branch is a choice.
+  const forceNewWorktree = forceNewWorktreeProp || boatEnvironment?.selected === true;
   const activeWorktreePath = forceNewWorktree ? null : worktreePath;
   const effectiveEnvMode = forceNewWorktree ? "worktree" : envMode;
   const envModeLocked = envLocked || (isServerThread && activeWorktreePath !== null);
@@ -713,19 +735,11 @@ export const BranchToolbar = memo(function BranchToolbar({
   const addTargets = useAddProjectTargets(activeProject, availableEnvironments);
   const onAddToMachine = (targetEnvironmentId: EnvironmentId | null) =>
     openAddProjectToMachine({ projectRef: activeProjectRef, targetEnvironmentId });
-  const onNewBoatMachine =
-    useBoatHostFor(activeProject) !== null
-      ? () =>
-          openAddProjectToMachine({
-            projectRef: activeProjectRef,
-            targetEnvironmentId: BOAT_TARGET,
-          })
-      : undefined;
-  // A project on one machine still gets the picker when it can be added to another.
+  // A project on one machine still gets the picker when it can be added to another or run on Boat.
   const hasMultipleEnvironments =
     (availableEnvironments?.length ?? 0) > 1 ||
     addTargets.length > 0 ||
-    onNewBoatMachine !== undefined;
+    boatEnvironment !== undefined;
   const showEnvironmentPicker = hasMultipleEnvironments && onEnvironmentChange !== undefined;
   const activeEnvironmentOption =
     availableEnvironments?.find((env) => env.environmentId === environmentId) ?? null;
@@ -749,6 +763,7 @@ export const BranchToolbar = memo(function BranchToolbar({
             forceNewWorktree={forceNewWorktree}
             autoEnvironmentLabel={autoEnvironmentLabel}
             onAutoEnvironment={onAutoEnvironment}
+            boatEnvironment={boatEnvironment}
             envLocked={envLocked}
             envModeLocked={envModeLocked}
             environmentId={environmentId}
@@ -764,7 +779,6 @@ export const BranchToolbar = memo(function BranchToolbar({
             onUsePreviousWorktree={onUsePreviousWorktree}
             addTargets={addTargets}
             onAddToMachine={onAddToMachine}
-            onNewBoatMachine={onNewBoatMachine}
           />
         ) : null}
         {panelSection !== "workspace" ? (
@@ -800,6 +814,7 @@ export const BranchToolbar = memo(function BranchToolbar({
             forceNewWorktree={forceNewWorktree}
             autoEnvironmentLabel={autoEnvironmentLabel}
             onAutoEnvironment={onAutoEnvironment}
+            boatEnvironment={boatEnvironment}
             envLocked={envLocked}
             envModeLocked={envModeLocked}
             environmentId={environmentId}
@@ -815,7 +830,6 @@ export const BranchToolbar = memo(function BranchToolbar({
             onUsePreviousWorktree={onUsePreviousWorktree}
             addTargets={addTargets}
             onAddToMachine={onAddToMachine}
-            onNewBoatMachine={onNewBoatMachine}
           />
         </div>
       ) : null}
@@ -832,12 +846,12 @@ export const BranchToolbar = memo(function BranchToolbar({
               <BranchToolbarEnvironmentSelector
                 autoEnvironmentLabel={autoEnvironmentLabel}
                 onAutoEnvironment={onAutoEnvironment}
+                boatEnvironment={boatEnvironment}
                 envLocked={envLocked}
                 environmentId={environmentId}
                 availableEnvironments={availableEnvironments}
                 {...(showEnvironmentPicker ? { onEnvironmentChange } : {})}
                 {...(addTargets.length > 0 ? { onAddToMachine: () => onAddToMachine(null) } : {})}
-                {...(onNewBoatMachine ? { onNewBoatMachine } : {})}
               />
               {showGitControls ? (
                 <Separator

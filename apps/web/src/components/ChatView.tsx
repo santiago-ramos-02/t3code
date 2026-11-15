@@ -22,6 +22,7 @@ import { usePullRequestLinking } from "../hooks/usePullRequestLinking";
 import { useComposerSelection } from "./chat/useComposerSelection";
 import { useComposerFocus } from "./chat/useComposerFocus";
 import { useProjectCloneBanner } from "./chat/useProjectCloneBanner";
+import { useBoatDraftStartBanner } from "./chat/useBoatDraftStartBanner";
 import { useAttachmentPreviewHandoff } from "./chat/useAttachmentPreviewHandoff";
 import {
   applyOptimisticUserMessagesAction,
@@ -43,7 +44,8 @@ import { isThreadEnvironmentLocked, resolveDraftHeroState } from "./ChatView.log
 import { useQueuedRunEdit } from "./chat/useQueuedRunEdit";
 import { recallCheckoutIsRepo, rememberCheckoutIsRepo } from "./ChatView.logic";
 import { useLogicalProjectEnvironments } from "../hooks/useLogicalProjectEnvironments";
-import { useBoatMachineWake } from "../hooks/useBoat";
+import { boatReadyProviders } from "@t3tools/client-runtime/boat";
+import { useBoat, useBoatMachineWake } from "../hooks/useBoat";
 import { useStableCallback } from "../hooks/useStableCallback";
 import { useProjectScriptEditing } from "./chat/useProjectScriptEditing";
 import { RightPanelSurfaceContent } from "./chat/RightPanelSurfaceContent";
@@ -455,7 +457,6 @@ export default function ChatView(props: ChatViewProps) {
     embedded: parentPanel,
   } = props;
   const embedded = parentPanel !== undefined;
-  const canOperateThread = useEnvironmentScope(environmentId, AuthOrchestrationOperateScope);
   const canOperateTerminal = useEnvironmentScope(environmentId, AuthTerminalOperateScope);
   const draftId = routeKind === "draft" ? props.draftId : null;
   const handleNewThread = useNewThreadHandler();
@@ -1240,7 +1241,13 @@ export default function ChatView(props: ChatViewProps) {
   const activeEnvironmentUnavailable =
     activeEnvironment !== null && activeEnvironment.connection.phase !== "connected";
   const activeEnvironmentUnavailableLabel = activeEnvironment?.label ?? null;
-  const boatWake = useBoatMachineWake(activeEnvironment, activeThreadKey);
+  const boatWake = useBoatMachineWake(activeEnvironment);
+  // A sleeping Boat machine has no session to read grants from. The send wakes it, and its server checks.
+  const environmentAllowsOperate = useEnvironmentScope(
+    environmentId,
+    AuthOrchestrationOperateScope,
+  );
+  const canOperateThread = environmentAllowsOperate || boatWake !== null;
   const activeEnvironmentUnavailableState = (() => {
     if (!activeEnvironmentUnavailable || !activeEnvironmentUnavailableLabel || !activeEnvironment) {
       return null;
@@ -1302,12 +1309,19 @@ export default function ChatView(props: ChatViewProps) {
         worktreePath: activeThread?.worktreePath ?? null,
       })
     : null;
-  const providerStatuses = resolveProvidersForCwd(
+  const environmentProviders = resolveProvidersForCwd(
     (providerEnvironmentId === undefined
       ? undefined
       : providersByEnvironment.get(providerEnvironmentId)) ?? EMPTY_PROVIDERS,
     gitCwd,
   );
+  const { status: boatStatus } = useBoat();
+  const boatDraft = draftThread?.environmentSelection === "boat" && !draftThread.promotedTo;
+  // A Boat draft runs on a machine the host picks, which can only use the providers ready on Boat.
+  const boatProviders = boatDraft ? boatReadyProviders(boatStatus) : null;
+  const providerStatuses = boatProviders
+    ? environmentProviders.filter((provider) => boatProviders.has(provider.driver))
+    : environmentProviders;
   const composerModelSelectionApplies = draftModelSelectionApplies(
     { modelSelectionExplicit: composerModelSelectionExplicit },
     threadHasStarted(activeThread),
@@ -1360,6 +1374,7 @@ export default function ChatView(props: ChatViewProps) {
     canAutoBalanceEnvironments &&
     loadBalancingSettings.loadBalancingEnabled &&
     draftThread?.environmentSelection !== "manual" &&
+    draftThread?.environmentSelection !== "boat" &&
     (!composerHasAttachments || Boolean(draftThread?.loadBalancedEnvironmentId)) &&
     (!draftThread?.branch || draftThread.environmentSelection === "auto") &&
     !draftThread?.worktreePath,
@@ -1875,8 +1890,10 @@ export default function ChatView(props: ChatViewProps) {
     needsLoadBalancing,
     loadBalancing,
     refreshBeforeSend,
+    onRoutedSendDispatched,
     onAutoEnvironmentStable,
     autoEnvironmentLabel,
+    boatEnvironment,
     isEnvironmentChanging,
     readPendingEnvironmentChange,
     onEnvironmentChangeStable,
@@ -2661,7 +2678,7 @@ export default function ChatView(props: ChatViewProps) {
           },
         })
       : null;
-  const composerBannerItems = (() => {
+  const systemAndSendBannerItems = (() => {
     const fallbackSelection = draftFallback?.selection;
     const defaultSelection =
       draftDefaultModelSelection ??
@@ -3029,6 +3046,7 @@ export default function ChatView(props: ChatViewProps) {
     needsLoadBalancing,
     loadBalancing,
     refreshBeforeSend,
+    onRoutedSendDispatched,
     readPendingEnvironmentChange,
     pendingApprovals,
     respondingRequestIds,
@@ -3068,6 +3086,27 @@ export default function ChatView(props: ChatViewProps) {
   };
   const onWorktreeSetupWorkLocallyStable = useStableCallback(onWorktreeSetupWorkLocally);
   const onComposerSendStable = useStableCallback(onSend);
+  const retryBoatDraftStart = () => {
+    // The message stays in the composer after a failed start; send it again once there is one.
+    const sendContext = composerRef.current?.getSendContext();
+    const hasMessage =
+      sendContext !== undefined &&
+      (sendContext.prompt.trim() !== "" ||
+        sendContext.images.length > 0 ||
+        sendContext.files.length > 0 ||
+        sendContext.terminalContexts.length > 0);
+    if (hasMessage) void onSend(undefined, "auto", "foreground");
+  };
+  const retryBoatDraftStartStable = useStableCallback(retryBoatDraftStart);
+  const boatDraftStartBannerItem = useBoatDraftStartBanner({
+    draftId,
+    draftThread,
+    onRetry: retryBoatDraftStartStable,
+  });
+  const composerBannerItems =
+    boatDraftStartBannerItem === null
+      ? systemAndSendBannerItems
+      : [boatDraftStartBannerItem, ...systemAndSendBannerItems];
   const sendPreviewAnnotation = (
     annotation: PreviewAnnotationPayload,
     image: ComposerImageAttachment | null,
@@ -3880,6 +3919,7 @@ export default function ChatView(props: ChatViewProps) {
                                     ? { onEnvironmentChange: onEnvironmentChangeStable }
                                     : {})}
                                   autoEnvironmentLabel={autoEnvironmentLabel}
+                                  boatEnvironment={boatEnvironment}
                                   onAutoEnvironment={
                                     draftId &&
                                     !envLocked &&
@@ -3979,6 +4019,7 @@ export default function ChatView(props: ChatViewProps) {
                   envLocked={envLocked}
                   availableEnvironments={logicalProjectEnvironments}
                   autoEnvironmentLabel={autoEnvironmentLabel}
+                  boatEnvironment={boatEnvironment}
                   onAutoEnvironment={
                     draftId &&
                     !envLocked &&

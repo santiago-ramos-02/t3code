@@ -8,7 +8,7 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import { CirclePauseIcon, WifiOffIcon } from "lucide-react";
+import { MoonIcon, WifiOffIcon } from "lucide-react";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { environmentCatalog } from "../../connection/catalog";
 import { ConnectionDiagnosisHeadline } from "../settings/ConnectionDiagnosisDetails";
@@ -43,7 +43,7 @@ export type EnvironmentUnavailableState = {
 
 interface SystemComposerBannersInput {
   readonly activeEnvironment: EnvironmentPresentation | null;
-  // Set while the active thread's Boat machine is stopped.
+  // Set while the active thread's Boat machine is asleep.
   readonly boatWake: BoatMachineWake | null;
   readonly activeEnvironmentUnavailable: boolean;
   readonly activeEnvironmentUnavailableState: EnvironmentUnavailableState | null;
@@ -195,12 +195,12 @@ export function useSystemComposerBanners(input: SystemComposerBannersInput) {
       items.push({
         id: `boat-machine-stopped:${boatWake.machine.sandboxId}`,
         variant: boatWake.error ? "error" : "default",
-        icon: <CirclePauseIcon />,
-        title: boatWake.waking ? `Resuming ${label}` : `${label} is stopped`,
+        icon: <MoonIcon />,
+        title: boatWake.waking ? `Waking ${label}` : `${label} is sleeping`,
         description:
           boatWake.error ??
           boatWake.machine.notice ??
-          (boatWake.waking ? undefined : "Not billed while stopped. Sending a message resumes it."),
+          (boatWake.waking ? undefined : "Send a message to wake it."),
         actions: boatWake.waking ? undefined : (
           <Button size="xs" variant="ghost" onClick={() => void boatWake.wake()}>
             Resume

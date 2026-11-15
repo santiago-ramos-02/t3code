@@ -143,11 +143,15 @@ import {
   useDelegatedUnderParent,
   useHiddenThreadKeys,
   useEnvironmentThreadRefs,
+  useProject,
   useProjects,
   useServerConfigs,
   useVisibleThreadShells,
   waitForProject,
 } from "../state/entities";
+import { useBoatHostFor } from "../hooks/useBoat";
+import { useComposerDraftStore } from "../composerDraftStore";
+import { BoatIcon } from "./Icons";
 import { isShownUnderParent, visibleLinkedThreads } from "@t3tools/client-runtime/state/threads";
 import {
   resolveThreadActionProjectRef,
@@ -564,6 +568,7 @@ function OpenCommandPaletteDialog(props: {
     defaultProjectRef,
     handleNewThread,
   });
+  const boatHost = useBoatHostFor(useProject(contextualProjectRef));
   const projectPickerEntries = buildSidebarProjectPickerEntries({
     groups: pickableProjectGroups(projectGroups),
     preferredProjectRef: contextualProjectRef,
@@ -1329,6 +1334,29 @@ function OpenCommandPaletteDialog(props: {
             activeThread: activeThread ?? undefined,
             defaultProjectRef,
             handleNewThread,
+          });
+        },
+      });
+    }
+
+    if (activeProjectTitle && contextualProjectRef && boatHost !== null) {
+      actionItems.push({
+        kind: "action",
+        value: "action:new-boat-thread",
+        searchTerms: ["boat", "machine", "remote", "new thread"],
+        title: "New Boat thread",
+        icon: <BoatIcon className={ITEM_ICON_CLASS} />,
+        run: async () => {
+          const opened = await handleNewThread(contextualProjectRef, {
+            envMode: "worktree",
+            worktreePath: null,
+          });
+          if (!opened) return;
+          useComposerDraftStore.getState().setDraftThreadContext(opened.draftId, {
+            environmentSelection: "boat",
+            loadBalancedEnvironmentId: null,
+            envMode: "worktree",
+            worktreePath: null,
           });
         },
       });

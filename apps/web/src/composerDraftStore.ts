@@ -404,12 +404,17 @@ type LegacyPersistedComposerDraftStoreState = PersistedComposerDraftStoreState &
   LegacyStickyModelFields &
   LegacyV2StoreFields;
 
+/** "boat" runs the draft on a Boat machine, which the host picks and opens when it first sends. */
+const DRAFT_ENVIRONMENT_SELECTIONS = ["auto", "manual", "boat"] as const;
+export type DraftEnvironmentSelection = (typeof DRAFT_ENVIRONMENT_SELECTIONS)[number];
+const isDraftEnvironmentSelection = Schema.is(Schema.Literals(DRAFT_ENVIRONMENT_SELECTIONS));
+
 const PersistedDraftThreadState = Schema.Struct({
   threadId: ThreadId,
   environmentId: Schema.String,
   projectId: ProjectId,
   logicalProjectKey: Schema.optionalKey(Schema.String),
-  environmentSelection: Schema.optionalKey(Schema.Literals(["auto", "manual"])),
+  environmentSelection: Schema.optionalKey(Schema.Literals(DRAFT_ENVIRONMENT_SELECTIONS)),
   loadBalancedEnvironmentId: Schema.optionalKey(Schema.NullOr(Schema.String)),
   createdAt: Schema.String,
   runtimeMode: RuntimeMode,
@@ -508,7 +513,7 @@ export interface DraftSessionState {
   environmentId: EnvironmentId;
   projectId: ProjectId;
   logicalProjectKey: string;
-  environmentSelection?: "auto" | "manual";
+  environmentSelection?: DraftEnvironmentSelection;
   loadBalancedEnvironmentId?: EnvironmentId | null;
   createdAt: string;
   runtimeMode: RuntimeMode;
@@ -589,7 +594,7 @@ interface ComposerDraftStoreState {
       startFromOrigin?: boolean;
       runtimeMode?: RuntimeMode;
       interactionMode?: ProviderInteractionMode;
-      environmentSelection?: "auto" | "manual";
+      environmentSelection?: DraftEnvironmentSelection;
       loadBalancedEnvironmentId?: EnvironmentId | null;
       checkoutPullRequest?: DraftCheckoutPullRequest | null;
     },
@@ -606,7 +611,7 @@ interface ComposerDraftStoreState {
       startFromOrigin?: boolean;
       runtimeMode?: RuntimeMode;
       interactionMode?: ProviderInteractionMode;
-      environmentSelection?: "auto" | "manual";
+      environmentSelection?: DraftEnvironmentSelection;
       loadBalancedEnvironmentId?: EnvironmentId | null;
       checkoutPullRequest?: DraftCheckoutPullRequest | null;
     },
@@ -622,7 +627,7 @@ interface ComposerDraftStoreState {
       startFromOrigin?: boolean;
       runtimeMode?: RuntimeMode;
       interactionMode?: ProviderInteractionMode;
-      environmentSelection?: "auto" | "manual";
+      environmentSelection?: DraftEnvironmentSelection;
       loadBalancedEnvironmentId?: EnvironmentId | null;
       checkoutPullRequest?: DraftCheckoutPullRequest | null;
     },
@@ -1695,7 +1700,7 @@ function createDraftThreadState(
     startFromOrigin?: boolean;
     runtimeMode?: RuntimeMode;
     interactionMode?: ProviderInteractionMode;
-    environmentSelection?: "auto" | "manual";
+    environmentSelection?: DraftEnvironmentSelection;
     loadBalancedEnvironmentId?: EnvironmentId | null;
     checkoutPullRequest?: DraftCheckoutPullRequest | null;
   },
@@ -1966,8 +1971,7 @@ function normalizePersistedDraftThreads(
         worktreePath: normalizedWorktreePath,
         envMode: normalizeDraftThreadEnvMode(candidateDraftThread.envMode, normalizedWorktreePath),
         startFromOrigin,
-        ...(candidateDraftThread.environmentSelection === "manual" ||
-        candidateDraftThread.environmentSelection === "auto"
+        ...(isDraftEnvironmentSelection(candidateDraftThread.environmentSelection)
           ? { environmentSelection: candidateDraftThread.environmentSelection }
           : {}),
         ...(typeof candidateDraftThread.loadBalancedEnvironmentId === "string" &&
@@ -3013,7 +3017,9 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
                 : options.startFromOrigin;
             const environmentSelection =
               options.environmentSelection ??
-              (options.branch != null || options.worktreePath != null
+              // A Boat draft's base branch is a choice within Boat, not a move to this machine.
+              ((options.branch != null || options.worktreePath != null) &&
+              existing.environmentSelection !== "boat"
                 ? "manual"
                 : existing.environmentSelection);
             const checkoutPullRequest = resolveCheckoutPullRequest(

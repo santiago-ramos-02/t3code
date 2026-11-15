@@ -22,6 +22,18 @@ export interface EnvironmentOption {
 }
 
 /** "Add to another machine" stays muted until hovered: easy to find, quieter than the machines. */
+/** Boat in the Run on menu: the host picks a machine for the draft when it first sends. */
+export interface BoatEnvironmentOption {
+  readonly selected: boolean;
+  readonly onSelect: () => void;
+  /** Back to a machine of the user's own. */
+  readonly onLeave: () => void;
+}
+
+export const BOAT_LABEL = "Boat";
+/** The Run on menu value of Boat, which cannot collide with a server-minted environment id. */
+export const BOAT_VALUE = "boat:draft";
+
 export const ADD_TO_MACHINE_LABEL_CLASS =
   "flex min-w-0 items-center gap-1.5 opacity-55 in-data-highlighted:opacity-100 in-data-popup-open:opacity-100";
 

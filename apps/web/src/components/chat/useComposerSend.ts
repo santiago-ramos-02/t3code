@@ -220,6 +220,7 @@ interface ComposerSendInput {
   readonly needsLoadBalancing: boolean;
   readonly loadBalancing: DraftEnvironmentRouting["loadBalancing"];
   readonly refreshBeforeSend: DraftEnvironmentRouting["refreshBeforeSend"];
+  readonly onRoutedSendDispatched: DraftEnvironmentRouting["onRoutedSendDispatched"];
   readonly readPendingEnvironmentChange: DraftEnvironmentRouting["readPendingEnvironmentChange"];
   readonly pendingApprovals: PendingThreadRequests["pendingApprovals"];
   readonly respondingRequestIds: PendingThreadRequests["respondingRequestIds"];
@@ -317,6 +318,7 @@ export function useComposerSend(input: ComposerSendInput) {
     needsLoadBalancing,
     loadBalancing,
     refreshBeforeSend,
+    onRoutedSendDispatched,
     readPendingEnvironmentChange,
     pendingApprovals,
     respondingRequestIds,
@@ -1570,7 +1572,9 @@ export function useComposerSend(input: ComposerSendInput) {
     const ready = await refresh.finally(() => {
       sendInFlightRef.current = false;
     });
-    if (ready) return onSendLatest(...args);
+    if (!ready) return;
+    await onSendLatest(...args);
+    onRoutedSendDispatched();
   };
   return { onSend: onSendWithRouting };
 }

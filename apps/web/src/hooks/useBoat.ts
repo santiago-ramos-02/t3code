@@ -1,3 +1,4 @@
+import { boatMachineAt } from "@t3tools/client-runtime/boat";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import {
   AuthOrchestrationOperateScope,
@@ -6,7 +7,7 @@ import {
   type EnvironmentId,
 } from "@t3tools/contracts";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 
 import { wakeBoatMachine } from "../lib/boatMachine";
 import {
@@ -41,27 +42,9 @@ export function useBoatHostFor(project: EnvironmentProject | null): EnvironmentI
   const { hostEnvironmentId, status } = useBoat();
   const canStart = useEnvironmentScope(hostEnvironmentId, AuthOrchestrationOperateScope);
   // A machine starts empty, so the project has to be clonable.
-  if (!project?.repositoryIdentity?.locator.remoteUrl) return null;
+  const identity = project?.repositoryIdentity;
+  if (!(identity?.origin?.remoteUrl ?? identity?.locator.remoteUrl)) return null;
   return status?.configured === true && canStart ? hostEnvironmentId : null;
-}
-
-/** Whether a saved environment's address is this Boat machine's. */
-export function isBoatMachineAt(
-  machine: Pick<BoatMachine, "httpBaseUrl">,
-  httpBaseUrl: string | null,
-): boolean {
-  const origin = httpBaseUrl ? originOf(httpBaseUrl) : null;
-  return (
-    origin !== null && machine.httpBaseUrl !== null && originOf(machine.httpBaseUrl) === origin
-  );
-}
-
-/** The Boat machine a saved environment was paired to, matched by its address. */
-export function boatMachineAt(
-  status: BoatStatus | null,
-  httpBaseUrl: string | null,
-): BoatMachine | null {
-  return status?.machines.find((machine) => isBoatMachineAt(machine, httpBaseUrl)) ?? null;
 }
 
 /** The host's Boat machine an environment runs on, or null when it is not one. */
@@ -92,13 +75,12 @@ export type BoatMachineWake = {
 };
 
 /**
- * Opening a thread on a stopped Boat machine resumes it. A machine that stops while its thread
- * stays open is left stopped until the user resumes it or sends a message, so an open tab does
- * not undo the idle stop.
+ * A thread on a stopped Boat machine offers to wake it, and sending a message wakes it first.
+ * Opening the thread does not: a stopped machine is not billed, so looking at its thread must not
+ * undo the idle stop.
  */
 export function useBoatMachineWake(
   environment: EnvironmentPresentation | null,
-  threadKey: string | null,
 ): BoatMachineWake | null {
   const { hostEnvironmentId, machine } = useBoatMachineFor(environment);
   const [waking, setWaking] = useState(false);
@@ -120,21 +102,6 @@ export function useBoatMachineWake(
     setError(failure);
     return failure === null;
   });
-  const openedThreadKey = useRef<string | null>(null);
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- resumes the remote Boat machine once when its thread is opened
-  useEffect(() => {
-    if (threadKey === null || machine === null || openedThreadKey.current === threadKey) return;
-    openedThreadKey.current = threadKey;
-    if (machine.state === "stopped") void wake();
-  }, [machine, threadKey, wake]);
   // The host lists the machine as stopped until its resume finishes.
   return machine?.state === "stopped" ? { machine, waking, error, wake } : null;
-}
-
-function originOf(url: string): string | null {
-  try {
-    return new URL(url).origin;
-  } catch {
-    return null;
-  }
 }

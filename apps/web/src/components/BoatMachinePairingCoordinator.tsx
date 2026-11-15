@@ -1,7 +1,8 @@
 import { AuthOrchestrationOperateScope } from "@t3tools/contracts";
 import { useEffect, useRef } from "react";
 
-import { isBoatMachineAt, useBoat } from "../hooks/useBoat";
+import { isBoatMachineAt } from "@t3tools/client-runtime/boat";
+import { useBoat } from "../hooks/useBoat";
 import { pairBoatMachine } from "../lib/boatMachine";
 import { useEnvironments } from "../state/environments";
 import { useEnvironmentScope } from "../state/session";
