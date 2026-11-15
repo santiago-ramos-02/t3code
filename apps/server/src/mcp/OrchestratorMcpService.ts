@@ -379,6 +379,26 @@ function listCapabilityModels(input: {
   return { listed, omitted: visible.length - listed.length };
 }
 
+/** Names advertised slugs to retry with: same last `/` segment first, else a short list. */
+function advertisedModelsHint(models: ReadonlyArray<ServerProviderModel>, requested: string) {
+  const lastSegment = (slug: string) => slug.slice(slug.lastIndexOf("/") + 1).toLowerCase();
+  const wanted = lastSegment(requested);
+  const close = models.filter((model) => lastSegment(model.slug) === wanted);
+  if (close.length > 0) {
+    return `Did you mean ${close
+      .slice(0, LISTED_MODEL_LIMIT)
+      .map((model) => model.slug)
+      .join(", ")}?`;
+  }
+  const listed = models
+    .toSorted((a, b) => Number(a.isLegacy ?? false) - Number(b.isLegacy ?? false))
+    .slice(0, LISTED_MODEL_LIMIT);
+  const omitted = models.length - listed.length;
+  return `Advertised models: ${listed.map((model) => model.slug).join(", ")}${
+    omitted > 0 ? ` and ${omitted} more; orchestrator_capabilities with search finds them` : ""
+  }.`;
+}
+
 /** Option ids and allowed values are all a delegating agent needs; labels are UI copy. */
 function capabilityModelOption(descriptor: ProviderOptionDescriptor): OrchestratorMcpModelOption {
   const defaultValue = getProviderOptionCurrentValue(descriptor);
@@ -402,7 +422,7 @@ export const requireAdvertisedModel = (provider: ServerProvider, model: string) 
     ? Effect.fail(
         failure(
           "model_unavailable",
-          `Model ${model} is not advertised by provider ${provider.instanceId}.`,
+          `Model ${model} is not advertised by provider ${provider.instanceId}. ${advertisedModelsHint(provider.models, model)}`,
         ),
       )
     : Effect.void;
@@ -1444,13 +1464,19 @@ const make = Effect.gen(function* () {
         : Effect.fail(failure("target_required", missingMessage));
 
   const loadTargetThread = Effect.fn("OrchestratorMcpService.loadTargetThread")(function* (
+    scope: McpInvocationScope,
     threadId: ThreadId,
   ) {
     const shell = yield* threadManagement
       .getThreadShell(threadId)
       .pipe(Effect.mapError(threadManagementFailure));
     if (shell === null || shell.deletedAt !== null) {
-      return yield* threadNotFound(threadManagement, threadId, `Thread ${threadId} was not found.`);
+      return yield* threadNotFound(
+        threadManagement,
+        scope,
+        threadId,
+        `Thread ${threadId} was not found.`,
+      );
     }
     // Keeps legacy import and project validation; callers read only the thread row.
     return yield* threadManagement
@@ -1466,7 +1492,7 @@ const make = Effect.gen(function* () {
     const target: Pick<OrchestrationV2ThreadProjection, "thread"> =
       caller.parent !== undefined && threadId === caller.parent.thread.id
         ? caller.parent
-        : yield* loadTargetThread(threadId);
+        : yield* loadTargetThread(scope, threadId);
     return { ...caller, target } as const;
   });
 
@@ -1527,6 +1553,7 @@ const make = Effect.gen(function* () {
     if (shell === null || shell.deletedAt !== null) {
       return yield* threadNotFound(
         threadManagement,
+        scope,
         threadId,
         `Thread ${threadId} is no longer available.`,
       );
