@@ -1,5 +1,4 @@
 import type { EnvironmentConnectionPhase } from "@t3tools/client-runtime/connection";
-import type { EnvironmentId } from "@t3tools/contracts";
 
 import type { BoatSleep } from "../boat/boat-draft";
 
@@ -11,27 +10,11 @@ export interface FloatingStatusAction {
 }
 
 export type FloatingWorkingStatus =
-  | { readonly kind: "working"; readonly environmentId: EnvironmentId; readonly startedAt: string }
-  | { readonly kind: "compacting" }
   | {
       readonly kind: "child-input";
       readonly label: string;
       readonly accessibilityLabel: string;
       readonly onPress: () => void;
-    }
-  | {
-      readonly kind: "background";
-      readonly label: string;
-      readonly accessibilityLabel: string;
-      readonly waiting: boolean;
-      readonly onPress: () => void;
-      readonly action: FloatingStatusAction;
-    }
-  | {
-      readonly kind: "lifecycle";
-      readonly state: "snoozed" | "settled" | "woke";
-      readonly label: string;
-      readonly action: FloatingStatusAction;
     }
   | {
       readonly kind: "stop";
@@ -49,10 +32,24 @@ export type FloatingWorkingStatus =
       readonly onPress: () => void;
     };
 
-export function connectionFloatingStatus(input: {
+/** A connection still retrying on its own; short enough for the thread header subtitle. */
+export function connectionRetryLabel(input: {
   readonly connectionError: string | null;
   readonly connectionState: EnvironmentConnectionPhase;
   readonly connectionAwaitingApproval?: boolean;
+}): string | null {
+  if (input.connectionState === "reconnecting" && input.connectionAwaitingApproval) {
+    return "Awaiting device approval";
+  }
+  if (input.connectionState !== "connecting" && input.connectionState !== "reconnecting") {
+    return null;
+  }
+  return input.connectionError === null ? "Reconnecting…" : "Retrying connection…";
+}
+
+export function connectionFloatingStatus(input: {
+  readonly connectionError: string | null;
+  readonly connectionState: EnvironmentConnectionPhase;
   readonly environmentLabel: string | null;
   readonly onReconnect: () => void;
   /** Set while the thread's Boat machine is stopped; it reads as asleep, not disconnected. */
@@ -66,14 +63,6 @@ export function connectionFloatingStatus(input: {
     onPress: input.onReconnect,
   });
 
-  if (input.connectionState === "reconnecting" && input.connectionAwaitingApproval) {
-    return {
-      kind: "connection",
-      tone: "reconnecting",
-      label: `Waiting for ${environmentLabel} to approve this device`,
-      onPress: input.onReconnect,
-    };
-  }
   // A stopped Boat machine reads as asleep in any other unconnected phase.
   const diagnosed = input.connectionState === "offline" || input.connectionState === "unsupported";
   if (!diagnosed && input.boatSleep === "waking") {
@@ -93,17 +82,6 @@ export function connectionFloatingStatus(input: {
     };
   }
   switch (input.connectionState) {
-    case "connecting":
-    case "reconnecting":
-      return {
-        kind: "connection",
-        tone: "reconnecting",
-        label:
-          input.connectionError === null
-            ? `Reconnecting to ${environmentLabel}...`
-            : `Failed to connect. Retrying ${environmentLabel}...`,
-        onPress: input.onReconnect,
-      };
     case "offline":
       return unavailable("You are offline");
     case "unsupported":
@@ -116,6 +94,8 @@ export function connectionFloatingStatus(input: {
       );
     case "available":
       return unavailable(`${environmentLabel} is not connected`);
+    case "connecting":
+    case "reconnecting":
     case "connected":
       return null;
   }

@@ -25,26 +25,16 @@ describe("connectionFloatingStatus", () => {
   });
 
   it.each([
-    ["offline", false, "unavailable", "You are offline"],
-    ["unsupported", false, "unavailable", "Client not supported"],
-    [
-      "reconnecting",
-      true,
-      "reconnecting",
-      "Waiting for Boat · default · ab12 to approve this device",
-    ],
-  ] as const)(
-    "a real %s diagnostic outranks a sleeping machine",
-    (state, awaiting, tone, label) => {
-      expect(
-        status({
-          connectionState: state,
-          connectionAwaitingApproval: awaiting,
-          boatSleep: "sleeping",
-        }),
-      ).toEqual({ tone, label });
-    },
-  );
+    ["offline", "unavailable", "You are offline"],
+    ["unsupported", "unavailable", "Client not supported"],
+  ] as const)("a real %s diagnostic outranks a sleeping machine", (state, tone, label) => {
+    expect(status({ connectionState: state, boatSleep: "sleeping" })).toEqual({ tone, label });
+  });
+
+  it("leaves a retrying connection to the header subtitle", () => {
+    expect(status({ connectionState: "reconnecting" })).toBeNull();
+    expect(status({ connectionState: "connecting" })).toBeNull();
+  });
 
   it("reads as before for an environment that is not a Boat machine", () => {
     expect(status({ connectionState: "available" })).toEqual({

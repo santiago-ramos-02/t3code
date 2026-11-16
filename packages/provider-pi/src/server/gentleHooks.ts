@@ -38,14 +38,17 @@ export interface PiGentleThreadState<Turn extends PiGentleTurn> {
   activeTurn: Turn | null;
 }
 
-export interface PiGentleDeps<Turn extends PiGentleTurn> {
+export interface PiGentleDeps<
+  Turn extends PiGentleTurn,
+  State extends PiGentleThreadState<Turn> = PiGentleThreadState<Turn>,
+> {
   readonly driver: ProviderDriverKind;
   readonly instanceId: ProviderInstanceId;
   readonly idAllocator: IdAllocator.IdAllocatorV2["Service"];
   readonly emit: (event: ProviderAdapter.ProviderAdapterV2Event) => Effect.Effect<void>;
-  readonly threadState: () => PiGentleThreadState<Turn> | null;
+  readonly threadState: () => State | null;
   readonly updateProviderThread: (
-    state: PiGentleThreadState<Turn>,
+    state: State,
     patch: Partial<OrchestrationV2ProviderThread>,
   ) => Effect.Effect<void>;
   /** The item's ordinal in its turn, the same for every update of one item. */
@@ -91,7 +94,9 @@ export interface PiGentleHooksShape {
     usage: { readonly cacheWrite: number | undefined; readonly cacheWrite1h: number | undefined },
     call: { readonly provider: string | undefined; readonly model: string | undefined },
   ) => Effect.Effect<number | undefined>;
-  readonly makeGentle?: <Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>) => PiGentle<Turn>;
+  readonly makeGentle?: <Turn extends PiGentleTurn, State extends PiGentleThreadState<Turn>>(
+    deps: PiGentleDeps<Turn, State>,
+  ) => PiGentle<Turn>;
 }
 
 /** gentle-shell publishes the orchestrator's ODD phase under this status key. */

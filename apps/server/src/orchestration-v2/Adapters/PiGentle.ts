@@ -21,6 +21,7 @@ import {
   GENTLE_ODD_PHASE_STATUS_KEY,
   type PiGentle,
   type PiGentleDeps,
+  type PiGentleThreadState,
   type PiGentleTurn,
 } from "@t3tools/provider-pi/server/gentleHooks";
 import { backgroundWorkNotification } from "@t3tools/provider-core/server/notification";
@@ -174,7 +175,9 @@ interface GentleWorkflowState<Turn extends PiGentleTurn> {
  * gentle-pi wakes the parent itself; the continuation run is named after that subagent.
  * Called from @t3tools/provider-pi (see its gentleHooks.ts) to keep the fork's change there small.
  */
-export function makePiGentle<Turn extends PiGentleTurn>(deps: PiGentleDeps<Turn>): PiGentle<Turn> {
+export function makePiGentle<Turn extends PiGentleTurn, State extends PiGentleThreadState<Turn>>(
+  deps: PiGentleDeps<Turn, State>,
+): PiGentle<Turn> {
   const { driver, idAllocator, emit } = deps;
   const ref = (nativeId: string): OrchestrationV2ProviderRef => ({
     driver,
