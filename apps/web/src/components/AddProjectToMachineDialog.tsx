@@ -34,6 +34,7 @@ import {
   startAddProjectToMachine,
 } from "../lib/addProjectToMachine";
 import { formatBytes } from "../lib/formatBytes";
+import { seedDraftModelSelection } from "../lib/seedDraftModelSelection";
 import { newProjectId } from "../lib/utils";
 import { readProject, subscribeProject, useProject } from "../state/entities";
 import { useEnvironments } from "../state/environments";
@@ -216,6 +217,7 @@ function AddProjectToMachineDialog({ request }: { request: AddProjectToMachineRe
         environmentSelection: "manual",
         loadBalancedEnvironmentId: null,
       });
+      seedDraftModelSelection(draftId, targetRef);
       return;
     }
     void handleNewThread(targetRef);
