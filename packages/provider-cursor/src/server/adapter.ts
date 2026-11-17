@@ -324,13 +324,18 @@ export function makeCursorAgentOptions(input: {
     local: {
       ...(input.runtimePolicy.cwd === null ? {} : { cwd: input.runtimePolicy.cwd }),
       autoReview: policy.autoReview,
-      // gentle-ai installs its Cursor rules, skills, and MCP servers in the user and plugin
-      // layers; the SDK loads layers whole, so a thread with Gentle AI off skips both.
-      settingSources: gentleAiEnabled(input.modelSelection.options)
-        ? [...CURSOR_AGENT_SETTING_SOURCES]
-        : CURSOR_AGENT_SETTING_SOURCES.filter(
-            (source) => source !== "user" && source !== "plugins",
-          ),
+      // Untrusted runtimes skip project rules. gentle-ai installs its Cursor rules, skills, and
+      // MCP servers in the user and plugin layers; the SDK loads layers whole, so a thread with
+      // Gentle AI off skips both.
+      settingSources: CURSOR_AGENT_SETTING_SOURCES.filter(
+        (source) =>
+          (source !== "project" ||
+            (input.runtimePolicy.runtimeMode === "full-access" &&
+              !policy.autoReview &&
+              !policy.sandboxEnabled)) &&
+          (gentleAiEnabled(input.modelSelection.options) ||
+            (source !== "user" && source !== "plugins")),
+      ),
       sandboxOptions: {
         enabled: policy.sandboxEnabled,
       },
