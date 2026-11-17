@@ -118,6 +118,10 @@ export function useMemoryEnvironments() {
   return useAtomValue(environmentSummaries.memoryEnvironmentsAtom);
 }
 
+export function useIssuesSupported() {
+  return useAtomValue(environmentSummaries.issuesSupportedAtom);
+}
+
 export function useEnvironmentMachines() {
   return useAtomValue(environmentSummaries.machineByIdAtom);
 }
