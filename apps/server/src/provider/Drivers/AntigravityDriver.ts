@@ -58,7 +58,10 @@ import {
 } from "../acp/AntigravitySessionFiles.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ProviderContinuationRequests from "@t3tools/provider-core/server/ProviderContinuationRequests";
-import { makeAntigravityAdapterV2 } from "../../orchestration-v2/Adapters/AntigravityAdapterV2.ts";
+import {
+  makeAntigravityAdapterV2,
+  type AntigravityAdapterV2RuntimeInput,
+} from "../../orchestration-v2/Adapters/AntigravityAdapterV2.ts";
 import { makeAcpNativeLoggerFactory } from "@t3tools/provider-acp/server/nativeLogging";
 import { ProviderDriverError } from "../Errors.ts";
 import { makeAntigravityProvider } from "../AntigravityProvider.ts";
@@ -203,9 +206,7 @@ export const AntigravityDriver: ProviderDriver<
       );
 
     const makeRuntime = Effect.fn("AntigravityDriver.makeRuntime")(function* (
-      input: Omit<AntigravityAcpRuntimeInput, "spawn" | "childProcessSpawner"> & {
-        readonly gentleAiOff?: boolean;
-      },
+      input: AntigravityAdapterV2RuntimeInput,
     ): Effect.fn.Return<
       AcpSessionRuntime.AcpSessionRuntime["Service"],
       AcpErrors.AcpError | ProviderSetupError,
@@ -303,7 +304,17 @@ export const AntigravityDriver: ProviderDriver<
             ),
           }
         : profile;
-      const { gentleAiOff: _gentleAiOff, ...runtimeInput } = input;
+      // `buildAntigravityAcpSpawnInput` sets `extendEnv: false`, so thread variables only reach the
+      // agent's shell through `baseEnv`.
+      const {
+        processEnvironment: threadEnvironment,
+        gentleAiOff: _gentleAiOff,
+        ...runtimeInput
+      } = input;
+      const spawnEnvironment =
+        threadEnvironment === undefined
+          ? processEnvironment
+          : { ...processEnvironment, ...threadEnvironment };
       const runtime = yield* makeAntigravityAcpRuntime({
         ...runtimeInput,
         runtimeVersion: executable.version,
@@ -312,8 +323,8 @@ export const AntigravityDriver: ProviderDriver<
         spawn: buildAntigravityAcpSpawnInput({
           installation: executable,
           profile: runProfile,
-          cwd: input.cwd,
-          baseEnv: processEnvironment,
+          cwd: runtimeInput.cwd,
+          baseEnv: spawnEnvironment,
           auth,
           runtimeTempDirectory,
         }),
@@ -328,7 +339,8 @@ export const AntigravityDriver: ProviderDriver<
             .start()
             .pipe(
               Effect.tapError((cause): Effect.Effect<void> =>
-                input.onAuthorizationUrl === undefined && isAntigravitySignInRequiredError(cause)
+                runtimeInput.onAuthorizationUrl === undefined &&
+                isAntigravitySignInRequiredError(cause)
                   ? provider.onAuthRequired
                   : Effect.void,
               ),

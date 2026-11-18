@@ -3459,6 +3459,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
           return sessionEntity;
         },
         events: Stream.fromQueue(events),
+        backgroundTasksEndWithProcess: true,
         hasPendingBackgroundWork: Effect.gen(function* () {
           return pendingWake !== null || (yield* gentle.hasPendingBackgroundWork);
         }),
