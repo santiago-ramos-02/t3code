@@ -1,4 +1,7 @@
 import type { EnvironmentConnectionPhase } from "@t3tools/client-runtime/connection";
+import { msg } from "gt-react-native";
+
+import { m, type MessageResolver } from "../../i18n/messages";
 
 import type { BoatSleep } from "../boat/boat-draft";
 
@@ -33,29 +36,37 @@ export type FloatingWorkingStatus =
     };
 
 /** A connection still retrying on its own; short enough for the thread header subtitle. */
-export function connectionRetryLabel(input: {
-  readonly connectionError: string | null;
-  readonly connectionState: EnvironmentConnectionPhase;
-  readonly connectionAwaitingApproval?: boolean;
-}): string | null {
+export function connectionRetryLabel(
+  input: {
+    readonly connectionError: string | null;
+    readonly connectionState: EnvironmentConnectionPhase;
+    readonly connectionAwaitingApproval?: boolean;
+  },
+  resolve: MessageResolver = m,
+): string | null {
   if (input.connectionState === "reconnecting" && input.connectionAwaitingApproval) {
-    return "Awaiting device approval";
+    return resolve(msg("Awaiting device approval"));
   }
   if (input.connectionState !== "connecting" && input.connectionState !== "reconnecting") {
     return null;
   }
-  return input.connectionError === null ? "Reconnecting…" : "Retrying connection…";
+  return input.connectionError === null
+    ? resolve(msg("Reconnecting…"))
+    : resolve(msg("Retrying connection…"));
 }
 
-export function connectionFloatingStatus(input: {
-  readonly connectionError: string | null;
-  readonly connectionState: EnvironmentConnectionPhase;
-  readonly environmentLabel: string | null;
-  readonly onReconnect: () => void;
-  /** Set while the thread's Boat machine is stopped; it reads as asleep, not disconnected. */
-  readonly boatSleep?: BoatSleep | null;
-}): FloatingWorkingStatus | null {
-  const environmentLabel = input.environmentLabel ?? "Environment";
+export function connectionFloatingStatus(
+  input: {
+    readonly connectionError: string | null;
+    readonly connectionState: EnvironmentConnectionPhase;
+    readonly environmentLabel: string | null;
+    readonly onReconnect: () => void;
+    /** Set while the thread's Boat machine is stopped; it reads as asleep, not disconnected. */
+    readonly boatSleep?: BoatSleep | null;
+  },
+  resolve: MessageResolver = m,
+): FloatingWorkingStatus | null {
+  const environmentLabel = input.environmentLabel ?? resolve(msg("Environment"));
   const unavailable = (label: string): FloatingWorkingStatus => ({
     kind: "connection",
     tone: "unavailable",
@@ -69,7 +80,7 @@ export function connectionFloatingStatus(input: {
     return {
       kind: "connection",
       tone: "reconnecting",
-      label: `Waking ${environmentLabel}...`,
+      label: resolve(msg("Waking {environmentLabel}...", { environmentLabel })),
       onPress: input.onReconnect,
     };
   }
@@ -77,23 +88,28 @@ export function connectionFloatingStatus(input: {
     return {
       kind: "connection",
       tone: "sleeping",
-      label: "Sleeping. Your next message wakes it.",
+      label: resolve(msg("Sleeping. Your next message wakes it.")),
       onPress: input.onReconnect,
     };
   }
   switch (input.connectionState) {
     case "offline":
-      return unavailable("You are offline");
+      return unavailable(resolve(msg("You are offline")));
     case "unsupported":
-      return unavailable("Client not supported");
+      return unavailable(resolve(msg("Client not supported")));
     case "error":
       return unavailable(
         input.connectionError
-          ? `Failed to connect to ${environmentLabel}: ${input.connectionError}`
-          : `Failed to connect to ${environmentLabel}`,
+          ? resolve(
+              msg("Failed to connect to {environmentLabel}: {connectionError}", {
+                environmentLabel,
+                connectionError: input.connectionError,
+              }),
+            )
+          : resolve(msg("Failed to connect to {environmentLabel}", { environmentLabel })),
       );
     case "available":
-      return unavailable(`${environmentLabel} is not connected`);
+      return unavailable(resolve(msg("{environmentLabel} is not connected", { environmentLabel })));
     case "connecting":
     case "reconnecting":
     case "connected":

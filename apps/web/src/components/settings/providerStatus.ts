@@ -3,6 +3,9 @@ import type {
   ServerProviderVersionAdvisory,
   ServerProviderCompatibilityAdvisory,
 } from "@t3tools/contracts";
+import { msg } from "gt-react";
+
+import { m, type MessageResolver } from "../../i18n/messages";
 
 export const PROVIDER_STATUS_STYLES = {
   disabled: {
@@ -45,8 +48,10 @@ export function truncateProviderDetail(detail: string | null | undefined): strin
 }
 
 /** Label a discovered model count the way the settings UI phrases counts. */
-export function formatProviderModelCount(modelCount: number): string {
-  return modelCount === 1 ? "1 model" : `${modelCount} models`;
+export function formatProviderModelCount(modelCount: number, resolve: MessageResolver = m): string {
+  return resolve(
+    msg("{count, plural, one {{count} model} other {{count} models}}", { count: modelCount }),
+  );
 }
 
 /**
@@ -54,12 +59,16 @@ export function formatProviderModelCount(modelCount: number): string {
  * `v0.86.1 · 1 model`. Null when not ready or nothing is known; non-ready
  * states keep their own copy.
  */
-export function getProviderReadyMeta(provider: ServerProvider | undefined): string | null {
+export function getProviderReadyMeta(
+  provider: ServerProvider | undefined,
+  resolve: MessageResolver = m,
+): string | null {
   if (!provider || provider.status !== "ready") return null;
   const parts: string[] = [];
   const version = getProviderVersionLabel(provider.version);
   if (version) parts.push(version);
-  if (provider.models.length > 0) parts.push(formatProviderModelCount(provider.models.length));
+  if (provider.models.length > 0)
+    parts.push(formatProviderModelCount(provider.models.length, resolve));
   return parts.length > 0 ? parts.join(" · ") : null;
 }
 
@@ -70,21 +79,28 @@ export function getProviderReadyMeta(provider: ServerProvider | undefined): stri
  * missing snapshot is Checking, never Disabled; `unavailable` stays
  * Unavailable while refreshing; a disabled config is always Disabled.
  */
-export function resolveProviderCardDisplay(input: {
-  readonly enabled: boolean;
-  readonly provider: ServerProvider | undefined;
-  readonly isChecking: boolean;
-  readonly driver?: string | undefined;
-}): {
+export function resolveProviderCardDisplay(
+  input: {
+    readonly enabled: boolean;
+    readonly provider: ServerProvider | undefined;
+    readonly isChecking: boolean;
+    readonly driver?: string | undefined;
+  },
+  resolve: MessageResolver = m,
+): {
   readonly statusKey: ProviderStatusKey;
   readonly headline: string;
   readonly detail: string | null;
 } {
   if (!input.enabled) {
-    return { statusKey: "disabled", headline: "Disabled", detail: null };
+    return {
+      statusKey: "disabled",
+      headline: resolve(msg("Disabled", { $context: "provider status" })),
+      detail: null,
+    };
   }
   if (input.provider?.availability === "unavailable") {
-    const summary = getProviderSummary(input.provider);
+    const summary = getProviderSummary(input.provider, resolve);
     return {
       statusKey: "error",
       headline: summary.headline,
@@ -94,21 +110,21 @@ export function resolveProviderCardDisplay(input: {
   if (input.isChecking || !input.provider) {
     return {
       statusKey: "warning",
-      headline: "Checking provider status",
+      headline: resolve(msg("Checking provider status")),
       detail: input.provider
-        ? "Refreshing installation, version, and model details."
-        : "Waiting for the server to report installation and authentication details.",
+        ? resolve(msg("Refreshing installation, version, and model details."))
+        : resolve(msg("Waiting for the server to report installation and authentication details.")),
     };
   }
   const provider = input.provider;
   if (!provider.enabled || provider.status === "disabled") {
     return {
       statusKey: "warning",
-      headline: "Checking provider status",
-      detail: "Waiting for refreshed status after enabling.",
+      headline: resolve(msg("Checking provider status")),
+      detail: resolve(msg("Waiting for refreshed status after enabling.")),
     };
   }
-  const summary = getProviderSummary(provider);
+  const summary = getProviderSummary(provider, resolve);
   if (provider.status === "warning" || provider.status === "error") {
     return {
       statusKey: getProviderStatusKey(provider),
@@ -125,10 +141,10 @@ export function resolveProviderCardDisplay(input: {
   ) {
     return {
       statusKey: "warning",
-      headline: "No models found",
+      headline: resolve(msg("No models found")),
       detail:
         truncateProviderDetail(provider.message) ??
-        "The provider is ready but no models were discovered.",
+        resolve(msg("The provider is ready but no models were discovered.")),
     };
   }
   return {
@@ -136,6 +152,15 @@ export function resolveProviderCardDisplay(input: {
     headline: summary.headline,
     detail: summary.detail,
   };
+}
+
+/** The server names a custom endpoint in English; other auth labels are product or plan names. */
+export function providerAuthLabel(
+  auth: Pick<ServerProvider["auth"], "label" | "type">,
+  resolve: MessageResolver = m,
+): string | undefined {
+  if (auth.type === "customEndpoint") return resolve(msg("Custom API endpoint"));
+  return auth.label ?? auth.type;
 }
 
 // Antigravity's local health check verifies installation, not Google sign-in.
@@ -158,11 +183,16 @@ export function getProviderStatusKey(provider: ServerProvider | undefined): Prov
   return provider?.status ?? "warning";
 }
 
-export function getProviderSummary(provider: ServerProvider | undefined) {
+export function getProviderSummary(
+  provider: ServerProvider | undefined,
+  resolve: MessageResolver = m,
+) {
   if (!provider) {
     return {
-      headline: "Checking provider status",
-      detail: "Waiting for the server to report installation and authentication details.",
+      headline: resolve(msg("Checking provider status")),
+      detail: resolve(
+        msg("Waiting for the server to report installation and authentication details."),
+      ),
     };
   }
   if (provider.availability === "unavailable") {
@@ -174,52 +204,58 @@ export function getProviderSummary(provider: ServerProvider | undefined) {
   }
   if (!provider.enabled || provider.status === "disabled") {
     return {
-      headline: "Disabled",
+      headline: resolve(msg("Disabled", { $context: "provider status" })),
       detail:
-        provider.message ?? "This provider is installed but disabled for new sessions in T3 Code.",
+        provider.message ??
+        resolve(msg("This provider is installed but disabled for new sessions in T3 Code.")),
     };
   }
   if (!provider.installed) {
     return {
-      headline: "Not found",
-      detail: provider.message ?? "CLI not detected on PATH.",
+      headline: resolve(msg("Not found", { $context: "provider status, CLI is missing" })),
+      detail: provider.message ?? resolve(msg("CLI not detected on PATH.")),
     };
   }
   if (provider.auth.status === "unauthenticated") {
-    const authLabel = provider.auth.label ?? provider.auth.type;
+    const authLabel = providerAuthLabel(provider.auth, resolve);
     return {
-      headline: authLabel ? `Not authenticated · ${authLabel}` : "Not authenticated",
+      headline: authLabel
+        ? resolve(msg("Not authenticated · {method}", { method: authLabel }))
+        : resolve(msg("Not authenticated")),
       detail: provider.message ?? null,
     };
   }
   if (isAntigravitySignInUnchecked(provider)) {
     return {
-      headline: "Installed · Sign-in not checked",
+      headline: resolve(msg("Installed · Sign-in not checked")),
       detail: provider.message ?? null,
     };
   }
   if (provider.status === "warning") {
     return {
-      headline: "Needs attention",
+      headline: resolve(msg("Needs attention")),
       detail:
-        provider.message ?? "The provider is installed, but the server could not fully verify it.",
+        provider.message ??
+        resolve(msg("The provider is installed, but the server could not fully verify it.")),
     };
   }
   if (provider.status === "error") {
     return {
-      headline: "Unavailable",
-      detail: provider.message ?? "The provider failed its startup checks.",
+      headline: resolve(msg("Unavailable", { $context: "provider status" })),
+      detail: provider.message ?? resolve(msg("The provider failed its startup checks.")),
     };
   }
   if (provider.auth.status === "authenticated") {
-    const authLabel = provider.auth.label ?? provider.auth.type;
+    const authLabel = providerAuthLabel(provider.auth, resolve);
     return {
-      headline: authLabel ? `Authenticated · ${authLabel}` : "Authenticated",
+      headline: authLabel
+        ? resolve(msg("Authenticated · {method}", { method: authLabel }))
+        : resolve(msg("Authenticated")),
       detail: provider.message ?? null,
     };
   }
   return {
-    headline: "Available",
+    headline: resolve(msg("Available", { $context: "provider status" })),
     detail: provider.message ?? null,
   };
 }
@@ -235,15 +271,16 @@ export function getProviderVersionLabel(version: string | null | undefined) {
 }
 
 const COMPATIBILITY_TITLES = {
-  graceful: "Limited support",
-  unsupported: "Unsupported version",
-  broken: "Known broken version",
+  graceful: msg("Limited support"),
+  unsupported: msg("Unsupported version"),
+  broken: msg("Known broken version"),
 } as const;
 
 export function getProviderVersionAdvisoryPresentation(
   advisory: ServerProviderVersionAdvisory | undefined,
   compatibility?: ServerProviderCompatibilityAdvisory | undefined,
   showCompatibility = true,
+  resolve: MessageResolver = m,
 ): {
   readonly title: string;
   readonly detail: string;
@@ -266,10 +303,12 @@ export function getProviderVersionAdvisoryPresentation(
     // Latest package versions cannot be updated into recommendations requiring another package.
     const isAlreadyLatest = advisory?.status === "current";
     return {
-      title: COMPATIBILITY_TITLES[compatibility.status],
+      title: resolve(COMPATIBILITY_TITLES[compatibility.status]),
       detail:
         compatibility.message ??
-        (recommendation ? `Use ${recommendation} for full support.` : "Update for full support."),
+        (recommendation
+          ? resolve(msg("Use {version} for full support.", { version: recommendation }))
+          : resolve(msg("Update for full support."))),
       updateCommand:
         targetVersion || latestIsIncompatible || isAlreadyLatest
           ? null
@@ -287,17 +326,16 @@ export function getProviderVersionAdvisoryPresentation(
     return null;
   }
 
-  const label = "Update available";
   const version = advisory.latestVersion;
   const versionLabel = getProviderVersionLabel(version);
 
   return {
-    title: label,
+    title: resolve(msg("Update available")),
     detail:
       advisory.message ??
       (versionLabel
-        ? `${label}: install ${versionLabel}.`
-        : `${label}: install the latest provider version.`),
+        ? resolve(msg("Update available: install {version}.", { version: versionLabel }))
+        : resolve(msg("Update available: install the latest provider version."))),
     updateCommand: advisory.updateCommand,
     emphasis: "normal" as const,
     targetVersion: null,

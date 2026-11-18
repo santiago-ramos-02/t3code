@@ -6,6 +6,7 @@ import {
   type RuntimeSubagent,
 } from "@t3tools/client-runtime/state/subagentRuntime";
 import type { ProviderDriverKind, ProviderInstanceId, ServerProvider } from "@t3tools/contracts";
+import { msg, T, useGT, useMessages } from "gt-react";
 import { ChevronDownIcon, SquareIcon } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
@@ -23,6 +24,14 @@ import {
   THREAD_DETAILS_PANEL_SPLIT_GROUP_CLASS,
   THREAD_DETAILS_PANEL_SPLIT_SEPARATOR_CLASS,
 } from "./threadDetailsPanelStyles";
+
+const PHASE_STATUS_LABEL = {
+  running: msg("running", { $context: "workflow phase status" }),
+  failed: msg("failed", { $context: "workflow phase status" }),
+  stopped: msg("stopped", { $context: "workflow phase status" }),
+  done: msg("done", { $context: "workflow phase status" }),
+  "not started": msg("not started", { $context: "workflow phase status" }),
+} satisfies Record<ReturnType<typeof phaseStatusLabel>, string>;
 
 function phaseStatusLabel(phase: SubagentWorkflowGroup["phases"][number]) {
   if (phase.state === "running") return "running";
@@ -52,6 +61,7 @@ function WorkflowMemberRow({
   driver: ProviderDriverKind | undefined;
   onOpen: (threadId: string) => void;
 }) {
+  const gt = useGT();
   const threadId = member.childThreadId;
   const canOpen = threadId !== null;
   return (
@@ -62,7 +72,7 @@ function WorkflowMemberRow({
           render={
             <ThreadDetailsControl
               part="row"
-              aria-label={`Open ${member.title} chat`}
+              aria-label={gt("Open {title} chat", { title: member.title })}
               disabled={!canOpen}
               onClick={() => canOpen && onOpen(threadId)}
             />
@@ -128,6 +138,8 @@ export function ThreadLineageWorkflowRow({
   readonly stopping: boolean;
   readonly stopDisabled: boolean;
 }) {
+  const gt = useGT();
+  const m = useMessages();
   const [expanded, setExpanded] = useState(false);
   const [phaseOpen, setPhaseOpen] = useState<ReadonlyMap<number, boolean>>(() => new Map());
   const label = group.workflow.workflowName ?? group.workflow.title;
@@ -146,7 +158,7 @@ export function ThreadLineageWorkflowRow({
                     variant="ghost"
                     part="icon"
                     tone="destructive"
-                    aria-label={`Stop workflow ${label}`}
+                    aria-label={gt("Stop workflow {label}", { label })}
                     disabled={stopDisabled}
                     onClick={onStop}
                   />
@@ -158,7 +170,9 @@ export function ThreadLineageWorkflowRow({
                   <SquareIcon aria-hidden className="size-3 fill-current" />
                 )}
               </TooltipTrigger>
-              <TooltipPopup side="left">Stop entire workflow</TooltipPopup>
+              <TooltipPopup side="left">
+                <T>Stop entire workflow</T>
+              </TooltipPopup>
             </Tooltip>
           </div>
         ) : null}
@@ -168,7 +182,9 @@ export function ThreadLineageWorkflowRow({
           variant="ghost"
           part="secondary"
           aria-expanded={expanded}
-          aria-label={`${expanded ? "Collapse" : "Expand"} ${label}`}
+          aria-label={
+            expanded ? gt("Collapse {label}", { label }) : gt("Expand {label}", { label })
+          }
           onClick={() => setExpanded((value) => !value)}
         >
           <ChevronDownIcon
@@ -188,11 +204,17 @@ export function ThreadLineageWorkflowRow({
             const tone = phase.state === "running" ? "emphasized" : "muted";
             const accessory = (
               <>
-                {status === "failed" ? <SectionHeaderStatus>Failed</SectionHeaderStatus> : null}
+                {status === "failed" ? (
+                  <SectionHeaderStatus>
+                    <T context="workflow phase status">Failed</T>
+                  </SectionHeaderStatus>
+                ) : null}
                 {phase.members.length > 0 ? (
                   <span className="shrink-0 text-2xs font-normal tabular-nums">
-                    {phase.settledCount}/{phase.members.length}{" "}
-                    {phase.members.length === 1 ? "agent" : "agents"}
+                    {gt(
+                      "{count, plural, one {{settled}/{count} agent} other {{settled}/{count} agents}}",
+                      { count: phase.members.length, settled: phase.settledCount },
+                    )}
                   </span>
                 ) : null}
                 <span className="shrink-0 text-2xs font-normal tabular-nums empty:hidden">
@@ -205,7 +227,10 @@ export function ThreadLineageWorkflowRow({
               return (
                 <li
                   key={phase.index}
-                  aria-label={`${phase.title} phase, ${status}`}
+                  aria-label={gt("{title} phase, {status}", {
+                    title: phase.title,
+                    status: m(PHASE_STATUS_LABEL[status]),
+                  })}
                   className={cn(
                     "flex h-8 items-center gap-2 ps-2 pe-2.5 text-xs font-medium",
                     tone === "emphasized"
@@ -225,7 +250,17 @@ export function ThreadLineageWorkflowRow({
                   variant="panel"
                   tone={tone}
                   expanded={open}
-                  aria-label={`${open ? "Collapse" : "Expand"} ${phase.title} phase, ${status}`}
+                  aria-label={
+                    open
+                      ? gt("Collapse {title} phase, {status}", {
+                          title: phase.title,
+                          status: m(PHASE_STATUS_LABEL[status]),
+                        })
+                      : gt("Expand {title} phase, {status}", {
+                          title: phase.title,
+                          status: m(PHASE_STATUS_LABEL[status]),
+                        })
+                  }
                   onClick={() => setPhaseOpen((phases) => new Map(phases).set(phase.index, !open))}
                   accessory={accessory}
                 >
@@ -263,7 +298,9 @@ export function ThreadLineageWorkflowRow({
             />
           ))}
           {phases.length === 0 && group.unphasedMembers.length === 0 ? (
-            <li className="px-2.5 py-1.5 text-2xs text-muted-foreground/70">No agents yet</li>
+            <li className="px-2.5 py-1.5 text-2xs text-muted-foreground/70">
+              <T>No agents yet</T>
+            </li>
           ) : null}
         </ul>
       ) : null}

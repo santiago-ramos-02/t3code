@@ -146,7 +146,7 @@ function ProjectReviewRows({
         resetAction={
           review?.overridden ? (
             <SettingResetButton
-              label="review before delivery"
+              ariaLabel="Reset review before delivery"
               tooltip="Use the setting for all projects"
               disabled={disabled}
               onClick={() => setHere(true)}
