@@ -162,7 +162,6 @@ export function makeAntigravityAcpAdapterFlavor(
             ...(gentleAiEnabled(input.modelSelection.options) ? {} : { gentleAiOff: true }),
             clientFileReads: true,
             sessionSystemPromptAppend: PULL_REQUEST_LINKING_INSTRUCTIONS,
-            additionalDirectories: [options.host.paths.attachmentsDir],
           }),
         )
         .pipe(Effect.provideService(Scope.Scope, scope));
