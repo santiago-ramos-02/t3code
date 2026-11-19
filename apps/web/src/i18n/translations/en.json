@@ -2303,6 +2303,7 @@
   "7c785ec68fc205f5": "Saving…",
   "374caa799474ba78": "Save changes",
   "e075244ca816ebf6": "Save action",
+  "f16b6d8ef68bab61": "Failed to import {name}.",
   "924d4b8e011c9127": "Failed to import action.",
   "0421f870f82997bc": "Import",
   "06690d4ce0d19c30": "Edit {name}",
@@ -2714,6 +2715,25 @@
   "a707abf0a4a73ffa": "Close Terminal ({shortcut})",
   "9206ecf328948f90": "Close Terminal",
   "9b1326a11cfe3308": "No terminal sessions for this thread yet.",
+  "c24de5eb69373a55": "This {build} build ignores {track} releases. Review the update track in Settings to finish the switch.",
+  "3bf42e08dad6483f": [
+    "Delete action \"",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    "\"?"
+  ],
+  "86f71ac04d41f95e": [
+    "Press a shortcut. Use ",
+    {
+      "t": "code",
+      "i": 1,
+      "c": "Backspace"
+    },
+    " to clear. Shortcuts are environment-wide. Projects using the same action share its shortcut."
+  ],
   "042d3a13ea7d3f7b": "Title generation failed.",
   "b196327eeaacd854": "Failed to regenerate thread title",
   "d55567b99925caf8": "{total, plural, one {Failed to regenerate {failed} of {total} thread titles} other {Failed to regenerate {failed} of {total} thread titles}}",

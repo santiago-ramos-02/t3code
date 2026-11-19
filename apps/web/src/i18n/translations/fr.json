@@ -2303,6 +2303,7 @@
   "7c785ec68fc205f5": "Enregistrement…",
   "374caa799474ba78": "Enregistrer les modifications",
   "e075244ca816ebf6": "Enregistrer l’action",
+  "f16b6d8ef68bab61": "Échec de l’import de « {name} ».",
   "924d4b8e011c9127": "Échec de l’import de l’action.",
   "0421f870f82997bc": "Importer",
   "06690d4ce0d19c30": "Modifier {name}",
@@ -2714,6 +2715,25 @@
   "a707abf0a4a73ffa": "Fermer le terminal ({shortcut})",
   "9206ecf328948f90": "Fermer le terminal",
   "9b1326a11cfe3308": "Pas encore de session de terminal pour ce fil.",
+  "c24de5eb69373a55": "Cette version {build} ignore les versions {track}. Vérifiez le canal de mise à jour dans les Réglages pour terminer le changement.",
+  "3bf42e08dad6483f": [
+    "Supprimer l’action « ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " » ?"
+  ],
+  "86f71ac04d41f95e": [
+    "Appuyez sur un raccourci. Utilisez ",
+    {
+      "t": "code",
+      "i": 1,
+      "c": "Backspace"
+    },
+    " pour l’effacer. Les raccourcis s’appliquent à tout l’environnement. Les projets qui utilisent la même action partagent son raccourci."
+  ],
   "042d3a13ea7d3f7b": "Échec de la génération du titre.",
   "b196327eeaacd854": "Échec de la régénération du titre du fil",
   "d55567b99925caf8": "{total, plural, one {Impossible de régénérer {failed} titre de fil sur {total}} other {Impossible de régénérer {failed} titres de fils sur {total}}}",

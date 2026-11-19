@@ -2303,6 +2303,7 @@
   "7c785ec68fc205f5": "Salvando…",
   "374caa799474ba78": "Salvar alterações",
   "e075244ca816ebf6": "Salvar ação",
+  "f16b6d8ef68bab61": "Não foi possível importar {name}.",
   "924d4b8e011c9127": "Falha ao importar a ação.",
   "0421f870f82997bc": "Importar",
   "06690d4ce0d19c30": "Editar {name}",
@@ -2714,6 +2715,25 @@
   "a707abf0a4a73ffa": "Fechar terminal ({shortcut})",
   "9206ecf328948f90": "Fechar terminal",
   "9b1326a11cfe3308": "Ainda não há sessões de terminal nesta thread.",
+  "c24de5eb69373a55": "Esta build {build} ignora as versões {track}. Revise o canal de atualização em Configurações para concluir a troca.",
+  "3bf42e08dad6483f": [
+    "Excluir a ação \"",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    "\"?"
+  ],
+  "86f71ac04d41f95e": [
+    "Pressione um atalho. Use ",
+    {
+      "t": "code",
+      "i": 1,
+      "c": "Backspace"
+    },
+    " para limpar. Os atalhos valem para todo o ambiente. Projetos que usam a mesma ação compartilham o atalho."
+  ],
   "042d3a13ea7d3f7b": "Falha ao gerar o título.",
   "b196327eeaacd854": "Falha ao gerar novamente o título da thread",
   "d55567b99925caf8": "{total, plural, one {Falha ao gerar novamente {failed} de {total} título de thread} other {Falha ao gerar novamente {failed} de {total} títulos de threads}}",

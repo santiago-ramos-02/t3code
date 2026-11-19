@@ -2303,6 +2303,7 @@
   "7c785ec68fc205f5": "Wird gespeichert…",
   "374caa799474ba78": "Änderungen speichern",
   "e075244ca816ebf6": "Aktion speichern",
+  "f16b6d8ef68bab61": "{name} konnte nicht importiert werden.",
   "924d4b8e011c9127": "Aktion konnte nicht importiert werden.",
   "0421f870f82997bc": "Importieren",
   "06690d4ce0d19c30": "{name} bearbeiten",
@@ -2715,6 +2716,25 @@
   "a707abf0a4a73ffa": "Terminal schließen ({shortcut})",
   "9206ecf328948f90": "Terminal schließen",
   "9b1326a11cfe3308": "Noch keine Terminal-Sitzungen für diesen Thread.",
+  "c24de5eb69373a55": "Dieser {build}-Build ignoriert {track}-Releases. Prüfe den Update-Kanal in den Einstellungen, um den Wechsel abzuschließen.",
+  "3bf42e08dad6483f": [
+    "Aktion „",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    "“ löschen?"
+  ],
+  "86f71ac04d41f95e": [
+    "Drücke ein Tastenkürzel. Mit ",
+    {
+      "t": "code",
+      "i": 1,
+      "c": "Backspace"
+    },
+    " löschen. Tastenkürzel gelten für die ganze Umgebung. Projekte mit derselben Aktion teilen sich ihr Tastenkürzel."
+  ],
   "042d3a13ea7d3f7b": "Titelerzeugung fehlgeschlagen.",
   "b196327eeaacd854": "Thread-Titel konnte nicht neu erzeugt werden",
   "d55567b99925caf8": "{total, plural, one {{failed} von {total} Thread-Titeln konnte nicht neu generiert werden} other {{failed} von {total} Thread-Titeln konnten nicht neu generiert werden}}",

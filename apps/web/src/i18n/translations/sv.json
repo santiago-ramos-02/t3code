@@ -2303,6 +2303,7 @@
   "7c785ec68fc205f5": "Sparar…",
   "374caa799474ba78": "Spara ändringar",
   "e075244ca816ebf6": "Spara åtgärd",
+  "f16b6d8ef68bab61": "Det gick inte att importera {name}.",
   "924d4b8e011c9127": "Det gick inte att importera åtgärden.",
   "0421f870f82997bc": "Importera",
   "06690d4ce0d19c30": "Redigera {name}",
@@ -2714,6 +2715,25 @@
   "a707abf0a4a73ffa": "Stäng terminal ({shortcut})",
   "9206ecf328948f90": "Stäng terminal",
   "9b1326a11cfe3308": "Inga terminalsessioner för den här tråden än.",
+  "c24de5eb69373a55": "Den här {build}-versionen ignorerar {track}-versioner. Granska uppdateringsspåret i Inställningar för att slutföra bytet.",
+  "3bf42e08dad6483f": [
+    "Ta bort åtgärden ”",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    "”?"
+  ],
+  "86f71ac04d41f95e": [
+    "Tryck på ett kortkommando. Använd ",
+    {
+      "t": "code",
+      "i": 1,
+      "c": "Backspace"
+    },
+    " för att rensa. Kortkommandon gäller hela miljön. Projekt som använder samma åtgärd delar dess kortkommando."
+  ],
   "042d3a13ea7d3f7b": "Titelgenereringen misslyckades.",
   "b196327eeaacd854": "Det gick inte att generera om trådens titel",
   "d55567b99925caf8": "{total, plural, one {Kunde inte generera om {failed} av {total} trådtitel} other {Kunde inte generera om {failed} av {total} trådtitlar}}",

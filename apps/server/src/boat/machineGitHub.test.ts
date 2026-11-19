@@ -5,6 +5,7 @@ import { applyServerSettingsPatch } from "@t3tools/shared/serverSettings";
 import * as GitHubCredentials from "@t3tools/source-control-github/server/GitHubCredentials";
 import * as TestSourceControlHost from "@t3tools/source-control-testing/TestSourceControlHost";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
@@ -28,6 +29,7 @@ const machineCredentials = GitHubCredentials.layer.pipe(
     }),
   ),
   Layer.provide(NodeCrypto.layer),
+  Layer.provide(FileSystem.layerNoop({})),
 );
 
 it.effect("saves the host's token where the machine's GitHub credential reads it", () =>

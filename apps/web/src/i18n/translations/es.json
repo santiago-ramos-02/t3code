@@ -2303,6 +2303,7 @@
   "7c785ec68fc205f5": "Guardando…",
   "374caa799474ba78": "Guardar cambios",
   "e075244ca816ebf6": "Guardar acción",
+  "f16b6d8ef68bab61": "No se pudo importar {name}.",
   "924d4b8e011c9127": "No se pudo importar la acción.",
   "0421f870f82997bc": "Importar",
   "06690d4ce0d19c30": "Editar {name}",
@@ -2714,6 +2715,25 @@
   "a707abf0a4a73ffa": "Cerrar terminal ({shortcut})",
   "9206ecf328948f90": "Cerrar terminal",
   "9b1326a11cfe3308": "Aún no hay sesiones de terminal en este hilo.",
+  "c24de5eb69373a55": "Esta compilación {build} ignora las versiones {track}. Revisa el canal de actualizaciones en Ajustes para terminar el cambio.",
+  "3bf42e08dad6483f": [
+    "¿Eliminar la acción \"",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    "\"?"
+  ],
+  "86f71ac04d41f95e": [
+    "Pulsa un atajo. Usa ",
+    {
+      "t": "code",
+      "i": 1,
+      "c": "Backspace"
+    },
+    " para borrarlo. Los atajos se aplican a todo el entorno. Los proyectos que usan la misma acción comparten su atajo."
+  ],
   "042d3a13ea7d3f7b": "Falló la generación del título.",
   "b196327eeaacd854": "No se pudo regenerar el título del hilo",
   "d55567b99925caf8": "{total, plural, one {No se pudo regenerar {failed} de {total} título de hilo} other {No se pudieron regenerar {failed} de {total} títulos de hilos}}",
