@@ -80,8 +80,14 @@ export function evaluatePullRequestWatch(
   const awaiting = checks.filter((check) => check.status === "action-required");
   if (checks.length > 0) {
     // A run awaiting approval waits on a person, like a review, so only running checks count.
-    checksPending = checks.some((check) => check.status === "pending");
+    // An unfinished baseline read keeps the seed below for the next one.
+    checksPending =
+      checks.some((check) => check.status === "pending") ||
+      (checksBaseline && unread && watch.checksPending === true);
     const newlyFailed = failed.filter((check) => !failedChecks.includes(check.name));
+    // The baseline hides failures from before the watch, but CI running at the start can fail
+    // before the first read.
+    const reportsFailures = !checksBaseline || watch.checksPending === true;
     // A job that aggregates others, such as a quality gate, fails after them in the same workflow
     // run, sometimes only after the run looked finished. It is part of the failure already told.
     const toldRuns = new Set(
@@ -100,7 +106,7 @@ export function evaluatePullRequestWatch(
       news &&
       checksPending &&
       now - Date.parse(heldSince) < PULL_REQUEST_WATCH_FAILURE_HOLD_MS;
-    if (!checksBaseline && news && !hold) {
+    if (reportsFailures && news && !hold) {
       changes.push({ kind: "checks-failed", failed: newlyFailed });
     }
     if (!approvalAnnounced && awaiting.length > 0) {
