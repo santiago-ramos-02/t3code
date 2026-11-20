@@ -2,6 +2,7 @@ import {
   ProviderInstanceId,
   ProviderSetupError,
   type OrchestrationV2ProviderCapabilities,
+  type ServerProvider,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -12,6 +13,8 @@ import * as Scope from "effect/Scope";
 import * as BoatMachines from "../boat/BoatMachines.ts";
 import { makeMachineThreads } from "../boat/machineThreads.ts";
 import { withGentleAiSessionRestart } from "../gentleAi/GentleAiSessionPolicy.ts";
+import * as ModelManifest from "../provider/ModelManifest.ts";
+import { brokenRuntimeError } from "../provider/providerCompatibility.ts";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import { ProviderAdapterDriverCreateError } from "@t3tools/provider-core/server/adapterDriver";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
@@ -71,7 +74,9 @@ export class ProviderAdapterRegistryV2 extends Context.Service<
 export const layerFromProviderInstanceRegistry: Layer.Layer<
   ProviderAdapterRegistryV2,
   never,
-  ProviderInstanceRegistry.ProviderInstanceRegistry | BoatMachines.BoatMachines
+  | ProviderInstanceRegistry.ProviderInstanceRegistry
+  | BoatMachines.BoatMachines
+  | ModelManifest.ModelManifest
 > = Layer.effect(
   ProviderAdapterRegistryV2,
   Effect.gen(function* () {
@@ -91,6 +96,7 @@ export const layerFromProviderInstanceRegistry: Layer.Layer<
       boatAdapters.set(instanceId, adapter);
       return adapter;
     };
+    const manifest = yield* ModelManifest.ModelManifest;
     return ProviderAdapterRegistryV2.of({
       get: Effect.fn("ProviderAdapterRegistryV2.get")(function (instanceId) {
         const boatAdapter = boatAdapterFor(instanceId);
@@ -101,11 +107,31 @@ export const layerFromProviderInstanceRegistry: Layer.Layer<
               return new ProviderAdapterRegistryLookupError({ instanceId });
             const adapter = withGentleAiSessionRestart(instance.orchestrationAdapter);
             const auth = instance.auth;
-            if (!auth) return Effect.succeed(adapter);
+            const refuseBroken = Effect.fnUntraced(function* (snapshot: ServerProvider) {
+              return snapshot.version
+                ? brokenRuntimeError({
+                    instanceId,
+                    name: snapshot.displayName ?? instance.displayName ?? adapter.driver,
+                    version: snapshot.version,
+                    advisory: ModelManifest.providerCompatibility(
+                      yield* manifest.current,
+                      adapter.driver,
+                      snapshot.version,
+                    ),
+                  })
+                : undefined;
+            });
             return Effect.succeed({
               ...adapter,
               openSession: (input) => {
                 const open = Effect.gen(function* () {
+                  if (!adapter.checksVersionAtHandshake) {
+                    let refused = yield* refuseBroken(yield* instance.snapshot.getSnapshot);
+                    // The last probe may predate an update, so look again before refusing.
+                    if (refused) refused = yield* refuseBroken(yield* instance.snapshot.refresh);
+                    if (refused) return yield* refused;
+                  }
+                  if (!auth) return yield* adapter.openSession(input);
                   const binding = auth.credentialBinding;
                   const related = binding
                     ? (yield* instances.listInstances).filter(
