@@ -286,6 +286,19 @@ jobs:
         if: matrix.platform == 'mac'
         shell: bash
         run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+      # The Apple Speech helper needs the macOS 26 SDK; this image defaults to an older Xcode.
+      - name: Select Xcode 26
+        if: matrix.platform == 'mac'
+        shell: bash
+        run: |
+          xcode="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -n 1)"
+          if [ -z "$xcode" ]; then
+            echo "::error::No Xcode 26 on this runner"
+            ls -d /Applications/Xcode*.app
+            exit 1
+          fi
+          sudo xcode-select -s "$xcode/Contents/Developer"
+          xcodebuild -version
       - name: Install Linux desktop build libraries
         if: matrix.platform == 'linux'
         shell: bash
