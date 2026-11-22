@@ -2517,6 +2517,7 @@ export const makeCursorAdapterV2 = Effect.fn("makeCursorAdapterV2")(function* (
           readonly status: OrchestrationV2ProviderTurn["status"];
           readonly completedAt: DateTime.Utc | null;
           readonly tokenUsage?: OrchestrationV2ProviderTurn["tokenUsage"];
+          readonly promptDropped?: true;
         }): OrchestrationV2ProviderTurn => ({
           id: input.context.providerTurnId,
           providerThreadId: input.context.input.providerThread.id,
@@ -2532,6 +2533,7 @@ export const makeCursorAdapterV2 = Effect.fn("makeCursorAdapterV2")(function* (
           startedAt: input.context.startedAt,
           completedAt: input.completedAt,
           ...(input.tokenUsage === undefined ? {} : { tokenUsage: input.tokenUsage }),
+          ...(input.promptDropped === true ? { promptDropped: true as const } : {}),
           ...(input.completedAt === null || input.context.usage === undefined
             ? {}
             : {
@@ -2597,6 +2599,15 @@ export const makeCursorAdapterV2 = Effect.fn("makeCursorAdapterV2")(function* (
               }).pipe(Effect.as(undefined)),
             ),
           );
+          // Cursor only keeps a run in conversation history once it saves its first checkpoint.
+          const promptDropped =
+            (input.status === "failed" || input.status === "cancelled") &&
+            !input.context.compacted &&
+            input.context.prompt !== undefined &&
+            !(yield* (
+              input.context.session.runCheckpointed?.(input.context.run.runId) ??
+              Effect.succeed(false)
+            ).pipe(Effect.orElseSucceed(() => false)));
           yield* emitProviderEvent({
             type: "provider_turn.updated",
             driver: CursorAgentSdk.CURSOR_PROVIDER,
@@ -2604,6 +2615,7 @@ export const makeCursorAdapterV2 = Effect.fn("makeCursorAdapterV2")(function* (
               context: input.context,
               status: input.status,
               completedAt,
+              ...(promptDropped ? { promptDropped: true as const } : {}),
               ...(contextUsage === undefined
                 ? {}
                 : {
@@ -2640,6 +2652,7 @@ export const makeCursorAdapterV2 = Effect.fn("makeCursorAdapterV2")(function* (
                   status: input.status,
                   failure: input.failure ?? makeProviderFailure({ class: "provider_error" }),
                   threadDisposition,
+                  ...(promptDropped ? { promptDropped: true as const } : {}),
                 }
               : {
                   type: "turn.terminal",
@@ -2650,6 +2663,7 @@ export const makeCursorAdapterV2 = Effect.fn("makeCursorAdapterV2")(function* (
                   status: input.status,
                   failure: null,
                   threadDisposition,
+                  ...(promptDropped ? { promptDropped: true as const } : {}),
                 },
           );
           if (input.context.runtimeInstructions !== undefined) {
