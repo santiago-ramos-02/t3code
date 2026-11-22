@@ -75,7 +75,9 @@ const run = <A, E>(
             (input.listed ?? []).map((link) => ({ ...link, status: "reachable" as const })),
           ),
           unlink: (environmentId) =>
-            Deferred.succeed(unlinked, environmentId).pipe(Effect.as(true)),
+            Deferred.succeed(unlinked, environmentId).pipe(
+              Effect.as({ removed: true, endedThere: false }),
+            ),
         }),
       ),
     );

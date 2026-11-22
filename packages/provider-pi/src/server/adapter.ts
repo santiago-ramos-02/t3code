@@ -381,6 +381,11 @@ function compactionTitle(status: PiCompactionStatus): string {
   }
 }
 
+type PiMessageTokenUsage = Pick<
+  OrchestrationV2ProviderTurnTokenUsage,
+  "inputTokens" | "cachedInputTokens" | "outputTokens"
+>;
+
 interface ActivePiTurn {
   readonly turnInput: ProviderAdapter.ProviderAdapterV2TurnInput;
   readonly providerTurn: OrchestrationV2ProviderTurn;
@@ -403,6 +408,7 @@ interface ActivePiTurn {
   cacheTtlSeconds: number | undefined;
   /** The turn's model calls added up, from each assistant message Pi ends; null before one. */
   callUsage: PiCallUsage | null;
+  lastMessageUsage: PiMessageTokenUsage | undefined;
   settleProbeGeneration: number;
   /** An extension may start compaction immediately after Pi emits agent_settled. */
   settleWhenIdle: boolean;
@@ -426,26 +432,6 @@ interface PiCallUsage {
   readonly output: number;
   readonly cacheRead: number;
   readonly cacheWrite: number;
-}
-
-function nonNegativeInteger(input: unknown, key: string): number | undefined {
-  const value = recordNumber(input, key);
-  return value === undefined ? undefined : Math.max(0, Math.trunc(value));
-}
-
-/** Adds a model call's usage to the turn's, or keeps it when the call reported none. */
-function addPiCallUsage(total: PiCallUsage | null, usage: unknown): PiCallUsage | null {
-  const input = nonNegativeInteger(usage, "input");
-  const output = nonNegativeInteger(usage, "output");
-  if (input === undefined || output === undefined) return total;
-  const cacheRead = nonNegativeInteger(usage, "cacheRead") ?? 0;
-  const cacheWrite = nonNegativeInteger(usage, "cacheWrite") ?? 0;
-  return {
-    input: (total?.input ?? 0) + input,
-    output: (total?.output ?? 0) + output,
-    cacheRead: (total?.cacheRead ?? 0) + cacheRead,
-    cacheWrite: (total?.cacheWrite ?? 0) + cacheWrite,
-  };
 }
 
 /** The turn's usage in the shape every provider reports, where input counts the cache too. */
@@ -972,6 +958,45 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         );
       });
 
+      const nonNegativeInteger = (input: unknown, key: string): number | undefined => {
+        const value = recordNumber(input, key);
+        return value === undefined ? undefined : Math.max(0, Math.trunc(value));
+      };
+
+      /** Adds a model call's usage to the turn's, or keeps it when the call reported none. */
+      const addPiCallUsage = (total: PiCallUsage | null, usage: unknown): PiCallUsage | null => {
+        const input = nonNegativeInteger(usage, "input");
+        const output = nonNegativeInteger(usage, "output");
+        if (input === undefined || output === undefined) return total;
+        const cacheRead = nonNegativeInteger(usage, "cacheRead") ?? 0;
+        const cacheWrite = nonNegativeInteger(usage, "cacheWrite") ?? 0;
+        return {
+          input: (total?.input ?? 0) + input,
+          output: (total?.output ?? 0) + output,
+          cacheRead: (total?.cacheRead ?? 0) + cacheRead,
+          cacheWrite: (total?.cacheWrite ?? 0) + cacheWrite,
+        };
+      };
+
+      // Pi counts uncached input, cache reads and cache writes separately; input includes all three.
+      const piMessageTokenUsage = (usage: unknown): PiMessageTokenUsage => {
+        const uncachedInputTokens = nonNegativeInteger(usage, "input");
+        const cachedInputTokens = nonNegativeInteger(usage, "cacheRead");
+        const outputTokens = nonNegativeInteger(usage, "output");
+        return {
+          ...(uncachedInputTokens === undefined
+            ? {}
+            : {
+                inputTokens:
+                  uncachedInputTokens +
+                  (cachedInputTokens ?? 0) +
+                  (nonNegativeInteger(usage, "cacheWrite") ?? 0),
+              }),
+          ...(cachedInputTokens === undefined ? {} : { cachedInputTokens }),
+          ...(outputTokens === undefined ? {} : { outputTokens }),
+        };
+      };
+
       const rememberModelContextWindow = (model: unknown): number | null => {
         const provider = recordString(model, "provider");
         const id = recordString(model, "id");
@@ -1062,6 +1087,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
       const tokenUsageFromStats = (
         stats: unknown,
         fallbackUsedTokens: number | null,
+        messageUsage: PiMessageTokenUsage | undefined,
         updatedAt: DateTime.Utc,
         cacheTtlSeconds: number | undefined,
       ): OrchestrationV2ProviderTurnTokenUsage | undefined => {
@@ -1071,30 +1097,26 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
           nonNegativeInteger(contextUsage, "tokens") ?? fallbackUsedTokens ?? undefined;
         if (usedTokens === undefined || maxTokens === undefined || maxTokens === 0)
           return undefined;
-
-        const totals = recordField(stats, "tokens");
-        const inputTokens = nonNegativeInteger(totals, "input");
-        const cachedInputTokens = nonNegativeInteger(totals, "cacheRead");
-        const outputTokens = nonNegativeInteger(totals, "output");
+        // Stats `tokens` are whole-session totals; the breakdown comes from the turn's last message.
         return {
           usedTokens,
           maxTokens,
-          ...(inputTokens === undefined ? {} : { inputTokens }),
-          ...(cachedInputTokens === undefined ? {} : { cachedInputTokens }),
-          ...(outputTokens === undefined ? {} : { outputTokens }),
+          ...messageUsage,
           ...(cacheTtlSeconds === undefined ? {} : { promptCacheTtlMs: cacheTtlSeconds * 1000 }),
           updatedAt: DateTime.formatIso(updatedAt),
         };
       };
 
-      const readTokenUsage = (
-        fallbackUsedTokens: number | null,
-        updatedAt: DateTime.Utc,
-        cacheTtlSeconds: number | undefined,
-      ) =>
+      const readTokenUsage = (turn: ActivePiTurn, updatedAt: DateTime.Utc) =>
         request({ type: "get_session_stats" }, 2_000).pipe(
           Effect.map((stats) =>
-            tokenUsageFromStats(stats, fallbackUsedTokens, updatedAt, cacheTtlSeconds),
+            tokenUsageFromStats(
+              stats,
+              turn.latestCompactionAfterTokens,
+              turn.lastMessageUsage,
+              updatedAt,
+              turn.cacheTtlSeconds,
+            ),
           ),
           Effect.orElseSucceed(() => undefined),
         );
@@ -1106,6 +1128,9 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         /* Provider events include streaming deltas; avoid a span for each update. */
         Effect.fnUntraced(function* (turn: ActivePiTurn, usage: unknown) {
           const usedTokens = nonNegativeInteger(usage, "totalTokens");
+          if (usedTokens !== undefined && usedTokens > 0) {
+            turn.lastMessageUsage = piMessageTokenUsage(usage);
+          }
           if (
             usedTokens === undefined ||
             usedTokens === 0 ||
@@ -1116,9 +1141,6 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
             return;
           }
           turn.lastLiveUsedTokens = usedTokens;
-          const inputTokens = nonNegativeInteger(usage, "input");
-          const cachedInputTokens = nonNegativeInteger(usage, "cacheRead");
-          const outputTokens = nonNegativeInteger(usage, "output");
           const updatedAt = yield* DateTime.now;
           yield* emit({
             type: "provider_turn.updated",
@@ -1129,9 +1151,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
               tokenUsage: {
                 usedTokens,
                 maxTokens: contextWindow,
-                ...(inputTokens === undefined ? {} : { inputTokens }),
-                ...(cachedInputTokens === undefined ? {} : { cachedInputTokens }),
-                ...(outputTokens === undefined ? {} : { outputTokens }),
+                ...turn.lastMessageUsage,
                 ...(turn.cacheTtlSeconds === undefined
                   ? {}
                   : { promptCacheTtlMs: turn.cacheTtlSeconds * 1000 }),
@@ -2169,13 +2189,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         }
         const treeRefs =
           turn.stopTreeRefs !== undefined ? turn.stopTreeRefs : yield* captureTurnTreeRefs();
-        const tokenUsage = readUsage
-          ? yield* readTokenUsage(
-              turn.latestCompactionAfterTokens,
-              completedAt,
-              turn.cacheTtlSeconds,
-            )
-          : undefined;
+        const tokenUsage = readUsage ? yield* readTokenUsage(turn, completedAt) : undefined;
         const failure = interrupted ? null : (turn.rejectedPromptFailure ?? turn.failure);
         yield* emit({
           type: "provider_turn.updated",
@@ -3618,6 +3632,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
               lastLiveUsedTokens: null,
               cacheTtlSeconds: undefined,
               callUsage: null,
+              lastMessageUsage: undefined,
               settleProbeGeneration: 0,
               settleWhenIdle: false,
               compactionCancelled: false,
