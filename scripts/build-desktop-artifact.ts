@@ -1064,9 +1064,9 @@ export function resolveWindowsServerAsarIgnoreGlobs(arch: typeof BuildArch.Type)
   ];
 }
 
-// transcribe-cpp ships 13 Windows DLLs that its CPU backend loads at runtime, which took the
-// payload from 67 files to 82.
-export const WINDOWS_PACKAGED_PAYLOAD_FILE_LIMIT = 100;
+// transcribe-cpp ships 13 runtime DLLs, and server-compile-cache adds one file per server chunk,
+// so the payload grows with the server: 107 files at 37 cached chunks.
+export const WINDOWS_PACKAGED_PAYLOAD_FILE_LIMIT = 125;
 export const WINDOWS_SERVER_RESOURCE_SOURCE_DIR = "apps/desktop/prod-resources/windows-server";
 export const WINDOWS_SERVER_EXTRA_RESOURCES = [
   {
