@@ -55,7 +55,7 @@ export interface ProviderInstance extends ProviderInstanceExtensions {
     cwd: string,
   ) => Effect.Effect<ProviderWorkspaceSnapshot, ProviderDriverError>;
   /**
-   * Cwds whose workspace skills may have changed. The registry rescans only cwds already
+   * Cwds whose workspace skills or models may have changed. The registry rescans only cwds already
    * requested. The stream must end when the instance is torn down.
    */
   readonly workspaceRescans?: Stream.Stream<string>;
