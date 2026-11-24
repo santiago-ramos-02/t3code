@@ -47,11 +47,7 @@ jobs:
 
       - name: Setup Vite+
         if: steps.sync.outputs.needs_push == 'true'
-        uses: voidzero-dev/setup-vp@v1
-        with:
-          node-version-file: package.json
-          cache: true
-          run-install: true
+        uses: ./.github/actions/setup-ci-deps
 
       - name: Validate merge-based candidate
         if: steps.sync.outputs.needs_push == 'true'
@@ -97,11 +93,7 @@ jobs:
           ref: ${{ needs.sync.outputs.build_sha }}
 
       - name: Setup Vite+
-        uses: voidzero-dev/setup-vp@v1
-        with:
-          node-version-file: package.json
-          cache: true
-          run-install: true
+        uses: ./.github/actions/setup-ci-deps
 
       - id: meta
         name: Resolve personal nightly version
@@ -134,11 +126,7 @@ jobs:
           ref: ${{ needs.sync.outputs.build_sha }}
 
       - name: Setup Vite+
-        uses: voidzero-dev/setup-vp@v1
-        with:
-          node-version-file: package.json
-          cache: true
-          run-install: true
+        uses: ./.github/actions/setup-ci-deps
 
       - name: Align package versions
         run: node scripts/update-release-package-versions.ts "${{ needs.prepare.outputs.version }}"
@@ -240,11 +228,7 @@ jobs:
           ref: ${{ needs.sync.outputs.build_sha }}
 
       - name: Setup Vite+
-        uses: voidzero-dev/setup-vp@v1
-        with:
-          node-version-file: package.json
-          cache: true
-          run-install: true
+        uses: ./.github/actions/setup-ci-deps
 
       - name: Download JS bundle
         uses: ./.github/actions/download-artifact-with-retry
@@ -406,11 +390,7 @@ jobs:
           ref: ${{ needs.sync.outputs.build_sha }}
 
       - name: Setup Vite+
-        uses: voidzero-dev/setup-vp@v1
-        with:
-          node-version-file: package.json
-          cache: true
-          run-install: true
+        uses: ./.github/actions/setup-ci-deps
 
       - name: Download desktop release assets
         uses: ./.github/actions/download-artifact-with-retry
