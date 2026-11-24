@@ -21,7 +21,6 @@ import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
@@ -47,11 +46,6 @@ import type { ProviderMaintenanceCapabilities } from "@t3tools/provider-core/ser
 import { collectUint8StreamText } from "@t3tools/provider-core/server/collectStreamText";
 const isServerProviderUpdateError = Schema.is(ServerProviderUpdateError);
 
-// Native updaters (`claude update`) download a ~300 MB binary without printing
-// progress, and killing one mid-download leaves a truncated binary that the
-// next run treats as installed. Allow a slow connection to finish.
-const UPDATE_TIMEOUT_MINUTES = 30;
-const UPDATE_TIMEOUT_MS = UPDATE_TIMEOUT_MINUTES * 60_000;
 const UPDATE_OUTPUT_MAX_BYTES = 10_000;
 // Sample installer output because every progress update resends the provider list to all clients.
 const UPDATE_PROGRESS_INTERVAL = Duration.seconds(1);
@@ -63,7 +57,6 @@ export interface ProviderMaintenanceCommandResult {
   readonly stdout: string;
   readonly stderr: string;
   readonly exitCode: number | null;
-  readonly timedOut: boolean;
   readonly stdoutTruncated: boolean;
   readonly stderrTruncated: boolean;
 }
@@ -200,31 +193,16 @@ const runProviderMaintenanceCommandWithSpawner = Effect.fn("ProviderMaintenanceR
           stdout: stdout.text,
           stderr: stderr.text,
           exitCode: Number(exitCode),
-          timedOut: false,
           stdoutTruncated: stdout.truncated,
           stderrTruncated: stderr.truncated,
         } satisfies ProviderMaintenanceCommandResult;
       },
     );
 
-    return yield* collectCommandResult().pipe(
-      Effect.scoped,
-      Effect.timeoutOption(Duration.millis(UPDATE_TIMEOUT_MS)),
-      Effect.map((result) =>
-        Option.match(result, {
-          onSome: (value) => value,
-          onNone: () =>
-            ({
-              stdout: "",
-              stderr: "",
-              exitCode: null,
-              timedOut: true,
-              stdoutTruncated: false,
-              stderrTruncated: false,
-            }) satisfies ProviderMaintenanceCommandResult,
-        }),
-      ),
-    );
+    // No timeout: killing an installer mid-install leaves the provider half-replaced (npm has moved
+    // the old package and its shims aside; `claude update` leaves a truncated binary), and an
+    // installer still running must keep the update's locks until it exits.
+    return yield* collectCommandResult().pipe(Effect.scoped);
   },
 );
 
@@ -291,9 +269,6 @@ function failureMessage(
   result: ProviderMaintenanceCommandResult,
   verb: "Install" | "Update",
 ): string {
-  if (result.timedOut) {
-    return `${verb} timed out after ${UPDATE_TIMEOUT_MINUTES} minutes.`;
-  }
   const summary =
     result.exitCode !== null && result.exitCode !== 0
       ? `${verb} command exited with code ${result.exitCode}`
@@ -621,12 +596,11 @@ export const make = Effect.fn("ProviderMaintenanceRunner.make")(function* () {
               ),
             );
             const finishedAt = yield* nowIso;
-            if (result.timedOut || result.exitCode !== 0) {
+            if (result.exitCode !== 0) {
               yield* Effect.logWarning("Provider update command failed", {
                 provider,
                 command: describeCommand(command),
                 exitCode: result.exitCode,
-                timedOut: result.timedOut,
                 output: commandOutput(result),
               });
               return yield* finish(

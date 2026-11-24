@@ -834,6 +834,28 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
           });
         });
 
+      const reportStartupPhase = Effect.fn("PiAdapterV2.reportStartupPhase")(function* (
+        phase: string | undefined,
+      ) {
+        if (sessionEntity.startupPhase === phase) return;
+        const { startupPhase: _reported, ...current } = sessionEntity;
+        sessionEntity = {
+          ...current,
+          ...(phase === undefined ? {} : { startupPhase: phase }),
+          updatedAt: yield* DateTime.now,
+        };
+        yield* emit({
+          type: "provider_session.updated",
+          driver: PI_PROVIDER,
+          providerSession: sessionEntity,
+        });
+      });
+      const reportingResume = <A, E, R>(resume: Effect.Effect<A, E, R>) =>
+        reportStartupPhase("resume").pipe(
+          Effect.andThen(resume),
+          Effect.ensuring(Effect.suspend(() => reportStartupPhase(undefined))),
+        );
+
       // Frequent notifications share the event pump's tracing boundary and outlive individual turns.
       const updateExtensionStatus = Effect.fnUntraced(function* (event: PiRpcRecord) {
         if (
@@ -2984,6 +3006,18 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
             Effect.gen(function* () {
               runtimeRetired = true;
               const state = threadState;
+              // Pi ending while nothing is in flight is an idle exit, not a failure.
+              const idle =
+                state !== null &&
+                state.activeTurn === null &&
+                pendingWake === null &&
+                piAsyncRuns.size === 0 &&
+                pendingPrompts.size === 0 &&
+                !nativeCompacting &&
+                !registrationInProgress &&
+                rollbackBarrier === null &&
+                extensionStatusReset === null &&
+                pendingPromptResponsesDrained === null;
               closed = true;
               if (pendingPromptResponsesDrained !== null)
                 yield* Deferred.fail(
@@ -3025,7 +3059,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
               if (unsolicitedActivityDetected) {
                 yield* updateProviderSession("error", PI_UNSOLICITED_ACTIVITY_ERROR);
                 yield* Queue.end(events);
-              } else if (stopRequested) {
+              } else if (stopRequested || idle) {
                 yield* updateProviderSession("stopped", null);
                 yield* Queue.end(events);
               } else {
@@ -3242,14 +3276,15 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
             baselineModel = null;
             baselineThinking = null;
             contextWindow = null;
-            const result = yield* lifecycleRequest(
+            const result =
               resumeId != null && existing !== undefined
-                ? {
-                    type: "switch_session",
-                    sessionPath: yield* sessionFileInCwd(resumeId, existing.createdAt),
-                  }
-                : { type: "new_session" },
-            );
+                ? yield* reportingResume(
+                    lifecycleRequest({
+                      type: "switch_session",
+                      sessionPath: yield* sessionFileInCwd(resumeId, existing.createdAt),
+                    }),
+                  )
+                : yield* lifecycleRequest({ type: "new_session" });
             if (recordField(result, "cancelled") === true) {
               return yield* protocolError("A Pi extension cancelled the session switch");
             }
@@ -3486,13 +3521,23 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         },
         events: Stream.fromQueue(events),
         backgroundTasksEndWithProcess: true,
+        // An async pi-subagents run dies with the Pi process, so the session stays loaded for it.
         hasPendingBackgroundWork: Effect.gen(function* () {
-          return pendingWake !== null || (yield* gentle.hasPendingBackgroundWork);
+          return (
+            pendingWake !== null || piAsyncRuns.size > 0 || (yield* gentle.hasPendingBackgroundWork)
+          );
         }),
         hasPendingBackgroundWorkForThread: Effect.fn("PiAdapter.hasPendingBackgroundWorkForThread")(
-          function* (providerThread: OrchestrationV2ProviderThread) {
+          function* (
+            providerThread: OrchestrationV2ProviderThread,
+            probe?: { readonly includeSubagents?: boolean },
+          ) {
             return (
               (pendingWake !== null && pendingWake.state.providerThread.id === providerThread.id) ||
+              (probe?.includeSubagents === true &&
+                [...piAsyncRuns.values()].some(
+                  (run) => run.turn.turnInput.providerThread.id === providerThread.id,
+                )) ||
               (yield* gentle.hasPendingBackgroundWorkForThread(providerThread))
             );
           },

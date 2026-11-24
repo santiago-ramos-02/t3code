@@ -17,6 +17,7 @@ import {
   type CloneProtocol,
   cloneUrlForProtocol,
   cloneUrlProtocol,
+  withoutRemoteUrlCredentials,
 } from "@t3tools/shared/cloneUrl";
 import { ArrowRightIcon } from "lucide-react";
 import { useId, useState } from "react";
@@ -119,10 +120,12 @@ function AddProjectToMachineDialog({ request }: { request: AddProjectToMachineRe
   const [chosenSize, setChosenSize] = useState<BoatSize | null>(null);
   const size = chosenSize ?? boatSettings?.defaultSize ?? "default";
   const source = environments.find((env) => env.environmentId === request.projectRef.environmentId);
-  const sourceUrl =
+  // An environment on an older version reports the remote URL as configured, login included.
+  const sourceUrl = withoutRemoteUrlCredentials(
     project?.repositoryIdentity?.origin?.remoteUrl ??
-    project?.repositoryIdentity?.locator.remoteUrl ??
-    "";
+      project?.repositoryIdentity?.locator.remoteUrl ??
+      "",
+  );
   // A new Boat machine has no SSH keys, so it clones over HTTPS unless the user picks SSH.
   const [chosenProtocol, setProtocol] = useState<CloneProtocol | null>(null);
   const protocol = chosenProtocol ?? (boatChosen ? "https" : cloneUrlProtocol(sourceUrl));
