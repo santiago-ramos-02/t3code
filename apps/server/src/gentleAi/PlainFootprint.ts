@@ -3,9 +3,21 @@
  *
  * @module gentleAi/PlainFootprint
  */
+import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import type * as Path from "effect/Path";
 
 import type { PlainEntry } from "./PlainConfigMirror.ts";
+
+/**
+ * A path with its links resolved. Both sides of a footprint match go through it, so a config
+ * directory whose entries link elsewhere, such as a second Claude home linked into ~/.claude,
+ * names the same files gentle-ai does. A path that does not exist keeps its own name.
+ */
+export const resolveLinks = Effect.fn("resolveLinks")(function* (filePath: string) {
+  const fileSystem = yield* FileSystem.FileSystem;
+  return yield* fileSystem.realPath(filePath).pipe(Effect.orElseSucceed(() => filePath));
+});
 
 /**
  * What gentle-ai added to some agents, keyed by `footprintKey`: paths a plain config leaves out,

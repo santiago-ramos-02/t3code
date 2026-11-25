@@ -256,6 +256,65 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("Gentle AI off", 
     ),
   );
 
+  it.effect("applies the footprint through a config directory that links into ~/.claude", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { home, write, path, fileSystem } = yield* makeHome;
+        const platform = yield* HostProcess.Platform;
+        const realHome = path.join(home, ".claude");
+        const configDir = path.join(home, ".claude-work");
+        yield* write(".claude/CLAUDE.md", "Be brief.\n\norchestrator\n");
+        yield* write(
+          ".claude/settings.json",
+          encodeJson({ model: "opus", enabledPlugins: { "engram@engram": true, "lint@x": true } }),
+        );
+        yield* write(".claude/agents/review-risk.md", "---\ndescription: gentle\n---\nx");
+        yield* write(".claude/agents/mine.md", "---\ndescription: Mine\n---\ny");
+        yield* write(".claude/skills/judgment-day/SKILL.md", "gentle");
+        yield* write(".claude/skills/mine/SKILL.md", "mine");
+        // The config directory's own .claude.json, which gentle-ai's footprint does not cover.
+        yield* write(
+          ".claude-work/.claude.json",
+          encodeJson({ mcpServers: { engram: { command: "engram" }, github: { command: "gh" } } }),
+        );
+        for (const entry of ["CLAUDE.md", "settings.json", "agents", "skills"]) {
+          yield* fileSystem.symlink(path.join(realHome, entry), path.join(configDir, entry));
+        }
+        const key = (file: string) => footprintKey(path, file, platform);
+        const footprint: GentleAiPlainFootprint = {
+          removed: new Set([
+            key(path.join(realHome, "agents", "review-risk.md")),
+            key(path.join(realHome, "skills", "judgment-day")),
+          ]),
+          rewritten: new Map([
+            [key(path.join(realHome, "CLAUDE.md")), "Be brief.\n"],
+            [
+              key(path.join(realHome, "settings.json")),
+              encodeJson({
+                model: "opus",
+                enabledPlugins: { "engram@engram": true, "lint@x": true },
+              }),
+            ],
+          ]),
+        };
+
+        const options = yield* claudeGentleOffOptions({
+          claudeHome: configDir,
+          environment: { HOME: home, USERPROFILE: home, CLAUDE_CONFIG_DIR: configDir },
+          platform,
+          cwd: undefined,
+          footprint,
+        });
+        expect(options.instructions).toBe("Be brief.\n");
+        expect(options.settings).toEqual({ model: "opus", enabledPlugins: { "lint@x": true } });
+        expect(Object.keys(options.agents)).toEqual(["mine"]);
+        expect(options.mcpServers).toEqual({ github: { command: "gh" } });
+        const plugin = options.pluginPath ?? "";
+        expect(yield* fileSystem.readDirectory(path.join(plugin, "skills"))).toEqual(["mine"]);
+      }),
+    ),
+  );
+
   it.effect("runs Cursor on a filtered home, and refuses on macOS where sign-in follows HOME", () =>
     Effect.scoped(
       Effect.gen(function* () {

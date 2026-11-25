@@ -19,7 +19,7 @@ import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import { ServerSettingsService } from "../serverSettings.ts";
 import { runGentleAiApi } from "./GentleAiApi.ts";
 import { resolveGentleAiBinary } from "./GentleAiBinary.ts";
-import { footprintKey, type GentleAiPlainFootprint } from "./PlainFootprint.ts";
+import { footprintKey, resolveLinks, type GentleAiPlainFootprint } from "./PlainFootprint.ts";
 
 const FootprintResult = Schema.Struct({
   removed: Schema.Array(Schema.String),
@@ -81,13 +81,14 @@ export const make = Effect.gen(function* () {
       }).pipe(Effect.flatMap(decodeFootprint));
       // A path the uninstall could not simulate (outside the home) would be left in the mirror.
       if (footprint.unsimulated.length > 0) return null;
+      const key = (entry: string) =>
+        resolveLinks(entry).pipe(Effect.map((real) => footprintKey(path, real, platform)));
       return {
-        removed: new Set(footprint.removed.map((entry) => footprintKey(path, entry, platform))),
+        removed: new Set(yield* Effect.forEach(footprint.removed, key)),
         rewritten: new Map(
-          footprint.rewritten.map((entry) => [
-            footprintKey(path, entry.path, platform),
-            entry.content,
-          ]),
+          yield* Effect.forEach(footprint.rewritten, (entry) =>
+            key(entry.path).pipe(Effect.map((real) => [real, entry.content] as const)),
+          ),
         ),
       } satisfies GentleAiPlainFootprint;
     },

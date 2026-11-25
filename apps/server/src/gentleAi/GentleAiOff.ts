@@ -29,7 +29,12 @@ import {
   PlainConfigMirrorError,
   type PlainEntry,
 } from "./PlainConfigMirror.ts";
-import { footprintPlan, plainContent, type GentleAiPlainFootprint } from "./PlainFootprint.ts";
+import {
+  footprintPlan,
+  plainContent,
+  resolveLinks,
+  type GentleAiPlainFootprint,
+} from "./PlainFootprint.ts";
 
 const decodeJson = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown));
 const encodeJson = Schema.encodeUnknownEffect(Schema.fromJsonString(Schema.Unknown, { space: 2 }));
@@ -118,7 +123,7 @@ export const materializeCodexPlainHome = Effect.fn("materializeCodexPlainHome")(
       source: input.source,
       target: input.target,
       platform: input.platform,
-      plan: footprintPlan(input.footprint, input.source, path, input.platform),
+      plan: footprintPlan(input.footprint, yield* resolveLinks(input.source), path, input.platform),
     });
   }
   const mcpServers = gentleAiMcpServers(yield* installedComponents(input.userHome));
@@ -173,7 +178,12 @@ export const materializeOpenCodePlainConfig = Effect.fn("materializeOpenCodePlai
         source: input.source,
         target: input.target,
         platform: input.platform,
-        plan: footprintPlan(input.footprint, input.source, path, input.platform),
+        plan: footprintPlan(
+          input.footprint,
+          yield* resolveLinks(input.source),
+          path,
+          input.platform,
+        ),
       });
     }
     const mcpServers = gentleAiMcpServers(yield* installedComponents(input.userHome));
@@ -388,27 +398,22 @@ export const claudeGentleOffOptions = Effect.fn("claudeGentleOffOptions")(functi
   const path = yield* Path.Path;
   const footprint = input.footprint ?? null;
   const userHome = hostUserHome(input.environment, input.platform);
-  // Legacy only: with a footprint, gentle-ai's rewrites already leave its MCP servers out.
-  const mcpNames = footprint
-    ? new Set<string>()
-    : gentleAiMcpServers(yield* installedComponents(userHome));
+  // Also with a footprint: it covers ~/.claude.json, not the one inside a custom config directory.
+  const mcpNames = gentleAiMcpServers(yield* installedComponents(userHome));
   /** A file's text as gentle-ai's uninstall would leave it; null when it would be gone. */
-  const plainText = (filePath: string) =>
-    readText(filePath).pipe(
-      Effect.map((text) =>
-        text === null || footprint === null
-          ? text
-          : plainContent(footprint, filePath, text, path, input.platform),
-      ),
-    );
-  const ownedByGentleAi = (filePath: string) =>
-    footprint !== null &&
-    footprintPlan(
-      footprint,
-      path.dirname(filePath),
-      path,
-      input.platform,
-    )(path.basename(filePath), false).kind === "omit";
+  const plainText = Effect.fn("plainText")(function* (filePath: string) {
+    const text = yield* readText(filePath);
+    return text === null || footprint === null
+      ? text
+      : plainContent(footprint, yield* resolveLinks(filePath), text, path, input.platform);
+  });
+  /** How the footprint plans a directory's entries, by the name gentle-ai knows it by. */
+  const planFor = Effect.fn("planFor")(function* (
+    footprint: GentleAiPlainFootprint,
+    directory: string,
+  ) {
+    return footprintPlan(footprint, yield* resolveLinks(directory), path, input.platform);
+  });
 
   const claudeMd = yield* plainText(path.join(input.claudeHome, "CLAUDE.md"));
   const instructions =
@@ -435,21 +440,23 @@ export const claudeGentleOffOptions = Effect.fn("claudeGentleOffOptions")(functi
       delete settings.outputStyle;
     if (typeof settings.theme === "string" && settings.theme.startsWith("gentleman"))
       delete settings.theme;
-    const plugins = withoutKeys(
-      settings.enabledPlugins,
-      (key) => mcpNames.has("engram") && key.startsWith("engram@"),
-    );
-    delete settings.enabledPlugins;
-    if (plugins) settings.enabledPlugins = plugins;
   }
+  // Engram's Claude plugin loads the memory gentle-ai set up, so it goes with its MCP server.
+  const plugins = withoutKeys(
+    settings.enabledPlugins,
+    (key) => mcpNames.has("engram") && key.startsWith("engram@"),
+  );
+  delete settings.enabledPlugins;
+  if (plugins) settings.enabledPlugins = plugins;
 
   const agents: Record<string, ClaudePlainAgent> = {};
   const agentsDirectory = path.join(input.claudeHome, "agents");
+  const agentsPlan = footprint ? yield* planFor(footprint, agentsDirectory) : null;
   for (const file of yield* readDirectoryNames(agentsDirectory)) {
     const name = file.replace(/\.md$/, "");
     const agentPath = path.join(agentsDirectory, file);
     if (!file.endsWith(".md")) continue;
-    if (footprint ? ownedByGentleAi(agentPath) : isGentleAiAgent(name)) continue;
+    if (agentsPlan ? agentsPlan(file, false).kind === "omit" : isGentleAiAgent(name)) continue;
     const text = yield* readText(agentPath);
     const agent = text === null ? null : parseAgentFile(text);
     if (agent) agents[name] = agent;
@@ -459,10 +466,10 @@ export const claudeGentleOffOptions = Effect.fn("claudeGentleOffOptions")(functi
   const skillsDirectory = path.join(input.claudeHome, "skills");
   const commandsDirectory = path.join(input.claudeHome, "commands");
   const skillsPlan: (name: string, directory: boolean) => PlainEntry = footprint
-    ? footprintPlan(footprint, skillsDirectory, path, input.platform)
+    ? yield* planFor(footprint, skillsDirectory)
     : (skill) => (GENTLE_AI_SKILLS.has(skill) ? { kind: "omit" } : { kind: "link" });
   const commandsPlan: (name: string, directory: boolean) => PlainEntry = footprint
-    ? footprintPlan(footprint, commandsDirectory, path, input.platform)
+    ? yield* planFor(footprint, commandsDirectory)
     : (command) => (GENTLE_AI_COMMAND_FILES.has(command) ? { kind: "omit" } : { kind: "link" });
   const userSkills = (yield* readDirectoryNames(skillsDirectory)).filter(
     (skill) => skillsPlan(skill, true).kind !== "omit",
@@ -609,7 +616,7 @@ export const cursorGentleOffEnvironment = Effect.fn("cursorGentleOffEnvironment"
         source: userHome,
         target: home,
         platform: input.platform,
-        plan: footprintPlan(input.footprint, userHome, path, input.platform),
+        plan: footprintPlan(input.footprint, yield* resolveLinks(userHome), path, input.platform),
         skipUnlinkable: true,
       });
       return plainEnvironment(home);
