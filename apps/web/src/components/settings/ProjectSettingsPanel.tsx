@@ -41,7 +41,6 @@ import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
 import { stackedThreadToast, toastManager } from "../ui/toast";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
   SettingResetButton,
   SettingsPageContainer,
@@ -66,6 +65,7 @@ import {
 import { useSettingsProjectGroups } from "./useSettingsProjectGroups";
 import { readUnloadedThreadCount } from "../../state/olderSettledShelf";
 import { settingsScopeEnvironmentLabels } from "./settingsScopeAxis";
+import { SharedTooltipTrigger } from "../ui/shared-tooltip";
 
 const ProjectIconPickerDialog = lazy(() =>
   import("./ProjectIconPickerDialog").then((module) => ({
@@ -497,12 +497,12 @@ function ProjectDetail({
                   <span className="block truncate">{labels.secondary}</span>
                 ) : null}
                 {!hasMultiple ? (
-                  <Tooltip>
-                    <TooltipTrigger render={<span className="block truncate" />}>
-                      {firstMember.workspaceRoot}
-                    </TooltipTrigger>
-                    <TooltipPopup>{firstMember.workspaceRoot}</TooltipPopup>
-                  </Tooltip>
+                  <SharedTooltipTrigger
+                    render={<span className="block truncate" />}
+                    label={firstMember.workspaceRoot}
+                  >
+                    {firstMember.workspaceRoot}
+                  </SharedTooltipTrigger>
                 ) : null}
               </>
             }
@@ -515,16 +515,14 @@ function ProjectDetail({
                     key={member.physicalProjectKey}
                     className="flex min-w-0 flex-col gap-1.5 @min-[36rem]/settings-row:flex-row @min-[36rem]/settings-row:items-center @min-[36rem]/settings-row:justify-between @min-[36rem]/settings-row:gap-3"
                   >
-                    <Tooltip>
-                      <TooltipTrigger
-                        render={
-                          <span className="min-w-0 max-w-full truncate text-xs text-muted-foreground/80" />
-                        }
-                      >
-                        {member.workspaceRoot}
-                      </TooltipTrigger>
-                      <TooltipPopup>{member.workspaceRoot}</TooltipPopup>
-                    </Tooltip>
+                    <SharedTooltipTrigger
+                      render={
+                        <span className="min-w-0 max-w-full truncate text-xs text-muted-foreground/80" />
+                      }
+                      label={member.workspaceRoot}
+                    >
+                      {member.workspaceRoot}
+                    </SharedTooltipTrigger>
                     <div className="shrink-0">{checkoutControls(member)}</div>
                   </div>
                 ))}
@@ -645,8 +643,8 @@ function ProjectDetail({
             }
           />
           <SettingsRow
-            title="Gentle AI"
-            description="Review, Pi profile, and tools for this project."
+            title={gt("Gentle AI")}
+            description={gt("Review, Pi profile, and tools for this project.")}
             control={
               <Button
                 size="sm"
@@ -664,7 +662,7 @@ function ProjectDetail({
                   })
                 }
               >
-                Open
+                <T>Open</T>
                 <ChevronRightIcon aria-hidden />
               </Button>
             }

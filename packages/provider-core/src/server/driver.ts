@@ -8,6 +8,7 @@ import type {
   ProviderDriverKind,
   ResolvedProviderInstanceEnvironment,
   ProviderInstanceId,
+  ProviderRuntimeModeLimit,
   ServerProvider,
   ServerProviderWorkspaceSnapshot,
 } from "@t3tools/contracts";
@@ -56,6 +57,13 @@ export interface ProviderInstance extends ProviderInstanceExtensions {
   readonly snapshotForCwd?: (
     cwd: string,
   ) => Effect.Effect<ProviderWorkspaceSnapshot, ProviderDriverError>;
+  /**
+   * Modes this instance offers that cannot run in `cwd`. Must stay cheap: clients ask whenever a
+   * mode picker opens, so read configuration and never start the provider.
+   */
+  readonly runtimeModeLimitsForCwd?: (
+    cwd: string,
+  ) => Effect.Effect<ReadonlyArray<ProviderRuntimeModeLimit>>;
   /**
    * Cwds whose workspace skills or models may have changed. The registry rescans only cwds already
    * requested. The stream must end when the instance is torn down.
