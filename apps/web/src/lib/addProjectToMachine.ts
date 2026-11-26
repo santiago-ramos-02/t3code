@@ -18,7 +18,7 @@ import { create } from "zustand";
 import { m } from "../i18n/messages";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { suggestAppAccessForRemote } from "../components/sourceControlAppAccessToast";
-import { environmentProjectClonesAtom, silenceProjectCloneToasts } from "../state/projectClones";
+import { environmentProjectClonesAtom, holdProjectCloneToasts } from "../state/projectClones";
 import { projectEnvironment } from "../state/projects";
 import { environmentServerConfigsAtom } from "../state/server";
 import { sourceControlEnvironment } from "../state/sourceControl";
@@ -114,7 +114,7 @@ export function dismissProjectFileCopy(ref: ScopedProjectRef) {
 /**
  * Clones onto another machine, then relays the chosen ignored files, since the
  * two servers never talk. Resolves with the cloning project once it starts; the
- * caller opens it, and its composer shows progress, so nothing toasts.
+ * caller decides whether to open it and show progress in the composer.
  */
 async function addProjectToMachine(input: AddProjectToMachineInput): Promise<ProjectId> {
   // Read first, so the copy reflects the files as they were when the user asked.
@@ -136,8 +136,6 @@ async function addProjectToMachine(input: AddProjectToMachineInput): Promise<Pro
 
   const requestedRef = { environmentId: input.target.environmentId, projectId: input.projectId };
   const requestedKey = scopedProjectKey(requestedRef);
-  // Marked before the start request, since the clone list can arrive before its reply.
-  silenceProjectCloneToasts(requestedRef);
   if (reads.length > 0) setFileCopy(requestedKey, { phase: "copying" });
   const started = await runAtomCommand(
     appAtomRegistry,
@@ -163,7 +161,6 @@ async function addProjectToMachine(input: AddProjectToMachineInput): Promise<Pro
   const targetRef = { environmentId: input.target.environmentId, projectId };
   const copyKey = scopedProjectKey(targetRef);
   if (projectId !== input.projectId) {
-    silenceProjectCloneToasts(targetRef);
     if (reads.length > 0) {
       setFileCopy(copyKey, { phase: "copying" });
       setFileCopy(requestedKey, null);
@@ -305,7 +302,11 @@ async function execute(id: string) {
         : entry.machine;
     if (!target) return;
     patchJob(id, { phase: "clone" });
-    const projectId = await addProjectToMachine({ ...run.add, target });
+    // The clone list can arrive before the start reply; a new Boat machine's target is only known now.
+    const releaseToastHold = holdProjectCloneToasts(
+      scopeProjectRef(target.environmentId, run.add.projectId),
+    );
+    const projectId = await addProjectToMachine({ ...run.add, target }).finally(releaseToastHold);
     const destination = scopeProjectRef(target.environmentId, projectId);
     patchJob(id, { destination });
     run.onStarted(destination);
@@ -315,7 +316,9 @@ async function execute(id: string) {
     if (!tracked) return dismissMachineStart(id);
     void waitForClone(target.environmentId, projectId).then(() => dismissMachineStart(id));
   } catch (cause) {
-    patchJob(id, { error: cause instanceof Error ? cause.message : "Could not add the project." });
+    patchJob(id, {
+      error: cause instanceof Error ? cause.message : m(msg("Could not add the project.")),
+    });
   }
 }
 

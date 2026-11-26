@@ -40,6 +40,7 @@ import { seedDraftModelSelection } from "../lib/seedDraftModelSelection";
 import { newProjectId } from "../lib/utils";
 import { readProject, subscribeProject, useProject } from "../state/entities";
 import { useEnvironments } from "../state/environments";
+import { silenceProjectCloneToasts } from "../state/projectClones";
 import { projectEnvironment } from "../state/projects";
 import { useDebouncedValue } from "../state/queries";
 import { useEnvironmentQuery } from "../state/query";
@@ -261,6 +262,7 @@ function AddProjectToMachineDialog({ request }: { request: AddProjectToMachineRe
     startAddProjectToMachine({
       source: request.projectRef,
       title: project.title,
+      // oxlint-disable-next-line t3code/no-untranslated-copy -- interpolated into the English clone banner title
       targetLabel: boatChosen ? "a new Boat machine" : targetLabel,
       destination,
       add: {
@@ -277,6 +279,8 @@ function AddProjectToMachineDialog({ request }: { request: AddProjectToMachineRe
       },
       // Someone who moved on while the machine started is not pulled back to the new project.
       onStarted: (targetRef) => {
+        // The composer shows the job's progress, so the clone never toasts.
+        silenceProjectCloneToasts(targetRef);
         if (router.state.location.href === startedAt) openClonedProject(targetRef);
       },
     });
@@ -291,7 +295,7 @@ function AddProjectToMachineDialog({ request }: { request: AddProjectToMachineRe
     readonly label: string;
   }> = [
     ...targets.map((t) => ({ value: t.environmentId, label: t.label })),
-    ...(boatHost ? [{ value: BOAT_TARGET, label: "New Boat machine" }] : []),
+    ...(boatHost ? [{ value: BOAT_TARGET, label: gt("New Boat machine") }] : []),
   ];
 
   return (
@@ -378,7 +382,7 @@ function AddProjectToMachineDialog({ request }: { request: AddProjectToMachineRe
                         <SelectItem value={BOAT_TARGET}>
                           <span className="inline-flex items-center gap-1.5">
                             <EnvironmentMachineIcon kind="cloud" className="size-3" />
-                            New Boat machine
+                            {gt("New Boat machine")}
                           </span>
                         </SelectItem>
                       ) : null}
@@ -407,7 +411,7 @@ function AddProjectToMachineDialog({ request }: { request: AddProjectToMachineRe
 
             {boatChosen ? (
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor={`${id}-size`}>Machine size</Label>
+                <Label htmlFor={`${id}-size`}>{gt("Machine size")}</Label>
                 <Select
                   value={size}
                   onValueChange={(value) => {
@@ -432,9 +436,10 @@ function AddProjectToMachineDialog({ request }: { request: AddProjectToMachineRe
                   </SelectPopup>
                 </Select>
                 <p className="text-muted-foreground text-xs">
-                  {boatSizeSummary(size)} while it runs. It stops after{" "}
-                  {boatSettings?.idleStopMinutes ?? 5} idle minutes and wakes when you open its
-                  thread.
+                  {gt(
+                    "{summary} while it runs. It stops after {minutes, plural, one {{minutes} idle minute} other {{minutes} idle minutes}} and wakes when you open its thread.",
+                    { summary: boatSizeSummary(size), minutes: boatSettings?.idleStopMinutes ?? 5 },
+                  )}
                 </p>
               </div>
             ) : null}
@@ -502,17 +507,26 @@ function AddProjectToMachineDialog({ request }: { request: AddProjectToMachineRe
                   ) : null}
                 </div>
                 {canSearchFiles && (allIgnoredFiles.data?.truncated || fileQuery.length > 0) ? (
+                  // Native search inputs clear on Escape even during IME composition.
                   <Input
                     size="sm"
-                    type="search"
+                    type="text"
+                    role="searchbox"
+                    enterKeyHint="search"
                     aria-label={gt("Search ignored files")}
                     placeholder={gt("Search ignored files")}
                     value={fileQuery}
                     maxLength={256}
                     onChange={(event) => setFileQuery(event.target.value)}
-                    // Enter would otherwise submit the clone.
                     onKeyDown={(event) => {
+                      // Enter would otherwise submit the clone.
                       if (event.key === "Enter") event.preventDefault();
+                      if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+                      if (event.key === "Escape" && (fileQuery || event.repeat)) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setFileQuery("");
+                      }
                     }}
                     spellCheck={false}
                     autoComplete="off"
